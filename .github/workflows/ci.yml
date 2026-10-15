@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  ci:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        # macOS deferred — developing Windows-first for now.
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ──────────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # ── Node + pnpm ─────────────────────────────────────────────────────────
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      # WebView2 is pre-installed on windows-latest; no extra system deps needed.
+
+      # ── Rust checks ─────────────────────────────────────────────────────────
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+        # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
+
+      # ── UI checks ───────────────────────────────────────────────────────────
+      - name: UI lint
+        working-directory: app/ui
+        run: pnpm lint
+
+      - name: UI format check
+        working-directory: app/ui
+        run: pnpm format:check
+
+      - name: UI type-check + build
+        working-directory: app/ui
+        run: pnpm build
+
+      # ── Tauri + CLI release build ────────────────────────────────────────────
+      # We use plain cargo build (not tauri-action) because tauri-action is
+      # designed for publishing release installers and tries to re-initialise
+      # the project. We only need to verify the binaries compile cleanly.
+      - name: Build Tauri app (release)
+        run: cargo build --release -p keepsake-app
+
+      - name: Build CLI (release)
+        run: cargo build --release -p keepsake-cli
+
+      # Verify tauri.conf.json declares ExifTool resources.
+      # vendor/ is not present in CI (gitignored), so we only check the config
+      # structure — file presence is validated by setup.ps1 on dev machines.
+      - name: Verify ExifTool bundle resources declared
+        shell: pwsh
+        run: |
+          $conf = Get-Content app/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $res  = $conf.bundle.resources
+          if (-not $res) {
+            Write-Error "tauri.conf.json: bundle.resources is missing"
+            exit 1
+          }
+          $keys = $res.PSObject.Properties.Name
+          $hasExe    = $keys | Where-Object { $_ -like "*exiftool.exe*" }
+          $hasFiles  = $keys | Where-Object { $_ -like "*exiftool_files*" }
+          if (-not $hasExe)   { Write-Error "bundle.resources does not declare exiftool.exe";    exit 1 }
+          if (-not $hasFiles) { Write-Error "bundle.resources does not declare exiftool_files/"; exit 1 }
+          Write-Host "OK: bundle.resources declares exiftool.exe and exiftool_files/"
+
+      # ── Upload build artifacts ───────────────────────────────────────────────
+      - name: Upload Tauri binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-app-${{ matrix.os }}
+          path: |
+            target/release/keepsake-app
+            target/release/keepsake-app.exe
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-cli-${{ matrix.os }}
+          path: |
+            target/release/keepsake
+            target/release/keepsake.exe
+          if-no-files-found: warn
+          retention-days: 7

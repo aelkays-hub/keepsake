@@ -1,0 +1,17 @@
+# Normalize line endings to LF in the repository; checkout as-is on all platforms.
+* text=auto eol=lf
+
+# Explicitly mark shell scripts as LF.
+*.sh text eol=lf
+
+# Windows scripts stay CRLF on Windows checkout.
+*.ps1 text eol=crlf
+
+# Binaries — no line-ending conversion.
+*.exe binary
+*.dll binary
+*.dylib binary
+*.so  binary
+*.png binary
+*.ico binary
+*.icns binary
