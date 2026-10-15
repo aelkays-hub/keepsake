@@ -104,6 +104,25 @@ jobs:
       - name: Build CLI (release)
         run: cargo build --release -p keepsake-cli
 
+      # Verify tauri.conf.json declares ExifTool resources.
+      # vendor/ is not present in CI (gitignored), so we only check the config
+      # structure — file presence is validated by setup.ps1 on dev machines.
+      - name: Verify ExifTool bundle resources declared
+        shell: pwsh
+        run: |
+          $conf = Get-Content app/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $res  = $conf.bundle.resources
+          if (-not $res) {
+            Write-Error "tauri.conf.json: bundle.resources is missing"
+            exit 1
+          }
+          $keys = $res.PSObject.Properties.Name
+          $hasExe    = $keys | Where-Object { $_ -like "*exiftool.exe*" }
+          $hasFiles  = $keys | Where-Object { $_ -like "*exiftool_files*" }
+          if (-not $hasExe)   { Write-Error "bundle.resources does not declare exiftool.exe";    exit 1 }
+          if (-not $hasFiles) { Write-Error "bundle.resources does not declare exiftool_files/"; exit 1 }
+          Write-Host "OK: bundle.resources declares exiftool.exe and exiftool_files/"
+
       # ── Upload build artifacts ───────────────────────────────────────────────
       - name: Upload Tauri binary
         uses: actions/upload-artifact@v4

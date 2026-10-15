@@ -145,11 +145,25 @@ Write-Info "  ffmpeg version: $ffVerLine"
 
 # ── 5. ExifTool (Windows 64-bit standalone, SourceForge mirror) ───────────────
 # Source: https://exiftool.org (downloads via SourceForge).
-# We use the _64 standalone build (Perl bundled; no external dependencies).
+# The _64 standalone build ships exiftool(-k).exe PLUS an exiftool_files\
+# directory that contains the bundled Perl DLLs.  Both must live side-by-side
+# or the exe fails with "Could not find exiftool_files\perl5*.dll".
+#
+# Install layout:  vendor\exiftool\exiftool.exe
+#                  vendor\exiftool\exiftool_files\  (Perl runtime)
 $ExiftoolVersion = "13.59"
 $ExiftoolZipName = "exiftool-13.59_64.zip"
 $ExiftoolZipSHA  = "44b512b25af500724ba579d0a53c8fc5851628b692dd5e5d94ae4a15c2cba9ec"
-$ExiftoolBin     = Join-Path $Vendor "exiftool.exe"
+$ExiftoolDir     = Join-Path $Vendor "exiftool"
+$ExiftoolBin     = Join-Path $ExiftoolDir "exiftool.exe"
+$ExiftoolFiles   = Join-Path $ExiftoolDir "exiftool_files"
+
+# A complete install requires both the exe and the Perl runtime folder.
+# Remove any half-extracted attempt so a re-run starts fresh.
+if ((Test-Path $ExiftoolDir) -and ((-not (Test-Path $ExiftoolBin)) -or (-not (Test-Path $ExiftoolFiles)))) {
+    Write-Warn "Incomplete ExifTool installation detected — cleaning up for fresh extraction."
+    Remove-Item $ExiftoolDir -Recurse -Force
+}
 
 if (-not (Test-Path $ExiftoolBin)) {
     $ExiftoolZip = Join-Path $Vendor $ExiftoolZipName
@@ -157,25 +171,37 @@ if (-not (Test-Path $ExiftoolBin)) {
 
     Write-Info "Extracting ExifTool..."
     $ExiftoolExtract = Join-Path $Vendor "exiftool-extract"
+    # Wipe any leftover extract temp from a prior failed run.
+    if (Test-Path $ExiftoolExtract) { Remove-Item $ExiftoolExtract -Recurse -Force }
     Expand-Archive -Path $ExiftoolZip -DestinationPath $ExiftoolExtract -Force
-    # The Windows package may name the exe 'exiftool.exe' or 'exiftool(-k).exe'.
+
+    # The ZIP may have a top-level folder or dump files at the root.
+    # Locate exiftool(-k).exe wherever it lands.
     $ExiftoolExe = Get-ChildItem $ExiftoolExtract -Recurse -Filter "exiftool*.exe" |
         Sort-Object Name | Select-Object -First 1
     if (-not $ExiftoolExe) {
         Write-Err "exiftool*.exe not found after extracting $ExiftoolZipName"
     }
-    Copy-Item $ExiftoolExe.FullName $ExiftoolBin -Force
+    $ExiftoolFilesSource = Join-Path $ExiftoolExe.DirectoryName "exiftool_files"
+    if (-not (Test-Path $ExiftoolFilesSource)) {
+        Write-Err "exiftool_files\ not found next to $($ExiftoolExe.Name) in $ExiftoolZipName.`n  The Perl runtime is required."
+    }
+
+    New-Item -ItemType Directory -Force $ExiftoolDir | Out-Null
+    Copy-Item $ExiftoolExe.FullName      $ExiftoolBin    -Force
+    Copy-Item $ExiftoolFilesSource       $ExiftoolDir    -Recurse -Force
+
     Remove-Item $ExiftoolExtract -Recurse -Force
     Remove-Item $ExiftoolZip     -Force
-    Write-Info "  Installed exiftool.exe"
+    Write-Info "  Installed exiftool.exe and exiftool_files\"
 } else {
-    Write-Info "  exiftool.exe already present, skipping download."
+    Write-Info "  ExifTool already present, skipping download."
 }
 
-# Smoke-test ExifTool.
+# Smoke-test: -ver must return a bare version number.
 $etVer = (& $ExiftoolBin -ver 2>&1) | Select-Object -First 1
 if (-not ($etVer -match "^\d")) {
-    Write-Err "ExifTool smoke-test failed (unexpected output: $etVer)"
+    Write-Err "ExifTool smoke-test failed (unexpected output: $etVer).`n  Binary: $ExiftoolBin"
 }
 Write-Info "  OK ExifTool $etVer"
 
