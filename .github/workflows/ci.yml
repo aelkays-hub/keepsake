@@ -100,34 +100,24 @@ jobs:
         working-directory: app/ui
         run: pnpm build
 
-      # ── Tauri build (no code signing) ────────────────────────────────────────
-      - name: Tauri build
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Disable signing on both platforms.
-          TAURI_SIGNING_PRIVATE_KEY: ""
-          APPLE_CERTIFICATE: ""
-          APPLE_CERTIFICATE_PASSWORD: ""
-          APPLE_SIGNING_IDENTITY: ""
-          APPLE_ID: ""
-          APPLE_PASSWORD: ""
-          APPLE_TEAM_ID: ""
-        with:
-          projectPath: app/ui
-          tauriScript: pnpm tauri
-          args: --no-bundle
+      # ── Tauri + CLI release build ────────────────────────────────────────────
+      # We use plain cargo build (not tauri-action) because tauri-action is
+      # designed for publishing release installers and tries to re-initialise
+      # the project. We only need to verify the binaries compile cleanly.
+      - name: Build Tauri app (release)
+        run: cargo build --release -p keepsake-app
+
+      - name: Build CLI (release)
+        run: cargo build --release -p keepsake-cli
 
       # ── Upload build artifacts ───────────────────────────────────────────────
-      - name: Upload Tauri binaries
+      - name: Upload Tauri binary
         uses: actions/upload-artifact@v4
         with:
-          name: keepsake-${{ matrix.os }}
+          name: keepsake-app-${{ matrix.os }}
           path: |
-            app/src-tauri/target/release/keepsake-app
-            app/src-tauri/target/release/keepsake-app.exe
-            app/src-tauri/target/release/keepsake
-            app/src-tauri/target/release/keepsake.exe
+            target/release/keepsake-app
+            target/release/keepsake-app.exe
           if-no-files-found: warn
           retention-days: 7
 
