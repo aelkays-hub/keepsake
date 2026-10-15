@@ -184,7 +184,8 @@ if (-not (Test-Path $ExiftoolBin)) {
     }
     $ExiftoolFilesSource = Join-Path $ExiftoolExe.DirectoryName "exiftool_files"
     if (-not (Test-Path $ExiftoolFilesSource)) {
-        Write-Err "exiftool_files\ not found next to $($ExiftoolExe.Name) in $ExiftoolZipName.`n  The Perl runtime is required."
+        Write-Err ("exiftool_files\ not found next to " + $ExiftoolExe.Name + " in $ExiftoolZipName" +
+                   "`n  The Perl runtime DLLs are required alongside the exe.")
     }
 
     New-Item -ItemType Directory -Force $ExiftoolDir | Out-Null
@@ -201,7 +202,7 @@ if (-not (Test-Path $ExiftoolBin)) {
 # Smoke-test: -ver must return a bare version number.
 $etVer = (& $ExiftoolBin -ver 2>&1) | Select-Object -First 1
 if (-not ($etVer -match "^\d")) {
-    Write-Err "ExifTool smoke-test failed (unexpected output: $etVer).`n  Binary: $ExiftoolBin"
+    Write-Err ("ExifTool smoke-test failed (unexpected output: " + $etVer + ")`n  Binary: $ExiftoolBin")
 }
 Write-Info "  OK ExifTool $etVer"
 
