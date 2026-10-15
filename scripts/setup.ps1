@@ -1,4 +1,4 @@
-# Keepsake dev-environment setup — Windows
+# Keepsake dev-environment setup - Windows
 # Re-running is safe; every step is idempotent.
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
@@ -8,7 +8,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Vendor   = Join-Path $RepoRoot "vendor"
 New-Item -ItemType Directory -Force $Vendor | Out-Null
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 function Write-Info { param($msg) Write-Host "[setup] $msg" -ForegroundColor Green  }
 function Write-Warn { param($msg) Write-Host "[setup] $msg" -ForegroundColor Yellow }
 function Write-Err  { param($msg) Write-Host "[setup] $msg" -ForegroundColor Red; exit 1 }
@@ -44,12 +44,12 @@ function Invoke-MirroredDownload {
     Write-Info "  OK SHA-256 verified"
 }
 
-# ── Detect architecture ────────────────────────────────────────────────────────
-# $env:PROCESSOR_ARCHITECTURE is 'AMD64' on x64 and 'ARM64' on ARM64.
+# -- Detect architecture ------------------------------------------------------
+# $env:PROCESSOR_ARCHITECTURE is AMD64 on x64 and ARM64 on ARM64.
 $Arch = $env:PROCESSOR_ARCHITECTURE
 Write-Info "Architecture: $Arch"
 
-# ── 1. Rust stable ────────────────────────────────────────────────────────────
+# -- 1. Rust stable -----------------------------------------------------------
 Write-Info "Checking Rust toolchain..."
 if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
     Write-Info "Installing rustup via winget..."
@@ -62,7 +62,7 @@ if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
 $rustVer = rustc --version
 Write-Info "  OK $rustVer"
 
-# ── 2. Node LTS via winget ────────────────────────────────────────────────────
+# -- 2. Node LTS via winget ---------------------------------------------------
 Write-Info "Checking Node.js..."
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Info "Installing Node.js LTS via winget..."
@@ -72,7 +72,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 $nodeVer = node --version
 Write-Info "  OK Node $nodeVer"
 
-# ── 3. pnpm ───────────────────────────────────────────────────────────────────
+# -- 3. pnpm ------------------------------------------------------------------
 Write-Info "Checking pnpm..."
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
     npm install -g pnpm
@@ -80,9 +80,9 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
 $pnpmVer = pnpm --version
 Write-Info "  OK pnpm $pnpmVer"
 
-# ── 4. FFmpeg / ffprobe (LGPL, BtbN build, mirrored) ─────────────────────────
-# Source: https://github.com/BtbN/FFmpeg-Builds — LGPL builds include no GPL
-# encoders.  We pin to FFmpeg 9.0 (BtbN autobuild tag "latest" at time of
+# -- 4. FFmpeg / ffprobe (LGPL, BtbN build, mirrored) ------------------------
+# Source: https://github.com/BtbN/FFmpeg-Builds - LGPL builds include no GPL
+# encoders.  We pin to FFmpeg 9.0 (BtbN autobuild tag latest at time of
 # vendor-binaries-v1 release).
 #
 # Architecture-specific assets:
@@ -110,7 +110,7 @@ if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
     # BtbN ZIPs have a single top-level folder with a bin\ subdirectory.
     $BinDir = Get-ChildItem $ExtractDir -Directory | Select-Object -First 1
     if (-not $BinDir) {
-        Write-Err "Unexpected archive layout in $FfmpegZipName — no top-level folder found."
+        Write-Err "Unexpected archive layout in $FfmpegZipName - no top-level folder found."
     }
     $src_ffmpeg  = Join-Path $BinDir.FullName "bin\ffmpeg.exe"
     $src_ffprobe = Join-Path $BinDir.FullName "bin\ffprobe.exe"
@@ -133,7 +133,7 @@ if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
 Write-Info "Verifying FFmpeg licence..."
 $ffVer = (& $FfmpegBin -version 2>&1) -join " "
 if ($ffVer -match "--enable-gpl") {
-    Write-Err "Licence check failed: ffmpeg reports --enable-gpl.`n  This is a GPL build — replace vendor\ffmpeg.exe with an LGPL build.`n  Binary: $FfmpegBin"
+    Write-Err "Licence check failed: ffmpeg reports --enable-gpl.`n  This is a GPL build - replace vendor\ffmpeg.exe with an LGPL build.`n  Binary: $FfmpegBin"
 }
 if ($ffVer -match "--enable-nonfree") {
     Write-Err "Licence check failed: ffmpeg reports --enable-nonfree.`n  Binary: $FfmpegBin"
@@ -143,11 +143,11 @@ Write-Info "  OK licence verified: $licenceLabel (no --enable-gpl, no --enable-n
 $ffVerLine = ($ffVer -split "ffmpeg version")[1] -split " " | Select-Object -First 1
 Write-Info "  ffmpeg version: $ffVerLine"
 
-# ── 5. ExifTool (Windows 64-bit standalone, SourceForge mirror) ───────────────
+# -- 5. ExifTool (Windows 64-bit standalone, SourceForge mirror) --------------
 # Source: https://exiftool.org (downloads via SourceForge).
 # The _64 standalone build ships exiftool(-k).exe PLUS an exiftool_files\
 # directory that contains the bundled Perl DLLs.  Both must live side-by-side
-# or the exe fails with "Could not find exiftool_files\perl5*.dll".
+# or the exe fails with: Could not find exiftool_files\perl5*.dll
 #
 # Install layout:  vendor\exiftool\exiftool.exe
 #                  vendor\exiftool\exiftool_files\  (Perl runtime)
@@ -161,7 +161,7 @@ $ExiftoolFiles   = Join-Path $ExiftoolDir "exiftool_files"
 # A complete install requires both the exe and the Perl runtime folder.
 # Remove any half-extracted attempt so a re-run starts fresh.
 if ((Test-Path $ExiftoolDir) -and ((-not (Test-Path $ExiftoolBin)) -or (-not (Test-Path $ExiftoolFiles)))) {
-    Write-Warn "Incomplete ExifTool installation detected — cleaning up for fresh extraction."
+    Write-Warn "Incomplete ExifTool installation detected - cleaning up for fresh extraction."
     Remove-Item $ExiftoolDir -Recurse -Force
 }
 
@@ -206,7 +206,7 @@ if (-not ($etVer -match "^\d")) {
 }
 Write-Info "  OK ExifTool $etVer"
 
-# ── Done ──────────────────────────────────────────────────────────────────────
+# -- Done ---------------------------------------------------------------------
 Write-Info ""
 Write-Info "Dev environment ready. Next steps:"
 Write-Info "  cd app\ui; pnpm install"
