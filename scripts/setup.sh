@@ -86,11 +86,30 @@ fi
 PNPM_VERSION=$(pnpm --version)
 info "  ✓ pnpm $PNPM_VERSION"
 
+# verify_ffmpeg_licence <ffmpeg_binary>
+# Fails if the build is GPL or nonfree; prints whether it is LGPLv2.1 or LGPLv3.
+# --enable-version3 means LGPLv3, which is acceptable under ADR-005.
+verify_ffmpeg_licence() {
+    local bin="$1"
+    local ver
+    ver=$("$bin" -version 2>&1 | tr '\n' ' ')
+    if echo "$ver" | grep -q -- "--enable-gpl"; then
+        error "Licence check failed: ffmpeg reports --enable-gpl.\n  This is a GPL build — replace it with an LGPL build.\n  Binary: $bin"
+    fi
+    if echo "$ver" | grep -q -- "--enable-nonfree"; then
+        error "Licence check failed: ffmpeg reports --enable-nonfree.\n  Binary: $bin"
+    fi
+    local label="LGPLv2.1"
+    echo "$ver" | grep -q -- "--enable-version3" && label="LGPLv3"
+    info "  ✓ Licence verified: $label (no --enable-gpl, no --enable-nonfree)"
+}
+
 # ── 4. FFmpeg / ffprobe (macOS — DEFERRED) ───────────────────────────────────
 # macOS FFmpeg support is deferred.  No maintained LGPL prebuilt exists for
 # Apple Silicon, so a custom compile is required (VideoToolbox, no GPL).
 # A CI workflow and setup steps will be added in a future prompt when macOS
-# development resumes.
+# development resumes.  When FFmpeg is added, call verify_ffmpeg_licence after
+# installation.
 if [[ "$(uname)" == "Darwin" ]]; then
     warn "FFmpeg/ffprobe for macOS is not yet configured."
     warn "  Development is currently Windows-first.  macOS support is planned."

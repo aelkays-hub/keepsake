@@ -128,17 +128,19 @@ if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
     Write-Info "  ffmpeg.exe and ffprobe.exe already present, skipping download."
 }
 
-# Verify the installed build is LGPL (no --enable-gpl, no --enable-version3).
-Write-Info "Verifying FFmpeg is an LGPL build..."
+# Verify the installed build is LGPL (neither GPL nor nonfree).
+# --enable-version3 means LGPLv3, which is acceptable under ADR-005.
+Write-Info "Verifying FFmpeg licence..."
 $ffVer = (& $FfmpegBin -version 2>&1) -join " "
 if ($ffVer -match "--enable-gpl") {
-    Write-Err "LGPL check failed: ffmpeg reports --enable-gpl.`n  This is a GPL build — replace vendor\ffmpeg.exe with an LGPL build."
+    Write-Err "Licence check failed: ffmpeg reports --enable-gpl.`n  This is a GPL build — replace vendor\ffmpeg.exe with an LGPL build.`n  Binary: $FfmpegBin"
 }
-if ($ffVer -match "--enable-version3") {
-    Write-Err "LGPL check failed: ffmpeg reports --enable-version3.`n  Expected a pure LGPLv2.1 build without version3 extensions."
+if ($ffVer -match "--enable-nonfree") {
+    Write-Err "Licence check failed: ffmpeg reports --enable-nonfree.`n  Binary: $FfmpegBin"
 }
-Write-Info "  OK LGPL verified (no --enable-gpl, no --enable-version3)"
-$ffVerLine = ($ffVer -split "ffmpeg version")[1] -split " "| Select-Object -First 1
+$licenceLabel = if ($ffVer -match "--enable-version3") { "LGPLv3" } else { "LGPLv2.1" }
+Write-Info "  OK licence verified: $licenceLabel (no --enable-gpl, no --enable-nonfree)"
+$ffVerLine = ($ffVer -split "ffmpeg version")[1] -split " " | Select-Object -First 1
 Write-Info "  ffmpeg version: $ffVerLine"
 
 # ── 5. ExifTool (Windows 64-bit standalone, SourceForge mirror) ───────────────

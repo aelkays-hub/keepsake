@@ -78,10 +78,14 @@
 
 Every pinned binary (FFmpeg, ExifTool) is mirrored as a GitHub Release asset at `aelkays-hub/keepsake` tag `vendor-binaries-v1` so setup scripts are insulated from upstream URL rot. Setup scripts download exclusively from this mirror and verify SHA-256 before use. If a checksum fails the download is deleted and the script exits with a message naming the file and the mirror URL.
 
-After installation, `setup.ps1` runs `ffmpeg -version` and asserts that neither `--enable-gpl` nor `--enable-version3` appears in the configuration string, confirming a pure LGPLv2.1 build.
+After installation, `setup.ps1` (and `setup.sh` once macOS FFmpeg is added) runs `ffmpeg -version` and checks the configuration string:
+- **FAIL** if `--enable-gpl` or `--enable-nonfree` is present — these indicate a GPL or proprietary build.
+- **PASS** otherwise; the script prints `LGPLv2.1` or `LGPLv3` depending on whether `--enable-version3` is present.
+
+Both LGPLv2.1 and LGPLv3 builds are acceptable. `--enable-version3` enables code licensed under LGPLv3 (and GPLv3 when combined with GPL components, but only LGPL builds are accepted here), which is a looser copyleft than GPL and fully compatible with Keepsake's distribution model.
 
 **Consequences**:
-- Licence is LGPL-2.1. BtbN LGPL builds explicitly disable all GPL components (`--disable-gpl --disable-version3`). Build provenance is documented per platform below.
+- Licence is LGPL-2.1 or LGPL-3.0 depending on the build. BtbN LGPL builds disable all GPL and nonfree components. Build provenance is documented per platform below.
 - Binary size: ~170 MB (win64 ZIP) / ~118 MB (winarm64 ZIP) for the archive; extracted sidecar pair is larger.
 - `vendor/` is gitignored; developers run `scripts/setup.ps1` once to populate it.
 
