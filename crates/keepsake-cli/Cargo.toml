@@ -1,0 +1,16 @@
+[package]
+name = "keepsake-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "keepsake"
+path = "src/main.rs"
+
+[dependencies]
+keepsake-core = { path = "../keepsake-core" }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

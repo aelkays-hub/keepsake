@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  ci:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ──────────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # ── Node + pnpm ─────────────────────────────────────────────────────────
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      # ── macOS: system libraries required by Tauri ────────────────────────────
+      - name: Install Tauri system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # webkit2gtk is not needed on macOS; Tauri uses the system WebKit.
+          echo "No extra system deps on macOS"
+
+      # ── Windows: WebView2 is pre-installed on windows-latest ────────────────
+
+      # ── Rust checks ─────────────────────────────────────────────────────────
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+        # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
+
+      # ── UI checks ───────────────────────────────────────────────────────────
+      - name: UI lint
+        working-directory: app/ui
+        run: pnpm lint
+
+      - name: UI format check
+        working-directory: app/ui
+        run: pnpm format:check
+
+      - name: UI type-check + build
+        working-directory: app/ui
+        run: pnpm build
+
+      # ── Tauri build (no code signing) ────────────────────────────────────────
+      - name: Tauri build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable signing on both platforms.
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          APPLE_CERTIFICATE: ""
+          APPLE_CERTIFICATE_PASSWORD: ""
+          APPLE_SIGNING_IDENTITY: ""
+          APPLE_ID: ""
+          APPLE_PASSWORD: ""
+          APPLE_TEAM_ID: ""
+        with:
+          projectPath: app/ui
+          tauriScript: pnpm tauri
+          args: --no-bundle
+
+      # ── Upload build artifacts ───────────────────────────────────────────────
+      - name: Upload Tauri binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-${{ matrix.os }}
+          path: |
+            app/src-tauri/target/release/keepsake-app
+            app/src-tauri/target/release/keepsake-app.exe
+            app/src-tauri/target/release/keepsake
+            app/src-tauri/target/release/keepsake.exe
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-cli-${{ matrix.os }}
+          path: |
+            target/release/keepsake
+            target/release/keepsake.exe
+          if-no-files-found: warn
+          retention-days: 7
