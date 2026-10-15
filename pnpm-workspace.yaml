@@ -1,2 +1,7 @@
 packages:
   - "app/ui"
+
+# Allow esbuild to run its postinstall script (required by Vite).
+# pnpm 12 requires explicit opt-in for packages with build scripts.
+allowBuilds:
+  esbuild: true
