@@ -70,20 +70,44 @@
 
 ## ADR-005 — FFmpeg as LGPL sidecar process
 
-**Status**: Accepted
+**Status**: Accepted (updated 2026-10-15)
 
-**Context**: FFmpeg provides the best cross-platform support for Sony video formats. Linking FFmpeg statically risks pulling in GPL components. Dynamic linking against a system FFmpeg introduces version fragility.
+**Context**: FFmpeg provides the best cross-platform support for Sony video formats. Linking FFmpeg statically risks pulling in GPL components. Dynamic linking against a system FFmpeg introduces version fragility. Early versions of the setup script used gyan.dev (Windows) and evermeet.cx (macOS), both of which have URL instability issues; gyan.dev also distributes GPL builds alongside LGPL ones.
 
 **Decision**: Ship pinned LGPL builds of `ffmpeg` and `ffprobe` as sidecar binaries in `vendor/` (excluded from the repo; downloaded by `scripts/setup.sh` / `scripts/setup.ps1`). The app locates them by path and invokes them as child processes. No FFmpeg code is linked into the Keepsake binary.
 
+Every pinned binary (FFmpeg, ExifTool) is mirrored as a GitHub Release asset at `aelkays-hub/keepsake` tag `vendor-binaries-v1` so setup scripts are insulated from upstream URL rot. Setup scripts download exclusively from this mirror and verify SHA-256 before use. If a checksum fails the download is deleted and the script exits with a message naming the file and the mirror URL.
+
+After installation, `setup.ps1` runs `ffmpeg -version` and asserts that neither `--enable-gpl` nor `--enable-version3` appears in the configuration string, confirming a pure LGPLv2.1 build.
+
 **Consequences**:
-- Licence is LGPL-2.1 (the LGPL build excludes GPL encoders such as x264 in some configurations). We use libx264 through a process boundary, which is explicitly permitted by LGPL. Build provenance is documented per platform.
-- Binary size: ~30–60 MB per platform for the sidecar pair.
-- `vendor/` is gitignored; CI downloads the sidecars during setup.
+- Licence is LGPL-2.1. BtbN LGPL builds explicitly disable all GPL components (`--disable-gpl --disable-version3`). Build provenance is documented per platform below.
+- Binary size: ~170 MB (win64 ZIP) / ~118 MB (winarm64 ZIP) for the archive; extracted sidecar pair is larger.
+- `vendor/` is gitignored; developers run `scripts/setup.ps1` once to populate it.
 
 **FFmpeg build source**:
-- Windows: gyan.dev `ffmpeg-release-essentials` (LGPL).
-- macOS: evermeet.cx static builds (LGPL).
+- **Windows x64**: BtbN/FFmpeg-Builds — `ffmpeg-n9.0-latest-win64-lgpl-9.0.zip`  
+  SHA-256: `73950cc6d7548c08d435bfb9c65b60798b6cd59647e59bb41e9af3876c90ebef`  
+  Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1`  
+  Licence: LGPL-2.1+ (confirmed: no `--enable-gpl`, no `--enable-version3`)
+
+- **Windows ARM64**: BtbN/FFmpeg-Builds — `ffmpeg-n9.0-latest-winarm64-lgpl-9.0.zip`  
+  SHA-256: `33cb51e1529c1d658eb814c0cd557272f35a83951d7bb8009ac6bbe7854b0cc6`  
+  Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1`  
+  Licence: LGPL-2.1+
+
+- **macOS (Apple Silicon)**: Deferred. No maintained LGPL prebuilt exists for Apple Silicon. A future prompt will add a CI job that compiles FFmpeg from source (VideoToolbox enabled, no GPL components) and uploads the result to the vendor-binaries mirror.
+
+**ExifTool source** (not FFmpeg, documented here for completeness):
+- **Windows 64-bit**: ExifTool 13.59 standalone — `exiftool-13.59_64.zip`  
+  SHA-256: `44b512b25af500724ba579d0a53c8fc5851628b692dd5e5d94ae4a15c2cba9ec`  
+  Original source: sourceforge.net/projects/exiftool  
+  Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1`  
+  Licence: Artistic / GPL (Perl; invoked as a sidecar process, never linked)
+
+- **macOS / Linux**: ExifTool 13.59 Unix tarball — `Image-ExifTool-13.59.tar.gz`  
+  SHA-256: `668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a`  
+  Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1`
 
 ---
 

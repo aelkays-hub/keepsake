@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Keepsake dev-environment setup — macOS / Linux
 # Re-running is safe; every step is idempotent.
+#
+# NOTE: macOS FFmpeg support is currently deferred (Windows-first development).
+# A future prompt will add a CI workflow that compiles an LGPL FFmpeg/ffprobe
+# for Apple Silicon (VideoToolbox enabled, no GPL components).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,30 +17,49 @@ info()  { echo -e "${GREEN}[setup]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[setup]${NC} $*"; }
 error() { echo -e "${RED}[setup]${NC} $*" >&2; exit 1; }
 
-# ── Helper: SHA-256 check ────────────────────────────────────────────────────
-check_sha256() {
-  local file="$1" expected="$2"
-  if command -v sha256sum &>/dev/null; then
-    actual=$(sha256sum "$file" | awk '{print $1}')
-  else
-    actual=$(shasum -a 256 "$file" | awk '{print $1}')
-  fi
-  if [[ "$actual" != "$expected" ]]; then
-    error "SHA-256 mismatch for $file\n  expected: $expected\n  got:      $actual"
-  fi
-  info "  ✓ SHA-256 OK"
+# ── Mirror base ───────────────────────────────────────────────────────────────
+# All vendor binaries are mirrored as GitHub Release assets to guard against
+# upstream URL rot.
+MIRROR_BASE="https://github.com/aelkays-hub/keepsake/releases/download/vendor-binaries-v1"
+
+# download_mirrored <filename> <dest_path> <expected_sha256>
+download_mirrored() {
+    local filename="$1" dest="$2" expected_sha256="$3"
+    local url="$MIRROR_BASE/$filename"
+    info "Downloading $filename ..."
+    if ! curl -L --retry 3 --max-redirs 10 --fail -o "$dest" "$url"; then
+        error "Download failed: $filename\n  URL: $url"
+    fi
+    local size
+    size=$(wc -c < "$dest")
+    if [[ "$size" -lt 1024 ]]; then
+        rm -f "$dest"
+        error "Downloaded file is suspiciously small ($size bytes): $filename\n  URL: $url"
+    fi
+    info "Verifying SHA-256 for $filename ..."
+    local actual
+    if command -v sha256sum &>/dev/null; then
+        actual=$(sha256sum "$dest" | awk '{print $1}')
+    else
+        actual=$(shasum -a 256 "$dest" | awk '{print $1}')
+    fi
+    if [[ "$actual" != "$expected_sha256" ]]; then
+        rm -f "$dest"
+        error "SHA-256 mismatch: $filename\n  URL:      $url\n  expected: $expected_sha256\n  got:      $actual"
+    fi
+    info "  ✓ SHA-256 OK"
 }
 
 # ── 1. Rust stable ───────────────────────────────────────────────────────────
 info "Checking Rust toolchain..."
 if ! command -v rustup &>/dev/null; then
-  info "Installing rustup..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-  # shellcheck disable=SC1091
-  source "$HOME/.cargo/env"
+    info "Installing rustup..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
 else
-  rustup toolchain install stable --no-self-update
-  rustup default stable
+    rustup toolchain install stable --no-self-update
+    rustup default stable
 fi
 RUST_VERSION=$(rustc --version)
 info "  ✓ $RUST_VERSION"
@@ -45,8 +68,8 @@ info "  ✓ $RUST_VERSION"
 info "Checking Node.js..."
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 if [[ ! -f "$NVM_DIR/nvm.sh" ]]; then
-  info "Installing nvm..."
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+    info "Installing nvm..."
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 fi
 # shellcheck disable=SC1091
 source "$NVM_DIR/nvm.sh"
@@ -58,72 +81,49 @@ info "  ✓ Node $NODE_VERSION"
 # ── 3. pnpm ──────────────────────────────────────────────────────────────────
 info "Checking pnpm..."
 if ! command -v pnpm &>/dev/null; then
-  npm install -g pnpm
+    npm install -g pnpm
 fi
 PNPM_VERSION=$(pnpm --version)
 info "  ✓ pnpm $PNPM_VERSION"
 
-# ── 4. FFmpeg / ffprobe (macOS, LGPL, evermeet.cx) ───────────────────────────
-# Pinned version: 7.1.1
-# Sources: https://evermeet.cx/ffmpeg/
-FFMPEG_VERSION="7.1.1"
-FFMPEG_SHA256="b2d5b6e8cd714e2f28a5f07b9dad6c1fce27b7c0e9e26a99c67f9a4b78b86ba6"
-FFPROBE_SHA256="3cc2c3bb9d5f2ce5f2fec7a6c8d00b8c7c3a6bbbb0a2f2f09a8e4c3d1aef9c8f"
-
-FFMPEG_BIN="$VENDOR/ffmpeg"
-FFPROBE_BIN="$VENDOR/ffprobe"
-
+# ── 4. FFmpeg / ffprobe (macOS — DEFERRED) ───────────────────────────────────
+# macOS FFmpeg support is deferred.  No maintained LGPL prebuilt exists for
+# Apple Silicon, so a custom compile is required (VideoToolbox, no GPL).
+# A CI workflow and setup steps will be added in a future prompt when macOS
+# development resumes.
 if [[ "$(uname)" == "Darwin" ]]; then
-  if [[ ! -f "$FFMPEG_BIN" ]]; then
-    info "Downloading ffmpeg $FFMPEG_VERSION for macOS..."
-    curl -L -o "$FFMPEG_BIN.zip" \
-      "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_VERSION}.zip"
-    unzip -o "$FFMPEG_BIN.zip" -d "$VENDOR"
-    rm "$FFMPEG_BIN.zip"
-    chmod +x "$FFMPEG_BIN"
-  else
-    info "  ffmpeg already present, skipping download."
-  fi
-
-  if [[ ! -f "$FFPROBE_BIN" ]]; then
-    info "Downloading ffprobe $FFMPEG_VERSION for macOS..."
-    curl -L -o "$FFPROBE_BIN.zip" \
-      "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_VERSION}.zip"
-    unzip -o "$FFPROBE_BIN.zip" -d "$VENDOR"
-    rm "$FFPROBE_BIN.zip"
-    chmod +x "$FFPROBE_BIN"
-  else
-    info "  ffprobe already present, skipping download."
-  fi
-
-  info "Verifying ffmpeg SHA-256..."
-  check_sha256 "$FFMPEG_BIN" "$FFMPEG_SHA256"
-  info "Verifying ffprobe SHA-256..."
-  check_sha256 "$FFPROBE_BIN" "$FFPROBE_SHA256"
-else
-  warn "Linux FFmpeg download not configured; install manually into vendor/."
+    warn "FFmpeg/ffprobe for macOS is not yet configured."
+    warn "  Development is currently Windows-first.  macOS support is planned."
+    warn "  Until then, video features that require FFmpeg will not be available on macOS."
 fi
 
-# ── 5. ExifTool ──────────────────────────────────────────────────────────────
-# Pinned version: 13.10
-EXIFTOOL_VERSION="13.10"
-EXIFTOOL_SHA256="a8f3b2c9e1d4f7a6c5b8e2d1f9a3c7b5e4d8f2a1c9b3e7d5f1a4c8b2e6d9f3a7"
+# ── 5. ExifTool (Unix tarball, SourceForge mirror) ───────────────────────────
+# Source: https://exiftool.org (now hosted on SourceForge).
+EXIFTOOL_VERSION="13.59"
+EXIFTOOL_TGZ_NAME="Image-ExifTool-13.59.tar.gz"
+EXIFTOOL_TGZ_SHA="668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a"
 EXIFTOOL_DIR="$VENDOR/exiftool"
 
 if [[ ! -d "$EXIFTOOL_DIR" ]]; then
-  info "Downloading ExifTool $EXIFTOOL_VERSION..."
-  EXIFTOOL_TGZ="$VENDOR/exiftool-${EXIFTOOL_VERSION}.tar.gz"
-  curl -L -o "$EXIFTOOL_TGZ" \
-    "https://exiftool.org/Image-ExifTool-${EXIFTOOL_VERSION}.tar.gz"
-  info "Verifying ExifTool SHA-256..."
-  check_sha256 "$EXIFTOOL_TGZ" "$EXIFTOOL_SHA256"
-  mkdir -p "$EXIFTOOL_DIR"
-  tar -xzf "$EXIFTOOL_TGZ" -C "$EXIFTOOL_DIR" --strip-components=1
-  rm "$EXIFTOOL_TGZ"
-  chmod +x "$EXIFTOOL_DIR/exiftool"
+    EXIFTOOL_TGZ="$VENDOR/$EXIFTOOL_TGZ_NAME"
+    download_mirrored "$EXIFTOOL_TGZ_NAME" "$EXIFTOOL_TGZ" "$EXIFTOOL_TGZ_SHA"
+
+    info "Extracting ExifTool..."
+    mkdir -p "$EXIFTOOL_DIR"
+    tar -xzf "$EXIFTOOL_TGZ" -C "$EXIFTOOL_DIR" --strip-components=1
+    rm "$EXIFTOOL_TGZ"
+    chmod +x "$EXIFTOOL_DIR/exiftool"
+    info "  Installed $EXIFTOOL_DIR/exiftool"
 else
-  info "  ExifTool already present, skipping download."
+    info "  ExifTool already present, skipping download."
 fi
+
+# Smoke-test ExifTool.
+ET_VER=$("$EXIFTOOL_DIR/exiftool" -ver 2>&1 | head -1)
+if [[ ! "$ET_VER" =~ ^[0-9] ]]; then
+    error "ExifTool smoke-test failed (unexpected output: $ET_VER)"
+fi
+info "  ✓ ExifTool $ET_VER"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 info ""

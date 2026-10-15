@@ -1,144 +1,112 @@
-# TEST_ME — Bootstrap (Prompt 0)
+# TEST_ME — Vendor binary setup (Prompt 0b)
 
-Manual verification steps for the bootstrap build. Perform these on both **Windows 11** and **macOS 14+** unless noted.
+## What was changed
 
----
-
-## Prerequisites
-
-Before testing, run the setup script for your OS:
-
-**macOS:**
-```bash
-bash scripts/setup.sh
-```
-
-**Windows (PowerShell, as a normal user):**
-```powershell
-.\scripts\setup.ps1
-```
-
-Expected result: Script completes without errors. `vendor/` contains `ffmpeg` (or `ffmpeg.exe`), `ffprobe` (or `ffprobe.exe`), and the `exiftool` folder (or `exiftool.exe`).
+`scripts/setup.ps1` and `scripts/setup.sh` were rewritten to:
+- Download FFmpeg and ExifTool from a stable GitHub Release mirror instead of
+  upstream URLs that have rotted or serve GPL builds.
+- Verify SHA-256 for every download.
+- Fail with a clear message (file name + URL) on download or checksum failure.
+- Confirm after install that FFmpeg is an LGPL build (no `--enable-gpl`, no
+  `--enable-version3`).
 
 ---
 
-## Test 1 — Rust workspace builds clean
+## Windows manual test (Windows 11 x64 or ARM64)
 
-```bash
-cargo build --workspace
-```
+### Prerequisites
+- PowerShell 5.1 or later (built into Windows 11)
+- Internet access
 
-**Expected**: Build succeeds with zero errors and zero warnings. You see a line like:
-```
-Finished `dev` profile [unoptimized + debuginfo] target(s) in ...
-```
+### Steps
 
----
+1. **Delete `vendor\` if it exists** so setup runs from scratch:
+   ```powershell
+   Remove-Item -Recurse -Force .\vendor
+   ```
 
-## Test 2 — Rust tests pass
+2. **Run the setup script**:
+   ```powershell
+   .\scripts\setup.ps1
+   ```
 
-```bash
-cargo test --workspace
-```
+3. **Expected output** — each line should appear and the script must not exit
+   with an error:
+   ```
+   [setup] Architecture: AMD64          ← or ARM64 on an ARM device
+   [setup] Downloading ffmpeg-n9.0-latest-win64-lgpl-9.0.zip ...
+   [setup] Verifying SHA-256 for ffmpeg-n9.0-latest-win64-lgpl-9.0.zip ...
+   [setup]   OK SHA-256 verified
+   [setup] Extracting FFmpeg...
+   [setup]   Installed ffmpeg.exe and ffprobe.exe
+   [setup] Verifying FFmpeg is an LGPL build...
+   [setup]   OK LGPL verified (no --enable-gpl, no --enable-version3)
+   [setup]   ffmpeg version: 9.0
+   [setup] Downloading exiftool-13.59_64.zip ...
+   [setup] Verifying SHA-256 for exiftool-13.59_64.zip ...
+   [setup]   OK SHA-256 verified
+   [setup] Extracting ExifTool...
+   [setup]   Installed exiftool.exe
+   [setup]   OK ExifTool 13.59
+   [setup] Dev environment ready. Next steps:
+   ```
 
-**Expected**: All tests pass. Output ends with something like:
-```
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
-```
+4. **Verify binaries exist**:
+   ```powershell
+   Test-Path vendor\ffmpeg.exe    # must be True
+   Test-Path vendor\ffprobe.exe   # must be True
+   Test-Path vendor\exiftool.exe  # must be True
+   ```
 
-The one test that runs is `keepsake_core::tests::version_is_semver`, which checks that the version string has the form `MAJOR.MINOR.PATCH`.
+5. **Verify FFmpeg reports LGPL** manually:
+   ```powershell
+   .\vendor\ffmpeg.exe -version
+   ```
+   - The `configuration:` line must NOT contain `--enable-gpl`.
+   - The `configuration:` line must NOT contain `--enable-version3`.
+   - It SHOULD contain `--disable-gpl`.
 
----
+6. **Verify ExifTool works**:
+   ```powershell
+   .\vendor\exiftool.exe -ver
+   ```
+   Expected: `13.59`
 
-## Test 3 — CLI prints the version
+7. **Idempotency** — run the script a second time.  Expected: all "already
+   present, skipping download" messages; no re-download occurs.
 
-```bash
-cargo run -p keepsake-cli -- --version
-```
+8. **Checksum failure simulation** — corrupt a file and re-run:
+   ```powershell
+   "corrupt" | Out-File vendor\ffmpeg.exe
+   .\scripts\setup.ps1
+   ```
+   Expected: the script downloads ffmpeg.exe anew (the old file is re-
+   downloaded because the binary is missing from vendor/).  To test the actual
+   checksum failure path, temporarily edit setup.ps1 and change one hex digit
+   of `$FfmpegZipSHA`.  Expected error message must name both the file and the
+   mirror URL.
 
-**Expected**: Output is exactly:
-```
-keepsake 0.1.0
-```
-
-Also try the short flag:
-```bash
-cargo run -p keepsake-cli -- -V
-```
-
-**Expected**: Same output.
-
----
-
-## Test 4 — UI dependencies install
-
-```bash
-cd app/ui
-pnpm install
-```
-
-**Expected**: `node_modules/` is populated. No peer-dependency errors or audit failures that block the install.
-
----
-
-## Test 5 — UI type-check passes
-
-```bash
-cd app/ui
-pnpm build
-```
-
-**Expected**: TypeScript compiles without errors, Vite builds the production bundle into `app/ui/dist/`. Final line looks like:
-```
-✓ built in ...
-```
-
----
-
-## Test 6 — UI linting is clean
-
-```bash
-cd app/ui
-pnpm lint
-pnpm format:check
-```
-
-**Expected**: Both commands exit with code 0 and print no errors or warnings.
+### ARM64-specific
+On a Windows ARM64 device, step 3 should show `Architecture: ARM64` and the
+download filename should be `ffmpeg-n9.0-latest-winarm64-lgpl-9.0.zip`.
 
 ---
 
-## Test 7 — Tauri app runs (optional; requires full setup)
+## macOS (deferred)
 
-If you have Tauri's system dependencies installed (WebView2 on Windows; Xcode command-line tools on macOS), start the dev server:
+macOS FFmpeg support is not yet implemented.  Running `./scripts/setup.sh` on
+macOS will:
+- Install Rust, Node, pnpm normally.
+- Print a warning that FFmpeg is not configured for macOS.
+- Install ExifTool from the vendor-binaries mirror.
 
-```bash
-cd app/ui
-pnpm tauri dev
-```
-
-**Expected**:
-- A window titled **Keepsake** opens.
-- The window shows the heading "Keepsake" in large text.
-- Below it, the version number appears as **v0.1.0**.
-- Below that, the subtitle "Your local-first photo and video library." is shown.
-
-If you see "Could not load version: …" in red, the Tauri IPC bridge is not connected — this only happens when the UI is opened directly in a browser, not through `tauri dev`.
+macOS FFmpeg will be addressed in a future prompt that adds a CI workflow
+compiling an LGPL FFmpeg for Apple Silicon.
 
 ---
 
-## Test 8 — cargo fmt and clippy are clean
+## CI
 
-```bash
-cargo fmt --check
-cargo clippy --workspace -- -D warnings
-```
-
-**Expected**: Both commands exit 0 with no output (fmt) or only informational output (clippy). Zero errors or warnings.
-
----
-
-## Notes
-
-- The `vendor/` directory is gitignored. SHA-256 hashes in the setup scripts are placeholders that will be replaced with real values when the download URLs are confirmed and the binaries are verified manually.
-- The Tauri app icons in `app/src-tauri/icons/` are stubs. The `.gitkeep` file holds the directory; real icons are generated in a later prompt.
-- No corpus-dependent tests exist yet. When `KEEPSAKE_CORPUS` is set and real Sony card media is present, run `cargo test --workspace -- --include-ignored corpus` — this is a no-op at prompt 0 since no corpus tests exist.
+No CI changes were made in this prompt.  The existing `windows-latest` CI job
+does not run `setup.ps1`; it downloads no vendor binaries.  CI verifies that
+the Rust and TypeScript code compiles and passes lint/tests.
