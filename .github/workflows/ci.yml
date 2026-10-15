@@ -21,7 +21,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest]
+        # macOS deferred — developing Windows-first for now.
 
     steps:
       # ── Checkout ────────────────────────────────────────────────────────────
@@ -67,14 +68,7 @@ jobs:
         working-directory: app/ui
         run: pnpm install --frozen-lockfile
 
-      # ── macOS: system libraries required by Tauri ────────────────────────────
-      - name: Install Tauri system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          # webkit2gtk is not needed on macOS; Tauri uses the system WebKit.
-          echo "No extra system deps on macOS"
-
-      # ── Windows: WebView2 is pre-installed on windows-latest ────────────────
+      # WebView2 is pre-installed on windows-latest; no extra system deps needed.
 
       # ── Rust checks ─────────────────────────────────────────────────────────
       - name: cargo fmt --check
