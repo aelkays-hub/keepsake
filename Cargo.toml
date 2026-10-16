@@ -4,7 +4,7 @@ members = [
     "crates/keepsake-core",
     "crates/keepsake-platform",
     "crates/keepsake-cli",
-    "app/src-tauri",
+    "app/ui/src-tauri",
 ]
 
 [workspace.package]
@@ -25,6 +25,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
 
 [profile.release]
 lto = "thin"

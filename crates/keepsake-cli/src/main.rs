@@ -1,18 +1,38 @@
 use anyhow::Result;
+use clap::{Parser, Subcommand};
+
+mod commands;
+
+#[derive(Parser)]
+#[command(
+    name = "keepsake",
+    version = keepsake_core::version(),
+    about = "Keepsake media library CLI"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Test corpus tools: scan real Sony cards and manage expected results.
+    Corpus {
+        #[command(subcommand)]
+        action: commands::corpus::CorpusAction,
+    },
+}
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
 
-    if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("keepsake {}", keepsake_core::version());
-        return Ok(());
+    match cli.command {
+        Commands::Corpus { action } => commands::corpus::run(action)?,
     }
 
-    println!("keepsake {}", keepsake_core::version());
-    println!("Run `keepsake --help` for available commands.");
     Ok(())
 }

@@ -1,112 +1,172 @@
-# TEST_ME — Vendor binary setup (Prompt 0b)
+# TEST_ME — Prompt 1: Test Corpus Infrastructure
 
-## What was changed
-
-`scripts/setup.ps1` and `scripts/setup.sh` were rewritten to:
-- Download FFmpeg and ExifTool from a stable GitHub Release mirror instead of
-  upstream URLs that have rotted or serve GPL builds.
-- Verify SHA-256 for every download.
-- Fail with a clear message (file name + URL) on download or checksum failure.
-- Confirm after install that FFmpeg is an LGPL build (no `--enable-gpl`, no
-  `--enable-version3`).
+Manual test steps for the `keepsake corpus` CLI and fixture machinery.
 
 ---
 
-## Windows manual test (Windows 11 x64 or ARM64)
+## Prerequisites
 
-### Prerequisites
-- PowerShell 5.1 or later (built into Windows 11)
-- Internet access
-
-### Steps
-
-1. **Delete `vendor\` if it exists** so setup runs from scratch:
-   ```powershell
-   Remove-Item -Recurse -Force .\vendor
-   ```
-
-2. **Run the setup script**:
-   ```powershell
-   .\scripts\setup.ps1
-   ```
-
-3. **Expected output** — each line should appear and the script must not exit
-   with an error:
-   ```
-   [setup] Architecture: AMD64          ← or ARM64 on an ARM device
-   [setup] Downloading ffmpeg-n9.0-latest-win64-lgpl-9.0.zip ...
-   [setup] Verifying SHA-256 for ffmpeg-n9.0-latest-win64-lgpl-9.0.zip ...
-   [setup]   OK SHA-256 verified
-   [setup] Extracting FFmpeg...
-   [setup]   Installed ffmpeg.exe and ffprobe.exe
-   [setup] Verifying FFmpeg is an LGPL build...
-   [setup]   OK LGPL verified (no --enable-gpl, no --enable-version3)
-   [setup]   ffmpeg version: 9.0
-   [setup] Downloading exiftool-13.59_64.zip ...
-   [setup] Verifying SHA-256 for exiftool-13.59_64.zip ...
-   [setup]   OK SHA-256 verified
-   [setup] Extracting ExifTool...
-   [setup]   Installed exiftool.exe
-   [setup]   OK ExifTool 13.59
-   [setup] Dev environment ready. Next steps:
-   ```
-
-4. **Verify binaries exist**:
-   ```powershell
-   Test-Path vendor\ffmpeg.exe    # must be True
-   Test-Path vendor\ffprobe.exe   # must be True
-   Test-Path vendor\exiftool.exe  # must be True
-   ```
-
-5. **Verify FFmpeg reports LGPL** manually:
-   ```powershell
-   .\vendor\ffmpeg.exe -version
-   ```
-   - The `configuration:` line must NOT contain `--enable-gpl`.
-   - The `configuration:` line must NOT contain `--enable-version3`.
-   - It SHOULD contain `--disable-gpl`.
-
-6. **Verify ExifTool works**:
-   ```powershell
-   .\vendor\exiftool.exe -ver
-   ```
-   Expected: `13.59`
-
-7. **Idempotency** — run the script a second time.  Expected: all "already
-   present, skipping download" messages; no re-download occurs.
-
-8. **Checksum failure simulation** — corrupt a file and re-run:
-   ```powershell
-   "corrupt" | Out-File vendor\ffmpeg.exe
-   .\scripts\setup.ps1
-   ```
-   Expected: the script downloads ffmpeg.exe anew (the old file is re-
-   downloaded because the binary is missing from vendor/).  To test the actual
-   checksum failure path, temporarily edit setup.ps1 and change one hex digit
-   of `$FfmpegZipSHA`.  Expected error message must name both the file and the
-   mirror URL.
-
-### ARM64-specific
-On a Windows ARM64 device, step 3 should show `Architecture: ARM64` and the
-download filename should be `ffmpeg-n9.0-latest-winarm64-lgpl-9.0.zip`.
+```powershell
+# Windows
+scripts\setup.ps1          # installs Rust, Node, pnpm, vendor/ffmpeg, vendor/exiftool
+cargo build --workspace    # must compile cleanly
+```
 
 ---
 
-## macOS (deferred)
+## 1. Fixture tests (always run, no corpus required)
 
-macOS FFmpeg support is not yet implemented.  Running `./scripts/setup.sh` on
-macOS will:
-- Install Rust, Node, pnpm normally.
-- Print a warning that FFmpeg is not configured for macOS.
-- Install ExifTool from the vendor-binaries mirror.
+```powershell
+cargo test --workspace
+```
 
-macOS FFmpeg will be addressed in a future prompt that adds a CI workflow
-compiling an LGPL FFmpeg for Apple Silicon.
+**Expected**: all tests pass. Look for:
+- `fixture_tests::role_*` — nine role-detection tests
+- `fixture_tests::xavc_scan_*`, `avchd_scan_*`, `dcim_scan_*`, `mp_root_scan_*`
+- `fixture_tests::xavc_grouper_*`, `avchd_grouper_*`, `dcim_grouper_*`, `mp_root_grouper_*`
+- `fixture_tests::scanner_blake3_is_deterministic`
+- `grouper::tests::xavc_base_stem_*`
+
+No test may be ignored or skipped by default.
 
 ---
 
-## CI
+## 2. Real fixture generation (requires vendor/ffmpeg)
 
-No CI changes were made in this prompt.  The existing `windows-latest` CI job
-does not run `setup.ps1`; it downloads no vendor binaries.  CI verifies that
-the Rust and TypeScript code compiles and passes lint/tests.
+```powershell
+scripts\make-fixtures.ps1
+```
+
+**Expected**:
+- Script prints "Using FFmpeg: …" (not the stub warning).
+- `tests\fixtures\xavc\PRIVATE\M4ROOT\CLIP\C0001.MP4` is a valid MP4 (~5–30 KB).
+- `tests\fixtures\dcim\DCIM\100MSDCF\DSC00001.JPG` is a valid JPEG.
+- `tests\fixtures\avchd\PRIVATE\AVCHD\BDMV\STREAM\00001.MTS` is a valid MPEG-TS file.
+
+Run fixture tests again to confirm they still pass with real media:
+
+```powershell
+cargo test --workspace
+```
+
+---
+
+## 3. CLI: `keepsake corpus scan`
+
+### 3a. Missing KEEPSAKE_CORPUS and no path
+
+```powershell
+cargo run -p keepsake-cli -- corpus scan
+```
+
+**Expected**: error message "pass a path or set KEEPSAKE_CORPUS", exit 1.
+
+### 3b. Scan the committed fixtures (simulated corpus)
+
+Create a temporary corpus layout:
+
+```powershell
+$tmp = "$env:TEMP\keepsake-corpus-test"
+New-Item -ItemType Directory "$tmp\cards\ILCE-7M4" -Force
+Copy-Item -Recurse tests\fixtures\xavc\* "$tmp\cards\ILCE-7M4\"
+Copy-Item -Recurse tests\fixtures\dcim\* "$tmp\cards\ILCE-7M4\"
+```
+
+```powershell
+cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json"
+```
+
+**Expected**:
+- Prints "Scanning …", "6+ file(s) across 1 camera card(s)", "Written …\manifest.json".
+- `$tmp\manifest.json` is valid JSON with `cameras[0].name == "ILCE-7M4"`.
+- Every entry has a non-empty `blake3` (64-char hex), a `kind`, and a `folder_role`.
+
+### 3c. Scan using KEEPSAKE_CORPUS
+
+```powershell
+$env:KEEPSAKE_CORPUS = $tmp
+cargo run -p keepsake-cli -- corpus scan
+```
+
+**Expected**: same output as 3b; writes `corpus\manifest.json` in the current directory.
+
+---
+
+## 4. CLI: `keepsake corpus init-expected`
+
+```powershell
+cargo run -p keepsake-cli -- corpus init-expected `
+    --manifest "$tmp\manifest.json" `
+    --output   "$tmp\expected.toml"
+```
+
+**Expected**:
+- Prints "Written … (N asset(s))".
+- File is valid TOML with `[[asset]]` entries.
+- Each entry has `camera`, `files`, `capture_ts = ""`, `confirmed = false`.
+- XAVC: C0001 and C0002 each appear as a group of 3 files (clip MP4 + XML + proxy MP4).
+- DCIM: DSC00001 appears as a group of 3 files (JPG + ARW + HIF); DSC00002 as 1 file.
+
+### 4b. Re-run without --force
+
+```powershell
+cargo run -p keepsake-cli -- corpus init-expected `
+    --manifest "$tmp\manifest.json" `
+    --output   "$tmp\expected.toml"
+```
+
+**Expected**: error "already exists — pass --force to overwrite", exit 1.
+
+### 4c. Re-run with --force
+
+```powershell
+cargo run -p keepsake-cli -- corpus init-expected `
+    --manifest "$tmp\manifest.json" `
+    --output   "$tmp\expected.toml" `
+    --force
+```
+
+**Expected**: succeeds; same output as 4a.
+
+---
+
+## 5. Corpus tests (requires your real Sony cards)
+
+```powershell
+# Set up your corpus layout:
+#   $KEEPSAKE_CORPUS\cards\<camera-name>\PRIVATE\M4ROOT\... (XAVC)
+#   $KEEPSAKE_CORPUS\cards\<camera-name>\DCIM\...           (stills)
+
+$env:KEEPSAKE_CORPUS = "C:\path\to\your\corpus"
+cargo run -p keepsake-cli -- corpus scan
+cargo run -p keepsake-cli -- corpus init-expected --force
+
+# Edit corpus\expected.toml:
+#   - Fill in capture_ts, camera_model, duration_ms for a sample of assets
+#   - Set confirmed = true for those you've verified against the camera
+
+cargo test --workspace -- --include-ignored corpus
+```
+
+**Expected**: all three corpus tests pass; output shows "Verified N confirmed asset(s)".
+
+---
+
+## 6. --version and --help
+
+```powershell
+cargo run -p keepsake-cli -- --version
+cargo run -p keepsake-cli -- --help
+cargo run -p keepsake-cli -- corpus --help
+cargo run -p keepsake-cli -- corpus scan --help
+cargo run -p keepsake-cli -- corpus init-expected --help
+```
+
+**Expected**: each prints clean help/version text; no panics or stack traces.
+
+---
+
+## macOS
+
+Steps are identical. Replace `scripts\make-fixtures.ps1` with `./scripts/make-fixtures.sh`.
+PowerShell paths use `/` instead of `\`.

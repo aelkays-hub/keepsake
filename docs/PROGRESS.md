@@ -3,7 +3,8 @@
 | Prompt | Description | Status |
 |--------|-------------|--------|
 | 0 | Repository bootstrap: CLAUDE.md, docs, workspace scaffold, setup scripts, CI, TEST_ME.md | ✅ Done |
-| 1 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
+| 1 (this) | Test corpus: `keepsake corpus scan/init-expected`, fixtures, test harness | ✅ Done |
+| 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
 | 2 | Sony card layout parser and asset grouper | ⬜ Pending |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ⬜ Pending |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ⬜ Pending |
@@ -25,6 +26,51 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 1 — Test corpus infrastructure (2026-10-15)
+
+### What was built
+
+**`keepsake corpus scan <path>`** (`keepsake-cli`)
+- Walks `<path>/cards/<camera>/` subdirectories.
+- Per file: relative path, size, BLAKE3 (hex), detected kind (FileKind), folder role (FolderRole).
+- Writes `corpus/manifest.json` (default) — no media bytes.
+- Path defaults to `KEEPSAKE_CORPUS` env var.
+
+**`keepsake corpus init-expected`** (`keepsake-cli`)
+- Reads `corpus/manifest.json`, groups files into logical assets using path-only heuristics.
+- Writes `corpus/expected.toml` with `confirmed = false` placeholders.
+- Safe by default: errors if output exists; pass `--force` to overwrite.
+
+**`keepsake-core::corpus`** module
+- `types`: `FileKind`, `FolderRole`, `FileEntry`, `CameraCard`, `Manifest`, `AssetGroup`, `Expected`.
+- `scanner`: walks a corpus root, hashes files with BLAKE3, assigns folder roles.
+- `grouper`: groups FileEntries into AssetGroups by path stem heuristics (XAVC, AVCHD, DCIM, MP_ROOT).
+
+**Fixture generator** (`scripts/make-fixtures.ps1`, `scripts/make-fixtures.sh`)
+- Generates real 1-second FFmpeg lavfi MP4/MTS/JPEG fixtures when `vendor/ffmpeg` is present.
+- Falls back to text stubs (path tests only) when FFmpeg is absent (`-Stubs` / `--stubs`).
+
+**Committed fixtures** (`tests/fixtures/`)
+- Text stubs covering XAVC (2 clips + proxies), AVCHD (2 segments + playlist + BDM), DCIM (JPEG+ARW+HIF), MP_ROOT.
+- Run `scripts/make-fixtures.ps1` locally to replace with real FFmpeg-generated media.
+
+**Fixture tests** (`crates/keepsake-core/tests/fixture_tests.rs`) — always run in CI
+- `detect_role` unit tests for all nine role variants.
+- Scanner integration: file counts and role distributions for all four layouts.
+- Grouper integration: XAVC two-asset split, AVCHD three-group split, DCIM raw-pair joining, MP_ROOT one-per-file.
+- BLAKE3 determinism across two independent scans.
+
+**Corpus tests** (`crates/keepsake-core/tests/corpus_tests.rs`) — `#[ignore]`, run with `--include-ignored corpus`
+- `corpus_scan_finds_cameras`: verifies corpus root has at least one non-empty camera card.
+- `corpus_scan_roundtrip`: JSON serialise → deserialise preserves all hashes.
+- `corpus_grouper_matches_expected`: confirmed assets in `corpus/expected.toml` are reproduced by grouper.
+
+**New dependencies**: `clap` v4 (ADR-007), `toml` v0.8 (ADR-008).
+
+**Also fixed**: CI `tauri.conf.json` path (`app/src-tauri` → `app/ui/src-tauri` after Prompt 0b restructure).
 
 ---
 

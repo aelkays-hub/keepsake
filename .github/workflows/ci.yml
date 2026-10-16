@@ -110,7 +110,7 @@ jobs:
       - name: Verify ExifTool bundle resources declared
         shell: pwsh
         run: |
-          $conf = Get-Content app/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $conf = Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json
           $res  = $conf.bundle.resources
           if (-not $res) {
             Write-Error "tauri.conf.json: bundle.resources is missing"

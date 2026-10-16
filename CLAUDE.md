@@ -124,14 +124,59 @@ cd app/ui && pnpm tauri build
 ### Test
 
 ```bash
-# All Rust tests
+# All Rust tests (includes fixture tests)
 cargo test --workspace
 
 # Corpus-dependent tests (requires KEEPSAKE_CORPUS set)
-KEEPSAKE_CORPUS=/path/to/corpus cargo test --workspace -- --include-ignored corpus
+$env:KEEPSAKE_CORPUS = "C:\path\to\corpus"
+cargo test --workspace -- --include-ignored corpus
 
 # UI tests
 cd app/ui && pnpm test
+```
+
+### Test corpus
+
+The project keeps two kinds of tests:
+
+**Fixture tests** (`crates/keepsake-core/tests/fixture_tests.rs`) always run in CI.
+They verify the scanner, role detector, and grouper against committed synthetic stubs
+in `tests/fixtures/`. Stubs are tiny text files (sufficient for path-based tests).
+Run `scripts/make-fixtures.ps1` (Windows) or `scripts/make-fixtures.sh` (macOS/Linux)
+to regenerate them as real tiny FFmpeg-generated MP4s (requires `vendor/ffmpeg`).
+
+**Corpus tests** (`crates/keepsake-core/tests/corpus_tests.rs`) are `#[ignore]` by default.
+They need real Sony card media. Set up the corpus layout once:
+
+```
+$KEEPSAKE_CORPUS/
+  cards/
+    <camera-name>/   ← one subdirectory per camera card copy
+      PRIVATE/
+        M4ROOT/
+          CLIP/
+          SUB/
+      DCIM/
+      ...
+```
+
+Then:
+
+```bash
+# 1. Scan your cards and write corpus/manifest.json
+keepsake corpus scan $KEEPSAKE_CORPUS
+
+# 2. Generate corpus/expected.toml with inferred asset groups
+keepsake corpus init-expected --force
+
+# 3. Edit corpus/expected.toml — fill in capture_ts / camera_model / duration_ms
+#    and set confirmed = true for assets you've verified against the camera
+
+# 4. Commit both files
+git add corpus/ && git commit -m "chore: update corpus manifest"
+
+# 5. Run corpus tests
+cargo test --workspace -- --include-ignored corpus
 ```
 
 ### Lint

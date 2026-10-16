@@ -1,3 +1,4 @@
+pub mod corpus;
 pub mod error;
 
 /// Returns the application version string defined in Cargo.toml.

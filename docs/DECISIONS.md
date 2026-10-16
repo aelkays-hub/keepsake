@@ -115,6 +115,30 @@ Both LGPLv2.1 and LGPLv3 builds are acceptable. `--enable-version3` enables code
 
 ---
 
+## ADR-007 — clap for CLI argument parsing
+
+**Status**: Accepted (Prompt 1)
+
+**Context**: The CLI needs subcommands (`corpus scan`, `corpus init-expected`) with typed arguments, help text, and version output. Hand-rolling this with `std::env::args()` is brittle.
+
+**Decision**: Use `clap` v4 with the `derive` feature. It is the de facto standard for Rust CLIs and generates `--help` / `--version` automatically.
+
+**Licence**: MIT OR Apache-2.0. ✓
+
+---
+
+## ADR-008 — toml for corpus/expected.toml serialisation
+
+**Status**: Accepted (Prompt 1)
+
+**Context**: `corpus/expected.toml` is a human-edited file (the product owner fills in capture timestamps, camera models, and confirmation flags). TOML is more readable and diff-friendly than JSON for hand-edited config.
+
+**Decision**: Use the `toml` crate v0.8 for serialising and deserialising `Expected` in the CLI and corpus tests. `keepsake-core` itself remains format-agnostic; the TOML dependency lives only in `keepsake-cli` and as a dev-dependency in `keepsake-core`.
+
+**Licence**: MIT. ✓
+
+---
+
 ## ADR-006 — Sony Camera Remote SDK as optional plug-in
 
 **Status**: Accepted

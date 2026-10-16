@@ -13,3 +13,7 @@ blake3.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+toml.workspace = true
