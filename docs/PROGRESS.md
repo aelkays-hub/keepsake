@@ -29,24 +29,40 @@
 
 ---
 
+## corpus: init-expected merge, zero-entry guard, sample command (2026-10-16)
+
+### What was built
+
+**`keepsake corpus init-expected --force` merge behaviour**
+- Zero-entry guard: bails with a clear error if the manifest has no entries.
+- With `--force`: if an existing `expected.toml` is present, merges instead of overwriting. Confirmed entries preserved verbatim; entries no longer in the manifest appended with `removed = true`. New assets get blank metadata.
+- `removed = true` omitted from TOML when false (`skip_serializing_if`).
+- Placeholder-only TOML (comment header, missing `asset` key) tolerated and treated as empty.
+
+**`keepsake corpus sample --n N --mixed`**
+- Reads manifest + optional expected.toml; generates assets via grouper.
+- Prints table: `#  camera  type  key file  capture_ts`. `--mixed` round-robins across (camera, type) buckets.
+- `type` and `key file` inferred from `detect_role` on file paths.
+
+### Files changed
+- `crates/keepsake-core/src/corpus/types.rs` — added `removed: bool` to `AssetGroup`.
+- `crates/keepsake-core/src/corpus/grouper.rs` — initialises `removed: false`.
+- `crates/keepsake-cli/src/commands/corpus.rs` — `run_init_expected` (merge + guard), `merge_with_existing`, `run_sample`, `sample_mixed`, helpers.
+- `corpus/manifest.json` and `corpus/expected.toml` — regenerated from live ILCE-7M4 corpus (60 files → 56 assets).
+
+---
+
 ## corpus: scan --summary and skip tracking (2026-10-15)
 
 ### What was built
 
-**`keepsake corpus scan --summary`**
-- Prints one summary line per camera: name, total files, per-type counts (jpeg / arw / hif / mp4 / xml / mts / proxy / other). `proxy` = MP4 files in `PRIVATE/M4ROOT/SUB/`; `mp4` = all other MP4s.
-- After each camera, walks the card root on disk (including hidden/system files) and compares against the manifest. Prints `[MISMATCH]` with unaccounted paths if totals differ.
-- Lists `[SKIPPED]` files separately with reason (hidden, system, hidden+system).
-
-**Hidden/system file detection** (`keepsake-core::corpus::scanner`)
-- On Windows: checks `FILE_ATTRIBUTE_HIDDEN` (0x2) and `FILE_ATTRIBUTE_SYSTEM` (0x4) via `MetadataExt::file_attributes()`.
-- On all platforms: skips dot-files (names starting with `.`).
-- Skipped files are stored in `CameraCard::skipped: Vec<SkippedFile>` (serialised in manifest, `#[serde(default)]` for backward compat).
+**`keepsake corpus scan --summary`**: per-camera type counts, filesystem mismatch check, skipped-file list.
+**Hidden/system file detection**: Windows file-attribute bits (0x2/0x4) + dot-files on all platforms. Stored in `CameraCard::skipped`.
 
 ### Files changed
-- `crates/keepsake-core/src/corpus/types.rs` — added `SkipReason`, `SkippedFile`; added `skipped` field to `CameraCard`.
-- `crates/keepsake-core/src/corpus/scanner.rs` — added `skip_reason()` (cfg-gated Windows attrs + dot-files); `collect_files` now populates `skipped` vec.
-- `crates/keepsake-cli/src/commands/corpus.rs` — added `--summary` flag, `print_camera_summary()`, `collect_all_fs_paths()`.
+- `crates/keepsake-core/src/corpus/types.rs` — added `SkipReason`, `SkippedFile`; `skipped` field on `CameraCard`.
+- `crates/keepsake-core/src/corpus/scanner.rs` — `skip_reason()`, updated `collect_files`.
+- `crates/keepsake-cli/src/commands/corpus.rs` — `--summary` flag, `print_camera_summary()`, `collect_all_fs_paths()`.
 
 ---
 

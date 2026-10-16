@@ -1,4 +1,4 @@
-# TEST_ME — corpus: scan --summary and skip tracking
+# TEST_ME — corpus: init-expected merge, zero-entry guard, sample command
 
 Manual test steps for the `keepsake corpus` CLI and fixture machinery.
 
@@ -139,7 +139,7 @@ cargo run -p keepsake-cli -- corpus scan
 
 ---
 
-## 4. CLI: `keepsake corpus init-expected`
+## 4. CLI: `keepsake corpus init-expected` — zero-entry guard and merge
 
 ```powershell
 cargo run -p keepsake-cli -- corpus init-expected `
@@ -154,7 +154,36 @@ cargo run -p keepsake-cli -- corpus init-expected `
 - XAVC: C0001 and C0002 each appear as a group of 3 files (clip MP4 + XML + proxy MP4).
 - DCIM: DSC00001 appears as a group of 3 files (JPG + ARW + HIF); DSC00002 as 1 file.
 
-### 4b. Re-run without --force
+### 4b. Zero-entry guard
+
+Create an empty manifest and attempt to generate:
+
+```powershell
+'{"scanned_at":"","corpus_root":"","cameras":[]}' | Out-File "$tmp\empty.json"
+cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\empty.json" --output "$tmp\expected-empty.toml"
+```
+
+**Expected**: error "manifest … has zero entries — run `keepsake corpus scan` first", exit 1. No file is written.
+
+### 4c. Merge: preserve confirmed, flag removed
+
+```powershell
+# Start with a fresh expected.toml
+cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\manifest.json" --output "$tmp\expected.toml" --force
+
+# Mark the first XAVC asset confirmed
+# (edit $tmp\expected.toml: set confirmed = true on one [[asset]] that has C0001.MP4)
+
+# Re-scan with one fewer file (simulate a removed file), then re-run init-expected
+cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\manifest.json" --output "$tmp\expected.toml" --force
+```
+
+**Expected**:
+- The confirmed asset is preserved verbatim (same files, capture_ts, camera_model, confirmed=true).
+- If any previously present assets disappeared from the manifest, they appear at the bottom with `removed = true`.
+- The summary line shows `preserved N confirmed | M flagged removed | K new`.
+
+### 4d. Re-run without --force
 
 ```powershell
 cargo run -p keepsake-cli -- corpus init-expected `
@@ -164,16 +193,34 @@ cargo run -p keepsake-cli -- corpus init-expected `
 
 **Expected**: error "already exists — pass --force to overwrite", exit 1.
 
-### 4c. Re-run with --force
+### 4d. Re-run without --force
 
 ```powershell
 cargo run -p keepsake-cli -- corpus init-expected `
     --manifest "$tmp\manifest.json" `
-    --output   "$tmp\expected.toml" `
-    --force
+    --output   "$tmp\expected.toml"
 ```
 
-**Expected**: succeeds; same output as 4a.
+**Expected**: error "already exists — pass --force to regenerate", exit 1.
+
+---
+
+## 4e. CLI: `keepsake corpus sample`
+
+```powershell
+cargo run -p keepsake-cli -- corpus sample --n 10 --mixed
+```
+
+**Expected**: table with 10 rows, columns `#  camera  type  key file  capture_ts`.
+- `type` values include `xavc`, `dcim`, `avchd`, `mp_root`, or `other`.
+- `key file` is a representative path (main clip MP4, JPEG, or ARW — not a proxy or sidecar).
+- `capture_ts` column is blank until you fill in `corpus/expected.toml`.
+- `--mixed` causes round-robin across (camera, type) buckets, so xavc and dcim entries alternate.
+
+```powershell
+# Without --mixed: first N assets alphabetically
+cargo run -p keepsake-cli -- corpus sample --n 5
+```
 
 ---
 

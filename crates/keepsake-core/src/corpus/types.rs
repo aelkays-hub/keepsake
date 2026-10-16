@@ -127,6 +127,10 @@ pub struct AssetGroup {
     pub duration_ms: Option<u64>,
     /// Set true after manual spot-check against camera playback.
     pub confirmed: bool,
+    /// Set true by `init-expected --force` when this asset no longer appears
+    /// in the current manifest (files deleted or moved). Review and remove manually.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub removed: bool,
 }
 
 /// Root of `corpus/expected.toml`.

@@ -24,6 +24,7 @@ pub fn group(camera: &str, files: &[FileEntry]) -> Expected {
                 camera_model: String::new(),
                 duration_ms: None,
                 confirmed: false,
+                removed: false,
             }
         })
         .collect();
