@@ -151,3 +151,38 @@ Both LGPLv2.1 and LGPLv3 builds are acceptable. `--enable-version3` enables code
 - No SDK licence burden on users who do not need tethering.
 - Sony SDK is not redistributed in the repo.
 - Plug-in is not part of the CI matrix; tested separately on hardware.
+
+---
+
+## ADR-009 — Keep Tauri + Rust; defer libmpv (Gate 1 outcome)
+
+**Status**: Accepted (2026-10-16)
+
+**Context**: The Prompt 2 spike tested five playback and performance items on Windows 11
+to decide whether Tauri's WebView2 is sufficient or whether we need a native libmpv window
+(ADR-004 fallback).
+
+**Findings summary** (`docs/spikes/playback.md`):
+- H.264 MP4 (XAVC S corpus clips and generated H.264 proxies) play with seeking in
+  WebView2 via the Tauri `asset://` protocol. No extra codec installation required.
+- Proxy generation (SW `h264_mf`, no discrete GPU): 5–6× real-time. Acceptable for
+  background jobs; GPU path (NVENC/QSV) expected at 10–20×.
+- AVCHD `DateTimeOriginal` is readable from in-stream metadata via ExifTool.
+- ARW embedded preview via one-shot ExifTool averages 282 ms (target: 150 ms).
+  Root cause: Perl process startup, not extraction speed. Solved by ExifTool
+  `-stay_open` mode (already in architecture) or LibRaw in-process.
+- TanStack Virtual grid of 1,876 items scrolls at 55–60 FPS in WebView2.
+
+**Decision**: Continue with Tauri + WebView2. Do not add libmpv as a dependency.
+The ARW timing failure is an ExifTool invocation strategy issue, not a WebView2
+limitation. ExifTool stay-open mode resolves it.
+
+**Consequences**:
+- libmpv remains deferred. No GPL/LGPL dynamic linking concern from it.
+- Proxy generation uses `h264_mf` (SW) on machines without a supported GPU;
+  `h264_nvenc` and `h264_qsv` are tried first.
+- ExifTool must be used in `-stay_open` mode for all thumbnail/preview extraction
+  paths that must meet the 150 ms latency budget.
+- HEVC (XAVC HS 10-bit) and HIF corpus testing is deferred until such clips can
+  be synthesised or acquired; `hevc_mf` / `hevc_nvenc` are available in the LGPL
+  FFmpeg build for proxy generation.

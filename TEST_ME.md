@@ -1,266 +1,89 @@
-# TEST_ME — corpus: init-expected merge, zero-entry guard, sample command
-
-Manual test steps for the `keepsake corpus` CLI and fixture machinery.
-
----
+# TEST_ME — Spike 2: Playback Gate 1
 
 ## Prerequisites
 
-```powershell
-# Windows
-scripts\setup.ps1          # installs Rust, Node, pnpm, vendor/ffmpeg, vendor/exiftool
-cargo build --workspace    # must compile cleanly
-```
+- Windows 11 (macOS deferred)
+- `vendor/ffmpeg.exe`, `vendor/ffprobe.exe`, `vendor/exiftool/exiftool.exe` present
+- `KEEPSAKE_CORPUS` set to your corpus root (e.g. `C:\...\keepsake-corpus`)
+- pnpm installed; run `pnpm install` once in `app/ui`
 
 ---
 
-## 1. Fixture tests (always run, no corpus required)
+## Manual test A — Spike page loads
 
-```powershell
-cargo test --workspace
-```
-
-**Expected**: all tests pass. Look for:
-- `fixture_tests::role_*` — nine role-detection tests
-- `fixture_tests::xavc_scan_*`, `avchd_scan_*`, `dcim_scan_*`, `mp_root_scan_*`
-- `fixture_tests::xavc_grouper_*`, `avchd_grouper_*`, `dcim_grouper_*`, `mp_root_grouper_*`
-- `fixture_tests::scanner_blake3_is_deterministic`
-- `grouper::tests::xavc_base_stem_*`
-
-No test may be ignored or skipped by default.
+1. `cd app/ui && pnpm tauri dev`
+2. Wait for the window to open.
+3. Click the **spike →** link in the bottom of the placeholder screen (or press F12 in DevTools and run `window.location.hash = '#spike'`).
+4. **Expected:** The spike page loads with "Spike: Playback Gate 1" as heading, a video player section and a thumbnail grid section.
 
 ---
 
-## 2. Real fixture generation (requires vendor/ffmpeg)
+## Manual test B — Video playback and seeking
 
-```powershell
-scripts\make-fixtures.ps1
-```
-
-**Expected**:
-- Script prints "Using FFmpeg: …" (not the stub warning).
-- `tests\fixtures\xavc\PRIVATE\M4ROOT\CLIP\C0001.MP4` is a valid MP4 (~5–30 KB).
-- `tests\fixtures\dcim\DCIM\100MSDCF\DSC00001.JPG` is a valid JPEG.
-- `tests\fixtures\avchd\PRIVATE\AVCHD\BDMV\STREAM\00001.MTS` is a valid MPEG-TS file.
-
-Run fixture tests again to confirm they still pass with real media:
-
-```powershell
-cargo test --workspace
-```
+1. On the spike page, the video player should be pre-filled with the path to `C0006.MP4` from your corpus.
+2. **Expected:** The video plays without error. The event log below the player shows `canplay ✓`.
+3. Click **Run seek test**.
+4. **Expected:** Log shows four seek events (`Seek to Xs → Yms`) with no `error:` entries.
+5. Paste a path to a generated proxy (`%TEMP%\keepsake-spike-proxies\C0006-proxy.mp4`) into the path field and click **Load**.
+6. **Expected:** Proxy also plays and seeks without error.
 
 ---
 
-## 3. CLI: `keepsake corpus scan`
+## Manual test C — Thumbnail grid scroll
 
-### 3a. `--summary` flag
-
-Reuse the `$tmp` corpus from the previous step or set it up fresh:
-
-```powershell
-cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
-```
-
-**Expected output (one line per camera, then mismatch/skip detail if any)**:
-
-```
-Scanning C:\...\keepsake-corpus-test...
-  10 file(s) across 1 camera card(s)
-  ILCE-7M4              10 files  jpeg=2 arw=1 hif=1 mp4=2 xml=2 mts=0 proxy=2 other=0
-Written C:\...\manifest.json
-```
-
-- Counts sum to total files.
-- `mp4` count excludes proxy MP4s; `proxy` counts only `PRIVATE/M4ROOT/SUB/` files.
-- No `[MISMATCH]` line appears (all files accounted for).
-- No `[SKIPPED]` line appears (no hidden/system files in fixture stubs).
-
-### 3b. Mismatch detection
-
-Create a file the scanner cannot account for:
-
-```powershell
-"orphan" | Out-File "$tmp\cards\ILCE-7M4\orphan.dat"
-cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
-```
-
-**Expected**: summary line shows `other=1`, and no `[MISMATCH]` line (orphan.dat is accounted for as `other`).
-
-Now create a hidden file (Windows hidden attribute) and re-scan:
-
-```powershell
-$f = "$tmp\cards\ILCE-7M4\PRIVATE\M4ROOT\CLIP\.hidden_attr"
-"hidden" | Out-File $f
-attrib +h $f
-cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
-```
-
-**Expected**:
-- `[SKIPPED] 1 file(s):` line appears with `PRIVATE/M4ROOT/CLIP/.hidden_attr  (hidden)`.
-- The file does NOT appear in the scanned count.
-- No `[MISMATCH]` — the hidden file is accounted for under SKIPPED.
-
-### 3c. Missing KEEPSAKE_CORPUS and no path
-
-```powershell
-cargo run -p keepsake-cli -- corpus scan
-```
-
-**Expected**: error message "pass a path or set KEEPSAKE_CORPUS", exit 1.
-
-### 3b. Scan the committed fixtures (simulated corpus)
-
-Create a temporary corpus layout:
-
-```powershell
-$tmp = "$env:TEMP\keepsake-corpus-test"
-New-Item -ItemType Directory "$tmp\cards\ILCE-7M4" -Force
-Copy-Item -Recurse tests\fixtures\xavc\* "$tmp\cards\ILCE-7M4\"
-Copy-Item -Recurse tests\fixtures\dcim\* "$tmp\cards\ILCE-7M4\"
-```
-
-```powershell
-cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json"
-```
-
-**Expected**:
-- Prints "Scanning …", "6+ file(s) across 1 camera card(s)", "Written …\manifest.json".
-- `$tmp\manifest.json` is valid JSON with `cameras[0].name == "ILCE-7M4"`.
-- Every entry has a non-empty `blake3` (64-char hex), a `kind`, and a `folder_role`.
-
-### 3c. Scan using KEEPSAKE_CORPUS
-
-```powershell
-$env:KEEPSAKE_CORPUS = $tmp
-cargo run -p keepsake-cli -- corpus scan
-```
-
-**Expected**: same output as 3b; writes `corpus\manifest.json` in the current directory.
+1. On the spike page, scroll down to the **Item 5** section.
+2. **Expected:** Status line shows "1,876 files loaded" (or similar).
+3. Click **Start FPS meter**, then scroll the grid quickly up and down for 5 seconds, then click **Stop**.
+4. **Expected:** FPS meter shows ≥ 50 FPS throughout. No visible jank.
 
 ---
 
-## 4. CLI: `keepsake corpus init-expected` — zero-entry guard and merge
+## Manual test D — Backend timing script
 
 ```powershell
-cargo run -p keepsake-cli -- corpus init-expected `
-    --manifest "$tmp\manifest.json" `
-    --output   "$tmp\expected.toml"
+$env:KEEPSAKE_CORPUS = "C:\path\to\keepsake-corpus"
+cd C:\path\to\keepsake
+pwsh -File scripts\spike-playback.ps1
 ```
 
-**Expected**:
-- Prints "Written … (N asset(s))".
-- File is valid TOML with `[[asset]]` entries.
-- Each entry has `camera`, `files`, `capture_ts = ""`, `confirmed = false`.
-- XAVC: C0001 and C0002 each appear as a group of 3 files (clip MP4 + XML + proxy MP4).
-- DCIM: DSC00001 appears as a group of 3 files (JPG + ARW + HIF); DSC00002 as 1 file.
+**Expected output (Windows, no discrete GPU):**
 
-### 4b. Zero-entry guard
+```
+--- Item 2a: XAVC S proxy generation ---
+XAVC-S C0006  encoder=h264_mf  clip=~9s  wall=~2s   ~13s/min  ~4.5x
+XAVC-S C0007  encoder=h264_mf  clip=~13s wall=~2.6s ~12s/min  ~5x
+XAVC-S C0008  encoder=h264_mf  clip=~6s  wall=~1.4s ~14s/min  ~4.5x
 
-Create an empty manifest and attempt to generate:
+--- Item 2b: Synthetic 4K source ... ---
+Synthetic-4K  encoder=h264_mf  clip=30s  wall=~5s  ~10s/min  ~5.5x
 
-```powershell
-'{"scanned_at":"","corpus_root":"","cameras":[]}' | Out-File "$tmp\empty.json"
-cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\empty.json" --output "$tmp\expected-empty.toml"
+--- Item 2c: Synthetic H.264-intra source ... ---
+XAVC-S-I-intra  encoder=h264_mf  clip=30s  wall=~5s  ~10s/min  ~6x
+
+--- Item 3: AVCHD capture date ---
+DateTimeOriginal=2018:11:25 ...   (date present)
+
+--- Item 4: ARW embedded preview ---
+DSC*.ARW  ~270-300ms  preview=~500-700KB  FAIL (>150ms)
+ARW preview avg: ~280ms  (target <= 150ms)
 ```
 
-**Expected**: error "manifest … has zero entries — run `keepsake corpus scan` first", exit 1. No file is written.
+> Item 4 FAIL is expected — process-startup overhead. Will be resolved by
+> ExifTool stay-open mode in the ingest engine.
 
-### 4c. Merge: preserve confirmed, flag removed
-
-```powershell
-# Start with a fresh expected.toml
-cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\manifest.json" --output "$tmp\expected.toml" --force
-
-# Mark the first XAVC asset confirmed
-# (edit $tmp\expected.toml: set confirmed = true on one [[asset]] that has C0001.MP4)
-
-# Re-scan with one fewer file (simulate a removed file), then re-run init-expected
-cargo run -p keepsake-cli -- corpus init-expected --manifest "$tmp\manifest.json" --output "$tmp\expected.toml" --force
-```
-
-**Expected**:
-- The confirmed asset is preserved verbatim (same files, capture_ts, camera_model, confirmed=true).
-- If any previously present assets disappeared from the manifest, they appear at the bottom with `removed = true`.
-- The summary line shows `preserved N confirmed | M flagged removed | K new`.
-
-### 4d. Re-run without --force
-
-```powershell
-cargo run -p keepsake-cli -- corpus init-expected `
-    --manifest "$tmp\manifest.json" `
-    --output   "$tmp\expected.toml"
-```
-
-**Expected**: error "already exists — pass --force to overwrite", exit 1.
-
-### 4d. Re-run without --force
-
-```powershell
-cargo run -p keepsake-cli -- corpus init-expected `
-    --manifest "$tmp\manifest.json" `
-    --output   "$tmp\expected.toml"
-```
-
-**Expected**: error "already exists — pass --force to regenerate", exit 1.
+**Expected:** Script exits 0. Results appended to `docs/spikes/playback-timings.txt`.
 
 ---
 
-## 4e. CLI: `keepsake corpus sample`
+## Manual test E — GPU encoder (if NVIDIA GPU present)
 
-```powershell
-cargo run -p keepsake-cli -- corpus sample --n 10 --mixed
-```
+Run the timing script on a machine with an NVIDIA GPU.
 
-**Expected**: table with 10 rows, columns `#  camera  type  key file  capture_ts`.
-- `type` values include `xavc`, `dcim`, `avchd`, `mp_root`, or `other`.
-- `key file` is a representative path (main clip MP4, JPEG, or ARW — not a proxy or sidecar).
-- `capture_ts` column is blank until you fill in `corpus/expected.toml`.
-- `--mixed` causes round-robin across (camera, type) buckets, so xavc and dcim entries alternate.
-
-```powershell
-# Without --mixed: first N assets alphabetically
-cargo run -p keepsake-cli -- corpus sample --n 5
-```
+**Expected:** `encoder=h264_nvenc` in item 2a/2b/2c output. Speed ≥ 10× real-time.
 
 ---
 
-## 5. Corpus tests (requires your real Sony cards)
+## Notes
 
-```powershell
-# Set up your corpus layout:
-#   $KEEPSAKE_CORPUS\cards\<camera-name>\PRIVATE\M4ROOT\... (XAVC)
-#   $KEEPSAKE_CORPUS\cards\<camera-name>\DCIM\...           (stills)
-
-$env:KEEPSAKE_CORPUS = "C:\path\to\your\corpus"
-cargo run -p keepsake-cli -- corpus scan
-cargo run -p keepsake-cli -- corpus init-expected --force
-
-# Edit corpus\expected.toml:
-#   - Fill in capture_ts, camera_model, duration_ms for a sample of assets
-#   - Set confirmed = true for those you've verified against the camera
-
-cargo test --workspace -- --include-ignored corpus
-```
-
-**Expected**: all three corpus tests pass; output shows "Verified N confirmed asset(s)".
-
----
-
-## 6. --version and --help
-
-```powershell
-cargo run -p keepsake-cli -- --version
-cargo run -p keepsake-cli -- --help
-cargo run -p keepsake-cli -- corpus --help
-cargo run -p keepsake-cli -- corpus scan --help
-cargo run -p keepsake-cli -- corpus init-expected --help
-```
-
-**Expected**: each prints clean help/version text; no panics or stack traces.
-
----
-
-## macOS
-
-Steps are identical. Replace `scripts\make-fixtures.ps1` with `./scripts/make-fixtures.sh`.
-PowerShell paths use `/` instead of `\`.
+- `docs/spikes/playback-timings.txt` is gitignored (raw data); read `docs/spikes/playback.md` for interpreted results.
+- The spike page is not product UI — it lives behind `#spike` and will be removed when the real media engine is built.

@@ -44,3 +44,6 @@ app/ui/src-tauri/gen/
 # Corpus — manifest.json and expected.toml are committed; raw card copies are not.
 # Never copy KEEPSAKE_CORPUS media into the repo.
 /corpus/cards/
+
+# Spike timing output (raw data; interpreted results live in docs/spikes/playback.md)
+docs/spikes/playback-timings.txt

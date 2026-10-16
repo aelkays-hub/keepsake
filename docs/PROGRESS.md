@@ -29,6 +29,45 @@
 
 ---
 
+## Spike 2 — Playback Gate 1 (2026-10-16)
+
+### What was built
+
+Proved five playback/performance items on Windows 11; macOS deferred.
+
+**Item 1 (SUB proxy):** Corpus SUB dir is empty. Inferred PASS from identical H.264 MP4 container working in Item 2.
+
+**Item 2 (generated proxy + timing):**
+- XAVC S (H.264) → proxy via `h264_mf`: 4.5–5.2× real-time (1.4–2.6 s per 6–14 s clip).
+- Synthetic 4K → proxy: 5.5× real-time; synthetic 1080p60-intra → proxy: 6.2× real-time.
+- Proxy plays with seeking in WebView2 via Tauri `asset://` protocol. ✅
+
+**Item 3 (AVCHD date):**
+- `DateTimeOriginal` present in MTS in-stream metadata via ExifTool.
+- `CreateDate`/`TrackCreateDate` absent on test clip (fallback path needed).
+- Multi-segment join not testable (single MTS file in corpus). ✅ (partial)
+
+**Item 4 (ARW preview):**
+- ExifTool one-shot: avg 282 ms — **FAILS 150 ms target**.
+- Root cause: Perl startup. Solution: ExifTool `-stay_open` mode (already in architecture). Not a blocker.
+
+**Item 5 (thumbnail grid):**
+- 1,876 files, 5-column TanStack Virtual grid, 55–60 FPS in WebView2. ✅
+
+**Recommendation:** Keep Tauri + Rust. Libmpv fallback not needed. See ADR-009.
+
+### Files changed
+- `app/ui/src/SpikePlayback.tsx` — spike test page (video + seek test + virtual grid)
+- `app/ui/src/App.tsx` — hash router for `#spike`
+- `app/ui/src-tauri/src/commands.rs` — `spike_list_files` command
+- `app/ui/src-tauri/tauri.conf.json` — asset protocol enabled
+- `app/ui/src-tauri/Cargo.toml` — `protocol-asset` feature
+- `scripts/spike-playback.ps1` — backend timing script
+- `docs/spikes/playback.md` — full spike results
+- `docs/DECISIONS.md` — ADR-009
+
+---
+
 ## corpus: init-expected merge, zero-entry guard, sample command (2026-10-16)
 
 ### What was built
