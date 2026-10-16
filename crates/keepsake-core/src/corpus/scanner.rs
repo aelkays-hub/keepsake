@@ -3,7 +3,9 @@ use std::path::Path;
 
 use chrono::Utc;
 
-use crate::corpus::types::{CameraCard, FileEntry, FileKind, FolderRole, Manifest};
+use crate::corpus::types::{
+    CameraCard, FileEntry, FileKind, FolderRole, Manifest, SkipReason, SkippedFile,
+};
 use crate::error::CoreError;
 
 /// Scan `corpus_root/cards/` and return a manifest of every file found.
@@ -25,11 +27,14 @@ pub fn scan(corpus_root: &Path) -> Result<Manifest, CoreError> {
             let camera_name = entry.file_name().to_string_lossy().into_owned();
             let card_root = entry.path();
             let mut files = Vec::new();
-            collect_files(&card_root, &card_root, &mut files)?;
+            let mut skipped = Vec::new();
+            collect_files(&card_root, &card_root, &mut files, &mut skipped)?;
             files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+            skipped.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
             cameras.push(CameraCard {
                 name: camera_name,
                 files,
+                skipped,
             });
         }
     }
@@ -41,19 +46,30 @@ pub fn scan(corpus_root: &Path) -> Result<Manifest, CoreError> {
     })
 }
 
-fn collect_files(card_root: &Path, dir: &Path, out: &mut Vec<FileEntry>) -> Result<(), CoreError> {
+fn collect_files(
+    card_root: &Path,
+    dir: &Path,
+    out: &mut Vec<FileEntry>,
+    skipped: &mut Vec<SkippedFile>,
+) -> Result<(), CoreError> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         let meta = std::fs::metadata(&path)?;
         if meta.is_dir() {
-            collect_files(card_root, &path, out)?;
+            collect_files(card_root, &path, out, skipped)?;
         } else if meta.is_file() {
             let rel = path
                 .strip_prefix(card_root)
                 .expect("path is always under card root");
-            // Normalise to forward slashes for cross-platform consistency.
             let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if let Some(reason) = skip_reason(&path, &meta) {
+                skipped.push(SkippedFile {
+                    rel_path: rel_str,
+                    reason,
+                });
+                continue;
+            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let kind = FileKind::from_extension(ext);
             let folder_role = detect_role(&rel_str);
@@ -68,6 +84,38 @@ fn collect_files(card_root: &Path, dir: &Path, out: &mut Vec<FileEntry>) -> Resu
         }
     }
     Ok(())
+}
+
+/// Returns `Some(reason)` for files the scanner should skip (hidden or system).
+///
+/// On Windows, checks the HIDDEN (0x2) and SYSTEM (0x4) file-attribute bits.
+/// On all platforms, also skips dot-files (Unix hidden-by-convention).
+fn skip_reason(path: &Path, meta: &std::fs::Metadata) -> Option<SkipReason> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const HIDDEN: u32 = 0x2;
+        const SYSTEM: u32 = 0x4;
+        let attrs = meta.file_attributes();
+        match (attrs & HIDDEN != 0, attrs & SYSTEM != 0) {
+            (true, true) => return Some(SkipReason::HiddenAndSystem),
+            (true, false) => return Some(SkipReason::Hidden),
+            (false, true) => return Some(SkipReason::System),
+            _ => {}
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = meta;
+    // Dot-files are hidden by convention on all platforms.
+    if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.starts_with('.'))
+        .unwrap_or(false)
+    {
+        return Some(SkipReason::Hidden);
+    }
+    None
 }
 
 fn hash_file(path: &Path) -> Result<String, CoreError> {

@@ -1,4 +1,4 @@
-# TEST_ME — Prompt 1: Test Corpus Infrastructure
+# TEST_ME — corpus: scan --summary and skip tracking
 
 Manual test steps for the `keepsake corpus` CLI and fixture machinery.
 
@@ -53,7 +53,54 @@ cargo test --workspace
 
 ## 3. CLI: `keepsake corpus scan`
 
-### 3a. Missing KEEPSAKE_CORPUS and no path
+### 3a. `--summary` flag
+
+Reuse the `$tmp` corpus from the previous step or set it up fresh:
+
+```powershell
+cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
+```
+
+**Expected output (one line per camera, then mismatch/skip detail if any)**:
+
+```
+Scanning C:\...\keepsake-corpus-test...
+  10 file(s) across 1 camera card(s)
+  ILCE-7M4              10 files  jpeg=2 arw=1 hif=1 mp4=2 xml=2 mts=0 proxy=2 other=0
+Written C:\...\manifest.json
+```
+
+- Counts sum to total files.
+- `mp4` count excludes proxy MP4s; `proxy` counts only `PRIVATE/M4ROOT/SUB/` files.
+- No `[MISMATCH]` line appears (all files accounted for).
+- No `[SKIPPED]` line appears (no hidden/system files in fixture stubs).
+
+### 3b. Mismatch detection
+
+Create a file the scanner cannot account for:
+
+```powershell
+"orphan" | Out-File "$tmp\cards\ILCE-7M4\orphan.dat"
+cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
+```
+
+**Expected**: summary line shows `other=1`, and no `[MISMATCH]` line (orphan.dat is accounted for as `other`).
+
+Now create a hidden file (Windows hidden attribute) and re-scan:
+
+```powershell
+$f = "$tmp\cards\ILCE-7M4\PRIVATE\M4ROOT\CLIP\.hidden_attr"
+"hidden" | Out-File $f
+attrib +h $f
+cargo run -p keepsake-cli -- corpus scan $tmp --output "$tmp\manifest.json" --summary
+```
+
+**Expected**:
+- `[SKIPPED] 1 file(s):` line appears with `PRIVATE/M4ROOT/CLIP/.hidden_attr  (hidden)`.
+- The file does NOT appear in the scanned count.
+- No `[MISMATCH]` — the hidden file is accounted for under SKIPPED.
+
+### 3c. Missing KEEPSAKE_CORPUS and no path
 
 ```powershell
 cargo run -p keepsake-cli -- corpus scan

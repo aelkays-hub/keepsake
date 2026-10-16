@@ -29,6 +29,27 @@
 
 ---
 
+## corpus: scan --summary and skip tracking (2026-10-15)
+
+### What was built
+
+**`keepsake corpus scan --summary`**
+- Prints one summary line per camera: name, total files, per-type counts (jpeg / arw / hif / mp4 / xml / mts / proxy / other). `proxy` = MP4 files in `PRIVATE/M4ROOT/SUB/`; `mp4` = all other MP4s.
+- After each camera, walks the card root on disk (including hidden/system files) and compares against the manifest. Prints `[MISMATCH]` with unaccounted paths if totals differ.
+- Lists `[SKIPPED]` files separately with reason (hidden, system, hidden+system).
+
+**Hidden/system file detection** (`keepsake-core::corpus::scanner`)
+- On Windows: checks `FILE_ATTRIBUTE_HIDDEN` (0x2) and `FILE_ATTRIBUTE_SYSTEM` (0x4) via `MetadataExt::file_attributes()`.
+- On all platforms: skips dot-files (names starting with `.`).
+- Skipped files are stored in `CameraCard::skipped: Vec<SkippedFile>` (serialised in manifest, `#[serde(default)]` for backward compat).
+
+### Files changed
+- `crates/keepsake-core/src/corpus/types.rs` — added `SkipReason`, `SkippedFile`; added `skipped` field to `CameraCard`.
+- `crates/keepsake-core/src/corpus/scanner.rs` — added `skip_reason()` (cfg-gated Windows attrs + dot-files); `collect_files` now populates `skipped` vec.
+- `crates/keepsake-cli/src/commands/corpus.rs` — added `--summary` flag, `print_camera_summary()`, `collect_all_fs_paths()`.
+
+---
+
 ## Prompt 1 — Test corpus infrastructure (2026-10-15)
 
 ### What was built

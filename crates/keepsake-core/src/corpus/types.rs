@@ -67,12 +67,41 @@ pub struct FileEntry {
     pub folder_role: FolderRole,
 }
 
+/// Why the scanner skipped a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipReason {
+    Hidden,
+    System,
+    HiddenAndSystem,
+}
+
+impl std::fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hidden => f.write_str("hidden"),
+            Self::System => f.write_str("system"),
+            Self::HiddenAndSystem => f.write_str("hidden+system"),
+        }
+    }
+}
+
+/// A file that was found on disk but intentionally not hashed or indexed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkippedFile {
+    pub rel_path: String,
+    pub reason: SkipReason,
+}
+
 /// All files from one camera card.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraCard {
     /// Subdirectory name under `KEEPSAKE_CORPUS/cards/`.
     pub name: String,
     pub files: Vec<FileEntry>,
+    /// Files found on disk but intentionally not indexed (hidden, system).
+    #[serde(default)]
+    pub skipped: Vec<SkippedFile>,
 }
 
 /// Top-level corpus manifest written to `corpus/manifest.json`.
