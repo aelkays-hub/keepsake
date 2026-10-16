@@ -181,8 +181,12 @@ limitation. ExifTool stay-open mode resolves it.
 - libmpv remains deferred. No GPL/LGPL dynamic linking concern from it.
 - Proxy generation uses `h264_mf` (SW) on machines without a supported GPU;
   `h264_nvenc` and `h264_qsv` are tried first.
+- **The webview must never receive a HEVC or MTS source URL.** Confirmed failures
+  on Windows: HEVC seeks take 3 s (software decode, no HEVC Video Extensions
+  required); AVCHD MTS audio drifts after 30 s (AC-3/PCR mismatch). Both are
+  fixed by always playing H.264 MP4 proxies. This is a non-negotiable constraint.
+- The proxy encoder must produce short-GOP H.264 (≤1 s). `h264_mf` does this by
+  default (confirmed: 1.00 s avg GOP).
 - ExifTool must be used in `-stay_open` mode for all thumbnail/preview extraction
   paths that must meet the 150 ms latency budget.
-- HEVC (XAVC HS 10-bit) and HIF corpus testing is deferred until such clips can
-  be synthesised or acquired; `hevc_mf` / `hevc_nvenc` are available in the LGPL
-  FFmpeg build for proxy generation.
+- HEIF/HIF corpus testing is deferred until source files are available.
