@@ -107,7 +107,7 @@ jobs:
       # Verify tauri.conf.json declares ExifTool resources.
       # vendor/ is not present in CI (gitignored), so we only check the config
       # structure — file presence is validated by setup.ps1 on dev machines.
-      - name: Verify ExifTool bundle resources declared
+      - name: Verify sidecar bundle resources declared
         shell: pwsh
         run: |
           $conf = Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json
@@ -117,11 +117,21 @@ jobs:
             exit 1
           }
           $keys = $res.PSObject.Properties.Name
-          $hasExe    = $keys | Where-Object { $_ -like "*exiftool.exe*" }
-          $hasFiles  = $keys | Where-Object { $_ -like "*exiftool_files*" }
-          if (-not $hasExe)   { Write-Error "bundle.resources does not declare exiftool.exe";    exit 1 }
-          if (-not $hasFiles) { Write-Error "bundle.resources does not declare exiftool_files/"; exit 1 }
-          Write-Host "OK: bundle.resources declares exiftool.exe and exiftool_files/"
+          $checks = @{
+            "exiftool.exe"    = ($keys | Where-Object { $_ -like "*exiftool.exe*" })
+            "exiftool_files/" = ($keys | Where-Object { $_ -like "*exiftool_files*" })
+            "ffmpeg.exe"      = ($keys | Where-Object { $_ -like "*ffmpeg.exe*" })
+            "ffprobe.exe"     = ($keys | Where-Object { $_ -like "*ffprobe.exe*" })
+          }
+          $failed = $false
+          foreach ($name in $checks.Keys) {
+            if (-not $checks[$name]) {
+              Write-Error "bundle.resources does not declare $name"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "OK: bundle.resources declares exiftool.exe, exiftool_files/, ffmpeg.exe, ffprobe.exe"
 
       # ── Upload build artifacts ───────────────────────────────────────────────
       - name: Upload Tauri binary

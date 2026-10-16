@@ -3,7 +3,9 @@
 | Prompt | Description | Status |
 |--------|-------------|--------|
 | 0 | Repository bootstrap: CLAUDE.md, docs, workspace scaffold, setup scripts, CI, TEST_ME.md | ✅ Done |
-| 1 (this) | Test corpus: `keepsake corpus scan/init-expected`, fixtures, test harness | ✅ Done |
+| 1 | Test corpus: `keepsake corpus scan/init-expected`, fixtures, test harness | ✅ Done |
+| 2 (spike) | Playback Gate 1: Tauri asset protocol, proxy timing, AVCHD date, grid scroll | ✅ Done |
+| 3 | Packaging: release CI (Windows x64 + ARM64 installers), OS data dirs, release.md | ✅ Done |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
 | 2 | Sony card layout parser and asset grouper | ⬜ Pending |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ⬜ Pending |
@@ -177,3 +179,48 @@ Created the full repository skeleton:
 - `.github/workflows/ci.yml` — matrix CI for `windows-latest` and `macos-14`.
 - `TEST_ME.md` — manual test steps for the bootstrap build.
 - Branch `bootstrap`, PR opened.
+
+---
+
+## Prompt 3 — Packaging (2026-10-16)
+
+### What was built
+
+**Release CI workflow (`.github/workflows/release.yml`)**
+- Triggers on tags matching `v<MAJOR>.<MINOR>.<PATCH>`.
+- `build-win-x64` job: downloads x64 FFmpeg + ExifTool from the vendor-binaries-v1 mirror, verifies SHA-256, builds MSI + NSIS via `pnpm tauri build --bundles msi,nsis`.
+- `build-win-arm64` job: downloads ARM64 FFmpeg, cross-compiles for `aarch64-pc-windows-msvc`.
+- Signing step: runs `signtool.exe` only when `WINDOWS_CERTIFICATE` secret is present; skipped otherwise. Release notes include a clear unsigned-build warning when secrets are absent.
+- `smoke-test-win` job: downloads x64 MSI from the artifact store, installs silently with `msiexec /quiet`, verifies installed file paths, runs `keepsake --version` and `keepsake corpus scan tests/fixtures/` against the CLI binary.
+- `release` job: creates a GitHub Release with all installer artifacts and signing status in the body.
+- macOS DMG job: scaffolded as a commented-out block; deferred until LGPL macOS FFmpeg binary is available (ADR-005).
+
+**FFmpeg + ffprobe declared as bundle resources**
+- Added `"../../../vendor/ffmpeg.exe": "ffmpeg/ffmpeg.exe"` and ffprobe to `tauri.conf.json`.
+- CI resource-declaration check updated to include ffmpeg.exe and ffprobe.exe.
+
+**`keepsake_core::paths` module**
+- `data_dir()` → `%LOCALAPPDATA%\keepsake` (Windows) / `~/Library/Application Support/keepsake` (macOS)
+- `cache_dir()` → `%LOCALAPPDATA%\keepsake\cache` (Windows) / `~/Library/Caches/keepsake` (macOS)
+- `config_dir()` → `%APPDATA%\keepsake` (Windows) / `~/Library/Application Support/keepsake` (macOS)
+- Uses `dirs` v5 (MIT, ADR-010). All three functions have unit tests (pass on CI).
+
+**`scripts/release.md`**
+- Plain-language steps: bump version in `Cargo.toml`, commit, push to `main`, create and push tag, watch release workflow, publish the draft.
+- Includes signing setup instructions (Windows PFX → base64 secret, macOS deferred).
+
+**`docs/ARCHITECTURE.md`** updated with Data Directories section.  
+**`docs/DECISIONS.md`** updated with ADR-010 (`dirs` crate).
+
+### Files changed
+- `.github/workflows/release.yml` — NEW: release build workflow
+- `.github/workflows/ci.yml` — updated resource-declaration check (adds ffmpeg/ffprobe)
+- `app/ui/src-tauri/tauri.conf.json` — added ffmpeg.exe and ffprobe.exe bundle resources
+- `Cargo.toml` — added `dirs = "5"` to workspace deps
+- `crates/keepsake-core/Cargo.toml` — added `dirs.workspace = true`
+- `crates/keepsake-core/src/lib.rs` — exposed `pub mod paths`
+- `crates/keepsake-core/src/paths.rs` — NEW: `data_dir`, `cache_dir`, `config_dir`
+- `scripts/release.md` — NEW: release instructions
+- `docs/ARCHITECTURE.md` — Data Directories section
+- `docs/DECISIONS.md` — ADR-010
+- `docs/PROGRESS.md` — this entry

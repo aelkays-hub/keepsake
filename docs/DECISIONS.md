@@ -190,3 +190,27 @@ limitation. ExifTool stay-open mode resolves it.
 - ExifTool must be used in `-stay_open` mode for all thumbnail/preview extraction
   paths that must meet the 150 ms latency budget.
 - HEIF/HIF corpus testing is deferred until source files are available.
+
+---
+
+## ADR-010 — `dirs` crate for OS-standard data directories
+
+**Status**: Accepted (Prompt 3 — packaging)
+
+**Context**: The application needs to store its catalog, cache, and configuration in the
+OS-standard locations so the OS file-management tools, backup software, and storage
+quotas work correctly. Hard-coding paths (e.g. `~\.keepsake`) is non-portable.
+
+**Decision**: Use the `dirs` crate (v5, MIT) to resolve platform directories:
+
+| Kind | Windows | macOS |
+|---|---|---|
+| Data (catalog, sidecars cache) | `%LOCALAPPDATA%\keepsake` | `~/Library/Application Support/keepsake` |
+| Cache (thumbnails, proxies) | `%LOCALAPPDATA%\keepsake\cache` | `~/Library/Caches/keepsake` |
+| Config | `%APPDATA%\keepsake` | `~/Library/Application Support/keepsake` |
+
+These functions live in `keepsake_core::paths`. The Tauri app layer calls them at
+startup and passes the resolved `PathBuf`s into `keepsake-core`; `keepsake-core`
+itself never depends on Tauri.
+
+**Licence**: `dirs` v5 — MIT. ✓

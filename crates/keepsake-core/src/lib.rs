@@ -1,5 +1,6 @@
 pub mod corpus;
 pub mod error;
+pub mod paths;
 
 /// Returns the application version string defined in Cargo.toml.
 pub fn version() -> &'static str {

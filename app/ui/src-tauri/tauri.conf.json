@@ -39,7 +39,9 @@
     ],
     "resources": {
       "../../../vendor/exiftool/exiftool.exe": "exiftool/exiftool.exe",
-      "../../../vendor/exiftool/exiftool_files/": "exiftool/exiftool_files/"
+      "../../../vendor/exiftool/exiftool_files/": "exiftool/exiftool_files/",
+      "../../../vendor/ffmpeg.exe": "ffmpeg/ffmpeg.exe",
+      "../../../vendor/ffprobe.exe": "ffmpeg/ffprobe.exe"
     }
   }
 }

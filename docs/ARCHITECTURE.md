@@ -57,6 +57,22 @@ On-device inference: auto-tagging, face detection/clustering, semantic embedding
 
 ---
 
+## Data Directories
+
+All application data is placed in OS-standard directories via `keepsake_core::paths` (backed by the `dirs` crate — see ADR-010). The Tauri app resolves these paths at startup and passes them into `keepsake-core`; the CLI does the same.
+
+| Kind | Windows | macOS |
+|---|---|---|
+| **Data** — catalog (SQLite), sidecar metadata cache | `%LOCALAPPDATA%\keepsake` | `~/Library/Application Support/keepsake` |
+| **Cache** — thumbnails, generated proxies | `%LOCALAPPDATA%\keepsake\cache` | `~/Library/Caches/keepsake` |
+| **Config** — user preferences, library list | `%APPDATA%\keepsake` | `~/Library/Application Support/keepsake` |
+
+The data directory contains one subdirectory per library (`library-<uuid>/`), each holding `catalog.db` and a `sidecars/` tree mirroring the volume layout.
+
+The cache directory is fully regenerable; deleting it forces re-generation of thumbnails and proxies on next access.
+
+---
+
 ## Data Model
 
 ### Asset

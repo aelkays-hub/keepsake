@@ -1,89 +1,131 @@
-# TEST_ME — Spike 2: Playback Gate 1
+# Manual Test Steps — Prompt 3: Packaging
 
-## Prerequisites
-
-- Windows 11 (macOS deferred)
-- `vendor/ffmpeg.exe`, `vendor/ffprobe.exe`, `vendor/exiftool/exiftool.exe` present
-- `KEEPSAKE_CORPUS` set to your corpus root (e.g. `C:\...\keepsake-corpus`)
-- pnpm installed; run `pnpm install` once in `app/ui`
+Test on: **Windows 11 x64** (primary). macOS deferred.
 
 ---
 
-## Manual test A — Spike page loads
+## A. OS data directory paths
 
-1. `cd app/ui && pnpm tauri dev`
-2. Wait for the window to open.
-3. Click the **spike →** link in the bottom of the placeholder screen (or press F12 in DevTools and run `window.location.hash = '#spike'`).
-4. **Expected:** The spike page loads with "Spike: Playback Gate 1" as heading, a video player section and a thumbnail grid section.
+**Goal:** `keepsake_core::paths` returns the expected Windows paths.
 
----
-
-## Manual test B — Video playback and seeking
-
-1. On the spike page, the video player should be pre-filled with the path to `C0006.MP4` from your corpus.
-2. **Expected:** The video plays without error. The event log below the player shows `canplay ✓`.
-3. Click **Run seek test**.
-4. **Expected:** Log shows four seek events (`Seek to Xs → Yms`) with no `error:` entries.
-5. Paste a path to a generated proxy (`%TEMP%\keepsake-spike-proxies\C0006-proxy.mp4`) into the path field and click **Load**.
-6. **Expected:** Proxy also plays and seeks without error.
-
----
-
-## Manual test C — Thumbnail grid scroll
-
-1. On the spike page, scroll down to the **Item 5** section.
-2. **Expected:** Status line shows "1,876 files loaded" (or similar).
-3. Click **Start FPS meter**, then scroll the grid quickly up and down for 5 seconds, then click **Stop**.
-4. **Expected:** FPS meter shows ≥ 50 FPS throughout. No visible jank.
+1. Open a PowerShell terminal in the repo root.
+2. Run:
+   ```
+   cargo test -p keepsake-core -- paths
+   ```
+3. **Expected:** All three tests pass:
+   - `paths::tests::data_dir_is_some_and_ends_with_keepsake` ✓
+   - `paths::tests::cache_dir_is_some_and_ends_with_keepsake` ✓
+   - `paths::tests::config_dir_is_some_and_ends_with_keepsake` ✓
+4. Add a quick manual check in a Rust scratch test or by reading the source:
+   - `data_dir()` should return `C:\Users\<you>\AppData\Local\keepsake`
+   - `cache_dir()` should return `C:\Users\<you>\AppData\Local\keepsake`  
+     _(Windows: `dirs::cache_dir` returns LocalAppData, same as data_local_dir)_
+   - `config_dir()` should return `C:\Users\<you>\AppData\Roaming\keepsake`
 
 ---
 
-## Manual test D — Backend timing script
+## B. FFmpeg and ExifTool declared as bundle resources
 
-```powershell
-$env:KEEPSAKE_CORPUS = "C:\path\to\keepsake-corpus"
-cd C:\path\to\keepsake
-pwsh -File scripts\spike-playback.ps1
-```
+**Goal:** `tauri.conf.json` declares all four sidecars; CI check passes.
 
-**Expected output (Windows, no discrete GPU):**
-
-```
---- Item 2a: XAVC S proxy generation ---
-XAVC-S C0006  encoder=h264_mf  clip=~9s  wall=~2s   ~13s/min  ~4.5x
-XAVC-S C0007  encoder=h264_mf  clip=~13s wall=~2.6s ~12s/min  ~5x
-XAVC-S C0008  encoder=h264_mf  clip=~6s  wall=~1.4s ~14s/min  ~4.5x
-
---- Item 2b: Synthetic 4K source ... ---
-Synthetic-4K  encoder=h264_mf  clip=30s  wall=~5s  ~10s/min  ~5.5x
-
---- Item 2c: Synthetic H.264-intra source ... ---
-XAVC-S-I-intra  encoder=h264_mf  clip=30s  wall=~5s  ~10s/min  ~6x
-
---- Item 3: AVCHD capture date ---
-DateTimeOriginal=2018:11:25 ...   (date present)
-
---- Item 4: ARW embedded preview ---
-DSC*.ARW  ~270-300ms  preview=~500-700KB  FAIL (>150ms)
-ARW preview avg: ~280ms  (target <= 150ms)
-```
-
-> Item 4 FAIL is expected — process-startup overhead. Will be resolved by
-> ExifTool stay-open mode in the ingest engine.
-
-**Expected:** Script exits 0. Results appended to `docs/spikes/playback-timings.txt`.
+1. Run the CI resource-declaration check locally:
+   ```powershell
+   $conf = Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json
+   $keys = $conf.bundle.resources.PSObject.Properties.Name
+   $keys
+   ```
+2. **Expected output includes:**
+   ```
+   ../../../vendor/exiftool/exiftool.exe
+   ../../../vendor/exiftool/exiftool_files/
+   ../../../vendor/ffmpeg.exe
+   ../../../vendor/ffprobe.exe
+   ```
+3. Run `cargo test --workspace` and confirm the existing CI fixture tests still pass.
 
 ---
 
-## Manual test E — GPU encoder (if NVIDIA GPU present)
+## C. Release workflow syntax (dry-run)
 
-Run the timing script on a machine with an NVIDIA GPU.
+**Goal:** The `release.yml` workflow file parses without errors.
 
-**Expected:** `encoder=h264_nvenc` in item 2a/2b/2c output. Speed ≥ 10× real-time.
+1. Install `actionlint` if available, or use the GitHub Actions UI after pushing.
+2. Push the `packaging` branch to GitHub:
+   ```
+   git push -u origin packaging
+   ```
+3. Open the PR. Confirm that `ci.yml` runs green on the branch.
+4. The `release.yml` workflow does **not** run on branch push — it only runs on tags. 
+   To confirm it is syntactically valid, use the GitHub "Actions" tab → select the workflow → "This workflow has a workflow_dispatch trigger" (it does not, but GitHub will still validate the YAML).  
+   Alternatively: `gh workflow view release.yml` should show the workflow without error.
+
+---
+
+## D. Simulate release workflow steps locally (Windows x64 only)
+
+**Goal:** Confirm the vendor-download PowerShell block works.
+
+1. Ensure `vendor/` is empty or absent (or test in a clean temp folder).
+2. Run the download block from `release.yml` in PowerShell:
+   ```powershell
+   $env:MIRROR = "https://github.com/aelkays-hub/keepsake/releases/download/vendor-binaries-v1"
+   # ... (paste the "Download vendor binaries — x64 FFmpeg + ExifTool" step)
+   ```
+3. **Expected:** `vendor\ffmpeg.exe`, `vendor\ffprobe.exe`, `vendor\exiftool\exiftool.exe` all exist.
+4. Verify FFmpeg: `vendor\ffmpeg.exe -version` — should print version + no `--enable-gpl`.
+5. Verify ExifTool: `vendor\exiftool\exiftool.exe -ver` — should print `13.59`.
+
+---
+
+## E. Build installer locally
+
+**Goal:** `pnpm tauri build` produces MSI and NSIS installers.
+
+**Prerequisites:** Run `scripts\setup.ps1` first so `vendor\ffmpeg.exe` and `vendor\exiftool\` are populated.
+
+1. From repo root:
+   ```
+   cd app\ui
+   pnpm install --frozen-lockfile
+   pnpm tauri build --bundles msi,nsis
+   ```
+2. **Expected:** Build completes without errors. Installers at:
+   - `target\release\bundle\msi\Keepsake_0.1.0_x64_en-US.msi`
+   - `target\release\bundle\nsis\Keepsake_0.1.0_x64-setup.exe`
+3. Install the MSI silently:
+   ```powershell
+   msiexec /i "target\release\bundle\msi\Keepsake_0.1.0_x64_en-US.msi" /quiet /norestart
+   ```
+4. Verify: `C:\Program Files\Keepsake\keepsake-app.exe` exists.
+5. Verify sidecars bundled: `C:\Program Files\Keepsake\ffmpeg\ffmpeg.exe` and `C:\Program Files\Keepsake\exiftool\exiftool.exe` exist.
+6. Launch `keepsake-app.exe` — Keepsake window opens with placeholder screen. ✓
+7. Uninstall via **Settings → Apps**.
+
+---
+
+## F. CLI smoke test
+
+**Goal:** `keepsake` CLI binary works as a standalone executable.
+
+1. Build CLI: `cargo build --release -p keepsake-cli`
+2. Run: `target\release\keepsake.exe --version`
+   - **Expected:** prints `keepsake 0.1.0` (or current version).
+3. Run: `target\release\keepsake.exe corpus scan tests/fixtures/`
+   - **Expected:** exits 0; may print an empty camera list (fixtures don't match full Sony card layout).
+
+---
+
+## G. Release instructions (scripts/release.md)
+
+1. Read `scripts/release.md`.
+2. Confirm the steps are clear and match the actual workflow in `.github/workflows/release.yml`.
+3. **Expected:** No contradictions between the doc and the YAML.
 
 ---
 
 ## Notes
 
-- `docs/spikes/playback-timings.txt` is gitignored (raw data); read `docs/spikes/playback.md` for interpreted results.
-- The spike page is not product UI — it lives behind `#spike` and will be removed when the real media engine is built.
+- **No real tag push needed for testing** — the release workflow will not run unless you push a `v*.*.*` tag to the repo.
+- **Unsigned builds are expected** until `WINDOWS_CERTIFICATE` is configured as a repo secret.
+- macOS DMG is deferred; the job is present as a commented-out block in `release.yml`.
