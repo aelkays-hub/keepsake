@@ -1,131 +1,117 @@
-# Manual Test Steps — Prompt 3: Packaging
+# Manual Test Steps — Prompt 4: Catalog
 
-Test on: **Windows 11 x64** (primary). macOS deferred.
+Test on: **Windows 11 x64** (primary) and **macOS 14+** (Apple Silicon) when available.
+Commands are run from the repo root. On Windows use PowerShell; on macOS use Terminal.
 
----
-
-## A. OS data directory paths
-
-**Goal:** `keepsake_core::paths` returns the expected Windows paths.
-
-1. Open a PowerShell terminal in the repo root.
-2. Run:
-   ```
-   cargo test -p keepsake-core -- paths
-   ```
-3. **Expected:** All three tests pass:
-   - `paths::tests::data_dir_is_some_and_ends_with_keepsake` ✓
-   - `paths::tests::cache_dir_is_some_and_ends_with_keepsake` ✓
-   - `paths::tests::config_dir_is_some_and_ends_with_keepsake` ✓
-4. Add a quick manual check in a Rust scratch test or by reading the source:
-   - `data_dir()` should return `C:\Users\<you>\AppData\Local\keepsake`
-   - `cache_dir()` should return `C:\Users\<you>\AppData\Local\keepsake`  
-     _(Windows: `dirs::cache_dir` returns LocalAppData, same as data_local_dir)_
-   - `config_dir()` should return `C:\Users\<you>\AppData\Roaming\keepsake`
+You need a folder of test files to act as a "card". The repo's fixtures work:
+they are tiny stand-in files, not real media, which is enough to test the catalog.
 
 ---
 
-## B. FFmpeg and ExifTool declared as bundle resources
+## A. Automated tests
 
-**Goal:** `tauri.conf.json` declares all four sidecars; CI check passes.
-
-1. Run the CI resource-declaration check locally:
-   ```powershell
-   $conf = Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json
-   $keys = $conf.bundle.resources.PSObject.Properties.Name
-   $keys
+1. Run:
    ```
-2. **Expected output includes:**
+   cargo test --workspace
    ```
-   ../../../vendor/exiftool/exiftool.exe
-   ../../../vendor/exiftool/exiftool_files/
-   ../../../vendor/ffmpeg.exe
-   ../../../vendor/ffprobe.exe
+2. **Expected:** every suite passes, including:
+   - `catalog_tests` — 15 passed
+   - `xmp_tests` — 10 passed
+   - `rebuild_tests` — 9 passed
+   - `path_props` — 6 passed
+3. Run the linters:
    ```
-3. Run `cargo test --workspace` and confirm the existing CI fixture tests still pass.
+   cargo fmt --check
+   cargo clippy --workspace --all-targets -- -D warnings
+   ```
+   **Expected:** no output and no errors.
 
 ---
 
-## C. Release workflow syntax (dry-run)
+## B. Create a library and index a card
 
-**Goal:** The `release.yml` workflow file parses without errors.
-
-1. Install `actionlint` if available, or use the GitHub Actions UI after pushing.
-2. Push the `packaging` branch to GitHub:
-   ```
-   git push -u origin packaging
-   ```
-3. Open the PR. Confirm that `ci.yml` runs green on the branch.
-4. The `release.yml` workflow does **not** run on branch push — it only runs on tags. 
-   To confirm it is syntactically valid, use the GitHub "Actions" tab → select the workflow → "This workflow has a workflow_dispatch trigger" (it does not, but GitHub will still validate the YAML).  
-   Alternatively: `gh workflow view release.yml` should show the workflow without error.
-
----
-
-## D. Simulate release workflow steps locally (Windows x64 only)
-
-**Goal:** Confirm the vendor-download PowerShell block works.
-
-1. Ensure `vendor/` is empty or absent (or test in a clean temp folder).
-2. Run the download block from `release.yml` in PowerShell:
-   ```powershell
-   $env:MIRROR = "https://github.com/aelkays-hub/keepsake/releases/download/vendor-binaries-v1"
-   # ... (paste the "Download vendor binaries — x64 FFmpeg + ExifTool" step)
-   ```
-3. **Expected:** `vendor\ffmpeg.exe`, `vendor\ffprobe.exe`, `vendor\exiftool\exiftool.exe` all exist.
-4. Verify FFmpeg: `vendor\ffmpeg.exe -version` — should print version + no `--enable-gpl`.
-5. Verify ExifTool: `vendor\exiftool\exiftool.exe -ver` — should print `13.59`.
+1. Build the CLI: `cargo build -p keepsake-cli`
+2. Make a test card from the fixtures:
+   - **Windows:**
+     ```powershell
+     $T = "$env:TEMP\keepsake-test"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
+     New-Item -ItemType Directory "$T\card" | Out-Null
+     Copy-Item -Recurse tests\fixtures\xavc\* "$T\card\"
+     Copy-Item -Recurse tests\fixtures\dcim\* "$T\card\"
+     $K = ".\target\debug\keepsake.exe"
+     ```
+   - **macOS:**
+     ```bash
+     T=/tmp/keepsake-test; rm -rf $T; mkdir -p $T/card
+     cp -R tests/fixtures/xavc/* tests/fixtures/dcim/* $T/card/
+     K=./target/debug/keepsake
+     ```
+3. Create the library: `& $K library init "$T\lib"` (macOS: `$K library init $T/lib`)
+   **Expected:** `Created library <uuid> at …`. The folder contains `library.json`, `volumes.json`, `catalog.db`, `recipes/`, `sidecars/`.
+4. Add the card: `& $K library add-volume "$T\lib" "$T\card" --label "Test card" --kind card`
+   **Expected:** `Volume Test card (…) - writable, case-insensitive` then `4 assets, 10 files indexed`.
+   (2 XAVC clips with their XML and proxy, plus 2 DCIM stills. DSC00001's JPG, ARW and HIF count as one asset.)
+5. `& $K library stats "$T\lib"`
+   **Expected:** `Assets: 4`, `Files: 10`, the volume shown as online. "Days" is empty for now: capture dates come from ExifTool, which isn't connected yet.
 
 ---
 
-## E. Build installer locally
+## C. Edit metadata and check the sidecar
 
-**Goal:** `pnpm tauri build` produces MSI and NSIS installers.
-
-**Prerequisites:** Run `scripts\setup.ps1` first so `vendor\ffmpeg.exe` and `vendor\exiftool\` are populated.
-
-1. From repo root:
+1. Run:
    ```
-   cd app\ui
-   pnpm install --frozen-lockfile
-   pnpm tauri build --bundles msi,nsis
+   & $K library edit "$T\lib" "$T\card\DCIM\100MSDCF\DSC00001.JPG" --rating 4 --label Red --comment "Café test" --tag "Travel|Japan" --tag Family
    ```
-2. **Expected:** Build completes without errors. Installers at:
-   - `target\release\bundle\msi\Keepsake_0.1.0_x64_en-US.msi`
-   - `target\release\bundle\nsis\Keepsake_0.1.0_x64-setup.exe`
-3. Install the MSI silently:
-   ```powershell
-   msiexec /i "target\release\bundle\msi\Keepsake_0.1.0_x64_en-US.msi" /quiet /norestart
-   ```
-4. Verify: `C:\Program Files\Keepsake\keepsake-app.exe` exists.
-5. Verify sidecars bundled: `C:\Program Files\Keepsake\ffmpeg\ffmpeg.exe` and `C:\Program Files\Keepsake\exiftool\exiftool.exe` exist.
-6. Launch `keepsake-app.exe` — Keepsake window opens with placeholder screen. ✓
-7. Uninstall via **Settings → Apps**.
+   **Expected:** `Updated asset …` and one sidecar `DCIM/100MSDCF/DSC00001.JPG.xmp (beside)`.
+2. Open `card\DCIM\100MSDCF\DSC00001.JPG.xmp` in a text editor.
+   **Expected:** you see `<xmp:Rating>4</xmp:Rating>`, `<xmp:Label>Red</xmp:Label>`, `Café test`, `Travel|Japan` under `lr:hierarchicalSubject` and `Travel/Japan` under `digiKam:TagsList`.
+3. Confirm the JPG itself did not change: its size and modified date are the same as in `tests\fixtures\dcim\DCIM\100MSDCF\`.
+4. `& $K library search "$T\lib" japan` and `… search "$T\lib" cafe`
+   **Expected:** both find `DCIM/100MSDCF/DSC00001.JPG rating=4 label=Red tags=[Family, Travel|Japan]`. "cafe" matches "Café" because accents are ignored.
+5. Try a shift: `& $K library edit "$T\lib" "$T\card\DCIM\100MSDCF\DSC00001.JPG" --shift-seconds -3600`
+   **Expected:** an error saying the asset has no capture time (expected until ExifTool is connected).
 
 ---
 
-## F. CLI smoke test
+## D. Delete the catalog and rebuild
 
-**Goal:** `keepsake` CLI binary works as a standalone executable.
-
-1. Build CLI: `cargo build --release -p keepsake-cli`
-2. Run: `target\release\keepsake.exe --version`
-   - **Expected:** prints `keepsake 0.1.0` (or current version).
-3. Run: `target\release\keepsake.exe corpus scan tests/fixtures/`
-   - **Expected:** exits 0; may print an empty camera list (fixtures don't match full Sony card layout).
-
----
-
-## G. Release instructions (scripts/release.md)
-
-1. Read `scripts/release.md`.
-2. Confirm the steps are clear and match the actual workflow in `.github/workflows/release.yml`.
-3. **Expected:** No contradictions between the doc and the YAML.
+1. `& $K library rebuild "$T\lib" --fresh`
+   **Expected:** `Deleted catalog; rebuilding from files and sidecars.` then `4 assets, 10 files indexed, 1 sidecars read`.
+2. Repeat C.4 (search).
+   **Expected:** same result: rating, label, tags and comment came back from the sidecar.
+3. Delete `catalog.db` (and any `catalog.db-wal` / `catalog.db-shm`) by hand, then run `library rebuild` without `--fresh`.
+   **Expected:** same result again.
 
 ---
 
-## Notes
+## E. Read-only volume
 
-- **No real tag push needed for testing** — the release workflow will not run unless you push a `v*.*.*` tag to the repo.
-- **Unsigned builds are expected** until `WINDOWS_CERTIFICATE` is configured as a repo secret.
-- macOS DMG is deferred; the job is present as a commented-out block in `release.yml`.
+1. Make a second folder with a copy of a photo, then add it as read-only:
+   - **Windows:**
+     ```powershell
+     New-Item -ItemType Directory "$T\backup" | Out-Null
+     Copy-Item tests\fixtures\dcim\DCIM\100MSDCF\DSC00002.JPG "$T\backup\"
+     & $K library add-volume "$T\lib" "$T\backup" --label Backup --read-only
+     & $K library edit "$T\lib" "$T\backup\DSC00002.JPG" --rating 2
+     ```
+   - **macOS:** the same with `/` paths.
+2. **Expected:** the edit lists a sidecar marked `(mirror)`. No `.xmp` file appears in `backup\`. A file `lib\sidecars\<volume-uuid>\DSC00002.JPG.xmp` exists.
+3. `& $K library rebuild "$T\lib" --fresh` then `& $K library stats "$T\lib"`.
+   **Expected:** both volumes listed. `search "$T\lib" DSC00002` shows two results: the card copy (`rating=0`) and the backup copy (`rating=2`). They are separate assets because nothing links them yet; ingest will link copies by hash in a later prompt.
+
+---
+
+## F. Lightroom / digiKam interop (optional)
+
+1. Copy `tests\fixtures\xmp\lightroom.xmp` to `$T\card\DCIM\100MSDCF\DSC00002.JPG.xmp`, then run `library rebuild "$T\lib" --fresh`.
+2. **Expected:** `search "$T\lib" tokyo` finds DSC00002 with `rating=4 label=Red` and the comment "Sunset at Shibuya & friends".
+3. If you have Lightroom Classic or digiKam: open the `card` folder, read metadata from files, and check that DSC00001 shows 4 stars, the Red label, the comment and the keywords. (Lightroom reads `<name>.<ext>.xmp` sidecars for JPEGs; for raw files it only reads `<stem>.xmp`, which Keepsake doesn't write yet.)
+
+---
+
+## G. macOS-specific checks
+
+1. Run section A on macOS.
+2. In section B, put a folder with an accented name (for example `Café`) on the card, containing a copy of a JPG, before running `add-volume`.
+   **Expected:** the file is indexed once. Searching `cafe` finds it.
+3. Clean up: delete the `$T` folder.

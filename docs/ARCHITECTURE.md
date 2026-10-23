@@ -34,7 +34,12 @@ Lives in `keepsake-platform` (OS-specific implementations behind a trait) and is
 Orchestrates the full import pipeline (see _Ingest Pipeline_ below). Emits structured progress events over a `tokio` broadcast channel so the UI and CLI can both subscribe.
 
 ### Catalog
-SQLite database in WAL mode with FTS5 full-text index. Stores Assets, Files, Volumes, Renditions, Events, EditRecipes, and ImportSessions. The catalog is a **rebuildable cache**: it can be discarded and reconstructed from the original files and XMP sidecars. XMP sidecars and JSON recipes are the authoritative source of truth for all user metadata.
+SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`). Stores Assets, Files, Volumes, Renditions, Events, EditRecipes, ImportSessions, labels, tags and XMP sidecar locations. The catalog is a **rebuildable cache**: it can be discarded and reconstructed from the original files and XMP sidecars. XMP sidecars and JSON recipes are the authoritative source of truth for all user metadata.
+
+- **Schema:** `crates/keepsake-core/src/catalog/migrations/NNNN_*.sql`, applied in order and tracked with `PRAGMA user_version`. A catalog newer than the build is refused.
+- **Access:** all SQL lives in `catalog/`. Callers use `Catalog::read` / `Catalog::write` (a `BEGIN IMMEDIATE` transaction that commits on `Ok` and rolls back on `Err`) and the typed repositories on the transaction (`tx.assets()`, `tx.files()`, `tx.tags()`, ...). Write methods exist only on a write transaction.
+- **Search:** `asset_fts` (FTS5, `unicode61 remove_diacritics 2`, prefix index) holds file names, comment and tag names including ancestors. It is updated in Rust inside the same transaction as each change; `tx.fts_mismatches()` checks it.
+- **User edits:** `metadata::MetadataService` updates the rows and rewrites the asset's sidecars in one transaction (see _XMP Sidecars_).
 
 ### Probe
 Reads media metadata without decoding pixels:
@@ -97,12 +102,15 @@ One physical file on disk. An Asset has 1-N Files.
 | `id` | `Uuid` | |
 | `asset_id` | `Uuid` | FK to Asset |
 | `volume_id` | `Uuid` | FK to Volume |
-| `rel_path` | `PathBuf` | Relative to volume root |
+| `rel_path` | `RelPath` | Relative to volume root, exact on-disk spelling, `/`-separated |
+| `rel_path_key` | `String` | NFC, lowercased on case-insensitive volumes; unique per volume |
 | `blake3` | `[u8; 32]` | Content identity hash |
 | `size_bytes` | `u64` | |
 | `role` | `FileRole` | See below |
 
 `FileRole` variants: `Original`, `RawPair`, `Sidecar`, `CameraProxy`, `AppProxy`, `Export`.
+
+An asset has at most one `Original` **per volume**: a verified backup copy on a second destination is also an original. File ids are derived from `(volume_id, rel_path_key)`, so a rebuilt catalog gives every file the same id.
 
 ### Volume
 A storage location (card, internal drive, external drive, NAS).
@@ -236,14 +244,49 @@ When resolving the canonical capture timestamp for an asset, apply in this order
 
 ---
 
-## Catalog as Rebuildable Cache
+## XMP Sidecars
 
-The SQLite catalog stores only information that can be derived from files already on disk plus XMP sidecars. If the catalog is deleted:
+One sidecar per copy of an asset's original, named `<name>.<ext>.xmp` beside it. If the volume is read-only or offline, the sidecar goes to `<library>/sidecars/<volume-uuid>/<rel_path>.xmp`. Lightroom's `<stem>.xmp` is read as a fallback but never written. Writes are atomic (temporary file + rename) and keep every property Keepsake does not manage.
 
-```bash
-keepsake rebuild-catalog --library /path/to/library
+| Data | Written as | Also read |
+|---|---|---|
+| Rating | `xmp:Rating` | Lightroom `-1` (rejected) is read as 0 |
+| Colour label | `xmp:Label` + `digiKam:ColorLabel` | `digiKam:ColorLabel` when `xmp:Label` is absent |
+| Comment | `dc:description` `x-default` (other languages kept) | |
+| User tags | `dc:subject`, `lr:hierarchicalSubject` (`A&#124;B`), `digiKam:TagsList` (`A/B`) | flat `dc:subject` keywords not in a hierarchy |
+| Capture time | `exif:DateTimeOriginal`, `photoshop:DateCreated` (already shifted) | `xmp:CreateDate` |
+| Time-shift | `keepsake:CaptureShiftSeconds` | |
+| Camera, lens, duration | `tiff:Make`, `tiff:Model`, `exifEX:LensModel`, `xmpDM:duration` | |
+| Identity, event, AI tags, recipes, member files | `keepsake:AssetID`, `keepsake:Event`, `keepsake:AITags`, `keepsake:Recipes`, `keepsake:Files` | |
+
+The `keepsake:` namespace is `http://ns.keepsake.app/xmp/1.0/`. `xmp:MetadataDate` decides which sidecar wins when two disagree.
+
+## Library Folder
+
+```
+library-<uuid>/
+  library.json     identity
+  volumes.json     volume registry (ids, labels, case/read-only flags, last mount hint)
+  catalog.db       SQLite catalog (rebuildable; -wal / -shm beside it)
+  recipes/<asset-uuid>/<recipe-uuid>.json
+  sidecars/<volume-uuid>/...   mirrored sidecars for read-only or offline volumes
 ```
 
-This re-scans all volumes, re-reads EXIF/XMP, and reconstructs the catalog. User metadata (ratings, labels, comments, tags, edit recipes) is preserved because it lives in XMP sidecars and JSON recipe files, not in the catalog.
+`volumes.json` lives outside the catalog so volume UUIDs survive a catalog deletion.
 
-Renditions (thumbnails, proxies) are regenerated on demand after a rebuild.
+## Catalog as Rebuildable Cache
+
+The SQLite catalog stores only information that can be derived from files already on disk plus XMP sidecars and the library folder. If the catalog is deleted:
+
+```bash
+keepsake library rebuild <library> --fresh
+```
+
+`rebuild::rebuild_catalog(catalog, library, volume, mount)` reconstructs one volume and never writes to it:
+
+1. Walk the volume (hidden/system entries skipped) and hash every file with BLAKE3.
+2. Read sidecars beside the files and in the mirror; per file, the newest `xmp:MetadataDate` wins.
+3. Form assets from Keepsake sidecars' `keepsake:Files` lists, then group the remaining files with the Sony card heuristics (one original per group; ARW/HIF companions become `RawPair`, `SUB/` files `CameraProxy`, XML/CPI/MPL `Sidecar`). Assets without a Keepsake sidecar get an id derived from the original's location.
+4. Replace the volume's rows in one transaction. If the asset already exists from another volume, the sidecar wins only when its metadata is newer.
+
+Not rebuilt: renditions (regenerated on demand), import session history, and labels or tags nothing uses. A test builds a catalog, deletes it, rebuilds, and asserts the two are equal (`crates/keepsake-core/tests/rebuild_tests.rs`).

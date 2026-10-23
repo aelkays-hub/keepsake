@@ -214,3 +214,35 @@ startup and passes the resolved `PathBuf`s into `keepsake-core`; `keepsake-core`
 itself never depends on Tauri.
 
 **Licence**: `dirs` v5 — MIT. ✓
+
+---
+
+## ADR-011 — Catalog and XMP dependencies
+
+**Status**: Accepted (Prompt 4 — catalog; approved by the product owner 2026-10-23)
+
+| Crate | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `rusqlite` (`bundled`) | 0.40 | MIT (SQLite: public domain) | runtime | SQLite catalog (ADR-003). The bundled build enables FTS5. |
+| `quick-xml` | 0.42 | MIT | runtime | XMP parsing. Keepsake builds its own small tree so foreign properties survive a rewrite. |
+| `unicode-normalization` | 0.1 | MIT OR Apache-2.0 | runtime | NFC/NFD handling for paths and tags. |
+| `proptest` | 1 | MIT OR Apache-2.0 | dev only | Property tests for paths and rebuild. |
+| `tempfile` | 3 | MIT OR Apache-2.0 | dev only | Temporary volumes and libraries in tests. |
+
+No GPL code is linked. Migrations use `PRAGMA user_version` instead of a migration crate.
+
+---
+
+## ADR-012 — Catalog design choices
+
+**Status**: Accepted (Prompt 4)
+
+- **Sidecar naming:** write `<name>.<ext>.xmp` (digiKam/darktable style); read Lightroom's `<stem>.xmp` as a fallback. Lightroom will not see Keepsake edits to raw files until a later option also writes `<stem>.xmp`.
+- **Rating and comment are columns on `assets`**, with a `labels` lookup table and `tags` / `asset_tags`. Each is single-valued in XMP, so one-row tables would only add joins.
+- **Events live in each member's sidecar** (`keepsake:Event` struct), so a rebuild needs only files and sidecars. Renaming an event rewrites its members' sidecars.
+- **Import sessions are catalog-only** and are lost on rebuild (history, not user metadata).
+- **Case-insensitive keys use Rust's `to_lowercase` + NFC**, not full Unicode case folding.
+- **Non-UTF-8 file names are skipped** and reported by rebuild.
+- **Change from the reviewed schema:** an asset may have one original *per volume* (`files_one_original` is on `(asset_id, volume_id)`), and `xmp_sidecars` is keyed by `(asset_id, volume_id)`, because a backup destination holds its own copy of the original and its own sidecar.
+- **Deterministic ids:** file ids are derived from `(volume, rel_path_key)`; assets found without a Keepsake sidecar get an id derived from their original's location. Rebuilds are therefore stable.
+- **Volume registry outside the catalog** (`volumes.json`): volume UUIDs must survive catalog deletion, and read-only cards cannot hold a marker file. Until the device watcher exists, `keepsake library add-volume` uses the canonical mount path as the file-system id.
