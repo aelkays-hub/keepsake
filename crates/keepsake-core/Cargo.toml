@@ -17,6 +17,7 @@ chrono.workspace = true
 rusqlite.workspace = true
 quick-xml.workspace = true
 unicode-normalization.workspace = true
+twox-hash.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
