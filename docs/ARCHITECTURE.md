@@ -42,11 +42,16 @@ SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`)
 - **User edits:** `metadata::MetadataService` updates the rows and rewrites the asset's sidecars in one transaction (see _XMP Sidecars_).
 
 ### Probe
-Reads media metadata without decoding pixels:
-- Calls ExifTool in `-stay_open` mode for EXIF/XMP/IPTC metadata.
-- Calls ffprobe for container/stream information.
-- Reads Sony XML sidecars directly.
-- Returns a `MediaInfo` struct consumed by IngestEngine and Catalog.
+Reads media metadata without decoding pixels (`keepsake_core::probe`):
+- `ExifTool`: one long-lived `-stay_open` process behind a request queue, with per-request timeouts and automatic restart.
+- `ffprobe`: streams, duration, codec/profile, bit depth, chroma, rotation, timecode, container creation time.
+- `sony_xml`: XAVC `NonRealTimeMeta` sidecars (creation date with offset, frames → duration, timecode, model, serial, lens, recording mode, GPS).
+- `avchd`: playlists and clip info (split recordings), MDPM capture date.
+- `capture`: resolves one capture time per asset with its source and confidence (see _Capture Date Precedence_).
+- `Prober::probe(root, files, grouping)` returns a `ProbedAsset` per group and the detected sequences. It is used by rebuild, `keepsake probe` and the corpus tests.
+
+### Grouping
+`keepsake_core::grouping` turns a file list into assets (XAVC clip + XML + proxy + thumbnail; RAW/JPEG/HEIF siblings; AVCHD recordings joined from playlists) and lists card bookkeeping files separately. `grouping::sequences` flags bursts, brackets and interval runs without merging them.
 
 ### RenderService
 Generates and caches Renditions (thumbnails, previews, proxies, export frames). Runs on a bounded async worker pool. All work is keyed by `(source_hash, recipe_hash)` so results are deduplicated and reusable across library rebuilds.
@@ -108,7 +113,7 @@ One physical file on disk. An Asset has 1-N Files.
 | `size_bytes` | `u64` | |
 | `role` | `FileRole` | See below |
 
-`FileRole` variants: `Original`, `RawPair`, `Sidecar`, `CameraProxy`, `AppProxy`, `Export`.
+`FileRole` variants: `Original`, `RawPair`, `Sidecar`, `CameraProxy`, `AppProxy`, `Export`, `Segment` (2nd and later `.MTS` of a split AVCHD recording, with `segment_index` 1, 2, …).
 
 An asset has at most one `Original` **per volume**: a verified backup copy on a second destination is also an original. File ids are derived from `(volume_id, rel_path_key)`, so a rebuilt catalog gives every file the same id.
 
@@ -190,13 +195,15 @@ MP_ROOT/
 
 ## Capture Date Precedence
 
-When resolving the canonical capture timestamp for an asset, apply in this order (first non-null wins):
+When resolving the canonical capture timestamp for an asset, apply in this order (first non-null wins). The result also records its **source** and a **confidence** (ADR-014):
 
 1. **Sony XML sidecar** `CreationDate` attribute.
 2. **EXIF `DateTimeOriginal`** combined with `OffsetTimeOriginal` (or `OffsetTime`) for timezone.
 3. **AVCHD in-stream MDPM** (Metadata Payload) timestamp from the transport stream.
 4. **MP4/MOV container atoms**: `©day` atom or `mvhd` creation time (adjusted for the 1904 epoch).
 5. **Filesystem dates are never used** as a fallback — they are too unreliable.
+
+Confidence is **high** when the source gives both local time and UTC offset and no other source disagrees by more than 2 s; **medium** when the offset was borrowed from the nearest asset of the same camera (within 12 h) or derived from a local clock plus a UTC container time, or when sources disagree; **low** when the offset is unknown (`utc_offset_min = None`; `utc_ms` then holds the best clock reading). A Keepsake XMP sidecar (user-corrected) always wins over probed values.
 
 ---
 
