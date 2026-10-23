@@ -28,6 +28,11 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 dirs = "5"
+rusqlite = { version = "0.40", features = ["bundled"] }
+quick-xml = "0.42"
+unicode-normalization = "0.1"
+proptest = "1"
+tempfile = "3"
 
 [profile.release]
 lto = "thin"
