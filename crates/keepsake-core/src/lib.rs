@@ -1,7 +1,10 @@
 pub mod catalog;
 pub mod corpus;
 pub mod error;
+pub mod library;
+pub mod metadata;
 pub mod paths;
+pub mod rebuild;
 pub mod relpath;
 pub mod xmp;
 
