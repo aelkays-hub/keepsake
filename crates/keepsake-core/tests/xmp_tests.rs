@@ -3,11 +3,11 @@
 mod common;
 
 use keepsake_core::catalog::{
-    AssetId, Blake3Hash, CaptureTime, Event, EventId, FileRole, MediaKind, Rating, RecipeId,
-    TagPath,
+    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, Event, EventId, FileRole,
+    GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
 };
 use keepsake_core::relpath::RelPath;
-use keepsake_core::xmp::{ns, sidecar, AssetXmp, FileRef, RecipeRef, XmpPacket};
+use keepsake_core::xmp::{ns, sidecar, AssetXmp, FileRef, RecipeRef, SequenceRef, XmpPacket};
 
 fn tag(s: &str) -> TagPath {
     TagPath::parse_lightroom(s).unwrap()
@@ -54,12 +54,31 @@ fn full_sample() -> AssetXmp {
             FileRef {
                 rel_path: RelPath::parse("PRIVATE/M4ROOT/CLIP/C0001.MP4").unwrap(),
                 role: FileRole::Original,
+                segment_index: None,
             },
             FileRef {
                 rel_path: RelPath::parse("PRIVATE/M4ROOT/SUB/C0001S01.MP4").unwrap(),
                 role: FileRole::CameraProxy,
+                segment_index: None,
+            },
+            FileRef {
+                rel_path: RelPath::parse("PRIVATE/AVCHD/BDMV/STREAM/00002.MTS").unwrap(),
+                role: FileRole::Segment,
+                segment_index: Some(1),
             },
         ],
+        capture_source: Some(CaptureSource::SonyXml),
+        capture_confidence: Some(Confidence::Medium),
+        gps: Some(GpsPoint {
+            lat: -33.856_784,
+            lon: 151.215_297,
+            alt_m: Some(-12.5),
+        }),
+        sequence: Some(SequenceRef {
+            id: SequenceId::new_random(),
+            kind: SequenceKind::Burst,
+            position: 3,
+        }),
     }
 }
 

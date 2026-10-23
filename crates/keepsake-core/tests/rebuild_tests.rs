@@ -614,6 +614,15 @@ fn rebuild_infers_assets_from_sony_layout_and_foreign_sidecars() {
     copy_dir(&common::fixture("xavc"), &vol);
     copy_dir(&common::fixture("dcim"), &vol);
     copy_dir(&common::fixture("avchd"), &vol);
+    // Replace the stub playlist with a real one: 00002 continues 00001.
+    std::fs::write(
+        vol.join("PRIVATE/AVCHD/BDMV/PLAYLIST/00001.MPL"),
+        keepsake_core::probe::avchd::synth::mpl(&[
+            ("00001", 1, 0, 45_000),
+            ("00002", 5, 45_000, 90_000),
+        ]),
+    )
+    .unwrap();
     // A Lightroom `<stem>.xmp` for the DCIM raw pair, and a digiKam sidecar.
     std::fs::copy(
         common::fixture("xmp/lightroom.xmp"),
@@ -634,11 +643,14 @@ fn rebuild_infers_assets_from_sony_layout_and_foreign_sidecars() {
     let report = rebuild_catalog(&mut cat, &lib, rec.id, &vol).unwrap();
     assert!(report.problems.is_empty(), "{:?}", report.problems);
     assert_eq!(report.hidden_skipped, 1);
-    // INDEX.BDM and MOVIEOBJ.BDM belong to no asset.
-    assert_eq!(report.skipped.len(), 2, "{:?}", report.skipped);
+    // INDEX.BDM, MOVIEOBJ.BDM and the playlist are card files, not assets.
+    let mut skipped: Vec<_> = report.skipped.iter().map(|s| s.reason.as_str()).collect();
+    skipped.dedup();
+    assert_eq!(report.skipped.len(), 3, "{:?}", report.skipped);
+    assert_eq!(skipped, vec!["camera card file"]);
 
-    // xavc: 2 clips, dcim: 2 stills, avchd: 2 segments.
-    assert_eq!(report.assets, 6);
+    // xavc: 2 clips, dcim: 2 stills, avchd: one recording of 2 segments.
+    assert_eq!(report.assets, 5);
     let find = |rel: &str| {
         cat.read(|tx| {
             tx.files()
@@ -666,13 +678,36 @@ fn rebuild_infers_assets_from_sony_layout_and_foreign_sidecars() {
     let v = cat.read(|tx| tx.assets().require(clip.asset_id)).unwrap();
     assert_eq!(v.media_kind, MediaKind::Video);
 
+    // AVCHD: the two segments and their clip-info files form one asset.
+    let seg1 = find("PRIVATE/AVCHD/BDMV/STREAM/00001.MTS");
+    let seg2 = find("PRIVATE/AVCHD/BDMV/STREAM/00002.MTS");
+    assert_eq!(seg1.asset_id, seg2.asset_id);
+    assert_eq!((seg1.role, seg1.segment_index), (FileRole::Original, None));
+    assert_eq!(
+        (seg2.role, seg2.segment_index),
+        (FileRole::Segment, Some(1))
+    );
+    assert_eq!(
+        find("PRIVATE/AVCHD/BDMV/CLIPINF/00002.CPI").asset_id,
+        seg1.asset_id
+    );
+    let av = cat.read(|tx| tx.assets().require(seg1.asset_id)).unwrap();
+    assert_eq!(av.media_kind, MediaKind::Video);
+
     // DSC00001: JPG original + ARW/HIF companions, metadata from Lightroom's DSC00001.xmp.
     let jpg = find("DCIM/100MSDCF/DSC00001.JPG");
     assert_eq!(jpg.role, FileRole::Original);
     assert_eq!(find("DCIM/100MSDCF/DSC00001.ARW").role, FileRole::RawPair);
+    assert_eq!(find("DCIM/100MSDCF/DSC00001.HIF").role, FileRole::RawPair);
     let a = cat.read(|tx| tx.assets().require(jpg.asset_id)).unwrap();
     assert_eq!(a.rating.get(), 4);
     assert_eq!(a.label.as_deref(), Some("Red"));
+    // Without probing, Lightroom's date is used and marked as coming from a sidecar.
+    assert_eq!(
+        a.capture_source,
+        Some(keepsake_core::catalog::CaptureSource::Sidecar)
+    );
+    assert_eq!(a.capture.unwrap().utc_offset_min, Some(540));
     // digiKam sidecar for DSC00002.
     let d2 = find("DCIM/100MSDCF/DSC00002.JPG");
     let a2 = cat.read(|tx| tx.assets().require(d2.asset_id)).unwrap();

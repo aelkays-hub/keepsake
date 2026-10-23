@@ -1,6 +1,8 @@
 //! Shared helpers for catalog, XMP and rebuild integration tests.
 #![allow(dead_code)]
 
+pub mod media;
+
 use std::path::{Path, PathBuf};
 
 use keepsake_core::catalog::{Blake3Hash, FileRole, NewFile, VolumeId, VolumeKind};
@@ -47,6 +49,7 @@ pub fn new_file(root: &Path, volume: VolumeId, rel: &RelPath, role: FileRole) ->
         blake3: Blake3Hash::of(&bytes),
         xxh3: None,
         mtime_ms: Some(mtime),
+        segment_index: None,
     }
 }
 

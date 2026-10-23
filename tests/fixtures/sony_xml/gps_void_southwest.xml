@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.10">
+	<Duration value="3000"/>
+	<CreationDate value="2023-01-02T03:04:05-03:00"/>
+	<VideoFormat>
+		<VideoFrame videoCodec="AVC_1920_1080_HP@L42" captureFps="50i" formatFps="50i"/>
+	</VideoFormat>
+	<Device manufacturer="Sony" modelName="FX3"/>
+	<AcquisitionRecord>
+		<Group name="ExifGPS">
+			<Item name="LatitudeRef" value="S"/>
+			<Item name="Latitude" value="34:36:12"/>
+			<Item name="LongitudeRef" value="W"/>
+			<Item name="Longitude" value="58:22:54"/>
+			<Item name="Status" value="V"/>
+		</Group>
+	</AcquisitionRecord>
+</NonRealTimeMeta>

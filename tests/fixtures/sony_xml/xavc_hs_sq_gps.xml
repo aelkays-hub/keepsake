@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.20" xmlns:lib="urn:schemas-professionalDisc:lib:ver.2.10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" lastUpdate="2024-06-15T13:30:10+09:00">
+	<TargetMaterial umidRef="060A2B340101010501010D4313000000000000000000000000000000000000FF"/>
+	<Duration value="240"/>
+	<LtcChangeTable tcFps="24" halfStep="false">
+		<LtcChange frameCount="0" value="12345601" status="increment"/>
+		<LtcChange frameCount="239" value="11005601" status="end"/>
+	</LtcChangeTable>
+	<CreationDate value="2024-06-15T13:30:00+09:00"/>
+	<VideoFormat>
+		<VideoRecPort port="DIRECT"/>
+		<VideoFrame videoCodec="HEVC_3840_2160_M422_10bit@L51" captureFps="119.88p" formatFps="23.98p"/>
+		<VideoLayout pixel="3840" numOfVerticalLine="2160" aspectRatio="16:9"/>
+	</VideoFormat>
+	<AudioFormat numOfChannel="2">
+		<AudioRecPort port="DIRECT" audioCodec="LPCM24" trackDst="CH1"/>
+		<AudioRecPort port="DIRECT" audioCodec="LPCM24" trackDst="CH2"/>
+	</AudioFormat>
+	<Device manufacturer="Sony" modelName="ILCE-7SM3" serialNo="00000001"/>
+	<Lens modelName="FE 24-70mm F2.8 GM II"/>
+	<RecordingMode type="normal" cacheRec="false"/>
+	<AcquisitionRecord>
+		<Group name="CameraUnitMetadataSet">
+			<Item name="CaptureGammaEquation" value="s-log3-cine"/>
+			<Item name="CaptureColorPrimaries" value="S-Gamut3.Cine"/>
+		</Group>
+		<Group name="ExifGPS">
+			<Item name="LatitudeRef" value="N"/>
+			<Item name="Latitude" value="35:39:36.0"/>
+			<Item name="LongitudeRef" value="E"/>
+			<Item name="Longitude" value="139:42:1.8"/>
+			<Item name="AltitudeRef" value="0"/>
+			<Item name="Altitude" value="41/1"/>
+			<Item name="TimeStamp" value="04:30:00.000"/>
+			<Item name="Status" value="A"/>
+			<Item name="MeasureMode" value="3"/>
+			<Item name="MapDatum" value="WGS-84"/>
+			<Item name="DateStamp" value="2024:06:15"/>
+		</Group>
+	</AcquisitionRecord>
+</NonRealTimeMeta>
