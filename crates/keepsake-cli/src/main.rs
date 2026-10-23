@@ -21,6 +21,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::corpus::CorpusAction,
     },
+    /// Library and catalog: index volumes, rebuild, search and edit metadata.
+    Library {
+        #[command(subcommand)]
+        action: commands::library::LibraryAction,
+    },
 }
 
 fn main() -> Result<()> {
@@ -32,6 +37,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Corpus { action } => commands::corpus::run(action)?,
+        Commands::Library { action } => commands::library::run(action)?,
     }
 
     Ok(())
