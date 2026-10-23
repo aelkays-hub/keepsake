@@ -7,9 +7,10 @@
 | 2 (spike) | Playback Gate 1: Tauri asset protocol, proxy timing, AVCHD date, grid scroll | ✅ Done |
 | 3 | Packaging: release CI (Windows x64 + ARM64 installers), OS data dirs, release.md | ✅ Done |
 | 4 | Catalog: SQLite + migrations, typed repositories, XMP sidecars, rebuild, path property tests | ✅ Done (Windows CI; macOS CI still deferred) |
+| 5 | Probing: ExifTool stay-open, ffprobe, Sony XML, AVCHD, grouping, capture-time confidence | ✅ Done (corpus entries still to be confirmed; no AVCHD media in corpus) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
-| 2 | Sony card layout parser and asset grouper | ⬜ Pending |
-| 3 | Probe: ExifTool integration and Sony XML sidecar reader | ⬜ Pending |
+| 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
+| 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ⬜ Pending |
 | 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
 | 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
@@ -29,6 +30,60 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 5 — Probing (2026-10-23)
+
+### What was built
+
+**Tools (`keepsake_core::probe`)**
+- `ExifTool`: one `-stay_open` process on a worker thread; queued requests from any thread; per-request timeout; kill-and-restart on timeout or crash; UTF-8 file names; large-file support.
+- `ffprobe`: codec/profile, size, fps, duration, bit depth + chroma (from `pix_fmt`), clockwise rotation, timecode, container creation time.
+- `ToolPaths::discover()` finds the vendored tools; `scripts/setup.ps1 -VendorOnly` downloads only them (used by CI).
+
+**Parsers**
+- `sony_xml`: `NonRealTimeMeta` creation date with offset, frame-accurate duration (format fps, so S&Q is right), LTC timecode with drop-frame flag, make/model/serial, lens, recording mode, GPS (`ExifGPS`).
+- `avchd`: `MPLS` playlists → recordings (seamless PlayItems joined), `HDMV` clip info, MDPM date scanner; byte builders in `avchd::synth` for tests.
+
+**Grouping (`keepsake_core::grouping`)** replaces the old path-stem grouper and rebuild's role logic: XAVC + XML + SUB proxy + THMBNL thumbnail; JPG > HEIF > RAW stills; AVCHD recordings (`segment` role); card bookkeeping files listed separately. `grouping::sequences` flags bursts, brackets and intervals.
+
+**Capture time (`probe::capture`)**: documented precedence, UTC offset handling, offset borrowing from same-camera neighbours, offset derived from local clock + UTC container, conflict detection, confidence high/medium/low.
+
+**Catalog v2 (migration 0002)**: `capture_source`, `capture_confidence`, GPS on assets; `segment` role and `segment_index` on files (table rebuilt with foreign keys off, then checked); `sequences` and `asset_sequences`. Sidecars carry the new fields.
+
+**Rebuild** probes assets without a Keepsake sidecar (`rebuild_catalog_with(.., Some(&prober))`); the CLI does this by default (`--no-probe` to skip).
+
+**CLI**: `keepsake probe <folder> [--json]`; `keepsake corpus init-expected --probe` pre-fills unconfirmed entries (`prefilled = true`).
+
+**Corpus**: `corpus/expected.toml` regenerated with the new grouping (48 assets: 45 stills, 3 XAVC clips; card files no longer listed) and pre-filled from the probe. **No entry is confirmed yet.**
+
+**Tests**
+- Unit: ffprobe parsing, pixel formats, rotation; Sony LTC, fps strings, DMS; MPL/CPI/MDPM; recordings; capture precedence, conflicts, borrowing, EXIF dates; grouping layouts; sequences; v1→v2 migration keeps rows and foreign keys.
+- `probe_tests.rs` (12): Sony XML fixtures (`tests/fixtures/sony_xml/`); ExifTool on Unicode/space paths, concurrency, missing files, timeout-then-restart (with a hanging stand-in); ffprobe on generated H.264 (rotation, timecode, creation time) and 10-bit 4:2:2 ProRes; an end-to-end generated card (two XAVC clips incl. a 1-hour conflict, a timing burst, a borrowed offset, a two-segment AVCHD recording with MDPM); rebuild with probing is stable.
+- `corpus_tests.rs`: `corpus_matches_every_confirmed_entry` (exact grouping, capture time incl. offset, model, duration; **fails while nothing is confirmed**) and `corpus_probes_cleanly` (passes on the ILCE-7M4 card).
+
+### Verified on the real corpus (ILCE-7M4)
+All 45 stills: EXIF time with sub-seconds and −05:00, high confidence. 3 XAVC clips: XML time, high; durations from frames (9509 / 13513 / 6506 ms); timecode continues across clips. Sequences: bursts of 18 and 5, five 3-frame brackets.
+
+### Not done / known limits
+- Corpus entries must be checked against the camera and set `confirmed = true`; until then the confirmed-entry test fails by design.
+- No AVCHD, HEIF, SUB-proxy or GPS media in the corpus: those paths are tested with fixtures and generated files only.
+- Sony XML GPS layout follows ExifTool's documentation, unverified on a real clip.
+- macOS CI still deferred.
+- ADR-005 corrected: the vendored x64 FFmpeg is LGPLv3 (`--enable-version3`), not LGPL-2.1.
+
+### Files changed
+- `crates/keepsake-core/src/probe/**` — NEW: exiftool, ffprobe, sony_xml, avchd, capture, asset prober, tools
+- `crates/keepsake-core/src/grouping.rs`, `grouping/sequences.rs` — NEW
+- `crates/keepsake-core/src/catalog/migrations/0002_probe.sql`, `migrations.rs`, `model.rs`, `ids.rs`, `repo/{assets,files,sequences}.rs`, `snapshot.rs` — schema v2
+- `crates/keepsake-core/src/rebuild.rs`, `metadata.rs`, `xmp/mod.rs`, `corpus/{grouper,probed,types}.rs`
+- `crates/keepsake-cli/src/commands/{probe,library,corpus}.rs`, `main.rs`
+- `crates/keepsake-core/tests/{probe_tests,corpus_tests,rebuild_tests,fixture_tests,xmp_tests}.rs`, `tests/common/media.rs`
+- `tests/fixtures/sony_xml/*.xml` — NEW; `tests/fixtures/xavc/**/C000?M01.XML`, `scripts/make-fixtures.*` — frame-count durations
+- `scripts/setup.ps1` (`-VendorOnly`), `.github/workflows/ci.yml` (real binaries, cached)
+- `corpus/expected.toml` — regenerated and pre-filled
+- `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADR-005 fix, ADR-014, ADR-015), `docs/SPEC.md`, `TEST_ME.md`
 
 ---
 

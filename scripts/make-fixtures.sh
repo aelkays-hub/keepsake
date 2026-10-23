@@ -64,7 +64,7 @@ sony_xml() {
 <NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.00" lastUpdate="$ts">
   <Device manufacturer="Sony" modelName="ILCE-7M4"/>
   <CreationDate value="$ts"/>
-  <Duration value="PT1S"/>
+  <Duration value="25"/>
   <VideoFormat>
     <VideoFrame videoCodec="AVC" captureFps="25"/>
   </VideoFormat>

@@ -8,9 +8,10 @@ use serde::Serialize;
 
 use super::error::CatalogError;
 use super::fts;
-use super::repo::{Assets, Events, Files, Recipes, Sidecars, Tags, Volumes};
+use super::repo::{Assets, Events, Files, Recipes, Sequences, Sidecars, Tags, Volumes};
 use super::{
-    Asset, AssetId, AssetTag, EditRecipe, Event, File, Ro, SidecarRecord, VolumeId, VolumeKind,
+    Asset, AssetId, AssetTag, EditRecipe, Event, File, Ro, SequenceId, SequenceKind, SidecarRecord,
+    VolumeId, VolumeKind,
 };
 use crate::relpath::CaseSensitivity;
 
@@ -33,6 +34,8 @@ pub struct AssetSnapshot {
     pub tags: Vec<AssetTag>,
     pub recipes: Vec<EditRecipe>,
     pub sidecars: Vec<SidecarRecord>,
+    /// `(sequence, kind, position)` when the asset is part of a run.
+    pub sequence: Option<(SequenceId, SequenceKind, u32)>,
 }
 
 /// One row of the full-text index.
@@ -84,6 +87,9 @@ pub(crate) fn take(conn: &rusqlite::Connection) -> Result<CatalogSnapshot, Catal
         let mut recipes = Recipes::<Ro>::new(conn).for_asset(id)?;
         recipes.sort_by_key(|r| r.id);
         let sidecars = Sidecars::<Ro>::new(conn).for_asset(id)?;
+        let sequence = Sequences::<Ro>::new(conn)
+            .for_asset(id)?
+            .map(|(s, pos)| (s.id, s.kind, pos));
         if let Some(t) = fts::stored(conn, id)? {
             fts_rows.push(FtsRow {
                 asset_id: id,
@@ -98,6 +104,7 @@ pub(crate) fn take(conn: &rusqlite::Connection) -> Result<CatalogSnapshot, Catal
             tags,
             recipes,
             sidecars,
+            sequence,
         });
     }
 

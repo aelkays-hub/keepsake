@@ -243,8 +243,14 @@ fn xavc_grouper_clip_stems() {
 fn avchd_grouper_produces_groups() {
     let files = scan_fixture("avchd");
     let expected = grouper::group("test-cam", &files);
-    // 00001 group (MTS+CPI+MPL), 00002 group (MTS+CPI), bdmv_meta (INDEX+MOVIEOBJ) = 3
-    assert_eq!(expected.asset.len(), 3, "expected 3 AVCHD groups");
+    // Without reading playlists: 00001 (MTS+CPI) and 00002 (MTS+CPI).
+    // INDEX.BDM, MOVIEOBJ.BDM and the playlist are card files, not assets.
+    assert_eq!(expected.asset.len(), 2, "expected 2 AVCHD groups");
+    for a in &expected.asset {
+        assert_eq!(a.files.len(), 2, "{:?}", a.files);
+        assert!(a.files.iter().any(|f| f.ends_with(".MTS")));
+        assert!(a.files.iter().any(|f| f.ends_with(".CPI")));
+    }
 }
 
 #[test]

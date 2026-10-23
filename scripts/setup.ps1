@@ -1,6 +1,8 @@
 # Keepsake dev-environment setup - Windows
 # Re-running is safe; every step is idempotent.
 #Requires -Version 5.1
+# -VendorOnly: only download the pinned FFmpeg/ffprobe/ExifTool into vendor# (used by CI; skips installing Rust, Node and pnpm).
+param([switch]$VendorOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -49,6 +51,7 @@ function Invoke-MirroredDownload {
 $Arch = $env:PROCESSOR_ARCHITECTURE
 Write-Info "Architecture: $Arch"
 
+if (-not $VendorOnly) {
 # -- 1. Rust stable -----------------------------------------------------------
 Write-Info "Checking Rust toolchain..."
 if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
@@ -79,6 +82,7 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
 }
 $pnpmVer = pnpm --version
 Write-Info "  OK pnpm $pnpmVer"
+} # end if (-not $VendorOnly)
 
 # -- 4. FFmpeg / ffprobe (LGPL, BtbN build, mirrored) ------------------------
 # Source: https://github.com/BtbN/FFmpeg-Builds - LGPL builds include no GPL

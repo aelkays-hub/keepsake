@@ -10,7 +10,8 @@ define_repo!(
     Files
 );
 
-const COLS: &str = "id, asset_id, volume_id, rel_path, role, size_bytes, blake3, xxh3, mtime_ms";
+const COLS: &str =
+    "id, asset_id, volume_id, rel_path, role, size_bytes, blake3, xxh3, mtime_ms, segment_index";
 
 fn map(r: &Row<'_>) -> rusqlite::Result<File> {
     let xxh3: Option<i64> = r.get(7)?;
@@ -25,6 +26,7 @@ fn map(r: &Row<'_>) -> rusqlite::Result<File> {
         // xxh3 is a 64-bit hash stored bit-for-bit in an INTEGER column.
         xxh3: xxh3.map(|v| v as u64),
         mtime_ms: r.get(8)?,
+        segment_index: r.get(9)?,
     })
 }
 
@@ -122,8 +124,8 @@ impl Files<'_, Rw> {
         let id = FileId::for_location(f.volume_id, &key);
         self.conn.execute(
             "INSERT INTO files (id, asset_id, volume_id, rel_path, rel_path_key, file_name, role,
-                                size_bytes, blake3, xxh3, mtime_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                size_bytes, blake3, xxh3, mtime_ms, segment_index)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 id,
                 asset,
@@ -135,7 +137,9 @@ impl Files<'_, Rw> {
                 to_i64(f.size_bytes, "size")?,
                 f.blake3,
                 f.xxh3.map(|v| v as i64),
-                f.mtime_ms
+                f.mtime_ms,
+                // Segment positions are only stored for segments (> 0).
+                f.segment_index.filter(|i| *i > 0)
             ],
         )
         .map_err(|e| match CatalogError::from(e) {
@@ -155,6 +159,7 @@ impl Files<'_, Rw> {
             blake3: f.blake3,
             xxh3: f.xxh3,
             mtime_ms: f.mtime_ms,
+            segment_index: f.segment_index.filter(|i| *i > 0),
         })
     }
 

@@ -21,13 +21,14 @@ use rusqlite::{Connection, TransactionBehavior};
 
 pub use error::CatalogError;
 pub use ids::{
-    AssetId, Blake3Hash, EventId, FileId, ImportSessionId, RecipeId, RenditionId, VolumeId,
+    AssetId, Blake3Hash, EventId, FileId, ImportSessionId, RecipeId, RenditionId, SequenceId,
+    VolumeId,
 };
 pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
     Assets, DayCount, EventSpan, Events, Files, Imports, Labels, Meta, Recipes, Renditions, Search,
-    Sidecars, Tags, Volumes,
+    Sequences, Sidecars, Tags, Volumes,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -68,6 +69,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(imports, Imports);
     repo_accessor!(sidecars, Sidecars);
     repo_accessor!(search, Search);
+    repo_accessor!(sequences, Sequences);
 
     /// Canonical dump of everything a rebuild must reproduce.
     pub fn snapshot(&self) -> Result<CatalogSnapshot, CatalogError> {

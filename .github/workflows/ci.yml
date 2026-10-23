@@ -70,17 +70,18 @@ jobs:
 
       # WebView2 is pre-installed on windows-latest; no extra system deps needed.
 
-      # tauri-build fails when a declared bundle resource is missing. vendor/ is
-      # gitignored and not downloaded in CI, so create empty placeholders. The
-      # release workflow downloads the real, checksum-verified binaries.
-      - name: Create placeholder sidecar binaries
-        shell: bash
-        run: |
-          mkdir -p vendor/exiftool/exiftool_files
-          for f in vendor/exiftool/exiftool.exe vendor/ffmpeg.exe vendor/ffprobe.exe; do
-            [ -e "$f" ] || : > "$f"
-          done
-          [ -n "$(ls -A vendor/exiftool/exiftool_files)" ] || : > vendor/exiftool/exiftool_files/.placeholder
+      # Real, checksum-verified FFmpeg/ffprobe/ExifTool from the vendor-binaries
+      # mirror (ADR-005). tauri-build needs them as bundle resources and the
+      # probe tests run them. Cached by the setup script's content.
+      - name: Cache vendor binaries
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ runner.os }}-${{ hashFiles('scripts/setup.ps1') }}
+
+      - name: Download vendor binaries
+        shell: pwsh
+        run: ./scripts/setup.ps1 -VendorOnly
 
       # ── Rust checks ─────────────────────────────────────────────────────────
       - name: cargo fmt --check

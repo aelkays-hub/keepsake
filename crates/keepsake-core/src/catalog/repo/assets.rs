@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::define_repo;
 use crate::catalog::error::CatalogError;
 use crate::catalog::repo::labels::ensure_label;
-use crate::catalog::{fts, Asset, AssetId, CaptureTime, EventId, Rating, Rw};
+use crate::catalog::{fts, Asset, AssetId, CaptureTime, EventId, GpsPoint, Rating, Rw};
 
 define_repo!(
     /// Logical assets.
@@ -21,7 +21,8 @@ pub struct DayCount {
 
 const SELECT: &str = "SELECT a.id, a.media_kind, a.capture_ts_ms, a.capture_utc_offset_min,
        a.capture_shift_s, a.duration_ms, a.camera_make, a.camera_model, a.lens_model,
-       a.event_id, a.rating, l.name, a.comment, a.created_ms, a.metadata_ms
+       a.event_id, a.rating, l.name, a.comment, a.created_ms, a.metadata_ms,
+       a.capture_source, a.capture_confidence, a.gps_lat, a.gps_lon, a.gps_alt_m
   FROM assets a LEFT JOIN labels l ON l.id = a.label_id";
 
 fn map(r: &Row<'_>) -> rusqlite::Result<Asset> {
@@ -46,6 +47,16 @@ fn map(r: &Row<'_>) -> rusqlite::Result<Asset> {
         comment: r.get(12)?,
         created_ms: r.get(13)?,
         metadata_ms: r.get(14)?,
+        capture_source: r.get(15)?,
+        capture_confidence: r.get(16)?,
+        gps: match (r.get::<_, Option<f64>>(17)?, r.get::<_, Option<f64>>(18)?) {
+            (Some(lat), Some(lon)) => Some(GpsPoint {
+                lat,
+                lon,
+                alt_m: r.get(19)?,
+            }),
+            _ => None,
+        },
     })
 }
 
@@ -129,8 +140,10 @@ impl Assets<'_, Rw> {
         self.conn.execute(
             "INSERT INTO assets (id, media_kind, capture_ts_ms, capture_utc_offset_min,
                 capture_shift_s, duration_ms, camera_make, camera_model, lens_model,
-                event_id, rating, label_id, comment, created_ms, metadata_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                event_id, rating, label_id, comment, created_ms, metadata_ms,
+                capture_source, capture_confidence, gps_lat, gps_lon, gps_alt_m)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     ?16, ?17, ?18, ?19, ?20)",
             params![
                 a.id,
                 a.media_kind,
@@ -146,7 +159,12 @@ impl Assets<'_, Rw> {
                 label_id,
                 a.comment,
                 a.created_ms,
-                a.metadata_ms
+                a.metadata_ms,
+                a.capture_source,
+                a.capture_confidence,
+                a.gps.map(|g| g.lat),
+                a.gps.map(|g| g.lon),
+                a.gps.and_then(|g| g.alt_m)
             ],
         )?;
         fts::reindex(self.conn, a.id)
@@ -163,7 +181,8 @@ impl Assets<'_, Rw> {
             "UPDATE assets SET media_kind = ?2, capture_ts_ms = ?3, capture_utc_offset_min = ?4,
                 capture_shift_s = ?5, duration_ms = ?6, camera_make = ?7, camera_model = ?8,
                 lens_model = ?9, event_id = ?10, rating = ?11, label_id = ?12, comment = ?13,
-                created_ms = ?14, metadata_ms = ?15
+                created_ms = ?14, metadata_ms = ?15, capture_source = ?16,
+                capture_confidence = ?17, gps_lat = ?18, gps_lon = ?19, gps_alt_m = ?20
              WHERE id = ?1",
             params![
                 a.id,
@@ -180,7 +199,12 @@ impl Assets<'_, Rw> {
                 label_id,
                 a.comment,
                 a.created_ms,
-                a.metadata_ms
+                a.metadata_ms,
+                a.capture_source,
+                a.capture_confidence,
+                a.gps.map(|g| g.lat),
+                a.gps.map(|g| g.lon),
+                a.gps.and_then(|g| g.alt_m)
             ],
         )?;
         if n == 0 {

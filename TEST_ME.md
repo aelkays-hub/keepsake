@@ -1,117 +1,83 @@
-# Manual Test Steps — Prompt 4: Catalog
+# Manual Test Steps — Prompt 5: Probing
 
 Test on: **Windows 11 x64** (primary) and **macOS 14+** (Apple Silicon) when available.
-Commands are run from the repo root. On Windows use PowerShell; on macOS use Terminal.
+Run commands from the repo root (PowerShell on Windows, Terminal on macOS).
 
-You need a folder of test files to act as a "card". The repo's fixtures work:
-they are tiny stand-in files, not real media, which is enough to test the catalog.
+You need the vendored tools. Run once:
+
+- **Windows:** `./scripts/setup.ps1 -VendorOnly`
+- **macOS:** `./scripts/setup.sh` (ExifTool only; macOS FFmpeg is still deferred, so the ffprobe steps cannot run there yet)
+
+Build the CLI: `cargo build -p keepsake-cli`. Below, `$K` is `.\target\debug\keepsake.exe` (Windows) or `./target/debug/keepsake` (macOS).
 
 ---
 
 ## A. Automated tests
 
-1. Run:
-   ```
-   cargo test --workspace
-   ```
-2. **Expected:** every suite passes, including:
-   - `catalog_tests` — 15 passed
-   - `xmp_tests` — 10 passed
-   - `rebuild_tests` — 9 passed
-   - `path_props` — 6 passed
-3. Run the linters:
-   ```
-   cargo fmt --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   ```
-   **Expected:** no output and no errors.
+1. `cargo test --workspace`
+   **Expected:** everything passes, including `probe_tests` (12 passed) and `rebuild_tests` (9 passed).
+2. `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`
+   **Expected:** no output.
 
 ---
 
-## B. Create a library and index a card
+## B. Probe your corpus card
 
-1. Build the CLI: `cargo build -p keepsake-cli`
-2. Make a test card from the fixtures:
+1. Run: `& $K probe "$env:KEEPSAKE_CORPUS\cards\ILCE-7M4"`
+2. **Expected:**
+   - First line: `48 assets, 2 card files, 0 other files`.
+   - Each still shows a time like `2026-10-14T17:56:12.285-05:00  [exif / high]  ILCE-7M4  24-70mm F2.8 DG DN | Art 019`.
+   - `A7404967.JPG` lists `+ DCIM/10061014/A7404967.ARW (raw_pair)`.
+   - Each clip (`C0006`–`C0008`) shows `[sony_xml / high]`, a duration such as `9.509 s`, `h264 1920x1080 8-bit Yuv420`, and a timecode. It also lists its `M01.XML` and `THMBNL/…T01.JPG` as sidecars.
+   - At the end: `burst of 18 …`, `burst of 5 …` and five `bracket of 3 …` lines.
+3. Spot-check against the camera: pick 3 stills and 1 clip, view them on the camera (or its info display), and compare date, time and model. **Expected:** identical, with the time in the camera's local zone (−05:00).
+4. `& $K probe "$env:KEEPSAKE_CORPUS\cards\ILCE-7M4" --json > probe.json` — **Expected:** valid JSON with `groups`, `sequences` and `card_files` (`DATABASE.BIN`, `MEDIAPRO.XML`). Delete `probe.json` afterwards.
+
+---
+
+## C. Confirm corpus entries (needed for the corpus test)
+
+`corpus/expected.toml` has been regenerated and pre-filled. Every entry shows `prefilled = true` and `confirmed = false`.
+
+1. Run: `cargo test -p keepsake-core --test corpus_tests -- --include-ignored corpus`
+   **Expected now:** `corpus_probes_cleanly` passes; `corpus_matches_every_confirmed_entry` **fails** with "no confirmed entries" (by design).
+2. For each asset you checked on the camera in B.3: edit `corpus/expected.toml`, check `capture_ts`, `camera_model` and `duration_ms` (clips), then set `confirmed = true`. Fix any value that is wrong instead of confirming it.
+3. Run the test again. **Expected:** `Verified N confirmed asset(s)` and both tests pass. If a value differs, the failure names the files and shows the expected and actual values.
+4. Commit `corpus/expected.toml`.
+
+---
+
+## D. Index a card into a library (uses probing)
+
+1. Make a test copy, so nothing is written to your corpus:
    - **Windows:**
      ```powershell
-     $T = "$env:TEMP\keepsake-test"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
-     New-Item -ItemType Directory "$T\card" | Out-Null
-     Copy-Item -Recurse tests\fixtures\xavc\* "$T\card\"
-     Copy-Item -Recurse tests\fixtures\dcim\* "$T\card\"
-     $K = ".\target\debug\keepsake.exe"
+     $T = "$env:TEMP\keepsake-probe"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
+     New-Item -ItemType Directory "$T\card\PRIVATE\M4ROOT\CLIP" | Out-Null
+     Copy-Item -Recurse "$env:KEEPSAKE_CORPUS\cards\ILCE-7M4\DCIM" "$T\card\"
+     Copy-Item "$env:KEEPSAKE_CORPUS\cards\ILCE-7M4\PRIVATE\M4ROOT\CLIP\C0008*" "$T\card\PRIVATE\M4ROOT\CLIP\"
      ```
-   - **macOS:**
-     ```bash
-     T=/tmp/keepsake-test; rm -rf $T; mkdir -p $T/card
-     cp -R tests/fixtures/xavc/* tests/fixtures/dcim/* $T/card/
-     K=./target/debug/keepsake
-     ```
-3. Create the library: `& $K library init "$T\lib"` (macOS: `$K library init $T/lib`)
-   **Expected:** `Created library <uuid> at …`. The folder contains `library.json`, `volumes.json`, `catalog.db`, `recipes/`, `sidecars/`.
-4. Add the card: `& $K library add-volume "$T\lib" "$T\card" --label "Test card" --kind card`
-   **Expected:** `Volume Test card (…) - writable, case-insensitive` then `4 assets, 10 files indexed`.
-   (2 XAVC clips with their XML and proxy, plus 2 DCIM stills. DSC00001's JPG, ARW and HIF count as one asset.)
-5. `& $K library stats "$T\lib"`
-   **Expected:** `Assets: 4`, `Files: 10`, the volume shown as online. "Days" is empty for now: capture dates come from ExifTool, which isn't connected yet.
+2. `& $K library init "$T\lib"` then `& $K library add-volume "$T\lib" "$T\card" --label "A7IV card" --kind card`
+   **Expected:** `46 assets (46 probed), … 7 sequences` (45 stills + clip C0008).
+3. `& $K library stats "$T\lib"` — **Expected:** `Days:` shows `2026-10-14  46` (the calendar uses the probed local date).
+4. `& $K library edit "$T\lib" "$T\card\DCIM\10061014\A7404971.ARW" --rating 3`, then open `A7404971.ARW.xmp`.
+   **Expected:** it contains `keepsake:CaptureSource` `exif`, `keepsake:CaptureConfidence` `high`, and a `keepsake:Sequence` with `Kind` `burst`.
+5. `& $K library rebuild "$T\lib" --fresh --no-probe` then `stats`.
+   **Expected:** 46 assets and `Days:` shows **1** asset: only A7404971 got a date back, from its sidecar. Without probing, unedited assets have no date. Run `library rebuild "$T\lib" --fresh` (with probing) and all 46 return.
+6. Delete `$T`.
 
 ---
 
-## C. Edit metadata and check the sidecar
+## E. Without the tools
 
-1. Run:
-   ```
-   & $K library edit "$T\lib" "$T\card\DCIM\100MSDCF\DSC00001.JPG" --rating 4 --label Red --comment "Café test" --tag "Travel|Japan" --tag Family
-   ```
-   **Expected:** `Updated asset …` and one sidecar `DCIM/100MSDCF/DSC00001.JPG.xmp (beside)`.
-2. Open `card\DCIM\100MSDCF\DSC00001.JPG.xmp` in a text editor.
-   **Expected:** you see `<xmp:Rating>4</xmp:Rating>`, `<xmp:Label>Red</xmp:Label>`, `Café test`, `Travel|Japan` under `lr:hierarchicalSubject` and `Travel/Japan` under `digiKam:TagsList`.
-3. Confirm the JPG itself did not change: its size and modified date are the same as in `tests\fixtures\dcim\DCIM\100MSDCF\`.
-4. `& $K library search "$T\lib" japan` and `… search "$T\lib" cafe`
-   **Expected:** both find `DCIM/100MSDCF/DSC00001.JPG rating=4 label=Red tags=[Family, Travel|Japan]`. "cafe" matches "Café" because accents are ignored.
-5. Try a shift: `& $K library edit "$T\lib" "$T\card\DCIM\100MSDCF\DSC00001.JPG" --shift-seconds -3600`
-   **Expected:** an error saying the asset has no capture time (expected until ExifTool is connected).
+1. Rename `vendor\exiftool` temporarily, then run `& $K probe "$env:KEEPSAKE_CORPUS\cards\ILCE-7M4"`.
+   **Expected:** a clear error saying ExifTool was not found, mentioning the setup script.
+2. `library add-volume` in that state prints `note: not probing media …` and still indexes the files.
+3. Rename the folder back.
 
 ---
 
-## D. Delete the catalog and rebuild
+## F. macOS-specific checks
 
-1. `& $K library rebuild "$T\lib" --fresh`
-   **Expected:** `Deleted catalog; rebuilding from files and sidecars.` then `4 assets, 10 files indexed, 1 sidecars read`.
-2. Repeat C.4 (search).
-   **Expected:** same result: rating, label, tags and comment came back from the sidecar.
-3. Delete `catalog.db` (and any `catalog.db-wal` / `catalog.db-shm`) by hand, then run `library rebuild` without `--fresh`.
-   **Expected:** same result again.
-
----
-
-## E. Read-only volume
-
-1. Make a second folder with a copy of a photo, then add it as read-only:
-   - **Windows:**
-     ```powershell
-     New-Item -ItemType Directory "$T\backup" | Out-Null
-     Copy-Item tests\fixtures\dcim\DCIM\100MSDCF\DSC00002.JPG "$T\backup\"
-     & $K library add-volume "$T\lib" "$T\backup" --label Backup --read-only
-     & $K library edit "$T\lib" "$T\backup\DSC00002.JPG" --rating 2
-     ```
-   - **macOS:** the same with `/` paths.
-2. **Expected:** the edit lists a sidecar marked `(mirror)`. No `.xmp` file appears in `backup\`. A file `lib\sidecars\<volume-uuid>\DSC00002.JPG.xmp` exists.
-3. `& $K library rebuild "$T\lib" --fresh` then `& $K library stats "$T\lib"`.
-   **Expected:** both volumes listed. `search "$T\lib" DSC00002` shows two results: the card copy (`rating=0`) and the backup copy (`rating=2`). They are separate assets because nothing links them yet; ingest will link copies by hash in a later prompt.
-
----
-
-## F. Lightroom / digiKam interop (optional)
-
-1. Copy `tests\fixtures\xmp\lightroom.xmp` to `$T\card\DCIM\100MSDCF\DSC00002.JPG.xmp`, then run `library rebuild "$T\lib" --fresh`.
-2. **Expected:** `search "$T\lib" tokyo` finds DSC00002 with `rating=4 label=Red` and the comment "Sunset at Shibuya & friends".
-3. If you have Lightroom Classic or digiKam: open the `card` folder, read metadata from files, and check that DSC00001 shows 4 stars, the Red label, the comment and the keywords. (Lightroom reads `<name>.<ext>.xmp` sidecars for JPEGs; for raw files it only reads `<stem>.xmp`, which Keepsake doesn't write yet.)
-
----
-
-## G. macOS-specific checks
-
-1. Run section A on macOS.
-2. In section B, put a folder with an accented name (for example `Café`) on the card, containing a copy of a JPG, before running `add-volume`.
-   **Expected:** the file is indexed once. Searching `cafe` finds it.
-3. Clean up: delete the `$T` folder.
+1. Run section A with `vendor/exiftool/exiftool` present. **Expected:** the ExifTool tests pass. The ffprobe tests and the end-to-end card test skip locally until macOS FFmpeg is added (on CI they would fail, which is intended).
+2. Run `& $K probe` on a card copy whose folder names contain accents (APFS stores them as typed). **Expected:** the same results as on Windows.

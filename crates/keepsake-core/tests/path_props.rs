@@ -160,6 +160,7 @@ fn insert(cat: &mut Catalog, vol: VolumeId, asset: AssetId, rel: &str) -> Result
         blake3: Blake3Hash::of(b""),
         xxh3: None,
         mtime_ms: None,
+        segment_index: None,
     };
     cat.write(|tx| tx.files().insert(asset, &f).map(|_| ()))
 }

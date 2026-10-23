@@ -33,6 +33,7 @@ fn file(vol: VolumeId, rel: &str, role: FileRole) -> NewFile {
         blake3: Blake3Hash::of(rel.as_bytes()),
         xxh3: Some(u64::MAX),
         mtime_ms: Some(1),
+        segment_index: None,
     }
 }
 

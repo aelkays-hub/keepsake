@@ -13,7 +13,7 @@
 //! | duration | `xmpDM:duration` | |
 //! | everything else | `keepsake:*` | |
 
-mod dom;
+pub(crate) mod dom;
 pub mod packet;
 pub mod sidecar;
 
@@ -23,8 +23,8 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use thiserror::Error;
 
 use crate::catalog::{
-    AssetId, Blake3Hash, CaptureTime, Event, EventId, FileRole, MediaKind, Rating, RecipeId,
-    TagPath,
+    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, Event, EventId, FileRole,
+    GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
 };
 use crate::relpath::{path_key, CaseSensitivity, RelPath};
 use packet::{field, Field, ReadField};
@@ -93,6 +93,16 @@ pub struct FileRef {
     /// Relative to the volume root.
     pub rel_path: RelPath,
     pub role: FileRole,
+    /// Position of an AVCHD `segment` file (1, 2, ...).
+    pub segment_index: Option<u32>,
+}
+
+/// The burst/bracket/interval run an asset belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SequenceRef {
+    pub id: SequenceId,
+    pub kind: SequenceKind,
+    pub position: u32,
 }
 
 /// Everything Keepsake reads from or writes to an asset's sidecar.
@@ -116,6 +126,10 @@ pub struct AssetXmp {
     pub event: Option<Event>,
     pub recipes: Vec<RecipeRef>,
     pub files: Vec<FileRef>,
+    pub capture_source: Option<CaptureSource>,
+    pub capture_confidence: Option<Confidence>,
+    pub gps: Option<GpsPoint>,
+    pub sequence: Option<SequenceRef>,
 }
 
 const DIGIKAM_COLORS: &[(i64, &str)] = &[
@@ -334,9 +348,25 @@ impl AssetXmp {
                 Some(FileRef {
                     rel_path: RelPath::parse(field(f, ns::KEEPSAKE, "Path")?).ok()?,
                     role: FileRole::parse(field(f, ns::KEEPSAKE, "Role")?.trim())?,
+                    segment_index: field(f, ns::KEEPSAKE, "SegmentIndex")
+                        .and_then(|v| v.trim().parse().ok()),
                 })
             })
             .collect();
+        x.capture_source = p
+            .simple(ns::KEEPSAKE, "CaptureSource")
+            .and_then(|v| CaptureSource::parse(v.trim()));
+        x.capture_confidence = p
+            .simple(ns::KEEPSAKE, "CaptureConfidence")
+            .and_then(|v| Confidence::parse(v.trim()));
+        x.gps = read_gps(p);
+        x.sequence = p.structure(ns::KEEPSAKE, "Sequence").and_then(|f| {
+            Some(SequenceRef {
+                id: SequenceId(parse_uuid(field(&f, ns::KEEPSAKE, "ID"))?),
+                kind: SequenceKind::parse(field(&f, ns::KEEPSAKE, "Kind")?.trim())?,
+                position: field(&f, ns::KEEPSAKE, "Position")?.trim().parse().ok()?,
+            })
+        });
         x
     }
 
@@ -480,13 +510,131 @@ impl AssetXmp {
             .files
             .iter()
             .map(|f| {
-                vec![
+                let mut v = vec![
                     (ns::KEEPSAKE, "Path", f.rel_path.to_string()),
                     (ns::KEEPSAKE, "Role", f.role.as_str().to_owned()),
-                ]
+                ];
+                if let Some(i) = f.segment_index {
+                    v.push((ns::KEEPSAKE, "SegmentIndex", i.to_string()));
+                }
+                v
             })
             .collect();
         p.set_struct_array(ns::KEEPSAKE, "Files", ArrayKind::Bag, &files);
+
+        set_opt(
+            p,
+            ns::KEEPSAKE,
+            "CaptureSource",
+            self.capture_source.map(|c| c.as_str().to_owned()),
+        );
+        set_opt(
+            p,
+            ns::KEEPSAKE,
+            "CaptureConfidence",
+            self.capture_confidence.map(|c| c.as_str().to_owned()),
+        );
+        write_gps(p, self.gps);
+        let seq: Option<Vec<Field>> = self.sequence.map(|s| {
+            vec![
+                (ns::KEEPSAKE, "ID", s.id.to_string()),
+                (ns::KEEPSAKE, "Kind", s.kind.as_str().to_owned()),
+                (ns::KEEPSAKE, "Position", s.position.to_string()),
+            ]
+        });
+        p.set_struct(ns::KEEPSAKE, "Sequence", seq.as_deref());
+    }
+}
+
+/// `exif:GPSLatitude` form: `DDD,MM.mmmmmmK`.
+fn format_coord(v: f64, pos: char, neg: char) -> String {
+    let hemi = if v < 0.0 { neg } else { pos };
+    let a = v.abs();
+    let deg = a.trunc();
+    let min = (a - deg) * 60.0;
+    format!("{},{:.6}{}", deg as i64, min, hemi)
+}
+
+/// Parse `DDD,MM.mmK`, `DDD,MM,SSK` or a plain decimal.
+fn parse_coord(s: &str) -> Option<f64> {
+    let s = s.trim();
+    let (body, sign) = match s.chars().last()? {
+        'N' | 'E' | 'n' | 'e' => (&s[..s.len() - 1], 1.0),
+        'S' | 'W' | 's' | 'w' => (&s[..s.len() - 1], -1.0),
+        _ => (s, 1.0),
+    };
+    let parts: Vec<f64> = body
+        .split(',')
+        .map(|p| p.trim().parse::<f64>().ok())
+        .collect::<Option<_>>()?;
+    let v = match parts.as_slice() {
+        [d] => *d,
+        [d, m] => d + m / 60.0,
+        [d, m, sec] => d + m / 60.0 + sec / 3600.0,
+        _ => return None,
+    };
+    Some(sign * v)
+}
+
+fn read_gps(p: &XmpPacket) -> Option<GpsPoint> {
+    // Exact values written by Keepsake first, then the standard EXIF form.
+    let exact = (|| {
+        Some(GpsPoint {
+            lat: p.simple(ns::KEEPSAKE, "Latitude")?.trim().parse().ok()?,
+            lon: p.simple(ns::KEEPSAKE, "Longitude")?.trim().parse().ok()?,
+            alt_m: p
+                .simple(ns::KEEPSAKE, "Altitude")
+                .and_then(|v| v.trim().parse().ok()),
+        })
+    })();
+    let g = exact.or_else(|| {
+        let lat = parse_coord(&p.simple(ns::EXIF, "GPSLatitude")?)?;
+        let lon = parse_coord(&p.simple(ns::EXIF, "GPSLongitude")?)?;
+        let alt = p.simple(ns::EXIF, "GPSAltitude").and_then(|v| {
+            let v = v.trim();
+            let a = match v.split_once('/') {
+                Some((n, d)) => n.trim().parse::<f64>().ok()? / d.trim().parse::<f64>().ok()?,
+                None => v.parse().ok()?,
+            };
+            let below = p
+                .simple(ns::EXIF, "GPSAltitudeRef")
+                .is_some_and(|r| r.trim() == "1");
+            Some(if below { -a } else { a })
+        });
+        Some(GpsPoint {
+            lat,
+            lon,
+            alt_m: alt,
+        })
+    })?;
+    ((-90.0..=90.0).contains(&g.lat) && (-180.0..=180.0).contains(&g.lon)).then_some(g)
+}
+
+fn write_gps(p: &mut XmpPacket, g: Option<GpsPoint>) {
+    for (uri, local) in [
+        (ns::EXIF, "GPSLatitude"),
+        (ns::EXIF, "GPSLongitude"),
+        (ns::EXIF, "GPSAltitude"),
+        (ns::EXIF, "GPSAltitudeRef"),
+        (ns::KEEPSAKE, "Latitude"),
+        (ns::KEEPSAKE, "Longitude"),
+        (ns::KEEPSAKE, "Altitude"),
+    ] {
+        p.remove(uri, local);
+    }
+    let Some(g) = g else { return };
+    p.set_simple(ns::EXIF, "GPSLatitude", &format_coord(g.lat, 'N', 'S'));
+    p.set_simple(ns::EXIF, "GPSLongitude", &format_coord(g.lon, 'E', 'W'));
+    p.set_simple(ns::KEEPSAKE, "Latitude", &g.lat.to_string());
+    p.set_simple(ns::KEEPSAKE, "Longitude", &g.lon.to_string());
+    if let Some(a) = g.alt_m {
+        p.set_simple(
+            ns::EXIF,
+            "GPSAltitude",
+            &format!("{}/1000", (a.abs() * 1000.0).round() as i64),
+        );
+        p.set_simple(ns::EXIF, "GPSAltitudeRef", if a < 0.0 { "1" } else { "0" });
+        p.set_simple(ns::KEEPSAKE, "Altitude", &a.to_string());
     }
 }
 

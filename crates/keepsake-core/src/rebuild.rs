@@ -5,11 +5,15 @@
 //! 2. reads sidecars beside the files and in the library's mirror tree,
 //!    keeping the one with the newest `xmp:MetadataDate` per file;
 //! 3. forms assets from Keepsake sidecars' member lists, then groups the
-//!    remaining files with the Sony card heuristics;
-//! 4. replaces the volume's rows in one transaction.
+//!    remaining files with [`crate::grouping`] (XAVC, stills, AVCHD playlists);
+//! 4. with a [`Prober`], reads capture time, camera, lens, duration and GPS
+//!    from the media of assets that have no Keepsake sidecar, and flags
+//!    burst/bracket/interval sequences;
+//! 5. replaces the volume's rows in one transaction.
 //!
-//! When an asset already exists from another volume, the sidecar wins only if
-//! its metadata is newer than the catalog's.
+//! Values from a Keepsake sidecar win over probed ones (they include the
+//! user's corrections). When an asset already exists from another volume, the
+//! sidecar wins only if its metadata is newer than the catalog's.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Read;
@@ -17,15 +21,15 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::catalog::VolumeKind;
 use crate::catalog::{
-    Asset, AssetId, AssetTag, Blake3Hash, Catalog, EditRecipe, Event, EventId, FileRole, MediaKind,
-    NewFile, Rating, SidecarLocation, SidecarRecord, TagSource, VolumeId,
+    Asset, AssetId, AssetTag, Blake3Hash, CaptureSource, Catalog, Confidence, EditRecipe, Event,
+    EventId, FileRole, MediaKind, NewFile, Rating, SequenceId, SequenceKind, SidecarLocation,
+    SidecarRecord, StillSequence, TagSource, VolumeId, VolumeKind,
 };
-use crate::corpus::grouper;
-use crate::corpus::scanner::{detect_role, skip_reason};
-use crate::corpus::types::{FileEntry, FileKind, FolderRole};
+use crate::corpus::scanner::skip_reason;
+use crate::grouping::{self, Grouping};
 use crate::library::{probe_volume, Library, LibraryError, VolumeRecord};
+use crate::probe::{ProbedAsset, Prober};
 use crate::relpath::{path_key, RelPath};
 use crate::xmp::{sidecar, AssetXmp};
 
@@ -42,6 +46,9 @@ pub struct RebuildReport {
     pub files_indexed: u64,
     pub assets: u64,
     pub sidecars_used: u64,
+    /// Assets whose metadata came from probing the media.
+    pub probed: u64,
+    pub sequences: u64,
     pub hidden_skipped: u64,
     pub skipped: Vec<SkippedPath>,
     pub problems: Vec<String>,
@@ -67,12 +74,13 @@ struct Discovered {
     asset_id: AssetId,
     xmp: Option<AssetXmp>,
     sidecar: Option<usize>,
-    members: Vec<(usize, FileRole)>,
+    /// `(file index, role, segment index)`.
+    members: Vec<(usize, FileRole, Option<u32>)>,
+    media_kind: Option<MediaKind>,
+    probed: Option<ProbedAsset>,
 }
 
 const VIDEO_EXT: &[&str] = &["mp4", "mts", "m2ts", "mov", "avi", "mkv"];
-const RAW_EXT: &[&str] = &["arw", "dng", "cr2", "cr3", "nef", "raf", "orf", "rw2"];
-const IMAGE_EXT: &[&str] = &["jpg", "jpeg", "hif", "heif", "heic", "png", "tif", "tiff"];
 
 fn ext_of(name: &str) -> String {
     name.rsplit_once('.')
@@ -165,49 +173,25 @@ fn walk(
     }
 }
 
-/// Pick roles for a group of files; `None` when no file can be the original.
-fn assign_roles(group: &[(usize, &Scanned)]) -> Option<Vec<(usize, FileRole)>> {
-    let rank = |s: &Scanned| -> Option<u8> {
-        let name = s.rel.file_name();
-        let ext = ext_of(name);
-        let folder = detect_role(s.rel.as_str());
-        if folder == FolderRole::Proxy {
-            return None;
-        }
-        if VIDEO_EXT.contains(&ext.as_str()) {
-            Some(0)
-        } else if ext == "jpg" || ext == "jpeg" {
-            Some(1)
-        } else if IMAGE_EXT.contains(&ext.as_str()) {
-            Some(2)
-        } else if RAW_EXT.contains(&ext.as_str()) {
-            Some(3)
-        } else {
-            None
-        }
-    };
-    let (orig_idx, _) = group
-        .iter()
-        .filter_map(|(i, s)| rank(s).map(|r| (*i, (r, s.key.clone()))))
-        .min_by(|a, b| a.1.cmp(&b.1))?;
-    Some(
-        group
-            .iter()
-            .map(|(i, s)| {
-                let ext = ext_of(s.rel.file_name());
-                let role = if *i == orig_idx {
-                    FileRole::Original
-                } else if detect_role(s.rel.as_str()) == FolderRole::Proxy {
-                    FileRole::CameraProxy
-                } else if RAW_EXT.contains(&ext.as_str()) || IMAGE_EXT.contains(&ext.as_str()) {
-                    FileRole::RawPair
-                } else {
-                    FileRole::Sidecar
-                };
-                (*i, role)
-            })
-            .collect(),
-    )
+/// Every non-hidden, non-sidecar file under `root`, sorted.
+pub fn list_media_files(root: &Path) -> (Vec<RelPath>, RebuildReport) {
+    let mut report = RebuildReport::default();
+    let mut listing = Vec::new();
+    walk(root, root, &mut listing, &mut report);
+    let files = listing
+        .into_iter()
+        .map(|(r, _)| r)
+        .filter(|r| !sidecar::is_sidecar_name(r.file_name()))
+        .collect();
+    (files, report)
+}
+
+/// Group (and optionally probe) the media under `root` without touching any catalog.
+pub fn group_folder(root: &Path, files: &[RelPath]) -> Grouping {
+    let (layout, problems) = grouping::read_avchd_layout(root, files);
+    let mut g = grouping::group(files, layout.as_ref());
+    g.problems.extend(problems);
+    g
 }
 
 fn newer(a: &FoundSidecar, b: &FoundSidecar) -> bool {
@@ -227,12 +211,23 @@ fn keep_newest(map: &mut HashMap<String, usize>, key: String, idx: usize, all: &
     }
 }
 
-/// Rebuild one volume's catalog rows from the files at `mount` and sidecars.
+/// Rebuild one volume's catalog rows from files and sidecars only.
 pub fn rebuild_catalog(
     cat: &mut Catalog,
     lib: &Library,
     volume: VolumeId,
     mount: &Path,
+) -> Result<RebuildReport, LibraryError> {
+    rebuild_catalog_with(cat, lib, volume, mount, None)
+}
+
+/// Rebuild one volume, probing media with `prober` when given.
+pub fn rebuild_catalog_with(
+    cat: &mut Catalog,
+    lib: &Library,
+    volume: VolumeId,
+    mount: &Path,
+    prober: Option<&Prober>,
 ) -> Result<RebuildReport, LibraryError> {
     let rec = lib.volume(volume)?;
     let case = rec.case;
@@ -314,17 +309,15 @@ pub fn rebuild_catalog(
                 continue;
             }
             // Lightroom `<stem>.xmp`: matches files with that stem in the same folder.
-            let stem_key = key;
             for f in &files {
-                let name = f.rel.file_name();
-                let Some((stem, _)) = name.rsplit_once('.') else {
+                let Some((stem, _)) = f.rel.file_name().rsplit_once('.') else {
                     continue;
                 };
                 let stem_rel = match f.rel.parent() {
                     Some(p) => format!("{p}/{stem}"),
                     None => stem.to_owned(),
                 };
-                if path_key(&stem_rel, case) == stem_key {
+                if path_key(&stem_rel, case) == key {
                     keep_newest(&mut lightroom, f.key.clone(), i, &found);
                 }
             }
@@ -358,7 +351,7 @@ pub fn rebuild_catalog(
         if claimed.contains(&orig) {
             continue;
         }
-        let mut members = vec![(orig, FileRole::Original)];
+        let mut members = vec![(orig, FileRole::Original, None)];
         for fr in &s.xmp.files {
             let Some(&i) = by_key.get(&fr.rel_path.key(case)) else {
                 report.problems.push(format!(
@@ -367,7 +360,7 @@ pub fn rebuild_catalog(
                 ));
                 continue;
             };
-            if i == orig || members.iter().any(|(m, _)| *m == i) {
+            if i == orig || members.iter().any(|(m, _, _)| *m == i) {
                 continue;
             }
             if claimed.contains(&i) {
@@ -382,61 +375,53 @@ pub fn rebuild_catalog(
             } else {
                 fr.role
             };
-            members.push((i, role));
+            members.push((
+                i,
+                role,
+                fr.segment_index.filter(|_| role == FileRole::Segment),
+            ));
         }
-        claimed.extend(members.iter().map(|(i, _)| *i));
+        claimed.extend(members.iter().map(|(i, _, _)| *i));
         used_ids.insert(asset_id);
         discovered.push(Discovered {
             asset_id,
             xmp: Some(s.xmp.clone()),
             sidecar: Some(si),
             members,
+            media_kind: None,
+            probed: None,
         });
     }
 
-    // 3b. Group the remaining files with the card-layout heuristics.
-    let entries: Vec<FileEntry> = files
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !claimed.contains(i))
-        .map(|(_, f)| FileEntry {
-            rel_path: f.rel.as_str().to_owned(),
-            size_bytes: f.size,
-            blake3: f.blake3.to_hex(),
-            kind: FileKind::from_extension(&ext_of(f.rel.file_name())),
-            folder_role: detect_role(f.rel.as_str()),
-        })
-        .collect();
-    let by_rel: HashMap<&str, usize> = files
-        .iter()
-        .enumerate()
-        .map(|(i, f)| (f.rel.as_str(), i))
-        .collect();
-    for group in grouper::group("", &entries).asset {
-        let members: Vec<(usize, &Scanned)> = group
-            .files
-            .iter()
-            .filter_map(|r| by_rel.get(r.as_str()).map(|&i| (i, &files[i])))
-            .collect();
-        let Some(roles) = assign_roles(&members) else {
-            for (_, f) in &members {
-                report.skipped.push(SkippedPath {
-                    path: f.rel.to_string(),
-                    reason: "not part of any asset".into(),
-                });
-            }
-            continue;
-        };
-        let orig = roles
-            .iter()
-            .find(|(_, r)| *r == FileRole::Original)
-            .map(|(i, _)| *i)
-            .ok_or_else(|| LibraryError::Invalid("group without original".into()))?;
+    // 3b. Group the remaining files.
+    let rest: Vec<usize> = (0..files.len()).filter(|i| !claimed.contains(i)).collect();
+    let rest_rels: Vec<RelPath> = rest.iter().map(|i| files[*i].rel.clone()).collect();
+    let all_rels: Vec<RelPath> = files.iter().map(|f| f.rel.clone()).collect();
+    let (layout, layout_problems) = grouping::read_avchd_layout(mount, &all_rels);
+    report.problems.extend(layout_problems);
+    let grouped = grouping::group(&rest_rels, layout.as_ref());
+    report.problems.extend(grouped.problems.iter().cloned());
+    for (list, reason) in [
+        (&grouped.card_files, "camera card file"),
+        (&grouped.ungrouped, "not part of any asset"),
+    ] {
+        for &i in list {
+            report.skipped.push(SkippedPath {
+                path: rest_rels[i].to_string(),
+                reason: reason.into(),
+            });
+        }
+    }
+    let probe_report = prober.map(|p| p.probe(mount, &rest_rels, &grouped));
+    let first_new = discovered.len();
+    for (gi, g) in grouped.groups.iter().enumerate() {
+        let orig = rest[g.original()];
+        let member_files: Vec<usize> = g.members.iter().map(|m| rest[m.index]).collect();
         let pick = |map: &HashMap<String, usize>| -> Option<usize> {
             map.get(&files[orig].key).copied().or_else(|| {
-                roles
+                member_files
                     .iter()
-                    .find_map(|(i, _)| map.get(&files[*i].key).copied())
+                    .find_map(|i| map.get(&files[*i].key).copied())
             })
         };
         let si = pick(&exact).or_else(|| pick(&lightroom));
@@ -447,13 +432,56 @@ pub fn rebuild_catalog(
             .filter(|id| !used_ids.contains(id))
             .unwrap_or_else(|| AssetId::for_original(volume, &files[orig].key));
         used_ids.insert(asset_id);
-        claimed.extend(roles.iter().map(|(i, _)| *i));
+        claimed.extend(member_files.iter().copied());
         discovered.push(Discovered {
             asset_id,
             xmp,
             sidecar: si,
-            members: roles,
+            members: g
+                .members
+                .iter()
+                .map(|m| (rest[m.index], m.role, m.segment.filter(|p| *p > 0)))
+                .collect(),
+            media_kind: Some(g.media_kind()),
+            probed: probe_report
+                .as_ref()
+                .and_then(|r| r.assets.get(gi).cloned()),
         });
+    }
+
+    // Sequences: from Keepsake sidecars, then from probing.
+    let mut sequences: BTreeMap<SequenceId, (SequenceKind, Vec<(u32, AssetId)>)> = BTreeMap::new();
+    for d in &discovered {
+        if d.probed.is_some() && d.xmp.as_ref().map_or(true, |x| x.asset_id.is_none()) {
+            continue; // probed assets take their sequence from the probe below
+        }
+        if let Some(s) = d.xmp.as_ref().and_then(|x| x.sequence) {
+            sequences
+                .entry(s.id)
+                .or_insert_with(|| (s.kind, Vec::new()))
+                .1
+                .push((s.position, d.asset_id));
+        }
+    }
+    if let Some(r) = &probe_report {
+        for s in &r.sequences {
+            let ids: Vec<AssetId> = s
+                .members
+                .iter()
+                .map(|gi| discovered[first_new + gi].asset_id)
+                .collect();
+            let Some(first) = s.members.first() else {
+                continue;
+            };
+            let first_key = &files[rest[grouped.groups[*first].original()]].key;
+            let id = SequenceId::for_first(volume, first_key);
+            let entry = sequences.entry(id).or_insert_with(|| (s.kind, Vec::new()));
+            entry.1 = ids
+                .into_iter()
+                .enumerate()
+                .map(|(p, a)| (p as u32, a))
+                .collect();
+        }
     }
 
     // Events: newest sidecar wins.
@@ -512,9 +540,11 @@ pub fn rebuild_catalog(
 
     // 4. Replace the volume's rows.
     let vol = rec.to_volume(Some(mount));
+    let mut probed_count = 0u64;
     cat.write(|tx| -> Result<(), LibraryError> {
         tx.files().delete_for_volume(volume)?;
         tx.sidecars().delete_for_volume(volume)?;
+        tx.sequences().delete_for_volume(volume)?;
         tx.assets().delete_orphans()?;
         tx.volumes().upsert(&vol)?;
         for (_, e) in events.values() {
@@ -525,14 +555,16 @@ pub fn rebuild_catalog(
             let orig = d
                 .members
                 .iter()
-                .find(|(_, r)| *r == FileRole::Original)
-                .map(|(i, _)| &files[*i])
+                .find(|(_, r, _)| *r == FileRole::Original)
+                .map(|(i, _, _)| &files[*i])
                 .ok_or_else(|| LibraryError::Invalid("asset without original".into()))?;
             let x = d.xmp.clone().unwrap_or_default();
-            let asset = Asset {
+            let own_sidecar = x.asset_id.is_some();
+            let mut asset = Asset {
                 id: d.asset_id,
                 media_kind: x
                     .media_kind
+                    .or(d.media_kind)
                     .unwrap_or_else(|| media_kind_for(orig.rel.file_name())),
                 capture: x.capture,
                 capture_shift_s: x.capture_shift_s,
@@ -546,7 +578,39 @@ pub fn rebuild_catalog(
                 comment: x.comment.clone(),
                 created_ms: x.added_ms.or(orig.mtime_ms).unwrap_or(0),
                 metadata_ms: x.metadata_ms.unwrap_or(0),
+                capture_source: x.capture_source,
+                capture_confidence: x.capture_confidence,
+                gps: x.gps,
             };
+            if !own_sidecar {
+                // A foreign (Lightroom/digiKam) date is a fallback only.
+                if asset.capture.is_some() && asset.capture_source.is_none() {
+                    asset.capture_source = Some(CaptureSource::Sidecar);
+                    asset.capture_confidence = Some(
+                        if asset.capture.is_some_and(|c| c.utc_offset_min.is_some()) {
+                            Confidence::High
+                        } else {
+                            Confidence::Low
+                        },
+                    );
+                }
+                if let Some(p) = &d.probed {
+                    probed_count += 1;
+                    if let Some(c) = &p.capture {
+                        asset.capture = Some(c.time);
+                        asset.capture_source = Some(c.source);
+                        asset.capture_confidence = Some(c.confidence);
+                    }
+                    asset.camera_make = p.make.clone().or(asset.camera_make);
+                    asset.camera_model = p.model.clone().or(asset.camera_model);
+                    asset.lens_model = p.lens.clone().or(asset.lens_model);
+                    asset.duration_ms = p.duration_ms.or(asset.duration_ms);
+                    asset.gps = p.gps.or(asset.gps);
+                    for prob in &p.problems {
+                        report.problems.push(format!("{}: {prob}", orig.rel));
+                    }
+                }
+            }
             let apply = match tx.assets().get(d.asset_id)? {
                 None => {
                     tx.assets().insert(&asset)?;
@@ -575,7 +639,7 @@ pub fn rebuild_catalog(
                     tx.recipes().upsert(r)?;
                 }
             }
-            for (i, role) in &d.members {
+            for (i, role, seg) in &d.members {
                 let f = &files[*i];
                 tx.files().insert(
                     d.asset_id,
@@ -587,6 +651,7 @@ pub fn rebuild_catalog(
                         blake3: f.blake3,
                         xxh3: None,
                         mtime_ms: f.mtime_ms,
+                        segment_index: *seg,
                     },
                 )?;
             }
@@ -602,18 +667,36 @@ pub fn rebuild_catalog(
                 })?;
             }
         }
+        for (id, (kind, mut members)) in std::mem::take(&mut sequences) {
+            members.sort();
+            tx.sequences().upsert(&StillSequence {
+                id,
+                volume_id: volume,
+                kind,
+                members: members.into_iter().map(|(_, a)| a).collect(),
+            })?;
+        }
+        tx.sequences().delete_small()?;
         tx.events().delete_empty()?;
         tx.tags().prune_unused()?;
+        report.sequences = tx
+            .sequences()
+            .list()?
+            .iter()
+            .filter(|s| s.volume_id == volume)
+            .count() as u64;
         Ok(())
     })?;
 
     report.assets = discovered.len() as u64;
     report.files_indexed = discovered.iter().map(|d| d.members.len() as u64).sum();
     report.sidecars_used = discovered.iter().filter(|d| d.sidecar.is_some()).count() as u64;
+    report.probed = probed_count;
     tracing::info!(
         %volume,
         assets = report.assets,
         files = report.files_indexed,
+        probed = report.probed,
         problems = report.problems.len(),
         "rebuilt volume"
     );
@@ -633,6 +716,7 @@ pub fn add_volume(
     kind: VolumeKind,
     mount: &Path,
     force_read_only: bool,
+    prober: Option<&Prober>,
 ) -> Result<(VolumeRecord, RebuildReport), LibraryError> {
     let mount = std::fs::canonicalize(mount)?;
     if !mount.is_dir() {
@@ -657,7 +741,7 @@ pub fn add_volume(
         last_mount: Some(mount.clone()),
     };
     lib.register_volume(&rec)?;
-    let report = rebuild_catalog(cat, lib, rec.id, &mount)?;
+    let report = rebuild_catalog_with(cat, lib, rec.id, &mount, prober)?;
     Ok((rec, report))
 }
 
@@ -666,12 +750,13 @@ pub fn add_volume(
 pub fn rebuild_library(
     cat: &mut Catalog,
     lib: &Library,
+    prober: Option<&Prober>,
 ) -> Result<Vec<(VolumeRecord, Option<RebuildReport>)>, LibraryError> {
     let mut out = Vec::new();
     for rec in lib.volumes()? {
         match rec.last_mount.as_deref().filter(|m| m.is_dir()) {
             Some(m) => {
-                let report = rebuild_catalog(cat, lib, rec.id, m)?;
+                let report = rebuild_catalog_with(cat, lib, rec.id, m, prober)?;
                 out.push((rec, Some(report)));
             }
             None => {

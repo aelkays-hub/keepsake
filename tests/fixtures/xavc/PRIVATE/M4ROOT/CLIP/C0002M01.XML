@@ -2,7 +2,7 @@
 <NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.00" lastUpdate="2024-01-15T10:35:00+09:00">
   <Device manufacturer="Sony" modelName="ILCE-7M4"/>
   <CreationDate value="2024-01-15T10:35:00+09:00"/>
-  <Duration value="PT1S"/>
+  <Duration value="25"/>
   <VideoFormat>
     <VideoFrame videoCodec="AVC" captureFps="25"/>
   </VideoFormat>

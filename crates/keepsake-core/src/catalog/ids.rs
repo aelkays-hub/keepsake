@@ -85,6 +85,22 @@ uuid_id!(
     ImportSessionId
 );
 
+uuid_id!(
+    /// Identifier of a [`crate::catalog::StillSequence`].
+    SequenceId
+);
+
+impl SequenceId {
+    /// Deterministic id from the volume and the first member's original.
+    pub fn for_first(volume: VolumeId, first_rel_path_key: &str) -> Self {
+        Self(derived_uuid(
+            b"keepsake.sequence",
+            volume.0.as_bytes(),
+            first_rel_path_key,
+        ))
+    }
+}
+
 impl FileId {
     /// Deterministic file id derived from its location, so a rebuilt catalog
     /// assigns the same id to the same file.
