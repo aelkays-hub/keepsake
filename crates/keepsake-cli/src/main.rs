@@ -25,6 +25,12 @@ enum Commands {
     /// print what Keepsake reads: capture time with source and confidence,
     /// camera, lens, duration, video format and sequences. Read-only.
     Probe(commands::probe::ProbeArgs),
+    /// Import a card: copy to one or two drives, verify, catalogue, report
+    /// whether it is safe to format. Interrupted imports resume.
+    Ingest {
+        #[command(subcommand)]
+        action: commands::ingest::IngestAction,
+    },
     /// Library and catalog: index volumes, rebuild, search and edit metadata.
     Library {
         #[command(subcommand)]
@@ -43,6 +49,7 @@ fn main() -> Result<()> {
         Commands::Corpus { action } => commands::corpus::run(action)?,
         Commands::Library { action } => commands::library::run(action)?,
         Commands::Probe(args) => commands::probe::run(args)?,
+        Commands::Ingest { action } => commands::ingest::run(action)?,
     }
 
     Ok(())
