@@ -261,8 +261,16 @@ fn exiftool_reads_our_sidecar() {
     .iter()
     .map(|p| root.join(p))
     .find(|p| p.is_file());
+    // CI has an empty placeholder in vendor/, so only use a binary that runs.
+    let exe = exe.filter(|p| {
+        std::fs::metadata(p).is_ok_and(|m| m.len() > 0)
+            && std::process::Command::new(p)
+                .arg("-ver")
+                .output()
+                .is_ok_and(|o| o.status.success())
+    });
     let Some(exe) = exe else {
-        eprintln!("skipping: ExifTool not found in vendor/");
+        eprintln!("skipping: no working ExifTool in vendor/");
         return;
     };
     let dir = tempfile::tempdir().unwrap();
