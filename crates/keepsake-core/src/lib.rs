@@ -1,9 +1,11 @@
 pub mod catalog;
 pub mod corpus;
 pub mod error;
+pub mod grouping;
 pub mod library;
 pub mod metadata;
 pub mod paths;
+pub mod probe;
 pub mod rebuild;
 pub mod relpath;
 pub mod xmp;

@@ -131,6 +131,11 @@ pub struct AssetGroup {
     /// in the current manifest (files deleted or moved). Review and remove manually.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub removed: bool,
+    /// Set by `init-expected --probe` when `capture_ts`, `camera_model` and
+    /// `duration_ms` were filled in from Keepsake's own probe. Check them
+    /// against the camera before setting `confirmed = true`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prefilled: bool,
 }
 
 /// Root of `corpus/expected.toml`.

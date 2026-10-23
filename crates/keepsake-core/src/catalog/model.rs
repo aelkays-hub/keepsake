@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::error::CatalogError;
 use super::ids::{
-    AssetId, Blake3Hash, EventId, FileId, ImportSessionId, RecipeId, RenditionId, VolumeId,
+    AssetId, Blake3Hash, EventId, FileId, ImportSessionId, RecipeId, RenditionId, SequenceId,
+    VolumeId,
 };
 use crate::relpath::{nfc, CaseSensitivity, RelPath};
 
@@ -72,6 +73,7 @@ text_enum!(
         CameraProxy => "camera_proxy",
         AppProxy => "app_proxy",
         Export => "export",
+        Segment => "segment",
     }
 );
 text_enum!(
@@ -95,6 +97,24 @@ text_enum!(
         Failed => "failed",
         Skipped => "skipped",
     }
+);
+text_enum!(
+    /// Where an asset's capture time came from.
+    CaptureSource {
+        SonyXml => "sony_xml",
+        Exif => "exif",
+        AvchdMdpm => "avchd_mdpm",
+        Container => "container",
+        Sidecar => "sidecar",
+    }
+);
+text_enum!(
+    /// How much to trust a capture time (ordered: low < medium < high).
+    Confidence { Low => "low", Medium => "medium", High => "high" }
+);
+text_enum!(
+    /// Kind of still sequence.
+    SequenceKind { Burst => "burst", Bracket => "bracket", Interval => "interval" }
 );
 text_enum!(
     /// Where an asset's XMP sidecar lives.
@@ -168,6 +188,14 @@ pub struct CaptureTime {
     pub utc_offset_min: Option<i16>,
 }
 
+/// A GPS position in decimal degrees.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GpsPoint {
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_m: Option<f64>,
+}
+
 /// The logical memory of a moment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Asset {
@@ -187,6 +215,9 @@ pub struct Asset {
     pub comment: Option<String>,
     pub created_ms: i64,
     pub metadata_ms: i64,
+    pub capture_source: Option<CaptureSource>,
+    pub capture_confidence: Option<Confidence>,
+    pub gps: Option<GpsPoint>,
 }
 
 impl Asset {
@@ -207,6 +238,9 @@ impl Asset {
             comment: None,
             created_ms: now_ms,
             metadata_ms: now_ms,
+            capture_source: None,
+            capture_confidence: None,
+            gps: None,
         }
     }
 }
@@ -223,6 +257,9 @@ pub struct File {
     pub blake3: Blake3Hash,
     pub xxh3: Option<u64>,
     pub mtime_ms: Option<i64>,
+    /// AVCHD recording position of a `segment` file (1, 2, …); `None` for
+    /// every other role, including the recording's original (position 0).
+    pub segment_index: Option<u32>,
 }
 
 /// A file to add to the catalog. Its id is derived from its location.
@@ -235,6 +272,7 @@ pub struct NewFile {
     pub blake3: Blake3Hash,
     pub xxh3: Option<u64>,
     pub mtime_ms: Option<i64>,
+    pub segment_index: Option<u32>,
 }
 
 /// A time-and-place cluster of assets.
@@ -406,6 +444,16 @@ pub struct ImportItem {
     pub blake3: Option<Blake3Hash>,
     pub status: ImportItemStatus,
     pub error: Option<String>,
+}
+
+/// A burst, bracket or interval run of stills.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StillSequence {
+    pub id: SequenceId,
+    pub volume_id: VolumeId,
+    pub kind: SequenceKind,
+    /// Asset ids in capture order.
+    pub members: Vec<AssetId>,
 }
 
 /// Where an asset's sidecar was last read or written.

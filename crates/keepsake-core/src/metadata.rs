@@ -14,7 +14,7 @@ use crate::catalog::{
 };
 use crate::library::{write_bytes_atomic, Library, LibraryError, VolumeRecord};
 use crate::relpath::RelPath;
-use crate::xmp::{sidecar, AssetXmp, FileRef, RecipeRef, XmpPacket};
+use crate::xmp::{sidecar, AssetXmp, FileRef, RecipeRef, SequenceRef, XmpPacket};
 
 /// Applies user edits to a library.
 pub struct MetadataService<'a> {
@@ -51,6 +51,14 @@ pub(crate) fn project(
     let tags = tx.tags().for_asset(asset.id)?;
     let files = tx.files().for_asset(asset.id)?;
     let recipes = tx.recipes().for_asset(asset.id)?;
+    let sequence = tx
+        .sequences()
+        .for_asset(asset.id)?
+        .map(|(s, position)| SequenceRef {
+            id: s.id,
+            kind: s.kind,
+            position,
+        });
     let event = match asset.event_id {
         Some(e) => tx.events().get(e)?,
         None => None,
@@ -98,8 +106,13 @@ pub(crate) fn project(
             .map(|f| FileRef {
                 rel_path: f.rel_path,
                 role: f.role,
+                segment_index: f.segment_index,
             })
             .collect(),
+        capture_source: asset.capture_source,
+        capture_confidence: asset.capture_confidence,
+        gps: asset.gps,
+        sequence,
     })
 }
 
