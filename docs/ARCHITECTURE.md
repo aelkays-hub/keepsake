@@ -31,7 +31,7 @@ Monitors OS device-arrival events (Windows: `WM_DEVICECHANGE` / `RegisterDeviceN
 Lives in `keepsake-platform` (OS-specific implementations behind a trait) and is called from `keepsake-core`.
 
 ### IngestEngine
-Orchestrates the full import pipeline (see _Ingest Pipeline_ below). Emits structured progress events over a `tokio` broadcast channel so the UI and CLI can both subscribe.
+`keepsake_core::ingest`: `plan` (group, probe, quick-diff, name every file on every destination, store the session), `select`, `run` (copy, verify, catalogue, confirm, decide "safe to format"; also resumes), `report`. `run` is blocking and takes a progress callback and a cancel flag. It is meant to run on a worker thread and will slot into the job queue when that exists. The design and failure handling are in ADR-017.
 
 ### Catalog
 SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`). Stores Assets, Files, Volumes, Renditions, Events, EditRecipes, ImportSessions, labels, tags and XMP sidecar locations. The catalog is a **rebuildable cache**: it can be discarded and reconstructed from the original files and XMP sidecars. XMP sidecars and JSON recipes are the authoritative source of truth for all user metadata.
@@ -228,13 +228,15 @@ Confidence is **high** when the source gives both local time and UTC offset and 
    └─ User selects destinations and confirms
 
 5. Copy with streaming BLAKE3
-   └─ Read source, tee to each destination stream, compute BLAKE3 inline
-   └─ Write rendition-cache entry for each file as it lands
+   └─ Read source once, tee to each destination's writer thread, compute BLAKE3 inline
+   └─ Write .<name>.keepsake-partial-<session>, fsync
+   └─ Re-read the temporary file past the OS cache; compare; record the hash
+   └─ Rename to the final name (never replacing a file)
 
 6. Verify
-   └─ Re-read every written file from every destination
-   └─ Compare BLAKE3 against recorded hash
-   └─ Mark ImportSession.verified = true when all files pass on both destinations
+   └─ Re-read every final file from every destination
+   └─ Compare BLAKE3 against the stream hash; a mismatch is moved aside, never left
+   └─ Each step is stored in import_assets / import_items, so a crash resumes
 
 7. Write catalog
    └─ Insert Asset, File, Volume records
@@ -246,7 +248,8 @@ Confidence is **high** when the source gives both local time and UTC offset and 
 
 9. Report
    └─ Summary: imported N assets, M bytes, verified on K destinations
-   └─ Card safe to format: only when verified == true on ≥ 2 destinations
+   └─ Card safe to format: only when every selected asset is catalogued and each
+      of its files is verified on two different destination volumes (ADR-017)
 ```
 
 ---

@@ -8,10 +8,11 @@
 | 3 | Packaging: release CI (Windows x64 + ARM64 installers), OS data dirs, release.md | ✅ Done |
 | 4 | Catalog: SQLite + migrations, typed repositories, XMP sidecars, rebuild, path property tests | ✅ Done (Windows CI; macOS CI still deferred) |
 | 5 | Probing: ExifTool stay-open, ffprobe, Sony XML, AVCHD, grouping, capture-time confidence | ✅ Done (corpus entries still to be confirmed; no AVCHD media in corpus) |
+| 6 | Ingest engine: resumable state machine, verified copies to two drives, templates, safe-to-format, fault injection | ✅ Done (Windows; macOS read-only proof via DMG pending macOS CI) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
-| 4 | Ingest engine: copy with streaming BLAKE3 and verification | ⬜ Pending |
+| 4 | Ingest engine: copy with streaming BLAKE3 and verification | ✅ Done in prompt 6 |
 | 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
 | 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
 | 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ⬜ Pending |
@@ -30,6 +31,79 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 6 — Ingest engine (2026-10-23)
+
+### What was built
+
+**`keepsake_core::ingest`**
+- `plan`:
+  - groups and probes the card, then quick-diffs each asset (size + xxh3 of the first and last MiB) against the library: new, already imported, or modified;
+  - names every file on every destination with the template engine;
+  - resolves collisions deterministically;
+  - stores the session, its assets and its file items.
+- `select`: choose or drop assets before copying.
+- `run`:
+  1. recovers anything left by an interrupted run;
+  2. checks free space;
+  3. per file, reads the source once and writes all destinations in parallel to hidden temporary files;
+  4. flushes them, re-reads them past the OS cache, compares, and renames;
+  5. re-reads every final file;
+  6. catalogues (probing the destination copies, sidecars on both drives, sequences);
+  7. confirms already-imported assets with full BLAKE3;
+  8. stores "safe to format".
+- `report`, `leftovers`, `destination_volume`.
+- `SourceVolume`: read-only by construction. Destinations inside the source, overlapping, or on the same disk are refused.
+- `ingest::template`: `{yyyy} {mm} {dd} {hh} {event} {camera} {lens} {seq} {orig}`; Windows/macOS-safe names; companions follow their original.
+- `ingest::fault::FaultPlan`: test-only fault and crash injection, passed in explicitly.
+
+**Catalog v3 (migration 0003)**: `import_assets` (state machine), `import_items` rebuilt (role, segment, size, quick hash, final path, stream and verified hashes, statuses `copying`/`reused`), `template` and `safe_to_format` on sessions. Rebuild now records quick hashes.
+
+**CLI**: `keepsake ingest start <library> <card> --to A [--to B] [--template …] [--event …] [--all] [--no-probe]`, `ingest resume`, `ingest status`, `ingest list`.
+
+**Dependency**: `twox-hash` 2 (MIT), ADR-016.
+
+### Tests (`ingest_tests.rs`, 24 + 1 child)
+- Flows:
+  - two destinations: safe to format, card unchanged, companions follow, sidecars on both drives;
+  - one destination: never safe;
+  - second import finds everything already imported (confirmed by BLAKE3, nothing copied);
+  - unselected assets are reported;
+  - collisions get ` (2)` and identical files are reused;
+  - templates incl. `{seq}` and `{event}`;
+  - probing end to end (dated folders, capture source, GPS, burst).
+- Refusals: destination inside the card; same disk; three destinations; missing card.
+- Faults, each followed by a clean resume:
+  - card removed mid-copy; file changing while read;
+  - destination full; **real** permission denied (ACL);
+  - corrupted write (retried); persistent read-back mismatch (never renamed); final failing verification (moved aside);
+  - rename busy (retried / failed); catalog failure;
+  - cancel;
+  - simulated crashes mid-copy, after rename and after verify; tampered final after a crash.
+- **Real process kill**: the test re-runs itself as a child, which `abort()`s mid-copy, after a rename or after verify. The parent checks nothing passes as complete, then resumes.
+- **Source made read-only by the OS** (Windows ACL; `chmod` on Unix): writes, renames, deletes and new folders are proven to fail; two full ingests succeed; bytes, sizes and modification times are unchanged.
+
+Verified by hand on a 1.9 GB copy of the ILCE-7M4 card: 47 assets safe to format in 19 s. Killing the CLI after 3 s left two hidden temporaries and "NOT safe to format"; `ingest resume` finished, and the result was byte-identical to an uninterrupted run.
+
+### Changes from the reviewed plan (ADR-017)
+`import_items` also has `segment_index` and a `UNIQUE (dest_volume_id, dest_rel_path, session_id)` guard. Verification re-reads both the temporary file (before the rename) and the final file (after it).
+
+### Not done / known limits
+- macOS: re-reads go through the OS cache (no `F_NOCACHE` without `libc`); the read-only proof should use a read-only DMG; macOS CI still deferred.
+- Rename-no-replace is "check, then rename"; a no-replace system call is a follow-up.
+- No job queue yet: `run` is blocking (worker-thread ready). Ctrl+C in the CLI is the same as a kill; `ingest resume` recovers.
+- Renditions (pipeline step 8) are not queued yet.
+
+### Files changed
+- `crates/keepsake-core/src/ingest/{mod,copy,source,template,fault,sys}.rs` — NEW
+- `crates/keepsake-core/src/catalog/migrations/0003_ingest.sql`, `migrations.rs`, `model.rs`, `repo/{imports,files}.rs`
+- `crates/keepsake-core/src/rebuild.rs` (quick hash), `lib.rs`
+- `crates/keepsake-core/tests/ingest_tests.rs`, `tests/common/readonly.rs` — NEW; `tests/catalog_tests.rs`, `tests/common/mod.rs`
+- `crates/keepsake-cli/src/commands/ingest.rs` — NEW; `main.rs`, `commands/mod.rs`, `Cargo.toml`
+- `Cargo.toml`, `crates/keepsake-core/Cargo.toml` — `twox-hash`
+- `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADR-016, ADR-017), `docs/SPEC.md`, `TEST_ME.md`
 
 ---
 

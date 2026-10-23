@@ -36,7 +36,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Interop
 - Open selected file in the system default application.
-- CLI commands: `ingest`, `verify`, `library rebuild` (rebuild the catalog from files and sidecars), `probe` (show what Keepsake reads from a card).
+- CLI commands: `ingest start | resume | status | list`, `verify`, `library rebuild` (rebuild the catalog from files and sidecars), `probe` (show what Keepsake reads from a card).
 
 ---
 
