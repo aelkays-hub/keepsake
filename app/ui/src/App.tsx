@@ -30,7 +30,9 @@ function App() {
       {error !== null && <p className="error">Could not load version: {error}</p>}
       <p className="subtitle">Your local-first photo and video library.</p>
       <p style={{ fontSize: 11, marginTop: 24, color: "#666" }}>
-        <a href="#spike" style={{ color: "#888" }}>spike →</a>
+        <a href="#spike" style={{ color: "#888" }}>
+          spike →
+        </a>
       </p>
     </main>
   );
