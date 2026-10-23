@@ -8,6 +8,7 @@ use clap::Subcommand;
 use keepsake_core::catalog::{Catalog, Rating, TagPath, TagSource, VolumeKind};
 use keepsake_core::library::Library;
 use keepsake_core::metadata::MetadataService;
+use keepsake_core::probe::{Prober, ToolPaths};
 use keepsake_core::rebuild::{add_volume, rebuild_library, RebuildReport};
 
 #[derive(Subcommand)]
@@ -32,6 +33,9 @@ pub enum LibraryAction {
         /// Treat the volume as read-only: sidecars go to the library mirror.
         #[arg(long)]
         read_only: bool,
+        /// Do not read capture times etc. with ExifTool/ffprobe.
+        #[arg(long)]
+        no_probe: bool,
     },
 
     /// Rebuild the catalog from files and sidecars on every registered volume.
@@ -40,6 +44,9 @@ pub enum LibraryAction {
         /// Delete the catalog database first and rebuild from scratch.
         #[arg(long)]
         fresh: bool,
+        /// Do not read capture times etc. with ExifTool/ffprobe.
+        #[arg(long)]
+        no_probe: bool,
     },
 
     /// Print counts, calendar days, events and tags.
@@ -85,13 +92,23 @@ pub fn run(action: LibraryAction) -> Result<()> {
             label,
             kind,
             read_only,
+            no_probe,
         } => {
             let lib = open(&library)?;
             let mut cat = lib.open_catalog()?;
             let kind = VolumeKind::parse(&kind).with_context(|| {
                 format!("unknown kind {kind:?}; use card, internal, external or network")
             })?;
-            let (rec, report) = add_volume(&mut cat, &lib, &label, kind, &mount, read_only)?;
+            let prober = maybe_prober(no_probe);
+            let (rec, report) = add_volume(
+                &mut cat,
+                &lib,
+                &label,
+                kind,
+                &mount,
+                read_only,
+                prober.as_ref(),
+            )?;
             println!(
                 "Volume {} ({}) - {}, {}",
                 rec.label,
@@ -109,14 +126,19 @@ pub fn run(action: LibraryAction) -> Result<()> {
             );
             print_report(&report);
         }
-        LibraryAction::Rebuild { library, fresh } => {
+        LibraryAction::Rebuild {
+            library,
+            fresh,
+            no_probe,
+        } => {
             let lib = open(&library)?;
             if fresh {
                 Catalog::delete_files(&lib.catalog_path())?;
                 println!("Deleted catalog; rebuilding from files and sidecars.");
             }
             let mut cat = lib.open_catalog()?;
-            for (rec, report) in rebuild_library(&mut cat, &lib)? {
+            let prober = maybe_prober(no_probe);
+            for (rec, report) in rebuild_library(&mut cat, &lib, prober.as_ref())? {
                 match report {
                     Some(r) => {
                         println!("Volume {}:", rec.label);
@@ -252,10 +274,24 @@ fn open(library: &Path) -> Result<Library> {
         .with_context(|| format!("{} is not a Keepsake library", library.display()))
 }
 
+/// Start ExifTool/ffprobe unless disabled; say so when they are missing.
+pub fn maybe_prober(disabled: bool) -> Option<Prober> {
+    if disabled {
+        return None;
+    }
+    match Prober::new(&ToolPaths::discover(), Default::default()) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            eprintln!("note: not probing media ({e}); dates come from sidecars only");
+            None
+        }
+    }
+}
+
 fn print_report(r: &RebuildReport) {
     println!(
-        "  {} assets, {} files indexed, {} sidecars read, {} hidden/system files ignored",
-        r.assets, r.files_indexed, r.sidecars_used, r.hidden_skipped
+        "  {} assets ({} probed), {} files indexed, {} sidecars read, {} sequences, {} hidden/system files ignored",
+        r.assets, r.probed, r.files_indexed, r.sidecars_used, r.sequences, r.hidden_skipped
     );
     for s in &r.skipped {
         println!("  skipped {}: {}", s.path, s.reason);
