@@ -91,6 +91,17 @@ impl<M> Files<'_, M> {
             .optional()?)
     }
 
+    /// Files whose size and quick hash (`xxh3`) match.
+    pub fn by_quick(&self, size: u64, quick: u64) -> Result<Vec<File>, CatalogError> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {COLS} FROM files WHERE size_bytes = ?1 AND xxh3 = ?2 ORDER BY volume_id, rel_path_key"
+        ))?;
+        let rows = st
+            .query_map(params![to_i64(size, "size")?, quick as i64], map)?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     pub fn by_hash(&self, hash: &Blake3Hash) -> Result<Vec<File>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
             "SELECT {COLS} FROM files WHERE blake3 = ?1 ORDER BY volume_id, rel_path_key"

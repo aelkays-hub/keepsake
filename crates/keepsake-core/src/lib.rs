@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod corpus;
 pub mod error;
 pub mod grouping;
+pub mod ingest;
 pub mod library;
 pub mod metadata;
 pub mod paths;

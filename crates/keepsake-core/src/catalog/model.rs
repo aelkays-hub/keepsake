@@ -89,11 +89,31 @@ text_enum!(
     ImportStatus { Running => "running", Completed => "completed", Failed => "failed", Cancelled => "cancelled" }
 );
 text_enum!(
-    /// State of one file in an import run.
+    /// State of one file × destination in an import run (`reused`: the
+    /// destination already held an identical file).
     ImportItemStatus {
         Pending => "pending",
+        Copying => "copying",
         Copied => "copied",
         Verified => "verified",
+        Failed => "failed",
+        Skipped => "skipped",
+        Reused => "reused",
+    }
+);
+text_enum!(
+    /// Quick-diff result for an asset on a card.
+    ImportDiff { New => "new", AlreadyImported => "already_imported", Modified => "modified" }
+);
+text_enum!(
+    /// Ingest state machine of one asset.
+    ImportAssetState {
+        Discovered => "discovered",
+        Selected => "selected",
+        Copying => "copying",
+        Copied => "copied",
+        Verified => "verified",
+        Catalogued => "catalogued",
         Failed => "failed",
         Skipped => "skipped",
     }
@@ -424,6 +444,24 @@ pub struct ImportSession {
     pub finished_ms: Option<i64>,
     pub status: ImportStatus,
     pub verified: bool,
+    /// File-naming template used by this session.
+    pub template: Option<String>,
+    /// Every selected asset is verified on two destinations.
+    pub safe_to_format: bool,
+}
+
+/// One asset of an import run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportAsset {
+    pub session_id: ImportSessionId,
+    /// `rel_path_key` of the source original.
+    pub source_key: String,
+    pub asset_id: AssetId,
+    pub diff: ImportDiff,
+    pub state: ImportAssetState,
+    pub error: Option<String>,
+    pub attempts: u32,
+    pub updated_ms: i64,
 }
 
 /// One destination of an import run.
@@ -434,14 +472,26 @@ pub struct ImportDestination {
     pub verified: bool,
 }
 
-/// One file copied (or attempted) during an import run.
+/// One file × destination of an import run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportItem {
     pub session_id: ImportSessionId,
     pub source_rel_path: RelPath,
     pub dest_volume_id: VolumeId,
+    /// The asset (by source original key) this file belongs to.
+    pub source_key: String,
+    pub role: FileRole,
+    pub segment_index: Option<u32>,
+    pub size_bytes: u64,
+    /// xxh3 of size + first and last MiB.
+    pub quick_hash: u64,
+    /// Final name on the destination, decided before copying.
+    pub dest_rel_path: RelPath,
     pub file_id: Option<FileId>,
+    /// BLAKE3 of the source stream.
     pub blake3: Option<Blake3Hash>,
+    /// BLAKE3 read back from the destination.
+    pub verified_blake3: Option<Blake3Hash>,
     pub status: ImportItemStatus,
     pub error: Option<String>,
 }

@@ -447,24 +447,65 @@ fn renditions_and_imports() {
         finished_ms: None,
         status: ImportStatus::Running,
         verified: false,
+        template: Some("{yyyy}/{orig}".into()),
+        safe_to_format: false,
+    };
+    let asset = keepsake_core::catalog::ImportAsset {
+        session_id: s.id,
+        source_key: "dcim/a.jpg".into(),
+        asset_id: AssetId::new_random(),
+        diff: keepsake_core::catalog::ImportDiff::New,
+        state: keepsake_core::catalog::ImportAssetState::Selected,
+        error: None,
+        attempts: 0,
+        updated_ms: 10,
     };
     let item = ImportItem {
         session_id: s.id,
         source_rel_path: RelPath::parse("DCIM/A.JPG").unwrap(),
         dest_volume_id: v.id,
+        source_key: "dcim/a.jpg".into(),
+        role: FileRole::Original,
+        segment_index: None,
+        size_bytes: 3,
+        quick_hash: u64::MAX,
+        dest_rel_path: RelPath::parse("2024/A.JPG").unwrap(),
         file_id: None,
         blake3: Some(Blake3Hash::of(b"a")),
+        verified_blake3: Some(Blake3Hash::of(b"a")),
         status: ImportItemStatus::Verified,
         error: None,
     };
     cat.write(|tx| {
         tx.imports().upsert_session(&s)?;
+        tx.imports().upsert_asset(&asset)?;
         tx.imports().upsert_item(&item)?;
+        tx.imports().set_asset_state(
+            s.id,
+            "dcim/a.jpg",
+            keepsake_core::catalog::ImportAssetState::Copying,
+            None,
+            11,
+        )?;
         tx.imports().finish(s.id, ImportStatus::Completed, true, 20)
     })
     .unwrap();
     let got = cat.read(|tx| tx.imports().get(s.id)).unwrap().unwrap();
     assert_eq!(got.status, ImportStatus::Completed);
     assert!(got.verified);
+    assert_eq!(got.template.as_deref(), Some("{yyyy}/{orig}"));
+    let a = cat
+        .read(|tx| tx.imports().asset(s.id, "dcim/a.jpg"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (a.state, a.attempts),
+        (keepsake_core::catalog::ImportAssetState::Copying, 1)
+    );
+    // An item must belong to an asset of its session.
+    let mut orphan = item.clone();
+    orphan.source_key = "nope".into();
+    orphan.source_rel_path = RelPath::parse("DCIM/B.JPG").unwrap();
+    assert!(cat.write(|tx| tx.imports().upsert_item(&orphan)).is_err());
     assert_eq!(cat.read(|tx| tx.imports().items(s.id)).unwrap(), vec![item]);
 }

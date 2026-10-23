@@ -596,3 +596,125 @@ CREATE TABLE asset_sequences (
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX asset_sequences_seq ON asset_sequences(sequence_id);
 ```
+
+---
+
+## ADR-016 — `twox-hash` for the quick-diff hash
+
+**Status**: Accepted (Prompt 6, approved by the product owner 2026-10-23)
+
+**Decision**: `twox-hash` 2 (features `xxhash3_64`, `std`), **MIT**, computes xxh3 over a file's length plus its first and last MiB. It is only a quick filter: a match is confirmed with full BLAKE3 before it counts. `xxhash-rust` (Boost licence) was the alternative.
+
+---
+
+## ADR-017 — Ingest engine
+
+**Status**: Accepted (Prompt 6)
+
+**Decision**:
+- **State machine per asset**, stored in `import_assets`: `discovered → selected → copying → copied → verified → catalogued`, plus `failed` and `skipped`. Per file × destination, `import_items` goes `pending → copying → copied → verified` (or `reused`, `failed`). `ingest::run` resumes any session.
+- **Copy**: the source is read once (BLAKE3 inline) and fanned out to one writer thread per destination. Each writer creates `.<name>.keepsake-partial-<session>` with `create_new` and flushes it (`sync_all`). Then:
+  1. The temporary file is re-read past the OS cache (Windows `FILE_FLAG_NO_BUFFERING`; macOS goes through the cache for now) and compared.
+  2. The stream hash is recorded.
+  3. The file is renamed to its final name, refusing to replace anything, with up to 5 retries when the file is busy.
+  4. A separate pass re-reads every final file before the item becomes `verified`.
+
+  A final file that fails that pass is moved to a hidden `.<name>.keepsake-bad-<session>` name, so a bad copy is never left under its final name.
+- **Resume**:
+  - Temporary files are deleted and those files are copied again from the start.
+  - A final file found with a recorded stream hash (crash after the rename) is re-hashed and kept only if it matches; otherwise it's moved aside and copied again.
+  - A final file without a recorded hash is reused only if it equals the source.
+  - Cataloguing is simply redone (it is idempotent).
+- **Source**: only reachable through `SourceVolume`, which can open files for reading and nothing else. The card is registered as a read-only volume, so no sidecar is ever written there.
+- **Destinations** are refused when they are inside the source, overlap each other, are on the same file system as the source, or are both on one file system (`GetVolumePathNameW` / `st_dev`). A testing-only flag (`allow_same_filesystem`, CLI `--unsafe-allow-same-disk`, hidden) relaxes this; "safe to format" then counts volumes, not disks. Free space is checked before copying: what's left plus 5 % + 16 MiB (`GetDiskFreeSpaceExW` / `df -Pk`). These two Windows calls are declared directly, so no crate is needed.
+- **Quick-diff**: an asset is `already_imported` when its original's size + quick hash match a library file off the card. It is copied only with `--all`. It counts toward safe-to-format only after a full BLAKE3 of every one of its card files matches library files on **two** different volumes. `modified` means an earlier session copied the same card path with a different quick hash. Rebuild now records the quick hash too.
+- **Names**: the template engine (`ingest::template`) works as follows:
+  - Tokens: `{yyyy} {mm} {dd} {hh} {event} {camera} {lens} {seq} {orig}`; the default is `{yyyy}/{yyyy}-{mm}-{dd}/{orig}`.
+  - Missing values: an undated asset goes under `0000-undated`, and missing text becomes `unknown`.
+  - Sanitising: names are made safe for Windows and macOS (invalid characters, reserved names, trailing dots/spaces, 200-byte components, NFC).
+  - `{seq}` counts per rendered folder, in capture-time order then source path.
+  - Companions keep the original's new base name plus their Sony suffix (`M01`, `S01`, `T01`), siblings share it, and AVCHD segments get `_02`, `_03`, ….
+  - Collisions are decided while planning, using the destination's case and Unicode rules. An identical existing file is reused; a different one makes the whole asset take ` (2)`, ` (3)` ….
+- **Safe to format**, as the prompt defines it: every *selected* asset is catalogued, and each of its files is verified (or reused) on two different destination volumes. Already-imported assets need the BLAKE3 confirmation above. Assets that were not selected are reported prominently ("formatting the card loses them") but don't block the flag, per the prompt's wording.
+- **Fault injection**: `ingest::fault::FaultPlan` is passed in explicitly; there are no environment variables in production code. Faults cover source read errors, the source changing mid-read, write errors, corrupted writes, corrupted re-reads, corrupted finals, rename errors and catalog failures. Crashes at three points can either be simulated (return without cleanup) or real (`abort()`); the real-kill test re-runs the test binary as a child process.
+- **Read-only proof (Windows)**:
+  - The test applies an ACL denying Everyone `WD,AD,WA,WEA,DC` on the tree, plus the specific `DE` right on files.
+  - icacls's generic `W` and `D` include SYNCHRONIZE and block reading as well, so they can't be used.
+  - The read-only file attribute doesn't help either: Rust's `remove_file` deletes read-only files on Windows.
+  - On Unix the test uses `chmod -R a-w`. macOS should use a read-only DMG once macOS CI returns.
+- **Known limit**: the final rename checks that the target doesn't exist, then renames (`MoveFileEx` replaces existing files). Another process creating the same name in that instant could be overwritten. Destinations are folders Keepsake owns, and a no-replace rename is a follow-up.
+
+### Changes from the reviewed plan
+| # | Reviewed | Final | Why |
+|---|---|---|---|
+| 1 | `import_items` without segment information | Adds `segment_index` | Cataloguing after a resume must restore AVCHD segment order without the card. |
+| 2 | — | `UNIQUE (dest_volume_id, dest_rel_path, session_id)` on `import_items` | A guard against two files of one session being planned onto one name. |
+| 3 | Re-read, then rename | Re-read the temporary file, rename, **and** re-read the final file | Covers both points: the temporary copy before it gets its final name, and the final file as it is on disk. |
+
+### Schema (migration 0003)
+
+```sql
+-- Keepsake catalog schema v3: resumable ingest.
+--
+-- Runs with foreign keys switched off (see migrations.rs) because
+-- `import_items` is rebuilt; the runner verifies foreign keys afterwards.
+
+-- ── Session settings ─────────────────────────────────────────────────────
+ALTER TABLE import_sessions ADD COLUMN template TEXT;
+ALTER TABLE import_sessions ADD COLUMN safe_to_format INTEGER NOT NULL DEFAULT 0
+  CHECK (safe_to_format IN (0,1));
+
+-- ── One row per asset of a session: the ingest state machine ────────────
+CREATE TABLE import_assets (
+  session_id  BLOB NOT NULL REFERENCES import_sessions(id) ON DELETE CASCADE,
+  source_key  TEXT NOT NULL,              -- rel_path_key of the source original
+  asset_id    BLOB NOT NULL CHECK (length(asset_id) = 16),
+  diff        TEXT NOT NULL CHECK (diff IN ('new','already_imported','modified')),
+  state       TEXT NOT NULL CHECK (state IN ('discovered','selected','copying','copied',
+                                             'verified','catalogued','failed','skipped')),
+  error       TEXT,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  updated_ms  INTEGER NOT NULL,
+  PRIMARY KEY (session_id, source_key)
+) STRICT, WITHOUT ROWID;
+
+-- Older rows (none are written by released code) become one asset each.
+INSERT INTO import_assets (session_id, source_key, asset_id, diff, state, updated_ms)
+  SELECT DISTINCT session_id, lower(source_rel_path), zeroblob(16), 'new',
+         CASE WHEN status = 'verified' THEN 'verified' ELSE 'failed' END, 0
+  FROM import_items;
+
+-- ── import_items rebuilt: wider status list and copy bookkeeping ────────
+CREATE TABLE import_items_v2 (
+  session_id      BLOB NOT NULL REFERENCES import_sessions(id) ON DELETE CASCADE,
+  source_rel_path TEXT NOT NULL,
+  dest_volume_id  BLOB NOT NULL REFERENCES volumes(id),
+  source_key      TEXT NOT NULL,
+  role            TEXT NOT NULL CHECK (role IN
+                    ('original','raw_pair','sidecar','camera_proxy','app_proxy','export','segment')),
+  segment_index   INTEGER CHECK (segment_index > 0),
+  size_bytes      INTEGER NOT NULL CHECK (size_bytes >= 0),
+  quick_hash      INTEGER NOT NULL,
+  dest_rel_path   TEXT NOT NULL,
+  file_id         BLOB REFERENCES files(id) ON DELETE SET NULL,
+  blake3          BLOB CHECK (blake3 IS NULL OR length(blake3) = 32),
+  verified_blake3 BLOB CHECK (verified_blake3 IS NULL OR length(verified_blake3) = 32),
+  status          TEXT NOT NULL CHECK (status IN
+                    ('pending','copying','copied','verified','failed','skipped','reused')),
+  error           TEXT,
+  PRIMARY KEY (session_id, source_rel_path, dest_volume_id),
+  FOREIGN KEY (session_id, source_key) REFERENCES import_assets(session_id, source_key)
+    ON DELETE CASCADE,
+  UNIQUE (dest_volume_id, dest_rel_path, session_id)
+) STRICT, WITHOUT ROWID;
+INSERT INTO import_items_v2 (session_id, source_rel_path, dest_volume_id, source_key, role,
+                             size_bytes, quick_hash, dest_rel_path, file_id, blake3,
+                             verified_blake3, status, error)
+  SELECT session_id, source_rel_path, dest_volume_id, lower(source_rel_path), 'original',
+         0, 0, source_rel_path, file_id, blake3,
+         CASE WHEN status = 'verified' THEN blake3 END, status, error
+  FROM import_items;
+DROP TABLE import_items;
+ALTER TABLE import_items_v2 RENAME TO import_items;
+CREATE INDEX import_items_asset ON import_items(session_id, source_key);
+```
