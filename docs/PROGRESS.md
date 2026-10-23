@@ -62,7 +62,7 @@
 **Tests** (all run in CI, none need the corpus):
 - `catalog_tests.rs` (15): WAL, migrations, rollback, NFC/NFD and case duplicates, labels, tags, search, events, renditions, imports.
 - `xmp_tests.rs` (10): full round-trip, Lightroom and digiKam fixtures (`tests/fixtures/xmp/`), foreign-field preservation, prefix clashes, atomic write, ExifTool cross-check (skipped when `vendor/exiftool` is absent).
-- `rebuild_tests.rs` (9): build → delete → rebuild equivalence across a writable and a read-only volume, idempotence, read-only volume never written, originals never modified, newest sidecar wins, Sony-layout inference with foreign sidecars, missing recipes reported, random-layout property test.
+- `rebuild_tests.rs` (9): build from fixtures → delete → rebuild, checked against independently written expected values (assets, file grouping and roles, BLAKE3 against disk, capture time with UTC offset and shift, ratings, labels, comments, keywords, AI tags) plus full-snapshot equality across a writable and a read-only volume, idempotence, read-only volume never written, originals never modified, newest sidecar wins, Sony-layout inference with foreign sidecars, missing recipes reported, random-layout property test.
 - `path_props.rs` (6 property tests): separators, round trips, escapes, NFC/NFD, case rules, catalog uniqueness.
 
 **Dependencies**: `rusqlite` 0.40, `quick-xml` 0.42, `unicode-normalization` 0.1; dev: `proptest` 1, `tempfile` 3 (ADR-011).
@@ -83,6 +83,7 @@
 - `crates/keepsake-core/src/corpus/scanner.rs` — `skip_reason` made crate-visible
 - `crates/keepsake-core/tests/{catalog_tests,xmp_tests,rebuild_tests,path_props}.rs`, `tests/common/mod.rs` — NEW
 - `tests/fixtures/xmp/{lightroom,digikam}.xmp` — NEW hand-written sidecar fixtures
+- `tests/fixtures/names/Exports/Été 2024/Fête du lac 01.JPG` — NEW fixture with spaces and non-ASCII characters in its path
 - `crates/keepsake-cli/src/commands/library.rs` — NEW CLI commands
 - `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADR-011, ADR-012), `docs/SPEC.md`, `TEST_ME.md`
 
