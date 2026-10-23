@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod media;
+pub mod readonly;
 
 use std::path::{Path, PathBuf};
 
@@ -47,7 +48,7 @@ pub fn new_file(root: &Path, volume: VolumeId, rel: &RelPath, role: FileRole) ->
         role,
         size_bytes: bytes.len() as u64,
         blake3: Blake3Hash::of(&bytes),
-        xxh3: None,
+        xxh3: Some(keepsake_core::ingest::source::quick_hash(&full).unwrap()),
         mtime_ms: Some(mtime),
         segment_index: None,
     }

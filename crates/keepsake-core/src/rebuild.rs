@@ -59,6 +59,7 @@ struct Scanned {
     key: String,
     size: u64,
     blake3: Blake3Hash,
+    quick: Option<u64>,
     mtime_ms: Option<i64>,
 }
 
@@ -247,6 +248,7 @@ pub fn rebuild_catalog_with(
         match hash_file(&full) {
             Ok(blake3) => files.push(Scanned {
                 key: rel.key(case),
+                quick: crate::ingest::source::quick_hash(&full).ok(),
                 rel,
                 size: meta.len(),
                 blake3,
@@ -649,7 +651,7 @@ pub fn rebuild_catalog_with(
                         role: *role,
                         size_bytes: f.size,
                         blake3: f.blake3,
-                        xxh3: None,
+                        xxh3: f.quick,
                         mtime_ms: f.mtime_ms,
                         segment_index: *seg,
                     },

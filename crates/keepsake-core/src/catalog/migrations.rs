@@ -24,10 +24,15 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/0002_probe.sql"),
         rebuilds_tables: true,
     },
+    Migration {
+        version: 3,
+        sql: include_str!("migrations/0003_ingest.sql"),
+        rebuilds_tables: true,
+    },
 ];
 
 /// The schema version this build creates and understands.
-pub const LATEST_VERSION: i64 = 2;
+pub const LATEST_VERSION: i64 = 3;
 
 pub(crate) fn apply(conn: &mut Connection) -> Result<(), CatalogError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -115,7 +120,7 @@ mod tests {
         let v: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, LATEST_VERSION);
         let n: i64 = conn
             .query_row("SELECT count(*) FROM files", [], |r| r.get(0))
             .unwrap();
@@ -124,7 +129,7 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
             .unwrap();
         assert!(fk, "foreign keys must be back on");
-        // The import item still points at the rebuilt files table.
+        // The import item survived both table rebuilds and still points at its file.
         let ok: i64 = conn
             .query_row(
                 "SELECT count(*) FROM import_items i JOIN files f ON f.id = i.file_id",
