@@ -90,7 +90,7 @@ fn collect_files(
 ///
 /// On Windows, checks the HIDDEN (0x2) and SYSTEM (0x4) file-attribute bits.
 /// On all platforms, also skips dot-files (Unix hidden-by-convention).
-fn skip_reason(path: &Path, meta: &std::fs::Metadata) -> Option<SkipReason> {
+pub(crate) fn skip_reason(path: &Path, meta: &std::fs::Metadata) -> Option<SkipReason> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;

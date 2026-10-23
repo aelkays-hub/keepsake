@@ -6,12 +6,13 @@
 | 1 | Test corpus: `keepsake corpus scan/init-expected`, fixtures, test harness | ✅ Done |
 | 2 (spike) | Playback Gate 1: Tauri asset protocol, proxy timing, AVCHD date, grid scroll | ✅ Done |
 | 3 | Packaging: release CI (Windows x64 + ARM64 installers), OS data dirs, release.md | ✅ Done |
+| 4 | Catalog: SQLite + migrations, typed repositories, XMP sidecars, rebuild, path property tests | ✅ Done (Windows CI; macOS CI still deferred) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
 | 2 | Sony card layout parser and asset grouper | ⬜ Pending |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ⬜ Pending |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ⬜ Pending |
-| 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ⬜ Pending |
-| 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ⬜ Pending |
+| 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
+| 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
 | 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ⬜ Pending |
 | 8 | Tauri command layer: ingest, catalog queries, progress events | ⬜ Pending |
 | 9 | UI: calendar view | ⬜ Pending |
@@ -28,6 +29,63 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 4 — Catalog (2026-10-23)
+
+### What was built
+
+**Catalog (`keepsake_core::catalog`)**
+- SQLite in WAL mode, `foreign_keys=ON`, `busy_timeout=5s`. Schema v1 in `catalog/migrations/0001_init.sql`, tracked with `PRAGMA user_version`; a newer catalog is refused.
+- Tables: `library_meta`, `volumes`, `events`, `labels` (Lightroom's five colours seeded), `assets`, `files`, `xmp_sidecars`, `tags`, `asset_tags`, `edit_recipes`, `renditions`, `import_sessions`, `import_destinations`, `import_items`, FTS5 `asset_fts`, view `event_spans`. All `STRICT`.
+- `assets.capture_local_date` is a generated column for the calendar view.
+- Typed repositories on `Catalog::read` / `Catalog::write` transactions; write methods only exist on write transactions. No SQL outside `catalog/`.
+- FTS5 index over file names, comment and tags (with ancestors); maintained in the same transaction; `tx.fts_mismatches()` self-check. User search text is always quoted (no FTS syntax injection).
+- `tx.snapshot()`: canonical dump used to compare catalogs.
+
+**Paths (`keepsake_core::relpath`)**
+- `RelPath`: `/`-separated, accepts `\`, rejects `..`, absolute, drive and UNC paths. Keeps the exact on-disk spelling; `key()` gives NFC (+ lowercase on case-insensitive volumes) for identity.
+
+**XMP (`keepsake_core::xmp`)**
+- Namespace-aware XML tree that preserves foreign properties, comments and the xpacket wrapper.
+- Lightroom/digiKam mapping: `xmp:Rating`, `xmp:Label` + `digiKam:ColorLabel`, `dc:description`, `dc:subject` + `lr:hierarchicalSubject` + `digiKam:TagsList`, `exif:DateTimeOriginal`, plus `keepsake:*` for asset id, time-shift, event, AI tags, recipes and member files.
+- Sidecars at `<name>.<ext>.xmp`; read-only or offline volumes use `<library>/sidecars/<volume-uuid>/`. Atomic writes.
+
+**Library, metadata and rebuild**
+- `Library`: `library.json`, `volumes.json` registry, `recipes/`, `sidecars/`.
+- `MetadataService`: rating, label, comment, user/AI tags, capture-time shift, events, recipes. Each edit updates rows and sidecars in one transaction.
+- `rebuild_catalog(cat, lib, volume, mount)`, `rebuild_library`, `add_volume`.
+
+**CLI**: `keepsake library init | add-volume | rebuild [--fresh] | stats | search | edit`.
+
+**Tests** (all run in CI, none need the corpus):
+- `catalog_tests.rs` (15): WAL, migrations, rollback, NFC/NFD and case duplicates, labels, tags, search, events, renditions, imports.
+- `xmp_tests.rs` (10): full round-trip, Lightroom and digiKam fixtures (`tests/fixtures/xmp/`), foreign-field preservation, prefix clashes, atomic write, ExifTool cross-check (skipped when `vendor/exiftool` is absent).
+- `rebuild_tests.rs` (9): build from fixtures → delete → rebuild, checked against independently written expected values (assets, file grouping and roles, BLAKE3 against disk, capture time with UTC offset and shift, ratings, labels, comments, keywords, AI tags) plus full-snapshot equality across a writable and a read-only volume, idempotence, read-only volume never written, originals never modified, newest sidecar wins, Sony-layout inference with foreign sidecars, missing recipes reported, random-layout property test.
+- `path_props.rs` (6 property tests): separators, round trips, escapes, NFC/NFD, case rules, catalog uniqueness.
+
+**Dependencies**: `rusqlite` 0.40, `quick-xml` 0.42, `unicode-normalization` 0.1; dev: `proptest` 1, `tempfile` 3 (ADR-011).
+
+### Change from the reviewed schema
+`files_one_original` is unique on `(asset_id, volume_id)` and `xmp_sidecars` is keyed by `(asset_id, volume_id)`, so a backup copy on a second volume can be an original with its own sidecar (ADR-012).
+
+### Not done / known limits
+- macOS CI is still deferred; tests simulate NFD names and case-insensitive volumes on Windows.
+- Capture time, camera and duration come only from sidecars until the Probe (ExifTool) lands, so a fresh card shows no calendar days.
+- Volume `fs_id` is the canonical mount path until the device watcher provides real ids.
+- Lightroom won't see edits to raw files (it reads only `<stem>.xmp`).
+
+### Files changed
+- `Cargo.toml`, `crates/keepsake-core/Cargo.toml` — new dependencies
+- `crates/keepsake-core/src/catalog/**` — NEW: catalog, migrations, repositories, FTS, snapshot
+- `crates/keepsake-core/src/relpath.rs`, `xmp/**`, `library.rs`, `metadata.rs`, `rebuild.rs` — NEW
+- `crates/keepsake-core/src/corpus/scanner.rs` — `skip_reason` made crate-visible
+- `crates/keepsake-core/tests/{catalog_tests,xmp_tests,rebuild_tests,path_props}.rs`, `tests/common/mod.rs` — NEW
+- `tests/fixtures/xmp/{lightroom,digikam}.xmp` — NEW hand-written sidecar fixtures
+- `tests/fixtures/names/Exports/Été 2024/Fête du lac 01.JPG` — NEW fixture with spaces and non-ASCII characters in its path
+- `crates/keepsake-cli/src/commands/library.rs` — NEW CLI commands
+- `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADR-011, ADR-012), `docs/SPEC.md`, `TEST_ME.md`
 
 ---
 
