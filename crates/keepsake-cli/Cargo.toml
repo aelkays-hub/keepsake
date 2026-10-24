@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 keepsake-core = { path = "../keepsake-core" }
+keepsake-platform = { path = "../keepsake-platform" }
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

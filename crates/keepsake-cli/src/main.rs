@@ -45,6 +45,19 @@ enum Commands {
     /// Show what Keepsake reads from a folder or card (capture time and
     /// confidence, camera, lens, video format, sequences). Read-only.
     Probe(commands::probe::ProbeArgs),
+    /// Watch for camera cards: report each card and how many items are new
+    /// since its last import; optionally import trusted cards automatically.
+    Watch(commands::watch::WatchArgs),
+    /// Cards this library remembers: list, trust for automatic import, rename, forget.
+    Card {
+        #[command(subcommand)]
+        action: commands::card::CardAction,
+    },
+    /// Saved import settings for automatic imports.
+    Preset {
+        #[command(subcommand)]
+        action: commands::preset::PresetAction,
+    },
     /// Test-corpus tools for developers.
     #[command(hide = true)]
     Corpus {
@@ -73,6 +86,9 @@ fn main() -> ExitCode {
         Commands::Backup(a) => commands::backup::run(&ctx, a),
         Commands::RebuildCatalog(a) => commands::rebuild::run(&ctx, a),
         Commands::Probe(a) => commands::probe::run(&ctx, a),
+        Commands::Watch(a) => commands::watch::run(&ctx, a),
+        Commands::Card { action } => commands::card::run(&ctx, action),
+        Commands::Preset { action } => commands::preset::run(&ctx, action),
         Commands::Corpus { action } => commands::corpus::run(action).map(|()| 0),
     };
     match result {
