@@ -10,7 +10,8 @@
 | 5 | Probing: ExifTool stay-open, ffprobe, Sony XML, AVCHD, grouping, capture-time confidence | ✅ Done (corpus entries still to be confirmed; no AVCHD media in corpus) |
 | 6 | Ingest engine: resumable state machine, verified copies to two drives, templates, safe-to-format, fault injection | ✅ Done (Windows; macOS read-only proof via DMG pending macOS CI) |
 | 7 | CLI: init, ingest, verify, search, shift-time, backup, rebuild-catalog; --json, progress, Ctrl-C | ✅ Done (Windows; macOS CI pending) |
-| 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
+| 8 | Device detection: Windows CM notifications + macOS DiskArbitration, card memory, `keepsake watch` with trusted auto-ingest | ✅ Done (Windows; macOS backend in CI only) |
+| 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ✅ Done in prompt 6 |
@@ -32,6 +33,66 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 8 — Device detection (2026-10-24)
+
+### What was built
+
+**`keepsake-platform`** (hand-written OS bindings, no new dependencies; ADR-020)
+- `DeviceEvents` trait: `Arrived { mount, identity }` and `Removed { mount }`. Volumes already mounted at start arrive first.
+- Windows backend:
+  - `CM_Register_Notification` on the volume interface class wakes a scanner thread;
+  - the thread lists drive letters, with identity from `GetVolumeInformationW` (serial, file system, label), the volume GUID, capacity, and `IOCTL_STORAGE_QUERY_PROPERTY` (model, serial, bus).
+- macOS backend:
+  - DiskArbitration callbacks on the scanner's run loop;
+  - the thread lists `/Volumes`, with identity from the disk description.
+  - Type-checked on Windows; compiled and tested only by the new macOS CI job.
+- Both backends list again every 0.5 s for 6 s after a notification, and every 3 s otherwise. This catches card swaps and missed notifications.
+- `FakeDevices`: scripted events, also from a JSON Lines file.
+
+**`keepsake-core`**
+- `devices`: the event and identity types. A card's key is its file-system type, serial and capacity.
+- `cards`:
+  - Sony layout recognition (`PRIVATE/M4ROOT`, `PRIVATE/AVCHD`, `MP_ROOT`, `DCIM/nnnMSDCF`);
+  - card records in `<library>/cards.json`;
+  - imported-item lists in `cards/<id>.json`, giving "N new items since last import" from a directory listing;
+  - trust and preset per card.
+- `presets`: named destinations, template and event, in `presets.json`.
+- `watch::Watcher`: device events become card events. With auto-ingest, trusted cards are imported with their preset, one at a time, through the normal ingest path. It reports why it skipped (no preset, nothing new, destination missing), and it handles Ctrl-C and a card pulled mid-import.
+- Ingest registers a card's source volume by its key, so a new drive letter is the same card.
+- Backups include the card memory and presets.
+
+**CLI**
+- `keepsake watch [--auto-ingest]`: text, or JSON Lines with `--json`.
+- `keepsake card list | trust | untrust | rename | forget`
+- `keepsake preset save | list | delete`
+- `ingest` remembers the card it imports from.
+
+**Tests**
+- Core: 12 watcher and card tests. They cover:
+  - recognition;
+  - a known card in another slot;
+  - a reformatted card;
+  - untrusted cards and the skip reasons;
+  - import, then nothing new;
+  - a card pulled mid-import;
+  - Ctrl-C, then resume;
+  - forget.
+- Platform:
+  - the scanner diff, the fake backend driving the watcher, and JSONL scripts;
+  - the real backend listing this machine's volumes and stopping within 2 s;
+  - `CM_NOTIFY_FILTER` layout and the system drive's identity on Windows.
+- CLI: 3 tests drive `watch --fake-events` end to end, plus `card` and `preset`.
+
+**CI**: a new `macos-14` job runs clippy and the tests for the workspace except the Tauri app. Media-tool tests skip there (`KEEPSAKE_SKIP_MEDIA_TOOLS`).
+
+### Not done / next
+- MTP-only cameras (ADR-002, v1).
+- Windows volumes mounted in folders rather than drive letters are not watched.
+- A card has different keys on Windows and macOS.
+- The Tauri app does not run the watcher yet. It can read `watch --json` or call `keepsake_core::watch` directly.
 
 ---
 

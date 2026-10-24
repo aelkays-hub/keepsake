@@ -1,193 +1,148 @@
-# Manual Test Steps — Prompt 7: the CLI
+# Manual Test Steps — Prompt 8: device detection
 
-Test on **Windows 11 x64** (primary) and **macOS 14+** when available.
-Run from the repo root. Build first with `cargo build -p keepsake-cli`, and run `scripts/setup.ps1` / `setup.sh` once so `vendor/` has ExifTool and ffprobe.
-Below, `$K` is `.\target\debug\keepsake.exe` (Windows) or `./target/debug/keepsake` (macOS). The commands are PowerShell. On macOS use the same commands with `/tmp/ks` paths and `cp -R`.
+Test on **Windows 11 x64** (primary) and **macOS 14+**.
+Build with `cargo build -p keepsake-cli`. Below, `$K` is `.\target\debug\keepsake.exe` (Windows) or `./target/debug/keepsake` (macOS).
 
-Every command also accepts `--json`. Try a few with it: the output should be one JSON document and no progress bar. The full manual is `docs/CLI.md`.
+**You need:**
+- One or two real Sony cards (SD or CFexpress) with some photos or clips on them.
+- A card reader. A second reader, or a camera connected over USB in mass-storage mode, is also useful.
+- Two destination folders, ideally on two different drives.
+
+Keepsake never writes to a card, but test with cards whose contents also exist somewhere else.
+
+The PowerShell commands are for Windows. On macOS use the same commands with `/tmp/ks`, and cards appear under `/Volumes/…`.
 
 ---
 
 ## A. Automated tests
 
 1. `cargo test --workspace`
-   **Expected:** all pass, including `cli_tests` (12 passed). The Ctrl-C test takes about 10 seconds. If the console can't deliver Ctrl-Break, it prints `skipping` and passes.
+   **Expected:** all pass, including:
+   - `watch_tests` (12);
+   - `devices_tests` (3), one of which starts the real device backend on this machine;
+   - the new `cli_tests` (`watch_…`, `presets_and_cards…`).
 2. `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`
    **Expected:** no output.
+3. **macOS:** the GitHub `macos-14 (Rust)` job is green. It is the first run of the DiskArbitration code.
 
 ---
 
-## B. Set up a test card and a library
+## B. Set up
 
 ```powershell
-$T = "$env:TEMP\ks"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force "$T\card" | Out-Null
-Copy-Item -Recurse tests\fixtures\dcim\DCIM, tests\fixtures\xavc\PRIVATE "$T\card\"
-$env:KEEPSAKE_CONFIG_DIR = "$T\config"     # keeps your real config untouched
+$T = "$env:TEMP\ks8"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
+$env:KEEPSAKE_CONFIG_DIR = "$T\config"
 & $K init "$T\lib"
+New-Item -ItemType Directory -Force "$T\A", "$T\B" | Out-Null   # or folders on two drives
 ```
-**Expected:** `Created library … and made it the default.`
-
-Then:
-- Run `& $K init "$T\lib"` again. **Expected:** it says the library already exists and is now the default. Nothing is changed.
-- In a new shell, without `KEEPSAKE_CONFIG_DIR`, run `& $K search x`. **Expected:** an error telling you to run `keepsake init` or pass `--library`, and exit code 1 (`$LASTEXITCODE`).
-
-(A real card works too: copy one into `$T\card`, or use the card's drive letter directly.)
 
 ---
 
-## C. ingest
+## C. Detection (no import)
 
-All of this is on one disk, so it needs the hidden testing flag `--unsafe-allow-same-disk`. With a real card and two real drives, leave the flag out.
-
-1. Dry run:
-   ```powershell
-   & $K ingest "$T\card" --dest "$T\A" --dest "$T\B" --dry-run --unsafe-allow-same-disk
-   ```
-   **Expected:** a list of assets with their files and destination names, and the space needed and free on each destination. `$T\A` and `$T\B` **do not exist** afterwards, and `& $K ingest --list` shows no imports.
-2. Leave out the flag and drop `--dry-run`.
-   **Expected:** the import is refused because both destinations are on the same disk. Nothing is copied.
-3. Run it for real, with the flag:
-   ```powershell
-   & $K ingest "$T\card" --dest "$T\A" --dest "$T\B" --unsafe-allow-same-disk
-   ```
+1. With **no card inserted**, run `& $K watch`.
    **Expected:**
-   - a progress bar;
-   - every asset verified on both destinations;
-   - **SAFE TO FORMAT**;
-   - exit code 0;
-   - files under `A\2024\2024-01-15\…` and the same under `B`, each with an `.xmp` beside it.
+   - `Watching for cards (automatic import off)…`;
+   - nothing for your internal disks;
+   - no "insert a disk" pop-up for empty card readers.
+2. Insert a Sony card.
+   **Expected:**
+   - within about 2 seconds, `Card inserted: <label> (E:\) [XAVC, stills] — new card: N item(s)`;
+   - N matches what the camera shows (a clip and its XML count as one item, and so do RAW + JPEG).
+3. Remove the card (eject it first on macOS). **Expected:** `Card removed: <label> (E:\)`.
+4. Insert a non-Sony USB stick. **Expected:** nothing is printed. With `--json` it shows as `volume_ignored`.
+5. Leave the card inserted, press Ctrl-C, and start `& $K watch` again.
+   **Expected:** the card already inserted is reported at start, and is now a **known card, never imported**.
+6. Press Ctrl-C. **Expected:** `Stopped watching.` and exit code 0.
+7. `& $K card list` **Expected:** one card, last seen just now, not trusted.
 
-   The card is unchanged; compare `Get-ChildItem -Recurse "$T\card"` before and after.
-4. Run step 3 again.
-   **Expected:** everything is reported as already imported, and nothing is copied.
-5. `& $K ingest --status` and `& $K ingest --list`.
-   **Expected:** the last session, safe to format.
-6. Make a second card, copying `$T\card` to `$T\card2`. Import it to one destination only: `--dest "$T\C" --unsafe-allow-same-disk --all`.
-   **Expected:** it is copied but **NOT safe to format** (only one copy), with exit code 2.
-7. Try a template:
+---
+
+## D. "New since last import"
+
+1. Import the card by hand to two drives:
    ```powershell
-   --template "{yyyy}-{mm}-{dd} {event}/{seq}_{orig}" --event Lake
+   & $K ingest E:\ --dest "$T\A" --dest "$T\B"
    ```
-   Use it on another copy with `--all` and new destinations.
-   **Expected:** folders like `2024-01-15 Lake\0001_C0001.MP4`. The clip's XML, proxy and thumbnail are renamed to match.
+   Add `--unsafe-allow-same-disk` if A and B are on one disk. **Expected:** SAFE TO FORMAT.
+2. `& $K watch`, then remove and reinsert the card.
+   **Expected:** `0 new item(s) since last import`.
+3. Shoot 2 new photos on the card, then insert it.
+   **Expected:** `2 new item(s) since last import`.
+4. **Other slot:** insert the same card in a different reader, or with the camera over USB, so it gets a different drive letter.
+   **Expected:** the same card (same name in `card list`) with the same count. It is not a new card.
+5. **Second card:** insert another card, possibly in the same reader. **Expected:** a separate **new card**.
+6. **Reformat:** format a card in the camera, then insert it. **Expected:** a **new card** with 0 items. Formatting gives it a new serial.
 
 ---
 
-## D. Ctrl-C
+## E. Trusted cards and automatic import
 
-You need a few big files so there's time to press Ctrl-C:
-```powershell
-New-Item -ItemType Directory -Force "$T\big\DCIM\100MSDCF" | Out-Null
-1..8 | % { fsutil file createnew "$T\big\DCIM\100MSDCF\DSC0000$_.JPG" 300000000 | Out-Null }
-& $K ingest "$T\big" --dest "$T\BA" --dest "$T\BB" --unsafe-allow-same-disk --no-probe
-```
-(macOS: `mkfile 300m /tmp/ks/big/DCIM/100MSDCF/DSC00001.JPG`, and so on.)
-
-1. Press **Ctrl-C once** while the bar is moving.
-   **Expected:**
-   - `Stopping after the current file…`;
-   - a moment later, `Stopped after the current file` with a resume hint, and exit code 130;
-   - no `.keepsake-partial-*` files in `BA` or `BB` (use `Get-ChildItem -Force -Recurse`);
-   - every file that is there has its full size.
-2. `& $K ingest --resume`
-   **Expected:** the rest is copied, then SAFE TO FORMAT.
-3. Start a fresh import of `big` to new destinations, and press **Ctrl-C twice** quickly.
-   **Expected:** it exits immediately. `ingest --resume` cleans up the leftover temporary file and finishes.
-
----
-
-## E. verify
-
-1. `& $K verify`
-   **Expected:** each volume (A, B, C …) is listed with files checked, `All checked files are intact.`, and exit code 0. The card is not listed.
-2. Delete one file from `A` and append a byte to another (use copies, never your real originals):
+1. Make a preset:
    ```powershell
-   Add-Content "$T\A\2024\2024-01-15\<some file>" "x"
+   & $K preset save "Two drives" --dest "$T\A" --dest "$T\B"
    ```
-   **Expected:** `MISSING:` and `CHANGED:` lines naming them, and exit code 2. Nothing is repaired or rewritten.
-3. `& $K verify --volume B`
-   **Expected:** only B is checked, and it is OK.
-4. `& $K verify --volume nope`
-   **Expected:** an error saying the volume is unknown.
-
----
-
-## F. search
-
-1. `& $K search C0001`
-   **Expected:** the clip, with its date, kind, camera and path.
-2. `& $K search --from 2024-01-15 --to 2024-01-15 --type video`
-   **Expected:** only that day's videos.
-3. `& $K search --camera <part of the camera name shown in step 1>`
-   **Expected:** matches, case-insensitively.
-4. `& $K search --from 2030-01-01`
-   **Expected:** `No matches.`
-5. `& $K search`
-   **Expected:** an error asking for words or a filter.
-6. `& $K search --from 15/01/2024`
-   **Expected:** an error about the date format.
-
----
-
-## G. shift-time
-
-1. `& $K shift-time "$T\A\2024\2024-01-15" --by +01:00:00 --dry-run`
-   **Expected:** before → after times one hour apart, and nothing written. The `.xmp` files have the same modified time as before.
-2. Run it again without `--dry-run`.
+   Make sure the folders exist first, or the save is refused.
+2. Name and trust the card:
+   ```powershell
+   & $K card rename Untitled "Card 1"
+   & $K card trust "Card 1" --preset "Two drives"
+   ```
+3. Shoot a few new photos, then run:
+   ```powershell
+   & $K watch --auto-ingest
+   ```
+   Then insert the card. Add the hidden `--unsafe-allow-same-disk` if A and B share a disk.
    **Expected:**
-   - `Shifted N asset(s)… originals untouched`;
-   - the `.xmp` files in **both** A and B now contain the new `photoshop:DateCreated` / `xmp:CreateDate`;
-   - the media files are byte-identical to the card (their hashes are unchanged);
-   - `& $K search --from 2024-01-15 --to 2024-01-15` shows the new times.
-3. `--by -1:00:00` puts them back.
-4. `& $K shift-time "$T\not-there" --by +1:00` **Expected:** "not in the catalog".
-5. `& $K shift-time --by +1:00` **Expected:** an error asking for a selection.
-6. `& $K shift-time --type video --by 1:5` **Expected:** an error about the format.
-
----
-
-## H. backup
-
-1. `& $K backup "$T\backup"`
+   - `Card inserted … N new item(s)`, then `Importing with preset Two drives to …`;
+   - then `Imported: N asset(s) catalogued` and `SAFE TO FORMAT`;
+   - the files appear in both A and B, with `.xmp` sidecars;
+   - nothing changes on the card.
+4. Remove and reinsert. **Expected:** `0 new item(s)` and `Not importing automatically: nothing new on the card`.
+5. Insert an **untrusted** card. **Expected:** it is reported but not imported.
+6. **Destination missing:** unplug the drive holding B, or rename the B folder. Shoot a photo and insert the card.
+   **Expected:** `Not importing automatically: destination … not found (is the drive connected?)`. Nothing is copied.
+7. **Ctrl-C mid-import:** shoot a few large clips. Insert the card and press Ctrl-C once while it imports.
    **Expected:**
-   - every file copied with a bar, and exit code 0;
-   - `$T\backup` mirrors the library's folders;
-   - `$T\backup\.keepsake-library\catalog.db` exists.
-2. Run it again.
-   **Expected:** 0 copied, all already there.
-3. Import another card (section C step 6 or 7), then back up again.
-   **Expected:** only the new files are copied.
-4. Damage a file on the volume the backup reads from (append a byte, as in E2). Then back up to a **new** folder, `"$T\backup2"`.
-   **Expected:** that file is reported as differing from the catalog, with a hint to run `keepsake verify`. The damaged copy is not written, and the exit code is 2.
-5. `& $K backup "$T\A\inside"`
-   **Expected:** refused, because the backup would sit inside a library volume.
-6. Press Ctrl-C during a big backup.
-   **Expected:** the current file finishes, then exit code 130. Running `backup` again continues.
+   - the current file finishes, then `Stopped after the current file. Continue with: keepsake ingest --resume --session …`;
+   - exit code 130;
+   - no `.keepsake-partial-*` files in A or B (use `Get-ChildItem -Force -Recurse`).
+
+   Then `& $K ingest --resume`. **Expected:** SAFE TO FORMAT.
+8. **Card pulled mid-import:** start an automatic import of large clips, then pull the card out (on macOS, eject it with Force).
+   **Expected:**
+   - the import ends with failed items and **NOT safe to format**;
+   - `card removed` is printed;
+   - after reinserting, the failed items count as new;
+   - `ingest --resume` (with the card back in) completes it.
+9. `& $K preset delete "Two drives"`
+   **Expected:** refused, because "Card 1" uses it. Run `& $K card untrust "Card 1"` first, then delete again: it works.
 
 ---
 
-## I. rebuild-catalog
+## F. JSON for the app
 
-1. Note the output of `& $K search --type video`.
-2. `& $K rebuild-catalog --fresh`
-   **Expected:** the volumes are rebuilt (not the card), and the summary shows the asset count.
-3. Run `search --type video` again.
-   **Expected:** the same results, including the time shift from G and any ratings and tags.
-
----
-
-## J. probe
-
-`& $K probe "$T\card"`
-**Expected:** the assets with their capture time, source and confidence, camera, duration and format. Nothing on the card changes.
+`& $K --json watch --auto-ingest`, then insert and remove a card.
+**Expected:**
+- one JSON object per line, appearing as things happen;
+- the first is `{"auto_ingest":true,"event":"watching"}`;
+- then `card_inserted` (with `items`, `new_items` and `known`), `auto_ingest_*` and `card_removed`;
+- `{"event":"stopped"}` after Ctrl-C.
 
 ---
 
-## K. macOS-specific
+## G. Card memory survives
 
-Repeat B–J on macOS with `/tmp/ks`. Ctrl-C uses the normal terminal Ctrl-C. For a read-only source, test a real card, or a DMG mounted read-only:
-```bash
-hdiutil create -srcfolder /tmp/ks/card -format UDRO card.dmg && hdiutil attach card.dmg
-```
-Then ingest from `/Volumes/card`. **Expected:** the same results; nothing tries to write to the card.
+1. `& $K rebuild-catalog --fresh`, then `& $K card list`. **Expected:** the cards are still listed and still trusted.
+2. `& $K backup "$T\backup"`. **Expected:** `$T\backup\.keepsake-library\` contains `cards.json`, `cards\` and `presets.json`.
+3. `& $K card forget "Card 1"`. **Expected:** the card is gone from `card list`, while its photos are still found by `& $K search --type photo`. Reinserted, it is a new card.
+
+---
+
+## H. macOS specifics
+
+- Cards mount under `/Volumes/<name>`. Detection should appear within about 2 seconds of the mount.
+- Eject with Finder, then pull the card. **Expected:** `Card removed`.
+- A camera over USB that mounts its card behaves like a reader.
+- The same card on Windows and on macOS is **not** recognised as one card (different serial formats). This is expected.
+- Run C and D on macOS. Watch for crashes or a missing removal event, and report them with `RUST_LOG=keepsake_platform=debug`.
