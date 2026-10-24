@@ -21,6 +21,14 @@
 
 All three executables call into `keepsake-core` through the same public API. There is no business logic outside of `keepsake-core` and `keepsake-platform`.
 
+The CLI (`keepsake-cli`, manual in `docs/CLI.md`) parses arguments, picks the library (`--library`, else `KEEPSAKE_LIBRARY`, else the default in `config.toml`), prints text or `--json`, draws progress bars and turns Ctrl-C into a "finish the current file, then stop" flag. The work itself is done in core:
+- `ingest::{preview, plan, run, report}` for `ingest`;
+- `verify::verify` for `verify`;
+- `catalog::Search::query` (`SearchQuery`) for `search`;
+- `select::resolve` and `MetadataService::shift_capture_time` for `shift-time`;
+- `backup::run` for `backup`;
+- `rebuild::rebuild_library` for `rebuild-catalog`.
+
 ---
 
 ## Components
@@ -289,7 +297,7 @@ library-<uuid>/
 The SQLite catalog stores only information that can be derived from files already on disk plus XMP sidecars and the library folder. If the catalog is deleted:
 
 ```bash
-keepsake library rebuild <library> --fresh
+keepsake rebuild-catalog --fresh
 ```
 
 `rebuild::rebuild_catalog(catalog, library, volume, mount)` reconstructs one volume and never writes to it:
