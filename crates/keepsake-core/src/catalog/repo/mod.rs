@@ -23,7 +23,7 @@ pub use labels::Labels;
 pub use meta::Meta;
 pub use recipes::Recipes;
 pub use renditions::Renditions;
-pub use search::Search;
+pub use search::{Search, SearchQuery};
 pub use sequences::Sequences;
 pub use sidecars::Sidecars;
 pub use tags::Tags;

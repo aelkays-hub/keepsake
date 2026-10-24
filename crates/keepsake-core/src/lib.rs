@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod catalog;
 pub mod corpus;
 pub mod error;
@@ -9,6 +10,8 @@ pub mod paths;
 pub mod probe;
 pub mod rebuild;
 pub mod relpath;
+pub mod select;
+pub mod verify;
 pub mod xmp;
 
 /// Returns the application version string defined in Cargo.toml.

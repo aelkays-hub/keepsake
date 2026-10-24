@@ -718,3 +718,46 @@ DROP TABLE import_items;
 ALTER TABLE import_items_v2 RENAME TO import_items;
 CREATE INDEX import_items_asset ON import_items(session_id, source_key);
 ```
+
+---
+
+## ADR-018 — `indicatif` and `ctrlc` for the CLI
+
+**Status**: Accepted (Prompt 7, approved by the product owner 2026-10-24)
+
+| Crate | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `indicatif` | 0.18 | MIT | `keepsake-cli` | Progress bars (stderr, terminals only, never with `--json`) |
+| `ctrlc` | 3 | MIT / Apache-2.0 | `keepsake-cli` | Ctrl-C on macOS and Ctrl-C / Ctrl-Break / console close on Windows |
+
+Neither is linked into `keepsake-core`. The CLI also uses the existing workspace crates `serde` (config) and `chrono`.
+
+---
+
+## ADR-019 — CLI behaviour
+
+**Status**: Accepted (Prompt 7)
+
+- **Commands**: `init`, `ingest` (`--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe` (`corpus` is hidden, for developers). The earlier `library …` group and the `ingest start|resume|status|list` subcommands are gone; this supersedes the `library add-volume` mention in ADR-012.
+- **Library selection**: `--library`, then `KEEPSAKE_LIBRARY`, then `default_library` in `config.toml` (written by `init`; folder overridable with `KEEPSAKE_CONFIG_DIR`).
+- **Output**: plain text with the verdict first; `--json` prints one document on stdout, errors as `{"error": …}` on stderr.
+- **Exit status**:
+
+  | Code | Meaning |
+  |---|---|
+  | 0 | OK |
+  | 1 | Error |
+  | 2 | Finished with problems: verify found issues, ingest not safe to format, backup failures or unavailable assets, rebuild problems |
+  | 130 | Cancelled |
+- **Ctrl-C** finishes the current file and stops (exit 130); a second press exits immediately. This changes ingest, which previously aborted mid-file on cancel. The copy engine no longer looks at the cancel flag inside a file; callers check between files.
+- **Ingest dry run** uses the same planning code as a real import, but writes nothing. Destinations are described without being registered or created (`ingest::preview_destination`), and the same-disk rules still apply.
+- **Cards are not library storage**: `rebuild-catalog` skips volumes of kind `card`, and `verify` lists only volumes that hold catalogued files. This fixes a bug the new CLI exposed: a full rebuild had catalogued the ingest source card.
+- **Backup**:
+  - Every asset is copied from the mounted volume holding most of its files, keeping relative paths, through the ingest copy path (temporary file, fsync, cache-bypassing read-back, rename without replacing, final re-read). A collision gets ` (2)`.
+  - A copy is made only if the source's BLAKE3 equals the catalog's, so damage is never propagated.
+  - A file is skipped when the backup already holds a catalogued copy with the same role, content and name.
+  - Leftover backup temporaries (`.keepsake-partial-backup`) are removed at the start of the next run.
+  - The library goes to `<dest>/.keepsake-library/`: a `VACUUM INTO` catalog snapshot, the registry, recipes and mirrored sidecars, swapped in atomically.
+  - The backup folder may not overlap a library volume or the library folder.
+- **`shift-time`** selection is paths (files, or folders meaning "everything inside") and/or the search filters; an empty selection or an unknown path is an error. The shift is written to the sidecars of every copy and to the catalog; originals are untouched.
+- **Ctrl-C test on Windows** starts the CLI in its own process group and sends `CTRL_BREAK_EVENT` with `GenerateConsoleCtrlEvent` (test code only). If the console cannot deliver it, the test says so and skips; the cancel rule is also covered by core ingest tests.

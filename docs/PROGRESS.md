@@ -9,6 +9,7 @@
 | 4 | Catalog: SQLite + migrations, typed repositories, XMP sidecars, rebuild, path property tests | ✅ Done (Windows CI; macOS CI still deferred) |
 | 5 | Probing: ExifTool stay-open, ffprobe, Sony XML, AVCHD, grouping, capture-time confidence | ✅ Done (corpus entries still to be confirmed; no AVCHD media in corpus) |
 | 6 | Ingest engine: resumable state machine, verified copies to two drives, templates, safe-to-format, fault injection | ✅ Done (Windows; macOS read-only proof via DMG pending macOS CI) |
+| 7 | CLI: init, ingest, verify, search, shift-time, backup, rebuild-catalog; --json, progress, Ctrl-C | ✅ Done (Windows; macOS CI pending) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ⬜ Pending |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -21,9 +22,9 @@
 | 10 | UI: grid view with TanStack Virtual | ⬜ Pending |
 | 11 | UI: details view and metadata panel | ⬜ Pending |
 | 12 | UI: ingest wizard (preview, destination, confirm) | ⬜ Pending |
-| 13 | Search: date, camera, lens, type, text (FTS5) | ⬜ Pending |
+| 13 | Search: date, camera, lens, type, text (FTS5) | 🟡 CLI done in prompt 7 (no lens filter, no UI) |
 | 14 | Video proxy generation and playback | ⬜ Pending |
-| 15 | Backup verification command (CLI + UI) | ⬜ Pending |
+| 15 | Backup verification command (CLI + UI) | 🟡 CLI done in prompt 7 (`verify`, `backup`); UI pending |
 | 16 | Lossless trim (keyframe-cut and smart-cut) | ⬜ Pending |
 | 17 | Combine, rotate, frame grab, MP4 conversion | ⬜ Pending |
 | 18 | Image adjustments (crop, resize, red-eye, auto-levels) | ⬜ Pending |
@@ -31,6 +32,53 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 7 — CLI (2026-10-24)
+
+### What was built
+
+**`keepsake-cli`** is now a real tool. Every command has text output and `--json` (manual: `docs/CLI.md`).
+- `init <path>`: creates or adopts a library and makes it the default in `config.toml`.
+- `ingest <source> --dest A [--dest B] [--template] [--event] [--dry-run]`, plus `--resume`, `--status`, `--list`. A dry run writes nothing.
+- `verify [--volume X]`: re-hashes past the OS cache and reports missing, changed and unreadable files.
+- `search "<words>" [--from] [--to] [--camera] [--type]`.
+- `shift-time <paths…> --by ±H:MM[:SS]` (or filters), plus `--dry-run`. It writes XMP sidecars and the catalog only.
+- `backup <dest>`: incremental and verified, refuses to copy files that no longer match the catalog, and writes a library snapshot to `<dest>/.keepsake-library/`.
+- `rebuild-catalog [--fresh]`.
+- `probe <folder>`.
+- Library selection: `--library`, then `KEEPSAKE_LIBRARY`, then the `init` default.
+- Exit codes: 0 OK, 1 error, 2 finished with problems, 130 cancelled.
+- Progress bars (`indicatif`) on stderr; terminals only, never with `--json`.
+- Ctrl-C (`ctrlc`): the first press finishes the current file and stops cleanly; the second exits at once.
+
+**`keepsake-core` additions**
+- `catalog::SearchQuery` and `Search::query`: words (FTS5), capture-day range, camera, kind.
+- `Catalog::snapshot_to` (`VACUUM INTO`).
+- `ingest::preview` and `preview_destination`: a dry run sharing the planning code.
+- `verify` module.
+- `backup` module.
+- `select` module: resolve paths/filters to assets, and parse the shift offset.
+- Ingest cancel now happens between files only. `copy::tee` has no cancel argument.
+- `rebuild_library` skips card volumes. This fixes a bug the CLI exposed: the source card was being catalogued.
+
+**Tests**
+- `crates/keepsake-cli/tests/cli_tests.rs`: 12 integration tests that run the real binary against the fixture card, covering every command.
+- The Ctrl-C test sends a real Ctrl-Break (Windows) or SIGINT (macOS), then checks that it exited with 130, that every final file is complete, that no temporaries are left, and that resume reaches "safe to format".
+- Core: `search_query_filters_combine`; the ingest cancel test now asserts that the in-flight file is completed.
+
+**Docs**
+- `docs/CLI.md` (new).
+- ADR-018 (indicatif MIT, ctrlc MIT/Apache-2.0) and ADR-019 (CLI behaviour).
+- SPEC and ARCHITECTURE updated.
+
+### Removed
+The `keepsake library …` group and the `ingest start|resume|status|list` subcommands; they are replaced by the commands above.
+
+### Not done / next
+- macOS CI is still deferred, so the macOS Ctrl-C path has only been run in CI on Windows.
+- `backup` copies whole assets from one volume; it does not yet restore a library from a backup (a manual copy of `.keepsake-library` works).
 
 ---
 

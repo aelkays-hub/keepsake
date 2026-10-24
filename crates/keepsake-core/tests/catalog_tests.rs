@@ -509,3 +509,79 @@ fn renditions_and_imports() {
     assert!(cat.write(|tx| tx.imports().upsert_item(&orphan)).is_err());
     assert_eq!(cat.read(|tx| tx.imports().items(s.id)).unwrap(), vec![item]);
 }
+
+#[test]
+fn search_query_filters_combine() {
+    use keepsake_core::catalog::SearchQuery;
+    let (mut cat, v) = setup();
+    // 2024-06-15 13:30 Tokyo, 2024-06-16 08:30 Tokyo, undated.
+    let mut a = photo(1_718_425_800_000, Some(540));
+    a.camera_model = Some("ILCE-7M4".into());
+    let mut b = photo(1_718_494_200_000, Some(540));
+    b.camera_model = Some("FX3".into());
+    b.media_kind = MediaKind::Video;
+    let c = photo(0, None);
+    let c = Asset { capture: None, ..c };
+    cat.write(|tx| {
+        for (x, n) in [(&a, "A.JPG"), (&b, "B.MP4"), (&c, "C.JPG")] {
+            tx.assets().insert(x)?;
+            tx.files()
+                .insert(x.id, &file(v.id, n, FileRole::Original))?;
+        }
+        Ok::<_, CatalogError>(())
+    })
+    .unwrap();
+    let q = |q: SearchQuery| cat.read(|tx| tx.search().query(&q)).unwrap();
+    let day = |d: &str| Some(d.to_owned());
+    assert_eq!(
+        q(SearchQuery {
+            from: day("2024-06-15"),
+            to: day("2024-06-15"),
+            ..Default::default()
+        }),
+        vec![a.id]
+    );
+    assert_eq!(
+        q(SearchQuery {
+            from: day("2024-06-16"),
+            ..Default::default()
+        }),
+        vec![b.id]
+    );
+    assert_eq!(
+        q(SearchQuery {
+            camera: Some("7m4".into()),
+            ..Default::default()
+        }),
+        vec![a.id]
+    );
+    assert_eq!(
+        q(SearchQuery {
+            kind: Some(MediaKind::Video),
+            ..Default::default()
+        }),
+        vec![b.id]
+    );
+    assert_eq!(
+        q(SearchQuery {
+            text: Some("C".into()),
+            ..Default::default()
+        }),
+        vec![c.id]
+    );
+    // No filter: every asset, by capture time, undated last.
+    assert_eq!(q(SearchQuery::default()), vec![a.id, b.id, c.id]);
+    assert_eq!(
+        q(SearchQuery {
+            limit: Some(1),
+            ..Default::default()
+        }),
+        vec![a.id]
+    );
+    assert!(cat
+        .read(|tx| tx.search().query(&SearchQuery {
+            from: day("15/06/2024"),
+            ..Default::default()
+        }))
+        .is_err());
+}

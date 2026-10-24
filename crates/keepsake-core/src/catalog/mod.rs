@@ -28,7 +28,7 @@ pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
     Assets, DayCount, EventSpan, Events, Files, Imports, Labels, Meta, Recipes, Renditions, Search,
-    Sequences, Sidecars, Tags, Volumes,
+    SearchQuery, Sequences, Sidecars, Tags, Volumes,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -166,6 +166,16 @@ impl Catalog {
         let out = f(&tx)?;
         tx.tx.commit().map_err(CatalogError::from)?;
         Ok(out)
+    }
+
+    /// Write a consistent, compacted copy of the whole catalog to `path`
+    /// (`VACUUM INTO`). `path` must not exist.
+    pub fn snapshot_to(&self, path: &Path) -> Result<(), CatalogError> {
+        let p = path.to_str().ok_or_else(|| {
+            CatalogError::Invalid(format!("path is not UTF-8: {}", path.display()))
+        })?;
+        self.conn.execute("VACUUM INTO ?1", [p])?;
+        Ok(())
     }
 
     /// Delete a catalog database and its WAL/SHM companions. The catalog must

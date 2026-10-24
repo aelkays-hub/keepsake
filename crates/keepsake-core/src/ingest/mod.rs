@@ -212,7 +212,8 @@ fn check_destinations(
     if dests.is_empty() || dests.len() > 2 {
         return Err(IngestError::Unsafe("choose one or two destinations".into()));
     }
-    let src_fs = sys::filesystem_id(src.root());
+    let fs_of = |p: &Path| sys::existing_ancestor(p).and_then(|a| sys::filesystem_id(&a));
+    let src_fs = fs_of(src.root());
     for (i, d) in dests.iter().enumerate() {
         if src.contains(&d.mount) {
             return Err(IngestError::Unsafe(format!(
@@ -233,14 +234,14 @@ fn check_destinations(
             {
                 return Err(IngestError::Unsafe("the two destinations overlap".into()));
             }
-            if !allow_same_fs && sys::filesystem_id(&d.mount) == sys::filesystem_id(&other.mount) {
+            if !allow_same_fs && fs_of(&d.mount) == fs_of(&other.mount) {
                 return Err(IngestError::Unsafe(
                     "both destinations are on the same disk; two copies must be on two disks"
                         .into(),
                 ));
             }
         }
-        if !allow_same_fs && src_fs.is_some() && sys::filesystem_id(&d.mount) == src_fs {
+        if !allow_same_fs && src_fs.is_some() && fs_of(&d.mount) == src_fs {
             return Err(IngestError::Unsafe(format!(
                 "destination {} is on the same disk as the source",
                 d.mount.display()
@@ -311,29 +312,17 @@ fn append_suffix(base: &RelPath, n: u32) -> RelPath {
     RelPath::parse(&s).unwrap_or_else(|_| base.clone())
 }
 
-/// Plan an import: group and probe the card, quick-diff against the
-/// library, name every file on every destination, and store the session.
-pub fn plan(
-    cat: &mut Catalog,
-    lib: &Library,
+/// The planning computation shared by [`plan`] and [`preview`]: reads the
+/// card and the catalog, writes nothing.
+fn compute_plan(
+    cat: &Catalog,
     prober: Option<&Prober>,
-    source_mount: &Path,
-    source_label: &str,
+    src: &SourceVolume,
+    src_rec: &VolumeRecord,
     dests: &[Destination],
     opts: &PlanOptions,
-) -> Result<ImportSessionId, IngestError> {
-    let src = SourceVolume::new(source_mount)
-        .map_err(|_| IngestError::SourceMissing(source_mount.to_path_buf()))?;
-    check_destinations(&src, dests, opts.allow_same_filesystem)?;
-    let src_rec = source_volume(lib, src.root(), source_label)?;
-    cat.write(|tx| -> Result<(), IngestError> {
-        tx.volumes().upsert(&src_rec.to_volume(Some(src.root())))?;
-        for d in dests {
-            tx.volumes().upsert(&d.volume.to_volume(Some(&d.mount)))?;
-        }
-        Ok(())
-    })?;
-
+    session: ImportSessionId,
+) -> Result<(Vec<ImportAsset>, Vec<ImportItem>), IngestError> {
     let (files, _) = crate::rebuild::list_media_files(src.root());
     let grouping = crate::rebuild::group_folder(src.root(), &files);
     let probed = prober.map(|p| p.probe(src.root(), &files, &grouping));
@@ -348,7 +337,6 @@ pub fn plan(
         quick: Vec<(u64, u64)>, // (size, quick hash) per member
     }
     let mut planned: Vec<Planned> = Vec::new();
-    let session = ImportSessionId::new_random();
     for (gi, g) in grouping.groups.iter().enumerate() {
         let orig = &files[g.original()];
         let source_key = orig.key(src_rec.case);
@@ -493,6 +481,34 @@ pub fn plan(
             }
         }
     }
+    Ok((assets_rows, item_rows))
+}
+
+/// Plan an import: group and probe the card, quick-diff against the
+/// library, name every file on every destination, and store the session.
+pub fn plan(
+    cat: &mut Catalog,
+    lib: &Library,
+    prober: Option<&Prober>,
+    source_mount: &Path,
+    source_label: &str,
+    dests: &[Destination],
+    opts: &PlanOptions,
+) -> Result<ImportSessionId, IngestError> {
+    let src = SourceVolume::new(source_mount)
+        .map_err(|_| IngestError::SourceMissing(source_mount.to_path_buf()))?;
+    check_destinations(&src, dests, opts.allow_same_filesystem)?;
+    let src_rec = source_volume(lib, src.root(), source_label)?;
+    cat.write(|tx| -> Result<(), IngestError> {
+        tx.volumes().upsert(&src_rec.to_volume(Some(src.root())))?;
+        for d in dests {
+            tx.volumes().upsert(&d.volume.to_volume(Some(&d.mount)))?;
+        }
+        Ok(())
+    })?;
+
+    let session = ImportSessionId::new_random();
+    let (assets_rows, item_rows) = compute_plan(cat, prober, &src, &src_rec, dests, opts, session)?;
 
     cat.write(|tx| -> Result<(), IngestError> {
         tx.imports().upsert_session(&ImportSession {
@@ -521,6 +537,156 @@ pub fn plan(
         Ok(())
     })?;
     Ok(session)
+}
+
+/// A destination described for [`preview`] without registering it or
+/// touching the disk. Uses the library's record if the folder is known.
+pub fn preview_destination(
+    lib: &Library,
+    mount: &Path,
+    label: &str,
+) -> Result<Destination, IngestError> {
+    let mount = match std::fs::canonicalize(mount) {
+        Ok(p) => p,
+        Err(_) if mount.is_absolute() => mount.to_path_buf(),
+        Err(_) => std::env::current_dir()?.join(mount),
+    };
+    let fs_id = mount.display().to_string();
+    let volume = match lib.volumes()?.into_iter().find(|v| v.fs_id == fs_id) {
+        Some(v) => v,
+        None => VolumeRecord {
+            id: VolumeId::new_random(),
+            label: label.to_owned(),
+            fs_id,
+            kind: VolumeKind::External,
+            // Windows and macOS file systems are case-insensitive by default.
+            case: CaseSensitivity::Insensitive,
+            read_only: false,
+            last_mount: Some(mount.clone()),
+        },
+    };
+    Ok(Destination { volume, mount })
+}
+
+/// One file of a [`Preview`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PreviewFile {
+    pub source: String,
+    pub dest: String,
+    pub role: FileRole,
+    pub size: u64,
+}
+
+/// One asset of a [`Preview`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PreviewAsset {
+    pub original: String,
+    pub diff: ImportDiff,
+    pub state: ImportAssetState,
+    pub files: Vec<PreviewFile>,
+}
+
+/// Space needed on one destination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PreviewSpace {
+    pub destination: String,
+    pub mount: PathBuf,
+    pub bytes_needed: u64,
+    pub bytes_free: Option<u64>,
+}
+
+/// What an import would do. Producing it writes nothing anywhere.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Preview {
+    pub assets: Vec<PreviewAsset>,
+    pub space: Vec<PreviewSpace>,
+}
+
+/// Plan an import without storing anything: no session, no volume
+/// registration, no folders created. Destinations must come from
+/// [`preview_destination`] (or be already registered).
+pub fn preview(
+    cat: &Catalog,
+    lib: &Library,
+    prober: Option<&Prober>,
+    source_mount: &Path,
+    dests: &[Destination],
+    opts: &PlanOptions,
+) -> Result<Preview, IngestError> {
+    let src = SourceVolume::new(source_mount)
+        .map_err(|_| IngestError::SourceMissing(source_mount.to_path_buf()))?;
+    check_destinations(&src, dests, opts.allow_same_filesystem)?;
+    let fs_id = src.root().display().to_string();
+    let src_rec = match lib.volumes()?.into_iter().find(|v| v.fs_id == fs_id) {
+        Some(v) => v,
+        None => VolumeRecord {
+            id: VolumeId::new_random(),
+            label: "card".into(),
+            fs_id,
+            kind: VolumeKind::Card,
+            case: CaseSensitivity::Insensitive,
+            read_only: true,
+            last_mount: Some(src.root().to_path_buf()),
+        },
+    };
+    let (assets, items) = compute_plan(
+        cat,
+        prober,
+        &src,
+        &src_rec,
+        dests,
+        opts,
+        ImportSessionId::new_random(),
+    )?;
+    let first = dests.first().map(|d| d.volume.id);
+    let mut out = Vec::new();
+    for a in &assets {
+        let mine: Vec<&ImportItem> = items
+            .iter()
+            .filter(|i| i.source_key == a.source_key && Some(i.dest_volume_id) == first)
+            .collect();
+        let original = mine
+            .iter()
+            .find(|i| i.role == FileRole::Original)
+            .map(|i| i.source_rel_path.to_string())
+            .unwrap_or_else(|| a.source_key.clone());
+        out.push(PreviewAsset {
+            original,
+            diff: a.diff,
+            state: a.state,
+            files: mine
+                .iter()
+                .map(|i| PreviewFile {
+                    source: i.source_rel_path.to_string(),
+                    dest: i.dest_rel_path.to_string(),
+                    role: i.role,
+                    size: i.size_bytes,
+                })
+                .collect(),
+        });
+    }
+    out.sort_by(|x, y| x.original.cmp(&y.original));
+    let selected: HashSet<&str> = assets
+        .iter()
+        .filter(|a| a.state == ImportAssetState::Selected)
+        .map(|a| a.source_key.as_str())
+        .collect();
+    let space = dests
+        .iter()
+        .map(|d| PreviewSpace {
+            destination: d.volume.label.clone(),
+            mount: d.mount.clone(),
+            bytes_needed: items
+                .iter()
+                .filter(|i| {
+                    i.dest_volume_id == d.volume.id && selected.contains(i.source_key.as_str())
+                })
+                .map(|i| i.size_bytes)
+                .sum(),
+            bytes_free: sys::existing_ancestor(&d.mount).and_then(|p| sys::free_space(&p)),
+        })
+        .collect();
+    Ok(Preview { assets: out, space })
 }
 
 /// Select or deselect assets of a planned session (by source original key).
@@ -748,6 +914,10 @@ fn copy_asset(
     }
     let mut first_error: Option<String> = None;
     for (file, its) in &by_file {
+        // Ctrl-C finishes the file in flight, then stops before the next one.
+        if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(IngestError::Cancelled);
+        }
         let mut todo: Vec<&ImportItem> = its
             .iter()
             .filter(|i| {
@@ -793,7 +963,6 @@ fn copy_asset(
             }
             let temps: Vec<PathBuf> = targets.iter().map(|t| t.1.clone()).collect();
             let fault = ctx.fault;
-            let cancel = ctx.cancel;
             let progress = &mut ctx.progress;
             let label = file.clone();
             let mut on_bytes = |done: u64| {
@@ -804,16 +973,7 @@ fn copy_asset(
                 })
             };
             let slots: Vec<VolumeId> = targets.iter().map(|t| t.0).collect();
-            let teed = copy::tee(
-                &m.src,
-                rel,
-                size,
-                &temps,
-                &slots,
-                fault,
-                cancel,
-                &mut on_bytes,
-            );
+            let teed = copy::tee(&m.src, rel, size, &temps, &slots, fault, &mut on_bytes);
             let teed = match teed {
                 Ok(t) => t,
                 Err(copy::SourceStop::Crash) => return Err(IngestError::SimulatedCrash),
@@ -824,20 +984,6 @@ fn copy_asset(
                     let msg = match stop {
                         copy::SourceStop::Read(e) => format!("reading {file}: {e}"),
                         copy::SourceStop::Changed(why) => format!("{file}: {why}"),
-                        copy::SourceStop::Cancelled => {
-                            for it in &todo {
-                                set_item(
-                                    cat,
-                                    session,
-                                    it,
-                                    ImportItemStatus::Pending,
-                                    None,
-                                    None,
-                                    None,
-                                )?;
-                            }
-                            return Err(IngestError::Cancelled);
-                        }
                         copy::SourceStop::Crash => unreachable_crash(),
                     };
                     for it in &todo {
