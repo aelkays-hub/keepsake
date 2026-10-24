@@ -58,7 +58,7 @@
 
 **Context**: Modern Sony cameras record XAVC HS in 10-bit 4:2:2 or 4:2:0 HEVC, and older models record AVCHD. Neither codec is decodable by the Chromium webview embedded in Tauri without hardware decoder integration that is out of scope.
 
-**Decision**: Video playback uses the camera-generated proxy file (`PRIVATE/M4ROOT/SUB/*.MP4`) when available. If no proxy exists (e.g. AVCHD or older MP4 cards), the RenderService generates an H.264 1080p proxy via FFmpeg and caches it. The webview plays the proxy via `<video>` with a `blob:` URL.
+**Decision**: Video playback uses the camera-generated proxy file (`PRIVATE/M4ROOT/SUB/*.MP4`) when available **and H.264**. Otherwise (AVCHD, older MP4 cards, HEVC camera proxies), the RenderService generates an H.264 proxy via FFmpeg and caches it. *Updated 2026-10-24 (ADR-021): the proxy is 720p, the size proven in the playback spike, not 1080p; camera proxies are copied into the cache, so they play while the media drive is offline.* The webview plays the proxy via `<video>` with a `blob:` URL.
 
 **Consequences**:
 - Playback works reliably across all supported Sony formats.
@@ -816,3 +816,57 @@ Otherwise the watcher emits `auto_ingest_skipped` with the reason. When an impor
 **`watch --json`** prints JSON Lines: one event per line, flushed. It starts with `watching` and ends with `stopped`.
 
 **CI.** A `macos-14` job runs clippy and the tests for the whole workspace except the Tauri app. With no LGPL FFmpeg for macOS yet (ADR-005), it sets `KEEPSAKE_SKIP_MEDIA_TOOLS`, so tests that need ExifTool, ffprobe or ffmpeg skip there instead of failing.
+
+---
+
+## ADR-021 — Renditions and the job queue
+
+**Status**: Accepted (Prompt 9, approved by the product owner 2026-10-24)
+
+**Dependencies**
+
+| Crate | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `image` | 0.25 (features `jpeg`, `png`, `tiff` only; no rayon) | MIT / Apache-2.0 | `keepsake-core` | Decode JPEG/PNG/TIFF with EXIF orientation; encode JPEG |
+| `fast_image_resize` | 6 (feature `image`) | MIT / Apache-2.0 | `keepsake-core` | SIMD Lanczos3 resizing, several times faster than `image`'s |
+
+Their own dependencies are all permissive: `zune-jpeg`/`zune-core` (MIT/Apache/Zlib), `png`, `tiff`, `fdeflate`, `weezl`, `bytemuck` (MIT/Apache). `tempfile` (already approved) is now also used by the CLI binary, for `renders bench`.
+
+**Minimum Rust raised from 1.77 to 1.90.** The old value was already untrue: `uuid` needs 1.89 and Tauri 1.90. Both new crates need 1.88.
+
+**HEIF goes through the FFmpeg sidecar, not libheif.** This needs no native LGPL libraries linked or shipped, and no vcpkg or Homebrew builds; FFmpeg is already shipped as an LGPL sidecar (ADR-005). It is untested on real `.HIF` files because the corpus has none, and our LGPL FFmpeg cannot write HEIF test files.
+
+**Stills**
+- One job (`render.stills`) decodes the source once and makes the 2560 px preview, then the 1024 px thumbnail from the preview, then the 256 px thumbnail from that. Images are never enlarged. Output is JPEG q82 with orientation baked in.
+- For a RAW + JPEG pair, the JPEG is decoded.
+- RAW-only assets use the largest embedded JPEG (`PreviewImage`, `JpgFromRaw`, `OtherImage`). ExifTool stay-open gives the offset and length, and the bytes are read directly. Sony ARWs carry a 1616×1080 preview, so their previews are 1616 px until a LibRaw decode is added (CLAUDE.md stack; not part of this prompt).
+- Videos use the frame at 10 % of the duration, with FFmpeg's display rotation applied and AVCHD segments joined.
+
+**Proxies**
+- The spike's settings (ADR-009): `scale=-2:720` (never enlarged), AAC 128 kb/s (stereo), `+faststart`.
+- Plus `-g <frame rate>` on every encoder, so the GOP is one second by construction rather than by encoder default. Tests check it with ffprobe.
+- Interlaced sources are deinterlaced with `yadif`.
+- Encoder order: NVENC (`-preset p4 -b:v 4M`), QSV (`-global_quality 25`), AMF (`-quality balanced -b:v 4M`), Media Foundation (`-q:v 20`), then OpenH264 (`-b:v 4M`), which is always in the LGPL build. VideoToolbox (`-b:v 4M`) is used on macOS.
+- The first encoder that passes a 10-frame test encode is used for the rest of the process. `--encoder` or `forced_encoder` overrides it.
+- A camera SUB proxy is copied as-is **only if it is H.264** (an A7 IV can record HEVC proxies). The webview never gets HEVC.
+
+**Cache**
+- `<cache>/<kind>/<aa>/<source>-<recipe>.<ext>`. The source is the original's BLAKE3 from the catalog, so lookups work offline and identical files share renditions. The recipe is the BLAKE3 of canonical JSON with a version.
+- Files are written to `.tmp` and renamed. A row whose file vanished is dropped on lookup, and `set_visible` queues it again.
+- Eviction is least recently used first. Last-use times are written at most every 10 minutes per rendition.
+- A rendition is evictable only if one of its originals is on a mounted volume. Renditions of offline media stay even above the limit, and `renders status` shows them.
+
+**Queue** (catalog schema v4, `jobs` table, generic over `kind`)
+- Classes: visible (0), recent (1), backlog (2). Visible is temporary: `set_visible` replaces the set, and jobs fall back to their class.
+- Within a class: rank (stills before proxies), then newest capture.
+- Retries back off 30 s, then 60 s, then the job fails for good. `Unsupported` (an unrenderable format) fails at once.
+- Offline media is deferred 10 minutes without counting an attempt. Running jobs are recovered on start.
+
+**Pauses**
+- On battery: Windows `GetSystemPowerStatus`, macOS `IOPSGetProvidingPowerSourceType`, hand-written bindings in `keepsake-platform::power`.
+- During an ingest: `ingest::run` keeps `ingest_heartbeat_ms` fresh in `library_meta` every 2 s from its own connection. Workers wait while it is under 10 s old. This works across processes and cannot get stuck after a crash, unlike a lock file.
+- Workers finish their current job before pausing or stopping.
+
+**Settings**: `config.toml` moves from the CLI into `keepsake_core::settings`, shared with the app. The `[render]` section has `cache_dir`, `max_bytes` (default 20 GiB), `workers` (default half the threads, 1–4), `proxy_workers` (1) and `pause_on_battery` (true).
+
+**App**: thin Tauri commands `render_status`, `render_set_visible`, `render_lookup`, `render_start` and `render_stop`. `render_start` runs the service on its own thread and emits `render://progress`.

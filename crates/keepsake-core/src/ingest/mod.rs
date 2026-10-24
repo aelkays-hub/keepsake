@@ -1483,7 +1483,43 @@ fn confirm_already_imported(
 }
 
 /// Run (or resume) a planned import session.
+/// Copy, verify and catalogue a planned session (also resumes one).
+///
+/// While it runs, an [`crate::jobs::IngestHeartbeat`] pauses render
+/// workers. Whatever the outcome, assets it catalogued are queued for
+/// renditions as recent imports.
 pub fn run(
+    cat: &mut Catalog,
+    lib: &Library,
+    session: ImportSessionId,
+    ctx: &mut RunContext<'_>,
+) -> Result<IngestReport, IngestError> {
+    let heartbeat = crate::jobs::IngestHeartbeat::start(lib);
+    let result = run_session(cat, lib, session, ctx);
+    drop(heartbeat);
+    if let Err(e) = queue_renders(cat, session) {
+        tracing::warn!("could not queue renditions for session {session}: {e}");
+    }
+    result
+}
+
+/// Queue renditions of the session's catalogued assets (recent imports).
+fn queue_renders(cat: &mut Catalog, session: ImportSessionId) -> Result<u64, IngestError> {
+    let ids: Vec<AssetId> = cat
+        .read(|tx| tx.imports().assets(session))?
+        .into_iter()
+        .filter(|a| a.state == ImportAssetState::Catalogued)
+        .map(|a| a.asset_id)
+        .collect();
+    Ok(crate::render::enqueue(
+        cat,
+        &ids,
+        crate::catalog::Priority::Recent,
+        false,
+    )?)
+}
+
+fn run_session(
     cat: &mut Catalog,
     lib: &Library,
     session: ImportSessionId,

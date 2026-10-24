@@ -1014,3 +1014,223 @@ fn watch_skips_auto_ingest_when_a_destination_is_missing() {
     assert!(s["reason"].as_str().unwrap().contains("not found"), "{s}");
     assert!(!kinds(&lines).contains(&"auto_ingest_started".to_owned()));
 }
+
+// ── Renders ─────────────────────────────────────────────────────────────────
+
+fn ffmpeg() -> PathBuf {
+    workspace().join("vendor").join(if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    })
+}
+
+/// Media tools (ExifTool, ffprobe, ffmpeg) present? Required on CI except
+/// where `KEEPSAKE_SKIP_MEDIA_TOOLS` is set.
+fn media_tools() -> bool {
+    let ok = tools()
+        && Command::new(ffmpeg())
+            .arg("-version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+    if !ok
+        && std::env::var_os("CI").is_some()
+        && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
+    {
+        panic!("CI must provide ffmpeg in vendor/");
+    }
+    ok
+}
+
+fn gen(args: &[&str]) {
+    let out = Command::new(ffmpeg())
+        .args(["-y", "-v", "error"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+impl Env {
+    /// Point the rendition cache at this test's temp folder.
+    fn cache_here(&self) {
+        let p = self.p("config").join("config.toml");
+        let text = std::fs::read_to_string(&p).unwrap_or_default();
+        let mut t: toml::Table = toml::from_str(&text).unwrap();
+        let render = t
+            .entry("render")
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        render
+            .as_table_mut()
+            .unwrap()
+            .insert("cache_dir".into(), toml::Value::String(self.s("cache")));
+        std::fs::write(&p, toml::to_string(&t).unwrap()).unwrap();
+    }
+
+    /// A folder of real media: two photos and a clip.
+    fn real_media(&self, dir: &str) -> PathBuf {
+        let d = self.p(dir);
+        std::fs::create_dir_all(&d).unwrap();
+        for (name, size) in [("a.jpg", "2000x1500"), ("b.jpg", "1200x1600")] {
+            let src = format!("testsrc2=size={size}");
+            let out = d.join(name);
+            gen(&[
+                "-f",
+                "lavfi",
+                "-i",
+                &src,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "1",
+                out.to_str().unwrap(),
+            ]);
+        }
+        let out = d.join("c.mp4");
+        gen(&[
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1280x720:rate=30",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=sample_rate=48000",
+            "-t",
+            "2",
+            "-c:v",
+            "libopenh264",
+            "-c:a",
+            "aac",
+            "-shortest",
+            out.to_str().unwrap(),
+        ]);
+        d
+    }
+}
+
+#[test]
+fn renders_queue_run_status_show_evict_and_requeue() {
+    if !media_tools() {
+        return;
+    }
+    let e = Env::new();
+    e.init();
+    e.cache_here();
+    let media = e.real_media("media");
+    let (m, a, b) = (media.display().to_string(), e.s("dest-a"), e.s("dest-b"));
+    // An import queues its assets as recent imports.
+    e.json(
+        &[
+            "ingest",
+            &m,
+            "--dest",
+            &a,
+            "--dest",
+            &b,
+            "--no-probe",
+            "--unsafe-allow-same-disk",
+        ],
+        0,
+    );
+    let st = e.json(&["renders", "status"], 0);
+    let jobs = &st["status"]["jobs"];
+    assert_eq!(jobs["queued_by_priority"]["recent"], 4, "{st}");
+    assert_eq!(jobs["by_kind"]["render.stills"]["queued"], 3);
+    assert_eq!(jobs["by_kind"]["render.proxy"]["queued"], 1);
+
+    let lines = e.json_lines(&["renders", "run", "--workers", "2"], 0);
+    let done = lines.iter().filter(|l| l["event"] == "done").count();
+    assert_eq!(done, 4, "{lines:#?}");
+    let fin = lines.last().unwrap();
+    assert_eq!(fin["event"], "finished");
+    assert_eq!(fin["failed"], 0);
+
+    let st = e.json(&["renders", "status"], 0);
+    assert_eq!(st["status"]["jobs"]["by_kind"]["render.stills"]["done"], 3);
+    assert_eq!(st["status"]["cache"]["files"], 10, "3 x 3 stills + 1 proxy");
+    assert!(e.p("cache").join("thumbnail").is_dir());
+
+    let clip = e.p("dest-a").join("0000-undated/0000-00-00/c.mp4");
+    let shown = e.json(&["renders", "show", clip.to_str().unwrap()], 0);
+    let r = shown["renditions"].as_object().unwrap();
+    assert!(
+        r.contains_key("thumb-256") && r.contains_key("preview-2560"),
+        "{shown}"
+    );
+    assert!(r.contains_key("proxy-720"), "{shown}");
+    let thumb = PathBuf::from(r["thumb-256"].as_str().unwrap());
+    assert!(thumb.is_file());
+
+    // Evict everything (all media online), then the file on screen comes back.
+    let ev = e.json(&["renders", "evict", "--max-bytes", "0"], 0);
+    assert_eq!(ev["evict"]["removed"], 10);
+    assert!(!thumb.exists());
+    let q = e.json(
+        &["renders", "enqueue", clip.to_str().unwrap(), "--visible"],
+        0,
+    );
+    assert_eq!(q["queued"], 2, "{q}");
+    let lines = e.json_lines(&["renders", "run", "--queued-only"], 0);
+    assert_eq!(lines.iter().filter(|l| l["event"] == "done").count(), 2);
+    assert!(thumb.is_file());
+    assert_eq!(e.json(&["renders", "retry"], 0)["requeued"], 0);
+
+    // Text status.
+    let out = e.run(&["renders", "status"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("Renditions:") && text.contains("Cache:"),
+        "{text}"
+    );
+}
+
+#[test]
+fn renders_enqueue_needs_a_selection_and_show_needs_a_catalogued_file() {
+    let e = Env::new();
+    e.init();
+    e.cache_here();
+    e.fail(&["renders", "enqueue"]);
+    let nowhere = e.s("nowhere.jpg");
+    std::fs::write(&nowhere, b"x").unwrap();
+    e.fail(&["renders", "show", &nowhere]);
+    let q = e.json(&["renders", "enqueue", "--all"], 0);
+    assert_eq!(q["queued"], 0);
+}
+
+#[test]
+fn renders_bench_reports_items_per_minute() {
+    if !media_tools() {
+        return;
+    }
+    let e = Env::new();
+    let media = e.real_media("sample");
+    let out = e.json(
+        &[
+            "renders",
+            "bench",
+            media.to_str().unwrap(),
+            "--per-type",
+            "2",
+            "--videos",
+            "1",
+        ],
+        0,
+    );
+    let rows = out["results"].as_array().unwrap();
+    let kinds: Vec<&str> = rows.iter().map(|r| r["type"].as_str().unwrap()).collect();
+    assert!(kinds.contains(&"JPEG"), "{out}");
+    assert!(kinds.contains(&"Video proxy (720p H.264)"), "{out}");
+    for r in rows {
+        assert!(r["items_per_minute"].as_f64().unwrap() > 0.0, "{r}");
+    }
+    assert!(out["machine"]["cpu"]
+        .as_str()
+        .is_some_and(|c| !c.is_empty()));
+    // The sample folder is untouched.
+    assert_eq!(std::fs::read_dir(&media).unwrap().count(), 3);
+}

@@ -201,6 +201,6 @@ trait OptEq {
 
 impl OptEq for Option<VolumeId> {
     fn is_none_or_eq(&self, v: VolumeId) -> bool {
-        self.map_or(true, |o| o == v)
+        self.is_none_or(|o| o == v)
     }
 }

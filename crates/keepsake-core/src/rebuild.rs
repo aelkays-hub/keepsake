@@ -454,7 +454,7 @@ pub fn rebuild_catalog_with(
     // Sequences: from Keepsake sidecars, then from probing.
     let mut sequences: BTreeMap<SequenceId, (SequenceKind, Vec<(u32, AssetId)>)> = BTreeMap::new();
     for d in &discovered {
-        if d.probed.is_some() && d.xmp.as_ref().map_or(true, |x| x.asset_id.is_none()) {
+        if d.probed.is_some() && d.xmp.as_ref().is_none_or(|x| x.asset_id.is_none()) {
             continue; // probed assets take their sequence from the probe below
         }
         if let Some(s) = d.xmp.as_ref().and_then(|x| x.sequence) {

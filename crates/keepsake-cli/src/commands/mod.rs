@@ -7,6 +7,7 @@ pub mod init;
 pub mod preset;
 pub mod probe;
 pub mod rebuild;
+pub mod renders;
 pub mod search;
 pub mod shift;
 pub mod verify;
