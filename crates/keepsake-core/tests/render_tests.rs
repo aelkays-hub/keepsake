@@ -620,7 +620,11 @@ fn video_poster_is_the_frame_at_ten_percent_and_follows_rotation() {
     w.index();
     let src = w.source("clip.mp4");
     let made = still::render_stills(&mut w.cat, &w.cache, &src, &t, None).unwrap();
-    assert_eq!(dims(&made[0].1), (1920, 1080), "4K would be fitted; HD is kept");
+    assert_eq!(
+        dims(&made[0].1),
+        (1920, 1080),
+        "4K would be fitted; HD is kept"
+    );
     let src = w.source("portrait.mp4");
     let made = still::render_stills(&mut w.cat, &w.cache, &src, &t, None).unwrap();
     let (pw, ph) = dims(&made[0].1);
