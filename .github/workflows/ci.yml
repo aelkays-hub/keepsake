@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest]
-        # macOS deferred — developing Windows-first for now.
+        # macOS runs the Rust workspace in the `rust-macos` job below.
 
     steps:
       # ── Checkout ────────────────────────────────────────────────────────────
@@ -166,3 +166,33 @@ jobs:
             target/release/keepsake.exe
           if-no-files-found: warn
           retention-days: 7
+
+  # ── macOS: the Rust workspace ──────────────────────────────────────────────
+  # Builds and tests every crate except the Tauri app, whose bundle still
+  # declares only the Windows sidecars. There is no LGPL FFmpeg build for
+  # macOS yet (ADR-005), so tests that need ExifTool/ffprobe/ffmpeg skip
+  # (KEEPSAKE_SKIP_MEDIA_TOOLS) instead of failing as they do on Windows.
+  rust-macos:
+    name: macos-14 (Rust)
+    runs-on: macos-14
+    env:
+      KEEPSAKE_SKIP_MEDIA_TOOLS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --exclude keepsake-app --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --exclude keepsake-app
