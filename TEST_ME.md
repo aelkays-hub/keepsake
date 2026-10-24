@@ -1,148 +1,156 @@
-# Manual Test Steps — Prompt 8: device detection
+# Manual Test Steps — Prompt 9: thumbnails, previews and proxies
 
-Test on **Windows 11 x64** (primary) and **macOS 14+**.
-Build with `cargo build -p keepsake-cli`. Below, `$K` is `.\target\debug\keepsake.exe` (Windows) or `./target/debug/keepsake` (macOS).
+Test on **Windows 11 x64** (primary) and **macOS 14+**. On macOS, video items need an LGPL FFmpeg in `vendor/`, which isn't available yet, so expect only photo renditions there.
 
-**You need:**
-- One or two real Sony cards (SD or CFexpress) with some photos or clips on them.
-- A card reader. A second reader, or a camera connected over USB in mass-storage mode, is also useful.
-- Two destination folders, ideally on two different drives.
+Build with `cargo build --release -p keepsake-cli` and run `scripts/setup.ps1` once. Below, `$K` is `.\target\release\keepsake.exe` (or `./target/release/keepsake`). The commands are PowerShell.
 
-Keepsake never writes to a card, but test with cards whose contents also exist somewhere else.
-
-The PowerShell commands are for Windows. On macOS use the same commands with `/tmp/ks`, and cards appear under `/Volumes/…`.
+Renditions are written only to the cache folder. Your photos and videos are only read; step H checks this.
 
 ---
 
 ## A. Automated tests
 
 1. `cargo test --workspace`
-   **Expected:** all pass, including:
-   - `watch_tests` (12);
-   - `devices_tests` (3), one of which starts the real device backend on this machine;
-   - the new `cli_tests` (`watch_…`, `presets_and_cards…`).
-2. `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`
+   **Expected:** all pass, including `render_tests` (18) and the `renders_…` CLI tests.
+2. `$env:KEEPSAKE_CORPUS = "C:\path\to\corpus"`, then `cargo test -p keepsake-core --test render_corpus_tests -- --include-ignored corpus`
+   **Expected:** passes, rendering real ARW, JPEG and AVCHD files from `library-sample`.
+3. `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`
    **Expected:** no output.
-3. **macOS:** the GitHub `macos-14 (Rust)` job is green. It is the first run of the DiskArbitration code.
 
 ---
 
 ## B. Set up
 
 ```powershell
-$T = "$env:TEMP\ks8"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
+$T = "$env:TEMP\ks9"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
 $env:KEEPSAKE_CONFIG_DIR = "$T\config"
 & $K init "$T\lib"
-New-Item -ItemType Directory -Force "$T\A", "$T\B" | Out-Null   # or folders on two drives
+(Get-Content "$T\config\config.toml") -replace '^\[render\]$', "[render]`ncache_dir = '$T\cache'" | Set-Content "$T\config\config.toml"
+```
+
+Open `$T\config\config.toml`.
+**Expected:** `default_library`, then a `[render]` section with `cache_dir` (your temp folder), `max_bytes = 21474836480` (20 GiB), `proxy_workers = 1` and `pause_on_battery = true`.
+
+Import some real media: a card, or a copy of a few folders from your library with JPEGs, ARWs and some clips (XAVC S, XAVC HS, AVCHD):
+
+```powershell
+& $K ingest E:\ --dest "$T\A" --dest "$T\B"     # add --unsafe-allow-same-disk if A and B share a disk
 ```
 
 ---
 
-## C. Detection (no import)
+## C. Status and the queue
 
-1. With **no card inserted**, run `& $K watch`.
+1. `& $K renders status`
    **Expected:**
-   - `Watching for cards (automatic import off)…`;
-   - nothing for your internal disks;
-   - no "insert a disk" pop-up for empty card readers.
-2. Insert a Sony card.
-   **Expected:**
-   - within about 2 seconds, `Card inserted: <label> (E:\) [XAVC, stills] — new card: N item(s)`;
-   - N matches what the camera shows (a clip and its XML count as one item, and so do RAW + JPEG).
-3. Remove the card (eject it first on macOS). **Expected:** `Card removed: <label> (E:\)`.
-4. Insert a non-Sony USB stick. **Expected:** nothing is printed. With `--json` it shows as `volume_ignored`.
-5. Leave the card inserted, press Ctrl-C, and start `& $K watch` again.
-   **Expected:** the card already inserted is reported at start, and is now a **known card, never imported**.
-6. Press Ctrl-C. **Expected:** `Stopped watching.` and exit code 0.
-7. `& $K card list` **Expected:** one card, last seen just now, not trusted.
+   - `Renditions: 0 done, N queued (0 visible, N recent, 0 backlog)`;
+   - one stills job per asset and one proxy job per clip;
+   - `Cache: 0 B of 21.47 GB in …\ks9\cache`.
+2. Unplug the charger (laptop) and run `& $K renders status` again.
+   **Expected:** `Workers would pause now: on battery power.` Plug it back in.
 
 ---
 
-## D. "New since last import"
+## D. Run
 
-1. Import the card by hand to two drives:
+1. `& $K renders run`
+   **Expected:**
+   - a header with the worker counts and the cache folder;
+   - a progress bar;
+   - at the end, `Done: N job(s), 0 failed for good.` and exit code 0.
+
+   It takes about 2–3 minutes per 1,000 photos, plus about 1 minute per 9 minutes of footage (see `docs/PERFORMANCE.md`).
+2. `& $K renders status`
+   **Expected:** everything done; the cache holds about 3 files per asset plus one proxy per clip.
+3. Pick an imported photo and a clip, and run `& $K renders show "$T\A\…\DSC01234.JPG"`.
+   **Expected:** paths for `thumb-256`, `thumb-1024` and `preview-2560`. Open them:
+   - each is upright (photos taken in portrait are portrait);
+   - the long edges are 256, 1024 and 2560 px, or smaller if the original is smaller. **ARW-only photos** have 1616 px previews (the size of the JPEG embedded in the file).
+4. For a clip, `renders show`.
+   **Expected:**
+   - a poster (the preview) from about 10 % into the clip;
+   - `proxy-720` or `camera-proxy`.
+
+   Play the proxy in a browser or media player. **Expected:**
+   - it plays with sound;
+   - seeking is instant;
+   - it is 720 px tall (or the clip's height if smaller).
+
+   Check with:
    ```powershell
-   & $K ingest E:\ --dest "$T\A" --dest "$T\B"
+   & vendor\ffprobe.exe -v error -select_streams v:0 -show_entries stream=codec_name,height -of csv=p=0 <proxy>
    ```
-   Add `--unsafe-allow-same-disk` if A and B are on one disk. **Expected:** SAFE TO FORMAT.
-2. `& $K watch`, then remove and reinsert the card.
-   **Expected:** `0 new item(s) since last import`.
-3. Shoot 2 new photos on the card, then insert it.
-   **Expected:** `2 new item(s) since last import`.
-4. **Other slot:** insert the same card in a different reader, or with the camera over USB, so it gets a different drive letter.
-   **Expected:** the same card (same name in `card list`) with the same count. It is not a new card.
-5. **Second card:** insert another card, possibly in the same reader. **Expected:** a separate **new card**.
-6. **Reformat:** format a card in the camera, then insert it. **Expected:** a **new card** with 0 items. Formatting gives it a new serial.
-
----
-
-## E. Trusted cards and automatic import
-
-1. Make a preset:
-   ```powershell
-   & $K preset save "Two drives" --dest "$T\A" --dest "$T\B"
-   ```
-   Make sure the folders exist first, or the save is refused.
-2. Name and trust the card:
-   ```powershell
-   & $K card rename Untitled "Card 1"
-   & $K card trust "Card 1" --preset "Two drives"
-   ```
-3. Shoot a few new photos, then run:
-   ```powershell
-   & $K watch --auto-ingest
-   ```
-   Then insert the card. Add the hidden `--unsafe-allow-same-disk` if A and B share a disk.
+   **Expected:** `h264,720`.
+5. **XAVC with a SUB proxy:** a clip whose card had `PRIVATE\M4ROOT\SUB\…S01.MP4`.
    **Expected:**
-   - `Card inserted … N new item(s)`, then `Importing with preset Two drives to …`;
-   - then `Imported: N asset(s) catalogued` and `SAFE TO FORMAT`;
-   - the files appear in both A and B, with `.xmp` sidecars;
-   - nothing changes on the card.
-4. Remove and reinsert. **Expected:** `0 new item(s)` and `Not importing automatically: nothing new on the card`.
-5. Insert an **untrusted** card. **Expected:** it is reported but not imported.
-6. **Destination missing:** unplug the drive holding B, or rename the B folder. Shoot a photo and insert the card.
-   **Expected:** `Not importing automatically: destination … not found (is the drive connected?)`. Nothing is copied.
-7. **Ctrl-C mid-import:** shoot a few large clips. Insert the card and press Ctrl-C once while it imports.
+   - if that proxy is H.264, it shows as `camera-proxy`, and the run took almost no time for it;
+   - if your camera records HEVC proxies (XAVC HS proxy setting), it shows as `proxy-720` instead.
+6. **AVCHD:** the proxy plays with the sound in sync after a minute or more. That was the spike's AVCHD failure.
+
+---
+
+## E. Pauses and Ctrl-C
+
+1. Queue more work (import another folder), start `& $K renders run`, and unplug the charger.
+   **Expected:** the bar shows `paused: on battery power` and no new jobs start. Plug in: it resumes.
+2. While `renders run` is working, start an import in another window (`& $K ingest …`).
    **Expected:**
-   - the current file finishes, then `Stopped after the current file. Continue with: keepsake ingest --resume --session …`;
-   - exit code 130;
-   - no `.keepsake-partial-*` files in A or B (use `Get-ChildItem -Force -Recurse`).
-
-   Then `& $K ingest --resume`. **Expected:** SAFE TO FORMAT.
-8. **Card pulled mid-import:** start an automatic import of large clips, then pull the card out (on macOS, eject it with Force).
+   - the bar shows `paused: an import is running` within about 2 s;
+   - it resumes within about 10 s of the import finishing.
+3. Press Ctrl-C during a run.
    **Expected:**
-   - the import ends with failed items and **NOT safe to format**;
-   - `card removed` is printed;
-   - after reinserting, the failed items count as new;
-   - `ingest --resume` (with the card back in) completes it.
-9. `& $K preset delete "Two drives"`
-   **Expected:** refused, because "Card 1" uses it. Run `& $K card untrust "Card 1"` first, then delete again: it works.
+   - the current job(s) finish;
+   - `Stopped after the current job(s)…`, exit code 130;
+   - `renders status` shows the rest still queued, none running;
+   - `renders run` continues.
+4. Kill the process instead (Task Manager), then `& $K renders run`.
+   **Expected:** the interrupted jobs run again (nothing stays "running").
 
 ---
 
-## F. JSON for the app
+## F. Offline media and the cache limit
 
-`& $K --json watch --auto-ingest`, then insert and remove a card.
-**Expected:**
-- one JSON object per line, appearing as things happen;
-- the first is `{"auto_ingest":true,"event":"watching"}`;
-- then `card_inserted` (with `items`, `new_items` and `known`), `auto_ingest_*` and `card_removed`;
-- `{"event":"stopped"}` after Ctrl-C.
+1. Unplug drive A, so only B has the files.
+   **Expected:** `renders run` still works, reading from B.
+2. Unplug both drives and queue work: `& $K renders enqueue --all`, then `renders run`.
+   **Expected:** the jobs are **deferred** (not failed) and `renders status` shows them queued. Plug the drives back in: the next run makes them.
+3. Make the limit tiny:
+   ```powershell
+   & $K renders evict --max-bytes 1000000
+   ```
+   **Expected:** `Removed N rendition(s)…`, leaving the cache at about 1 MB or less.
+4. Unplug both drives, then `& $K renders evict --max-bytes 0`.
+   **Expected:**
+   - nothing is removed;
+   - `Kept … for media that is offline (never evicted)`;
+   - `renders status` shows the bytes kept for offline media.
+5. Plug the drives back in and run `& $K renders enqueue "$T\A\…\DSC01234.JPG" --visible`, then `& $K renders run --queued-only`.
+   **Expected:** the evicted renditions for that file are made again first.
 
 ---
 
-## G. Card memory survives
+## G. Benchmark (your machine)
 
-1. `& $K rebuild-catalog --fresh`, then `& $K card list`. **Expected:** the cards are still listed and still trusted.
-2. `& $K backup "$T\backup"`. **Expected:** `$T\backup\.keepsake-library\` contains `cards.json`, `cards\` and `presets.json`.
-3. `& $K card forget "Card 1"`. **Expected:** the card is gone from `card list`, while its photos are still found by `& $K search --type photo`. Reinserted, it is a new card.
+```powershell
+& $K renders bench "$env:KEEPSAKE_CORPUS\library-sample" --per-type 40 --videos 6
+```
+**Expected:** a Markdown table (JPEG, ARW, PNG/TIFF, video poster, video proxy). It takes about 1–2 minutes. Paste it into `docs/PERFORMANCE.md` under your machine's name, especially for the Mac.
+
+To compare encoders, add `--encoder h264_mf` or `--encoder libopenh264`.
 
 ---
 
-## H. macOS specifics
+## H. Originals untouched
 
-- Cards mount under `/Volumes/<name>`. Detection should appear within about 2 seconds of the mount.
-- Eject with Finder, then pull the card. **Expected:** `Card removed`.
-- A camera over USB that mounts its card behaves like a reader.
-- The same card on Windows and on macOS is **not** recognised as one card (different serial formats). This is expected.
-- Run C and D on macOS. Watch for crashes or a missing removal event, and report them with `RUST_LOG=keepsake_platform=debug`.
+Before C, run:
+```powershell
+Get-ChildItem -Recurse -File "$T\A" | Get-FileHash | Export-Csv "$T\before.csv"
+```
+After F, run the same command into `after.csv`, then compare: `Compare-Object (Import-Csv "$T\before.csv") (Import-Csv "$T\after.csv") -Property Hash,Path`
+**Expected:** no differences, apart from `.xmp` sidecars if you changed metadata.
+
+---
+
+## I. macOS
+
+Repeat C, D (photos only) and F with `/tmp/ks9`. `renders status` shows the battery pause on a MacBook. If you place an LGPL `ffmpeg` in `vendor/`, the video steps work too: VideoToolbox is tried first, then OpenH264.

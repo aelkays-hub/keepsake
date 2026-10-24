@@ -28,7 +28,8 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Viewer
 - JPEG and HEIF display.
-- ARW raw preview (embedded JPEG or LibRaw decode).
+- ARW raw preview (embedded JPEG; LibRaw decode later).
+- Renditions for every asset: 256 px and 1024 px thumbnails, a 2560 px preview (never enlarged), and for video a 720p H.264 proxy (or the camera's H.264 SUB proxy). They are made in the background in this order: on screen, then recent imports, then the rest. Work pauses on battery and during imports. The cache has a size limit, and renditions of offline drives are always kept. Speeds are in `docs/PERFORMANCE.md`.
 - Video playback via camera-generated proxies or app-generated H.264 proxies (webviews cannot decode XAVC HS 10-bit or AVCHD natively).
 
 ### Backup and verification
@@ -37,7 +38,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Interop
 - Open selected file in the system default application.
-- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete). Every command has `--json`.
+- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.
 
 ---
 

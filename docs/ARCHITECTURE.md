@@ -63,7 +63,7 @@ OS ──notify──▶ scanner thread ──DeviceEvent──▶ Watcher ─�
 ```
 
 ### IngestEngine
-`keepsake_core::ingest`: `plan` (group, probe, quick-diff, name every file on every destination, store the session), `select`, `run` (copy, verify, catalogue, confirm, decide "safe to format"; also resumes), `report`. `run` is blocking and takes a progress callback and a cancel flag. It is meant to run on a worker thread and will slot into the job queue when that exists. The design and failure handling are in ADR-017.
+`keepsake_core::ingest`: `plan` (group, probe, quick-diff, name every file on every destination, store the session), `select`, `run` (copy, verify, catalogue, confirm, decide "safe to format"; also resumes), `report`. `run` is blocking and takes a progress callback and a cancel flag. It is meant to run on a worker thread. While it runs, a heartbeat in the catalog pauses render workers (in any process), and it queues renditions for what it catalogued as recent imports. The design and failure handling are in ADR-017.
 
 ### Catalog
 SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`). Stores Assets, Files, Volumes, Renditions, Events, EditRecipes, ImportSessions, labels, tags and XMP sidecar locations. The catalog is a **rebuildable cache**: it can be discarded and reconstructed from the original files and XMP sidecars. XMP sidecars and JSON recipes are the authoritative source of truth for all user metadata.
@@ -85,8 +85,33 @@ Reads media metadata without decoding pixels (`keepsake_core::probe`):
 ### Grouping
 `keepsake_core::grouping` turns a file list into assets (XAVC clip + XML + proxy + thumbnail; RAW/JPEG/HEIF siblings; AVCHD recordings joined from playlists) and lists card bookkeeping files separately. `grouping::sequences` flags bursts, brackets and interval runs without merging them.
 
+### Job queue
+`keepsake_core::jobs` and the catalog's `jobs` table (schema v4). The queue is persistent and generic (`kind` + asset); long-running work goes here, never on the UI or a command thread.
+
+Claim order:
+1. Priority: **visible** (on screen; `render::set_visible` replaces the visible set), then **recent import**, then **backlog**.
+2. The kind's rank.
+3. Newest capture first.
+
+Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offline are deferred for 10 minutes, without counting an attempt. On start, running jobs go back to queued. Workers pause on battery (`keepsake_platform::on_battery`) and while an ingest heartbeat is fresh.
+
 ### RenderService
-Generates and caches Renditions (thumbnails, previews, proxies, export frames). Runs on a bounded async worker pool. All work is keyed by `(source_hash, recipe_hash)` so results are deduplicated and reusable across library rebuilds.
+`keepsake_core::render` (ADR-021).
+
+- **Workers:** `RenderService` runs `workers` threads for `render.stills` (preview + both thumbnails from one decode) and `proxy_workers` threads for `render.proxy`. Each has its own catalog connection. Events (`RenderEvent`) are delivered to the caller: the CLI prints them, and the app forwards them as `render://progress`.
+- **Stills:**
+  - JPEG, PNG and TIFF decode in-process (`image`, with EXIF orientation), then resize (`fast_image_resize`, Lanczos3) and encode as JPEG q82.
+  - ARW and DNG use the largest embedded JPEG, located by ExifTool (stay-open) and read directly from the file.
+  - HEIF and video poster frames (10 % in) come from the FFmpeg sidecar as PPM over a pipe.
+- **Proxies:**
+  - A camera SUB proxy is copied into the cache if it is H.264.
+  - Otherwise an FFmpeg encode: 720p, a GOP of exactly one second, AAC stereo 128 kb/s, `+faststart`, AVCHD segments joined and interlaced sources deinterlaced. The encoder is the first that works of NVENC → QSV → AMF → Media Foundation → OpenH264 (VideoToolbox on macOS).
+  - HEVC and MTS never reach the webview (ADR-009).
+- **Cache:**
+  - Files are named `<root>/<kind>/<aa>/<source BLAKE3>-<recipe hash>.<ext>` (content-addressed), written through `.tmp` and a rename, and indexed by the `renditions` table.
+  - Identical originals share renditions. A recipe change gives new names.
+  - LRU eviction keeps the cache under `max_bytes`, but never removes a rendition whose original is not on a mounted volume.
+  - The root is `[render] cache_dir` in `config.toml` (default: the OS cache folder).
 
 ### VideoOps
 Wraps FFmpeg for all video operations: trim (stream copy or smart-cut re-encode), combine, rotate, frame grab, MP4 conversion, proxy generation, time-lapse assembly, deflicker. Every operation produces a new file; no in-place modification.
@@ -275,8 +300,8 @@ Confidence is **high** when the source gives both local time and UTC offset and 
    └─ Write XMP sidecar stub (capture date, camera, lens from EXIF) if not present
 
 8. Queue renditions
-   └─ Enqueue thumbnail and preview generation for each new Asset
-   └─ Enqueue proxy generation for video Assets lacking a camera proxy
+   └─ Enqueue preview + thumbnails (render.stills, priority "recent") for each new Asset
+   └─ Enqueue a proxy (render.proxy) for video Assets: the camera's H.264 SUB proxy is copied, others are encoded
 
 9. Report
    └─ Summary: imported N assets, M bytes, verified on K destinations

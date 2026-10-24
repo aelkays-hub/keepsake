@@ -11,20 +11,21 @@
 | 6 | Ingest engine: resumable state machine, verified copies to two drives, templates, safe-to-format, fault injection | ✅ Done (Windows; macOS read-only proof via DMG pending macOS CI) |
 | 7 | CLI: init, ingest, verify, search, shift-time, backup, rebuild-catalog; --json, progress, Ctrl-C | ✅ Done (Windows; macOS CI pending) |
 | 8 | Device detection: Windows CM notifications + macOS DiskArbitration, card memory, `keepsake watch` with trusted auto-ingest | ✅ Done (Windows; macOS backend in CI only) |
+| 9 | Renditions: persistent priority job queue, thumbnails/previews/proxies, content-addressed LRU cache, `keepsake renders`, benchmarks | ✅ Done (Windows; macOS video needs FFmpeg) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ✅ Done in prompt 6 |
 | 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
 | 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
-| 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ⬜ Pending |
+| 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ✅ Done in prompt 9 (LibRaw decode later) |
 | 8 | Tauri command layer: ingest, catalog queries, progress events | ⬜ Pending |
 | 9 | UI: calendar view | ⬜ Pending |
 | 10 | UI: grid view with TanStack Virtual | ⬜ Pending |
 | 11 | UI: details view and metadata panel | ⬜ Pending |
 | 12 | UI: ingest wizard (preview, destination, confirm) | ⬜ Pending |
 | 13 | Search: date, camera, lens, type, text (FTS5) | 🟡 CLI done in prompt 7 (no lens filter, no UI) |
-| 14 | Video proxy generation and playback | ⬜ Pending |
+| 14 | Video proxy generation and playback | 🟡 Proxies done in prompt 9; playback UI pending |
 | 15 | Backup verification command (CLI + UI) | 🟡 CLI done in prompt 7 (`verify`, `backup`); UI pending |
 | 16 | Lossless trim (keyframe-cut and smart-cut) | ⬜ Pending |
 | 17 | Combine, rotate, frame grab, MP4 conversion | ⬜ Pending |
@@ -33,6 +34,76 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 9 — Thumbnails, previews and proxies (2026-10-24)
+
+### What was built
+
+**Job queue** (`keepsake_core::jobs`, catalog schema v4 `jobs` table)
+- Persistent and generic over `kind`.
+- Order: visible on screen, then recent import, then backlog; within a class, cheaper kinds first, then newest capture.
+- Retries with backoff (30 s, then 60 s), then failed. Offline media is deferred without counting an attempt.
+- Running jobs are recovered after a restart.
+- Workers pause on battery and while an ingest runs: ingest keeps a heartbeat in the catalog, which works across processes.
+
+**Renditions** (`keepsake_core::render`, ADR-021)
+- Thumbnails at 256 and 1024 px and a 2560 px preview, made from one decode, never enlarged, orientation baked in, JPEG q82.
+- JPEG/PNG/TIFF decode in-process (`image`, `fast_image_resize`).
+- ARW/DNG use the largest embedded JPEG, found with ExifTool offsets.
+- HEIF and video poster frames (10 % in) come from the FFmpeg sidecar.
+- 720p H.264 proxies use the spike settings, plus an explicit one-second GOP (checked by tests), yadif for interlaced sources, and AVCHD segments joined. Encoder order: NVENC → QSV → AMF → Media Foundation → OpenH264 (VideoToolbox on macOS).
+- The camera's SUB proxy is copied into the cache when it is H.264; an HEVC SUB proxy is re-encoded.
+
+**Cache**
+- Content-addressed: `<kind>/<aa>/<source BLAKE3>-<recipe hash>`.
+- Configurable folder and size limit (`config.toml [render]`, now shared by the CLI and the app via `keepsake_core::settings`).
+- LRU eviction that never removes renditions of offline media.
+
+**Integration**
+- `ingest` queues what it catalogues as recent imports.
+- `keepsake-platform::power`: on battery or not (Windows and macOS).
+- CLI: `keepsake renders status | run | enqueue | show | retry | evict | bench`.
+- Tauri: `render_status`, `render_set_visible`, `render_lookup`, `render_start`, `render_stop`, plus `render://progress` events.
+
+**Benchmarks**: `docs/PERFORMANCE.md`. On a Ryzen 7 7735HS with 4 workers:
+
+| Type | Items/min |
+|---|---:|
+| JPEG | 700 |
+| ARW | 1,194 |
+| PNG/TIFF | 672 |
+| Video posters | 295 |
+
+Proxies run at 9.0× real time with AMF, 8.6× with `h264_mf` and 4.0× with OpenH264.
+
+**Tests**
+- 18 render tests, all passing, covering:
+  - queue order, visibility, backoff, deferral, restart;
+  - the ingest heartbeat;
+  - cache keys, and eviction that keeps offline renditions;
+  - stills from JPEG/PNG/16-bit TIFF, including EXIF rotation;
+  - RAW + JPEG pairs;
+  - video posters, including rotated ones;
+  - proxies from H.264, HEVC and small sources: 720p H.264 + AAC, GOP ≤ 1 s, with the detected encoder and with OpenH264;
+  - an H.264 SUB proxy copied byte for byte, and an HEVC one re-encoded;
+  - AVCHD segment joins;
+  - the service end to end: pauses, cancel, offline, re-render after deletion;
+  - ingest queuing;
+  - originals unchanged byte for byte.
+- One corpus test (`#[ignore]`) on real ARW, JPEG and AVCHD M2TS (AC-3 is transcoded to AAC).
+- 3 CLI tests for `renders`.
+
+### Also changed
+- Minimum Rust raised to 1.90. The old 1.77 was already untrue, because of `uuid` and Tauri. Newer clippy suggestions were applied to older code.
+- ADR-004 updated: the proxy is 720p (proven in the spike), and camera proxies are used only if they are H.264, copied into the cache.
+
+### Not done / next
+- Sony ARW embedded previews are 1616 px. A full 2560 px preview needs LibRaw (in the stack, not added yet).
+- HEIF is untested on real files; please add a few `.HIF` files to the corpus.
+- macOS benchmarks need the Mac. macOS video renders need an LGPL FFmpeg for macOS (ADR-005).
+- No UI yet. The grid will call `render_set_visible` and `render_lookup`.
 
 ---
 
