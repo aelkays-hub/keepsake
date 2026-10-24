@@ -104,31 +104,144 @@ fn fake_backend_reads_a_script_and_hangs_up() {
     assert!(err.is_some_and(|e| e.contains(":1:")));
 }
 
+/// Collect events until `done` says so or `secs` pass.
 #[cfg(any(windows, target_os = "macos"))]
+fn collect(
+    rx: &std::sync::mpsc::Receiver<DeviceEvent>,
+    secs: u64,
+    mut done: impl FnMut(&[DeviceEvent]) -> bool,
+) -> Vec<DeviceEvent> {
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    let mut got = Vec::new();
+    while Instant::now() < deadline && !done(&got) {
+        if let Ok(ev) = rx.recv_timeout(Duration::from_millis(300)) {
+            got.push(ev);
+        }
+    }
+    got
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn stop_promptly(
+    mut dev: keepsake_platform::SystemDevices,
+    rx: &std::sync::mpsc::Receiver<DeviceEvent>,
+) {
+    let started = Instant::now();
+    dev.stop();
+    assert!(started.elapsed() < Duration::from_secs(2), "stop is prompt");
+    // After stop the sender is gone.
+    while rx.recv_timeout(Duration::from_secs(5)).is_ok() {}
+    assert!(rx.try_recv().is_err());
+}
+
+/// Windows: the system drive is a drive letter, so it is always listed.
+#[cfg(windows)]
 #[test]
 fn the_system_backend_lists_mounted_volumes_and_stops() {
     let mut dev = system_devices().unwrap();
     let (tx, rx) = channel();
     dev.start(tx).unwrap();
-    // Every machine has at least its system volume mounted.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut arrived = Vec::new();
-    while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(300)) {
-            Ok(DeviceEvent::Arrived { mount, identity }) => arrived.push((mount, identity)),
-            Ok(_) => {}
-            Err(_) if !arrived.is_empty() => break,
-            Err(_) => {}
-        }
+    let got = collect(&rx, 10, |g| !g.is_empty());
+    let ok = got.iter().any(|e| {
+        matches!(e, DeviceEvent::Arrived { identity, .. }
+            if identity.fs_type.is_some() && identity.fs_serial.is_some())
+    });
+    assert!(ok, "{got:#?}");
+    stop_promptly(dev, &rx);
+}
+
+/// macOS: the boot volume is not in /Volumes as a mount point, so mount a
+/// real exFAT disk image (like a card) and watch it arrive and leave.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_system_backend_sees_a_disk_image_mount_and_unmount() {
+    use std::process::Command;
+    let t = tempfile::tempdir().unwrap();
+    let dmg = t.path().join("card.dmg");
+    let name = format!("KS{}", std::process::id());
+    let ok = Command::new("hdiutil")
+        .args([
+            "create", "-quiet", "-size", "8m", "-fs", "ExFAT", "-volname", &name,
+        ])
+        .arg(&dmg)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !ok {
+        eprintln!("skipping: hdiutil cannot create an exFAT image here");
+        return;
     }
-    assert!(!arrived.is_empty(), "no volumes listed");
+
+    let mut dev = system_devices().unwrap();
+    let (tx, rx) = channel();
+    dev.start(tx).unwrap();
+    // Let the initial listing settle before mounting.
+    collect(&rx, 2, |_| false);
+
+    let out = Command::new("hdiutil")
+        .args(["attach", "-nobrowse", "-plist"])
+        .arg(&dmg)
+        .output()
+        .unwrap();
     assert!(
-        arrived.iter().any(|(_, id)| id.fs_type.is_some()),
-        "{arrived:#?}"
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    let started = Instant::now();
-    dev.stop();
-    assert!(started.elapsed() < Duration::from_secs(2), "stop is prompt");
-    // After stop the sender is gone.
-    assert!(rx.recv_timeout(Duration::from_secs(5)).is_err());
+    let is_ours = |m: &Path| {
+        m.file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with(&name))
+    };
+    let got = collect(&rx, 15, |g| {
+        g.iter()
+            .any(|e| matches!(e, DeviceEvent::Arrived { mount, .. } if is_ours(mount)))
+    });
+    let (mount, identity) = got
+        .iter()
+        .find_map(|e| match e {
+            DeviceEvent::Arrived { mount, identity } if is_ours(mount) => {
+                Some((mount.clone(), identity.clone()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no arrival for {name}: {got:#?}"));
+    assert_eq!(
+        identity.label.as_deref(),
+        Some(name.as_str()),
+        "{identity:?}"
+    );
+    assert!(
+        identity
+            .fs_type
+            .as_deref()
+            .is_some_and(|k| k.to_lowercase().contains("fat")),
+        "{identity:?}"
+    );
+    // Card identity depends on this.
+    assert!(identity.fs_serial.is_some(), "{identity:?}");
+    assert!(identity.capacity.unwrap_or(0) > 0, "{identity:?}");
+    assert_eq!(
+        keepsake_platform::identify_volume(&mount).and_then(|i| i.fs_serial),
+        identity.fs_serial
+    );
+    assert_eq!(
+        keepsake_platform::volume_root(&mount),
+        std::fs::canonicalize(&mount).ok()
+    );
+
+    let detached = Command::new("hdiutil")
+        .args(["detach", "-force"])
+        .arg(&mount)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(detached);
+    let got = collect(&rx, 15, |g| {
+        g.iter()
+            .any(|e| matches!(e, DeviceEvent::Removed { mount: m } if m == &mount))
+    });
+    assert!(
+        got.iter()
+            .any(|e| matches!(e, DeviceEvent::Removed { mount: m } if m == &mount)),
+        "no removal: {got:#?}"
+    );
+    stop_promptly(dev, &rx);
 }
