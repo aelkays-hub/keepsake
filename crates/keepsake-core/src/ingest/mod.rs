@@ -105,6 +105,9 @@ pub struct PlanOptions {
     /// Testing only: allow destinations on the same file system as the
     /// source or each other. "Safe to format" then counts volumes, not disks.
     pub allow_same_filesystem: bool,
+    /// How the source card is identified in the volume registry (see
+    /// [`crate::cards::key_for`]). `None`: by its mount path.
+    pub source_id: Option<String>,
 }
 
 /// Progress callbacks.
@@ -187,8 +190,19 @@ pub fn destination_volume(
     Ok(Destination { volume, mount })
 }
 
-fn source_volume(lib: &Library, mount: &Path, label: &str) -> Result<VolumeRecord, IngestError> {
-    let fs_id = mount.display().to_string();
+fn source_fs_id(mount: &Path, opts: &PlanOptions) -> String {
+    opts.source_id
+        .clone()
+        .unwrap_or_else(|| mount.display().to_string())
+}
+
+fn source_volume(
+    lib: &Library,
+    mount: &Path,
+    label: &str,
+    opts: &PlanOptions,
+) -> Result<VolumeRecord, IngestError> {
+    let fs_id = source_fs_id(mount, opts);
     let existing = lib.volumes()?.into_iter().find(|v| v.fs_id == fs_id);
     // Cards are always treated as read-only: no sidecar is ever written there.
     let rec = VolumeRecord {
@@ -498,7 +512,7 @@ pub fn plan(
     let src = SourceVolume::new(source_mount)
         .map_err(|_| IngestError::SourceMissing(source_mount.to_path_buf()))?;
     check_destinations(&src, dests, opts.allow_same_filesystem)?;
-    let src_rec = source_volume(lib, src.root(), source_label)?;
+    let src_rec = source_volume(lib, src.root(), source_label, opts)?;
     cat.write(|tx| -> Result<(), IngestError> {
         tx.volumes().upsert(&src_rec.to_volume(Some(src.root())))?;
         for d in dests {
@@ -616,7 +630,7 @@ pub fn preview(
     let src = SourceVolume::new(source_mount)
         .map_err(|_| IngestError::SourceMissing(source_mount.to_path_buf()))?;
     check_destinations(&src, dests, opts.allow_same_filesystem)?;
-    let fs_id = src.root().display().to_string();
+    let fs_id = source_fs_id(src.root(), opts);
     let src_rec = match lib.volumes()?.into_iter().find(|v| v.fs_id == fs_id) {
         Some(v) => v,
         None => VolumeRecord {

@@ -81,6 +81,7 @@ fn opts() -> PlanOptions {
         event: None,
         // Tests keep everything in one temp folder, i.e. on one disk.
         allow_same_filesystem: true,
+        source_id: None,
     }
 }
 
