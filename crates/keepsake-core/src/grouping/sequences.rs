@@ -93,7 +93,7 @@ pub fn detect(frames: &[Frame]) -> Vec<Sequence> {
         let free = !used[k] && sorted[k].release_mode2.and_then(sony_kind).is_none();
         let same_camera = cur
             .last()
-            .map_or(true, |&p| sorted[p].camera == sorted[k].camera);
+            .is_none_or(|&p| sorted[p].camera == sorted[k].camera);
         if (!free || !same_camera) && !cur.is_empty() {
             runs.push(std::mem::take(&mut cur));
         }

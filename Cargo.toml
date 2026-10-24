@@ -10,7 +10,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.90"
 license = "UNLICENSED"
 authors = ["Keepsake Contributors"]
 
@@ -35,6 +35,9 @@ proptest = "1"
 tempfile = "3"
 indicatif = "0.18"
 ctrlc = "3"
+# Renditions (ADR-021): decode/encode JPEG, PNG, TIFF; SIMD resizing.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+fast_image_resize = { version = "6", features = ["image"] }
 twox-hash = { version = "2", default-features = false, features = ["xxhash3_64", "std"] }
 
 [profile.release]
