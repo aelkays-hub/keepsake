@@ -658,7 +658,7 @@ fn catalog_failure_keeps_verified_files_and_resumes() {
 }
 
 #[test]
-fn cancel_leaves_no_partial_files() {
+fn cancel_finishes_the_current_file_and_leaves_no_partial_files() {
     let (_t, w) = world();
     let mut cat = w.lib.open_catalog().unwrap();
     let s = plan(&w, &mut cat, &w.dests);
@@ -680,6 +680,16 @@ fn cancel_leaves_no_partial_files() {
     let r = ingest::run(&mut cat, &w.lib, s, &mut ctx);
     assert!(matches!(r, Err(IngestError::Cancelled)), "{r:?}");
     assert!(leftovers(&w).is_empty());
+    // Ctrl-C finishes the file in flight: the big file is complete on both drives.
+    for d in &w.dests {
+        let fin = d.mount.join("0000-undated/0000-00-00/DSC00009.JPG");
+        assert_eq!(
+            std::fs::read(&fin).unwrap(),
+            big_bytes(),
+            "{}",
+            fin.display()
+        );
+    }
     assert_no_bad_finals(&w, &cat, s);
     finish_cleanly(&w, &mut cat, s);
 }

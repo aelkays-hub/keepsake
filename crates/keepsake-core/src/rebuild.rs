@@ -755,7 +755,12 @@ pub fn rebuild_library(
     prober: Option<&Prober>,
 ) -> Result<Vec<(VolumeRecord, Option<RebuildReport>)>, LibraryError> {
     let mut out = Vec::new();
-    for rec in lib.volumes()? {
+    // Cards are import sources; their files are not library storage.
+    for rec in lib
+        .volumes()?
+        .into_iter()
+        .filter(|v| v.kind != VolumeKind::Card)
+    {
         match rec.last_mount.as_deref().filter(|m| m.is_dir()) {
             Some(m) => {
                 let report = rebuild_catalog_with(cat, lib, rec.id, m, prober)?;

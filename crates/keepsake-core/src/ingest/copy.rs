@@ -8,7 +8,6 @@
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
@@ -25,7 +24,6 @@ const CHUNK: usize = 1 << 20;
 pub(crate) enum SourceStop {
     Read(io::Error),
     Changed(String),
-    Cancelled,
     /// A simulated crash: the caller must not clean up.
     Crash,
 }
@@ -89,6 +87,7 @@ fn writer(
 
 /// Stream `rel` from the source into every path in `temps`; `slots[i]` is
 /// the destination number of `temps[i]` (for fault injection).
+/// Never interrupted by Ctrl-C: callers check for cancellation between files.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tee(
     src: &SourceVolume,
@@ -97,7 +96,6 @@ pub(crate) fn tee(
     temps: &[PathBuf],
     slots: &[VolumeId],
     fault: &FaultPlan,
-    cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64),
 ) -> Result<Teed, SourceStop> {
     let label = rel.as_str().to_owned();
@@ -125,10 +123,6 @@ pub(crate) fn tee(
         let mut stop: Option<SourceStop> = None;
         let mut buf = vec![0u8; CHUNK];
         loop {
-            if cancel.load(Ordering::Relaxed) {
-                stop = Some(SourceStop::Cancelled);
-                break;
-            }
             if let Some(e) = fault.source_read(&label, len) {
                 stop = Some(SourceStop::Read(e));
                 break;
