@@ -1988,6 +1988,7 @@ dependencies = [
  "ctrlc",
  "indicatif",
  "keepsake-core",
+ "keepsake-platform",
  "serde",
  "serde_json",
  "tempfile",
@@ -2022,6 +2023,8 @@ name = "keepsake-platform"
 version = "0.1.0"
 dependencies = [
  "keepsake-core",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
 ]

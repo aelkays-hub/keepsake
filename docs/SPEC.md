@@ -5,7 +5,8 @@
 The MVP ships a working camera-card ingest and a browsable, searchable library. No video editing, no cloud, no AI.
 
 ### Ingest
-- Detect Sony camera cards (SD, CFexpress) and MTP-connected cameras on insert/connect.
+- Detect Sony camera cards (SD, CFexpress, and cameras that show their card over USB) on insert, recognise each card again by its file-system serial in any reader or slot, and show "N new items since last import". Cameras that only speak MTP are v1 (ADR-002).
+- Optionally import cards marked as trusted automatically, with a saved preset (destinations, template, event).
 - Preview new items (items not yet in the catalog) before importing; do not auto-import.
 - Hash-verified copy to one or two user-chosen destinations using streaming BLAKE3.
 - Re-read and verify every byte after copy; report card safe to format only after two verified destinations.
@@ -36,7 +37,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Interop
 - Open selected file in the system default application.
-- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`. Every command has `--json`.
+- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete). Every command has `--json`.
 
 ---
 

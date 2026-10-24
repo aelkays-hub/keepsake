@@ -46,7 +46,11 @@ fn tools() -> bool {
             .arg("-ver")
             .output()
             .is_ok_and(|o| o.status.success());
-    if !ok && std::env::var_os("CI").is_some() {
+    // macOS CI sets KEEPSAKE_SKIP_MEDIA_TOOLS (no vendored tools there yet).
+    if !ok
+        && std::env::var_os("CI").is_some()
+        && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
+    {
         panic!("CI must provide vendor/ tools");
     }
     ok
@@ -735,4 +739,278 @@ fn ctrl_c_finishes_the_current_file_then_stops_and_resumes() {
     // Resume finishes the job.
     let v = e.json(&["ingest", "--resume", "--no-probe"], 0);
     assert_eq!(v["report"]["safe_to_format"], true, "{v}");
+}
+
+// ── Devices: watch, card, preset ─────────────────────────────────────────────
+
+impl Env {
+    /// Run with `--json`, expect exit 1 and a JSON error on stderr.
+    fn fail(&self, args: &[&str]) -> String {
+        let mut a = vec!["--json"];
+        a.extend_from_slice(args);
+        let out = self.run(&a);
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {err}");
+        let v: Value = serde_json::from_str(err.trim()).unwrap_or_else(|e| panic!("{e}: {err}"));
+        v["error"].as_str().unwrap_or_default().to_owned()
+    }
+
+    /// Run with `--json`, expect `code`, parse stdout as JSON Lines.
+    fn json_lines(&self, args: &[&str], code: i32) -> Vec<Value> {
+        let mut a = vec!["--json"];
+        a.extend_from_slice(args);
+        let out = self.run(&a);
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert_eq!(
+            out.status.code(),
+            Some(code),
+            "{args:?}\nstdout: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        stdout
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("not JSON ({e}): {l}")))
+            .collect()
+    }
+
+    /// A script of fake device events for `watch --fake-events`.
+    fn events(&self, name: &str, events: &[Value]) -> String {
+        let mut text = String::from("# fake device events\n");
+        for e in events {
+            text.push_str(&e.to_string());
+            text.push('\n');
+        }
+        let p = self.p(name);
+        std::fs::write(&p, text).unwrap();
+        p.display().to_string()
+    }
+
+    fn arrived(&self, serial: &str) -> Value {
+        serde_json::json!({
+            "event": "arrived",
+            "mount": self.card,
+            "identity": { "fs_serial": serial, "fs_type": "exFAT", "label": "Untitled",
+                          "capacity": 64_000_000_000u64, "removable": true }
+        })
+    }
+
+    fn removed(&self) -> Value {
+        serde_json::json!({ "event": "removed", "mount": self.card })
+    }
+
+    fn watch(&self, script: &str, code: i32) -> Vec<Value> {
+        self.json_lines(
+            &[
+                "watch",
+                "--fake-events",
+                script,
+                "--auto-ingest",
+                "--no-probe",
+                "--unsafe-allow-same-disk",
+            ],
+            code,
+        )
+    }
+}
+
+fn kinds(lines: &[Value]) -> Vec<String> {
+    lines
+        .iter()
+        .map(|l| l["event"].as_str().unwrap_or("?").to_owned())
+        .collect()
+}
+
+fn first<'a>(lines: &'a [Value], kind: &str) -> &'a Value {
+    lines
+        .iter()
+        .find(|l| l["event"] == kind)
+        .unwrap_or_else(|| panic!("no {kind} in {lines:#?}"))
+}
+
+#[test]
+fn presets_and_cards_are_managed_from_the_cli() {
+    let e = Env::new();
+    e.init();
+    let (a, b) = (e.s("dest-a"), e.s("dest-b"));
+    // Destinations must exist (the drive must be connected).
+    e.fail(&["preset", "save", "Trip", "--dest", &a, "--dest", &b]);
+    std::fs::create_dir_all(e.p("dest-a")).unwrap();
+    std::fs::create_dir_all(e.p("dest-b")).unwrap();
+    e.fail(&["preset", "save", "Trip", "--dest", &a, "--dest", &a]);
+    e.fail(&[
+        "preset",
+        "save",
+        "Trip",
+        "--dest",
+        &a,
+        "--template",
+        "{nope}",
+    ]);
+    let saved = e.json(&["preset", "save", "Trip", "--dest", &a, "--dest", &b], 0);
+    assert_eq!(saved["preset"]["destinations"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        e.json(&["preset", "list"], 0)["presets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    assert!(e.json(&["card", "list"], 0)["cards"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    // A manual import of a card is remembered.
+    let card = e.card.display().to_string();
+    let r = e.json(
+        &[
+            "ingest",
+            &card,
+            "--dest",
+            &a,
+            "--dest",
+            &b,
+            "--no-probe",
+            "--unsafe-allow-same-disk",
+            "--card-serial",
+            "1A2B",
+        ],
+        0,
+    );
+    assert_eq!(r["report"]["safe_to_format"], true);
+    let list = e.json(&["card", "list"], 0);
+    let c = &list["cards"][0];
+    assert_eq!(c["label"], "Card");
+    assert!(c["last_import_ms"].is_i64() && !c["trusted"].as_bool().unwrap());
+
+    e.fail(&["card", "trust", "Card", "--preset", "nope"]);
+    e.fail(&["card", "trust", "nobody", "--preset", "Trip"]);
+    let t = e.json(&["card", "trust", "card", "--preset", "trip"], 0);
+    assert_eq!(t["card"]["trusted"], true);
+    assert_eq!(t["card"]["preset"], "Trip");
+    // A preset in use cannot be deleted.
+    e.fail(&["preset", "delete", "Trip"]);
+    e.json(&["card", "rename", "Card", "Holiday"], 0);
+    let id = list["cards"][0]["id"].as_str().unwrap()[..8].to_owned();
+    e.json(&["card", "untrust", &id], 0);
+    e.json(&["preset", "delete", "Trip"], 0);
+    e.fail(&["preset", "delete", "Trip"]);
+    let f = e.json(&["card", "forget", "holiday"], 0);
+    assert_eq!(f["forgotten"], list["cards"][0]["id"]);
+    assert!(e.json(&["card", "list"], 0)["cards"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    // The media is still catalogued.
+    assert!(
+        e.json(&["search", "--type", "photo"], 0)["count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+}
+
+#[test]
+fn watch_reports_cards_and_imports_trusted_ones() {
+    let e = Env::new();
+    e.init();
+    std::fs::create_dir_all(e.p("dest-a")).unwrap();
+    std::fs::create_dir_all(e.p("dest-b")).unwrap();
+    let script = e.events(
+        "in-out-in.jsonl",
+        &[e.arrived("1A2B"), e.removed(), e.arrived("1A2B")],
+    );
+
+    // Not trusted yet: reported, never imported.
+    let lines = e.watch(&script, 0);
+    assert_eq!(
+        kinds(&lines),
+        [
+            "watching",
+            "card_inserted",
+            "card_removed",
+            "card_inserted",
+            "stopped"
+        ]
+    );
+    let ins = first(&lines, "card_inserted");
+    assert_eq!(ins["known"], false);
+    assert_eq!(ins["label"], "Untitled");
+    let items = ins["items"].as_u64().unwrap();
+    assert!(items >= 4, "{ins}");
+    assert_eq!(ins["new_items"], items);
+    assert_eq!(
+        lines[3]["known"], true,
+        "the second insert is the same card"
+    );
+    assert!(std::fs::read_dir(e.p("dest-a")).unwrap().next().is_none());
+
+    // Trusted with a preset: imported on insert, then nothing new.
+    let (a, b) = (e.s("dest-a"), e.s("dest-b"));
+    e.json(
+        &["preset", "save", "Two drives", "--dest", &a, "--dest", &b],
+        0,
+    );
+    e.json(&["card", "trust", "Untitled", "--preset", "Two drives"], 0);
+    let lines = e.watch(&script, 0);
+    let k = kinds(&lines);
+    assert_eq!(
+        &k[..3],
+        ["watching", "card_inserted", "auto_ingest_started"],
+        "{k:?}"
+    );
+    assert!(k.contains(&"auto_ingest_progress".to_owned()));
+    let done = first(&lines, "auto_ingest_finished");
+    assert_eq!(done["report"]["safe_to_format"], true, "{done}");
+    assert_eq!(done["new_items_left"], 0);
+    assert_eq!(first(&lines, "auto_ingest_started")["preset"], "Two drives");
+    let after_removal: Vec<&Value> = lines
+        .iter()
+        .skip_while(|l| l["event"] != "card_removed")
+        .collect();
+    assert_eq!(after_removal[1]["event"], "card_inserted");
+    assert_eq!(after_removal[1]["new_items"], 0);
+    assert_eq!(after_removal[2]["event"], "auto_ingest_skipped");
+    assert_eq!(after_removal[2]["reason"], "nothing new on the card");
+    assert!(std::fs::read_dir(e.p("dest-a")).unwrap().next().is_some());
+
+    // A new photo on the card: one new item, imported.
+    std::fs::write(e.card.join("DCIM/100MSDCF/DSC00099.JPG"), b"a new photo").unwrap();
+    let once = e.events("in.jsonl", &[e.arrived("1A2B")]);
+    let lines = e.watch(&once, 0);
+    assert_eq!(first(&lines, "card_inserted")["new_items"], 1);
+    assert_eq!(first(&lines, "auto_ingest_finished")["new_items_left"], 0);
+
+    // A different card (another serial) in the same slot: new and untrusted.
+    let other = e.events("other.jsonl", &[e.arrived("9999")]);
+    let lines = e.watch(&other, 0);
+    assert_eq!(first(&lines, "card_inserted")["known"], false);
+    assert!(!kinds(&lines).contains(&"auto_ingest_started".to_owned()));
+
+    // Text output.
+    let out = e.run(&["watch", "--fake-events", &once]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("Card inserted: Untitled")
+            && text.contains("0 new item(s) since last import"),
+        "{text}"
+    );
+}
+
+#[test]
+fn watch_skips_auto_ingest_when_a_destination_is_missing() {
+    let e = Env::new();
+    e.init();
+    std::fs::create_dir_all(e.p("dest-a")).unwrap();
+    std::fs::create_dir_all(e.p("dest-b")).unwrap();
+    let script = e.events("in.jsonl", &[e.arrived("1A2B")]);
+    e.watch(&script, 0);
+    let (a, b) = (e.s("dest-a"), e.s("dest-b"));
+    e.json(&["preset", "save", "P", "--dest", &a, "--dest", &b], 0);
+    e.json(&["card", "trust", "Untitled", "--preset", "P"], 0);
+    std::fs::remove_dir(e.p("dest-b")).unwrap(); // the drive is unplugged
+    let lines = e.watch(&script, 0);
+    let s = first(&lines, "auto_ingest_skipped");
+    assert!(s["reason"].as_str().unwrap().contains("not found"), "{s}");
+    assert!(!kinds(&lines).contains(&"auto_ingest_started".to_owned()));
 }

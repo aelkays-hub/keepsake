@@ -1,14 +1,16 @@
 //! `keepsake ingest <source> --dest A [--dest B] …`
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde_json::json;
 
+use keepsake_core::cards;
 use keepsake_core::catalog::{
     Catalog, ImportAssetState, ImportDiff, ImportSessionId, ImportStatus, VolumeKind,
 };
+use keepsake_core::devices::VolumeIdentity;
 use keepsake_core::ingest::fault::FaultPlan;
 use keepsake_core::ingest::template::{Template, DEFAULT_TEMPLATE};
 use keepsake_core::ingest::{
@@ -61,6 +63,10 @@ pub struct IngestArgs {
     /// other. "Safe to format" then means two folders, not two disks.
     #[arg(long, hide = true)]
     pub unsafe_allow_same_disk: bool,
+    /// Testing only: treat the source folder as a card with this
+    /// file-system serial (real cards are identified automatically).
+    #[arg(long, hide = true)]
+    pub card_serial: Option<String>,
 }
 
 fn pick_session(cat: &Catalog, s: Option<&str>, unfinished: bool) -> Result<ImportSessionId> {
@@ -153,6 +159,10 @@ fn run_session(ctx: &Ctx, lib: &Library, session: ImportSessionId, no_probe: boo
     };
     let result = ingest::run(&mut cat, lib, session, &mut rc);
     bar.finish_and_clear();
+    // Assets now in the library no longer count as new on this card.
+    if let Err(e) = cards::record_session(lib, &cat, session) {
+        tracing::warn!("could not update the card's memory: {e}");
+    }
     match result {
         Ok(r) => {
             ctx.emit(&json!({ "session": session, "report": r }), || {
@@ -176,6 +186,23 @@ fn run_session(ctx: &Ctx, lib: &Library, session: ImportSessionId, no_probe: boo
         }
         Err(e) => Err(e.into()),
     }
+}
+
+/// The source's volume identity when the source is a whole volume (or a
+/// test serial is given), with the mount it applies to.
+fn source_identity(source: &Path, test_serial: Option<&str>) -> Option<(PathBuf, VolumeIdentity)> {
+    if let Some(serial) = test_serial {
+        let mount = std::fs::canonicalize(source).ok()?;
+        let id = VolumeIdentity {
+            fs_serial: Some(serial.to_owned()),
+            fs_type: Some("test".into()),
+            ..Default::default()
+        };
+        return Some((mount, id));
+    }
+    let root = keepsake_platform::volume_root(source)?;
+    let id = keepsake_platform::identify_volume(&root)?;
+    Some((root, id))
 }
 
 pub fn run(ctx: &Ctx, a: IngestArgs) -> Result<u8> {
@@ -248,6 +275,24 @@ pub fn run(ctx: &Ctx, a: IngestArgs) -> Result<u8> {
     if a.dest.is_empty() || a.dest.len() > 2 {
         bail!("give one or two --dest folders (two are needed for \"safe to format\")");
     }
+    // A whole card (a volume root, or a folder given a test serial) is
+    // remembered by its identity; the dry run only looks.
+    let identity = source_identity(&source, a.card_serial.as_deref());
+    let card = match &identity {
+        Some((mount, id)) if !a.dry_run => cards::identify(&lib, mount, id)?.map(|s| s.card),
+        _ => None,
+    };
+    let source_id = match (&card, &identity) {
+        (Some(c), _) => Some(c.key.clone()),
+        (None, Some((mount, id))) if !cards::recognize(mount).is_empty() => {
+            Some(cards::key_for(mount, id))
+        }
+        _ => None,
+    };
+    let label = match &card {
+        Some(c) if a.label == "Card" => c.label.clone(),
+        _ => a.label.clone(),
+    };
     let opts = PlanOptions {
         template: Template::parse(&a.template)?,
         selection: if a.all {
@@ -257,6 +302,7 @@ pub fn run(ctx: &Ctx, a: IngestArgs) -> Result<u8> {
         },
         event: a.event.clone(),
         allow_same_filesystem: a.unsafe_allow_same_disk,
+        source_id,
     };
     if a.unsafe_allow_same_disk && !ctx.json {
         eprintln!(
@@ -339,7 +385,7 @@ pub fn run(ctx: &Ctx, a: IngestArgs) -> Result<u8> {
             &lib,
             prober.as_ref(),
             &source,
-            &a.label,
+            &label,
             &dests,
             &opts,
         )?

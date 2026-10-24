@@ -16,7 +16,7 @@
 └─────────────────────────────────────────────────────────┘
          ↑                  ↑                ↑
   Tauri app (GUI)    keepsake-cli    background watcher
-  app/src-tauri     keepsake-cli    (future daemon)
+  app/src-tauri     keepsake-cli    (`keepsake watch`)
 ```
 
 All three executables call into `keepsake-core` through the same public API. There is no business logic outside of `keepsake-core` and `keepsake-platform`.
@@ -27,16 +27,40 @@ The CLI (`keepsake-cli`, manual in `docs/CLI.md`) parses arguments, picks the li
 - `catalog::Search::query` (`SearchQuery`) for `search`;
 - `select::resolve` and `MetadataService::shift_capture_time` for `shift-time`;
 - `backup::run` for `backup`;
-- `rebuild::rebuild_library` for `rebuild-catalog`.
+- `rebuild::rebuild_library` for `rebuild-catalog`;
+- `watch::Watcher`, with `keepsake_platform::system_devices()`, for `watch`;
+- `cards` and `presets` for `card` and `preset`.
 
 ---
 
 ## Components
 
 ### DeviceWatcher
-Monitors OS device-arrival events (Windows: `WM_DEVICECHANGE` / `RegisterDeviceNotification`; macOS: IOKit `IOServiceMatching`). On card insert or camera connect it enumerates volumes, identifies Sony card layouts, and emits an event to the IngestEngine.
+Split in two (ADR-020):
 
-Lives in `keepsake-platform` (OS-specific implementations behind a trait) and is called from `keepsake-core`.
+**`keepsake-platform`: device events.** `DeviceEvents` sends `DeviceEvent::Arrived { mount, identity }` and `Removed { mount }`, including an arrival for each volume already mounted at start.
+- Both OS backends run one scanner thread. It lists mounted volumes and sends the differences.
+- OS notifications only wake the thread:
+  - on Windows, `CM_Register_Notification` on the volume interface class;
+  - on macOS, DiskArbitration appeared, disappeared and description-changed callbacks on the thread's run loop.
+- After a notification the thread lists every 0.5 s for 6 s, while the volume mounts. Otherwise it lists every 3 s, as a safety net.
+- `VolumeIdentity` comes from:
+  - Windows: `GetVolumeInformationW`, the volume GUID, `GetDiskFreeSpaceExW`, `IOCTL_STORAGE_QUERY_PROPERTY`;
+  - macOS: the DiskArbitration description.
+- `FakeDevices` replays scripted events for tests.
+
+**`keepsake-core`: what the events mean.**
+- `cards::recognize` checks for Sony layouts.
+- `cards::identify` finds or creates the card's record by `VolumeIdentity::card_key` (file-system type, serial and size) and counts the items not imported from it before.
+- `watch::Watcher` turns device events into `WatchEvent`s, and runs an automatic import, one at a time, for trusted cards with a preset.
+
+Card memory (`cards.json`, `cards/<id>.json`) and presets (`presets.json`) live in the library folder, not the catalog: they cannot be rebuilt from media.
+
+```
+OS ──notify──▶ scanner thread ──DeviceEvent──▶ Watcher ──▶ cards::identify ──▶ WatchEvent
+                 (platform)        (channel)     (core)        │                (CLI prints / app reads)
+                                                               └─ trusted + preset ─▶ ingest::plan + run
+```
 
 ### IngestEngine
 `keepsake_core::ingest`: `plan` (group, probe, quick-diff, name every file on every destination, store the session), `select`, `run` (copy, verify, catalogue, confirm, decide "safe to format"; also resumes), `report`. `run` is blocking and takes a progress callback and a cancel flag. It is meant to run on a worker thread and will slot into the job queue when that exists. The design and failure handling are in ADR-017.

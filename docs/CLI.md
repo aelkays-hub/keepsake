@@ -20,6 +20,9 @@ keepsake shift-time [PATH…] --by ±H:MM[:SS] [--query Q] [--from DAY] [--to DA
 keepsake backup <dest> [--label L]
 keepsake rebuild-catalog [--fresh] [--no-probe]
 keepsake probe <folder>
+keepsake watch [--auto-ingest] [--no-probe]
+keepsake card list | trust <card> --preset P | untrust <card> | rename <card> <name> | forget <card>
+keepsake preset save <name> --dest A [--dest B] [--template T] [--event E] | list | delete <name>
 ```
 
 ## DESCRIPTION
@@ -34,7 +37,7 @@ A **library** is a folder holding the catalog (`catalog.db`), the volume registr
 : Use this library. Without it, Keepsake uses `KEEPSAKE_LIBRARY`, then the default saved by `keepsake init`.
 
 `--json`
-: Print one JSON document on standard output instead of text, and draw no progress bars. Errors are printed to standard error as `{"error": "…"}`.
+: Print one JSON document on standard output instead of text (`watch` prints one per line), and draw no progress bars. Errors are printed to standard error as `{"error": "…"}`.
 
 `-h`, `--help`; `-V`, `--version`
 : Show help or the version.
@@ -65,6 +68,8 @@ Imports a camera card (or a copy of one) to one or two destinations:
 The card is **never written to**. A destination may not be inside the card, on the same disk as the card, or on the same disk as the other destination.
 
 **SAFE TO FORMAT** is printed only when every selected asset is verified on two different destinations. Assets you did not select are listed with a warning, because formatting the card would lose them.
+
+When the source is a whole Sony card (a drive or volume, not a folder copy), Keepsake remembers the card by its file-system serial. The next time it is inserted, in any reader or slot, `watch` shows how many items are new since this import (see `card`).
 
 Options:
 
@@ -181,9 +186,86 @@ JSON: `fresh`, `assets`, `volumes[]` (`id`, `label`, `online`, `report`).
 
 Shows what Keepsake reads from a card or folder, without changing anything: assets and their files, capture time with source and confidence, camera, lens, duration, video format, timecode, and burst/bracket/interval sequences.
 
+### watch
+
+`keepsake watch [--auto-ingest] [--no-probe]`
+
+Runs until Ctrl-C and reports cards as they are inserted and removed. A card already inserted when `watch` starts is reported too. For each Sony card it shows:
+- the name and mount point;
+- the layouts found: XAVC (`PRIVATE/M4ROOT`), AVCHD, MP4 (`MP_ROOT`), stills (`DCIM/nnnMSDCF`);
+- whether the card is new or known;
+- for a known card, **how many items are new since its last import**.
+
+Other drives are ignored. Nothing is ever written to a card.
+
+A card is recognised by its file-system serial number, so it is the same card in any reader, slot or drive letter. Formatting a card in the camera gives it a new serial, so it then counts as a new card.
+
+`--auto-ingest`
+: Also import **trusted** cards automatically, using the card's preset (see `card trust` and `preset`). An import happens only if the card has new items and every preset destination folder exists, meaning the drive is connected. Otherwise `watch` says why it skipped.
+
+  The import is the same as `ingest`: new items only, verified copies, the same safety rules, SAFE TO FORMAT reported at the end. Cards are imported one at a time.
+
+  If the card is pulled out mid-import, the files not yet copied are reported as failed and still count as new. The import can be continued with `ingest --resume`.
+
+`--no-probe`
+: Don't read capture dates during automatic imports.
+
+JSON: **one JSON object per line** (JSON Lines), each with an `event` field:
+
+| `event` | Fields |
+|---|---|
+| `watching` | `auto_ingest` |
+| `card_inserted` | `card`, `label`, `mount`, `known`, `layouts[]`, `items`, `new_items`, `last_import_ms`, `trusted`, `preset` |
+| `card_removed` | `card`, `label`, `mount` |
+| `volume_ignored` | `mount`, `reason` |
+| `auto_ingest_skipped` | `card`, `reason` |
+| `auto_ingest_started` | `card`, `session`, `preset`, `destinations[]` |
+| `auto_ingest_progress` | `card`, `session`, `files_done`, `bytes_done` |
+| `auto_ingest_finished` | `card`, `session`, `report` (as for `ingest`), `new_items_left` |
+| `auto_ingest_cancelled` | `card`, `session` |
+| `auto_ingest_failed` | `card`, `session`, `error`, `resumable` |
+| `error` | `mount`, `error` |
+| `stopped` | |
+
+Exit status: 0 when stopped with Ctrl-C between imports, and 130 if Ctrl-C interrupted an automatic import.
+
+### card
+
+`keepsake card list`
+: The cards this library has seen: name, id, when last seen and where, last import, and whether the card is trusted.
+
+`keepsake card trust <card> --preset P`
+: Import this card automatically with preset `P` while `watch --auto-ingest` runs. A preset with one destination works, but it is never safe to format.
+
+`keepsake card untrust <card>`
+: Stop importing it automatically.
+
+`keepsake card rename <card> <name>`
+: Name the card. Cards are first named after their volume label, which is often `Untitled`.
+
+`keepsake card forget <card>`
+: Forget the card and its import history. Its media and import sessions stay in the library. If it is inserted again, it is a new card.
+
+`<card>` is the card's name (case-insensitive), its id, or the first 4 or more characters of the id.
+
+JSON: `cards[]` for `list`, each with `id`, `key`, `label`, `layouts`, `capacity`, `hw_serial`, `hw_model`, `first_seen_ms`, `last_seen_ms`, `last_mount`, `last_import_ms`, `last_session`, `trusted`, `preset`. The other commands print `card`, or `forgotten` for `forget`.
+
+### preset
+
+`keepsake preset save <name> --dest A [--dest B] [--template T] [--event E]`
+: Save (or replace) named import settings. The destination folders must exist. Two different destinations are needed for safe to format.
+
+`keepsake preset list`
+: List the saved presets.
+
+`keepsake preset delete <name>`
+: Delete a preset. Refused while a trusted card uses it.
+
+JSON: `preset` (`name`, `destinations[]`, `template`, `event`), `presets[]`, or `deleted`.
+
 ## CTRL-C
 
-During `ingest`, `verify` and `backup`, the **first Ctrl-C** lets the file being copied or checked finish (it is verified and recorded), then the command stops cleanly with exit status 130. Nothing partial is left under a final name. The **second Ctrl-C** stops at once. Either way, `ingest --resume` (or running `backup` again) continues safely.
+During `ingest`, `verify`, `backup` and automatic imports in `watch`, the **first Ctrl-C** lets the file being copied or checked finish (it is verified and recorded), then the command stops cleanly with exit status 130. Nothing partial is left under a final name. The **second Ctrl-C** stops at once. Either way, `ingest --resume` (or running `backup` again) continues safely.
 
 ## EXIT STATUS
 
@@ -218,6 +300,12 @@ During `ingest`, `verify` and `backup`, the **first Ctrl-C** lets the file being
 
 `<library>/volumes.json`, `library.json`, `recipes/`, `sidecars/`
 : The volume registry, the library identity, edit recipes, and sidecars for read-only volumes.
+
+`<library>/cards.json`, `<library>/cards/<id>.json`
+: The cards this library remembers, and the items imported from each one. These are not in the catalog, so `rebuild-catalog --fresh` keeps them, and `backup` copies them.
+
+`<library>/presets.json`
+: Saved presets.
 
 `<file>.<ext>.xmp`
 : The sidecar beside each original.
@@ -271,6 +359,16 @@ Back up to a third drive (run it again any time; only new files are copied):
 
 ```
 keepsake backup H:\KeepsakeBackup
+```
+
+Import a card automatically every time it is inserted:
+
+```
+keepsake preset save "Two drives" --dest F:\Photos --dest G:\Photos
+keepsake watch                      # insert the card once: it is now known
+keepsake card rename Untitled "A7 IV card 1"
+keepsake card trust "A7 IV card 1" --preset "Two drives"
+keepsake watch --auto-ingest
 ```
 
 Script with JSON (PowerShell):

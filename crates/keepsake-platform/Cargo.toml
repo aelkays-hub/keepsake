@@ -7,11 +7,13 @@ license.workspace = true
 
 [dependencies]
 keepsake-core = { path = "../keepsake-core" }
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-[target.'cfg(target_os = "windows")'.dependencies]
-# Windows-specific device-watcher deps added in prompt 1.
+# No OS binding crates: Windows (cfgmgr32, kernel32) and macOS
+# (DiskArbitration, CoreFoundation) are called through hand-written
+# declarations in src/windows.rs and src/macos.rs (ADR-020).
 
-[target.'cfg(target_os = "macos")'.dependencies]
-# macOS-specific device-watcher deps added in prompt 1.
+[dev-dependencies]
+tempfile.workspace = true

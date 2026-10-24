@@ -96,3 +96,22 @@ pub fn xmp_files(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// BLAKE3 of every file under `root`, by relative path (to prove a tree is
+/// untouched).
+pub fn tree_hashes(root: &Path) -> std::collections::BTreeMap<PathBuf, Blake3Hash> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                let rel = p.strip_prefix(root).unwrap().to_path_buf();
+                out.insert(rel, Blake3Hash::of(&std::fs::read(&p).unwrap()));
+            }
+        }
+    }
+    out
+}

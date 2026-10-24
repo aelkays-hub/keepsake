@@ -761,3 +761,58 @@ Neither is linked into `keepsake-core`. The CLI also uses the existing workspace
   - The backup folder may not overlap a library volume or the library folder.
 - **`shift-time`** selection is paths (files, or folders meaning "everything inside") and/or the search filters; an empty selection or an unknown path is an error. The shift is written to the sidecars of every copy and to the catalog; originals are untouched.
 - **Ctrl-C test on Windows** starts the CLI in its own process group and sends `CTRL_BREAK_EVENT` with `GenerateConsoleCtrlEvent` (test code only). If the console cannot deliver it, the test says so and skips; the cancel rule is also covered by core ingest tests.
+
+---
+
+## ADR-020 — Device detection and card memory
+
+**Status**: Accepted (Prompt 8, approved by the product owner 2026-10-24). Supersedes the `WM_DEVICECHANGE` / IOKit wording in ADR-002.
+
+**OS bindings: none added.**
+- Windows calls `cfgmgr32` and `kernel32` directly: `CM_Register_Notification`, `GetVolumeInformationW`, `GetVolumeNameForVolumeMountPointW`, `GetDiskFreeSpaceExW`, `DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)`.
+- macOS calls the DiskArbitration and CoreFoundation frameworks directly.
+- The declarations are hand-written in `keepsake-platform/src/{windows,macos}.rs`, as `keepsake-core` already does for disk space and cache-bypassing reads. Every `unsafe` block has a `SAFETY` comment.
+- `CM_NOTIFY_FILTER`'s size is checked by a test.
+
+**Notifications wake a scanner; they are not trusted for details.**
+- One thread lists the mounted volumes (drive letters or `/Volumes`) and diffs the result against the last listing.
+- Notifications make it list every 0.5 s for 6 s, which covers the delay before a drive letter or mount point appears. Otherwise it lists every 3 s.
+- So a missed notification, a card swapped in a reader, or a letter change is still seen. A swap at the same mount appears as a removal followed by an arrival.
+- Volumes mounted in folders instead of drive letters (Windows) are not watched.
+
+**Card identity.**
+- `card:<fs type>:<fs serial>:<capacity>`. The serial is the FAT/exFAT volume ID on Windows, and the volume UUID on macOS (derived from that serial).
+- The hardware serial is recorded but never used to identify a card, because a card reader reports its own serial for every card put in it.
+- Consequences:
+  - A card reformatted in the camera is a new card. It has nothing old to import.
+  - The same card has different keys on Windows and macOS, so a library moved between them meets its cards as new.
+  - Without a serial, a card is remembered by its mount path.
+- Ingest registers the card's source volume by this key (`PlanOptions::source_id`), so E: today and F: tomorrow are one volume.
+
+**Sony card** means any of `PRIVATE/M4ROOT`, `PRIVATE/AVCHD`, `MP_ROOT`, or `DCIM/nnnMSDCF`, ignoring case. Other volumes are reported as ignored.
+
+**New since last import.**
+- After every import or resume of a remembered card, `cards/<id>.json` records the originals now in the library (catalogued, or found already imported) with their path, size and modified time.
+- An item is new if it is not in that list or its size or time changed. Counting is a directory listing, with no hashing.
+- Failed or unselected items stay new.
+
+**Card memory and presets are files in the library folder** (`cards.json`, `cards/`, `presets.json`):
+- written atomically;
+- copied into backups' `.keepsake-library`;
+- untouched by `rebuild-catalog --fresh`, because they are user state that cannot be rebuilt from the media.
+
+**Automatic import** happens only when all of these hold:
+- `keepsake watch --auto-ingest` is running;
+- the card is trusted and has an existing preset;
+- the card has new items;
+- every preset destination folder exists.
+
+Otherwise the watcher emits `auto_ingest_skipped` with the reason. When an import does run:
+- It uses the normal ingest path: new items only, verified copies, the same-disk rules, and the card is never written.
+- Imports run one at a time; device events wait meanwhile.
+- Ctrl-C finishes the current file. `ingest --resume` continues.
+- A card pulled mid-import leaves failed assets, which are still counted as new.
+
+**`watch --json`** prints JSON Lines: one event per line, flushed. It starts with `watching` and ends with `stopped`.
+
+**CI.** A `macos-14` job runs clippy and the tests for the whole workspace except the Tauri app. With no LGPL FFmpeg for macOS yet (ADR-005), it sets `KEEPSAKE_SKIP_MEDIA_TOOLS`, so tests that need ExifTool, ffprobe or ffmpeg skip there instead of failing.

@@ -26,7 +26,11 @@ pub fn tools() -> Option<(ToolPaths, PathBuf)> {
     let ok =
         works(&t.exiftool, "-ver") && works(&t.ffprobe, "-version") && works(&ffmpeg, "-version");
     if !ok {
-        if std::env::var_os("CI").is_some() {
+        // macOS CI has no LGPL FFmpeg build yet (ADR-005) and sets
+        // KEEPSAKE_SKIP_MEDIA_TOOLS; everywhere else CI must have them.
+        if std::env::var_os("CI").is_some()
+            && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
+        {
             panic!("CI must provide ExifTool, ffprobe and ffmpeg in vendor/ (scripts/setup.ps1 -VendorOnly)");
         }
         eprintln!("skipping: ExifTool/ffprobe/ffmpeg not found in vendor/");

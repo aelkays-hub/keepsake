@@ -7,7 +7,7 @@
 //! when the source still matches the catalog's BLAKE3, so damage is never
 //! propagated. Files already on the backup with the same content are skipped.
 //! The library itself (a consistent catalog snapshot, the volume registry,
-//! recipes and mirrored sidecars) goes to `<dest>/.keepsake-library/`.
+//! recipes, mirrored sidecars, card memory and presets) goes to `<dest>/.keepsake-library/`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -109,7 +109,7 @@ fn snapshot_library(cat: &Catalog, lib: &Library, dest: &Path) -> Result<PathBuf
     }
     std::fs::create_dir_all(&tmp)?;
     cat.snapshot_to(&tmp.join("catalog.db"))?;
-    for f in ["library.json", "volumes.json"] {
+    for f in ["library.json", "volumes.json", "cards.json", "presets.json"] {
         let p = lib.root().join(f);
         if p.is_file() {
             std::fs::copy(&p, tmp.join(f))?;
@@ -117,6 +117,7 @@ fn snapshot_library(cat: &Catalog, lib: &Library, dest: &Path) -> Result<PathBuf
     }
     copy_tree(&lib.recipes_dir(), &tmp.join("recipes"))?;
     copy_tree(&lib.sidecars_dir(), &tmp.join("sidecars"))?;
+    copy_tree(&lib.root().join("cards"), &tmp.join("cards"))?;
     let old = dest.join(format!("{LIBRARY_DIR}.old"));
     if old.exists() {
         std::fs::remove_dir_all(&old)?;
