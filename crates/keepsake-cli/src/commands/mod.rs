@@ -1,4 +1,10 @@
+pub mod backup;
+pub mod common;
 pub mod corpus;
 pub mod ingest;
-pub mod library;
+pub mod init;
 pub mod probe;
+pub mod rebuild;
+pub mod search;
+pub mod shift;
+pub mod verify;

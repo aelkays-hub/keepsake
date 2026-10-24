@@ -13,12 +13,9 @@ use keepsake_core::xmp::format_date;
 pub struct ProbeArgs {
     /// Folder to probe (a card root or a copy of one).
     pub folder: PathBuf,
-    /// Print JSON instead of a table.
-    #[arg(long)]
-    pub json: bool,
 }
 
-pub fn run(args: ProbeArgs) -> Result<()> {
+pub fn run(ctx: &super::common::Ctx, args: ProbeArgs) -> Result<u8> {
     let root = std::fs::canonicalize(&args.folder)
         .with_context(|| format!("{} not found", args.folder.display()))?;
     let prober = Prober::new(&ToolPaths::discover(), Default::default())
@@ -27,7 +24,7 @@ pub fn run(args: ProbeArgs) -> Result<()> {
     let grouping = group_folder(&root, &files);
     let report = prober.probe(&root, &files, &grouping);
 
-    if args.json {
+    if ctx.json {
         let out = serde_json::json!({
             "groups": grouping.groups.iter().zip(&report.assets).map(|(g, a)| serde_json::json!({
                 "kind": g.kind,
@@ -46,7 +43,7 @@ pub fn run(args: ProbeArgs) -> Result<()> {
             "problems": grouping.problems.iter().chain(&walk.problems).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
-        return Ok(());
+        return Ok(0);
     }
 
     println!(
@@ -110,5 +107,5 @@ pub fn run(args: ProbeArgs) -> Result<()> {
     for p in grouping.problems.iter().chain(&walk.problems) {
         println!("problem: {p}");
     }
-    Ok(())
+    Ok(0)
 }
