@@ -13,21 +13,22 @@
 | 8 | Device detection: Windows CM notifications + macOS DiskArbitration, card memory, `keepsake watch` with trusted auto-ingest | ✅ Done (Windows; macOS backend in CI only) |
 | 9 | Renditions: persistent priority job queue, thumbnails/previews/proxies, content-addressed LRU cache, `keepsake renders`, benchmarks | ✅ Done (Windows; macOS video needs FFmpeg) |
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
+| 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
 | 4 | Ingest engine: copy with streaming BLAKE3 and verification | ✅ Done in prompt 6 |
 | 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
 | 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
-| 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ✅ Done in prompt 9 (LibRaw decode later) |
+| 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ✅ Done in prompts 9 and 11 (LibRaw full-size decode) |
 | 8 | Tauri command layer: ingest, catalog queries, progress events | ✅ Done in prompt 10 |
 | 9 | UI: calendar view | ✅ Done in prompt 10 |
 | 10 | UI: grid view with TanStack Virtual | ✅ Done in prompt 10 |
 | 11 | UI: details view and metadata panel | ✅ Done in prompt 10 |
 | 12 | UI: ingest wizard (preview, destination, confirm) | ✅ Done in prompt 10 (import window) |
-| 13 | Search: date, camera, lens, type, text (FTS5) | 🟡 CLI done in prompt 7 (no lens filter, no UI) |
-| 14 | Video proxy generation and playback | 🟡 Proxies done in prompt 9; playback UI pending |
-| 15 | Backup verification command (CLI + UI) | 🟡 CLI done in prompt 7 (`verify`, `backup`); UI pending |
+| 13 | Search: date, camera, lens, type, text (FTS5) | ✅ Done in prompts 7 and 10 |
+| 14 | Video proxy generation and playback | ✅ Done in prompts 9 and 11 |
+| 15 | Backup verification command (CLI + UI) | ✅ Done in prompts 7 and 11 |
 | 16 | Lossless trim (keyframe-cut and smart-cut) | ⬜ Pending |
 | 17 | Combine, rotate, frame grab, MP4 conversion | ⬜ Pending |
 | 18 | Image adjustments (crop, resize, red-eye, auto-levels) | ⬜ Pending |
@@ -35,6 +36,73 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 11 — Viewer, time shift, Open in, Backup and Settings (2026-10-25)
+
+### What was built
+
+**Viewer** (Enter or double-click; Esc closes)
+- Photos fit the window from the preview. Z, a click or the mouse wheel zooms to **100%** from a full-size picture made on demand: JPEG/PNG/TIFF decoded in-process, HEIF by FFmpeg, **RAW by LibRaw** (`dcraw_emu` sidecar, ADR-023). Drag or arrows pan.
+- **RAW + JPEG pairs** are one item with a JPEG | RAW toggle (R).
+- **Video** plays the proxy, with a scrub bar, Space play/pause, `,`/`.` one frame back/forward, J/L one second, and the **timecode** of the frame on screen (start timecode from ffprobe plus position, drop-frame aware).
+- Arrows move through the selection when several items are selected, otherwise through the whole view. Rating (0–5) and label (6–9) keys, F full screen, Ctrl+O Open in.
+- Focus returns to the grid on close.
+
+**Batch time shift** (Ctrl+T, or "Shift time…" in the inspector)
+- Pick a reference photo from the selection (the focused one by default), enter the time it really was, and see the offset and the first 10 items before → after, with the total and how many have no date.
+- Apply writes the catalog and the XMP sidecars only, in the background for large selections.
+
+**Open in** (Ctrl+O): the system default, or the program set per file type in Settings (`[open.apps]` in `config.toml`). No new dependency.
+
+**Backup screen** (sidebar → Backup)
+- Choose a folder or drive and run an incremental, verified backup with progress and Stop.
+- Each destination shows its last backup and **last verification** date, with Back up now and Verify now.
+- A history of every backup and verify, kept in `<library>/history.json` (survives a catalog rebuild; copied into backups). The CLI's `backup` and `verify` record there too.
+
+**Settings screen** (sidebar → Settings, or Ctrl+,)
+- Library: open another or create a new one.
+- Cache folder (default or chosen), with **Remove old files** after a move; size limit; image and video workers; pause on battery.
+- Open in applications per type.
+- Import presets: create, edit, delete.
+- Saved to `config.toml`; rendering restarts with the new values.
+
+**Core**
+- `render::full`: `full_image`, `members` and `video_info`; `Variant::Full`/`FullRaw`; `RenderTools.dcraw`; `Source.raw`.
+- `select::shift_for` (whole seconds), `history`, `external`, `OpenSettings`, `Cache::remove_files`.
+
+**App commands:** `full_image`, `asset_members`, `video_info`, `open_external`, `time_shift_preview`, `time_shift_apply`, `backup_overview`, `backup_run`, `verify_run`, `maint_cancel`, `settings_get`, `settings_set`, `cache_remove_old`, `preset_delete`. Events: `maint://progress`, `maint://done`.
+
+**Setup:** the setup scripts download LibRaw 0.22.2 (mirrored, SHA-256 checked) into `vendor/libraw`.
+
+**Tests**
+- Core:
+  - full-size pictures (sizes, orientation, made once, originals untouched);
+  - RAW pairs and the toggle;
+  - `video_info` with a 29.97 drop-frame timecode;
+  - `shift_for`, including sub-second times;
+  - history, Open in commands, settings;
+  - removing an old cache;
+  - a corpus test decoding a real ARW at full size with LibRaw.
+- CLI: backup and verify are recorded in the history and the history is in the backup.
+- UI unit (14): drop-frame timecode, frame at a time, offset text, viewer navigation.
+- Playwright **mocked** (23, 9 new): viewer navigation through the view and the selection, 100% zoom and pan, the JPEG | RAW toggle, video frame stepping and timecode (a 26 KB synthetic WebM), rating and Open in from the viewer, time shift, backup and verify with history, settings and presets.
+- Playwright **real app**, Windows (8, 4 new):
+  - a real JPEG at 100% and frame stepping on a real proxy;
+  - time shift checked in the XMP files, with the originals byte-for-byte unchanged;
+  - a real backup and verify, with `history.json`;
+  - Open in, through a test program that records what it was given;
+  - settings surviving a restart.
+
+### Bug found and fixed
+- A capture time with fractions of a second made the time-shift offset one second off. The offset now compares whole seconds, as times are shown.
+
+### Not done / next
+- The viewer has no slideshow, compare view or rotation.
+- The HEIF full-size path has no automated test: FFmpeg cannot write HEIF files to make one, and the corpus has none.
+- Windows ARM64 runs LibRaw's x64 build under emulation.
+- On macOS the UI is tested only against the mocked backend.
 
 ---
 

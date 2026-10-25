@@ -933,3 +933,53 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - **Seeding:** a hidden `keepsake dev seed` fills an empty library with synthetic assets that share 64 cached pictures.
 
 **The spike page is gone.** Its results are in `docs/spikes/playback.md`.
+
+---
+
+## ADR-023 — Viewer, LibRaw sidecar, backup history, Open in
+
+**Status**: Accepted (Prompt 11, approved by the product owner 2026-10-25)
+
+**LibRaw as a sidecar, not a library.**
+
+| Dependency | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| LibRaw `dcraw_emu` (official build) | 0.22.2 | LGPL-2.1 or CDDL-1.0 | sidecar binary in `vendor/libraw` | Full-size RAW decoding for the viewer's 100% zoom |
+
+- Like FFmpeg (ADR-005), it is run as a separate process and never linked, so the LGPL has no effect on Keepsake's binary. Its licence files are shipped beside it.
+- The official Windows (x64) and macOS (universal) zips are mirrored unchanged in the `vendor-binaries-v1` release and checked by SHA-256 in the setup scripts:
+  - `LibRaw-0.22.2-Win64.zip`: `ac64fa12bb00a7581332d4c6ab918c0533fb3f119d6b668d47a6875410dca948`
+  - `LibRaw-0.22.2-macOS.zip`: `46e9cec8798419775df1411cc4554bb023e003509ff44b4057fd3b84eb55a517`
+- Windows ARM64 runs the x64 build under emulation; LibRaw publishes no ARM64 binary.
+- The command is `dcraw_emu -w -o 1 -q 3 -Z - <file>`: camera white balance, sRGB, AHD demosaic, a PPM on stdout. A 12 MP ARW decodes in about 1.3 s.
+- Thumbnails and previews still come from the RAW's embedded JPEG (prompt 9). LibRaw runs only when someone zooms to 100% or picks RAW in the JPEG | RAW toggle.
+- Rust bindings to LibRaw (`libraw-rs` and similar) were rejected: they link LibRaw into the binary, and need a C++ toolchain on every build machine.
+
+**Full-size renditions.**
+- `Variant::Full` (JPEG, PNG, TIFF, HEIF) and `Variant::FullRaw` (LibRaw) are renditions like any other: content-addressed in the cache, JPEG quality 92, orientation applied, evicted by the same LRU.
+- They are made on demand by `render::full::full_image`, never in the background queue.
+- HEIF is decoded by the FFmpeg sidecar at full resolution.
+
+**Video in the viewer.**
+- The viewer plays the proxy.
+- `video_info` (ffprobe) gives the frame rate and start timecode. The timecode on screen is the start timecode plus the frame on screen, drop-frame aware (`;` before the frames).
+- Frame stepping seeks to the middle of the next frame, so rounding never lands on the wrong one.
+
+**Time shift.**
+- `select::shift_for(reference, correct)` gives the offset that makes the reference read the correct time. It compares whole seconds, as people see times: a photo at 13:02:11.6 told it was 14:02:11 moves by exactly one hour.
+- `MetadataService::shift_capture_time` applies the offset; the dialog previews it first. Only the catalog and XMP sidecars change.
+
+**Backup and verify history: `<library>/history.json`.**
+- A library file, not a catalog table: it cannot be rebuilt from media, so it must survive `rebuild-catalog --fresh`, and it is included in backups.
+- The newest 500 runs are kept. The CLI's `backup` and `verify` record there too.
+- "Last verified" for a destination is the newest verify of its volume that had no problems and was not stopped.
+
+**Open in, without a dependency.**
+- `[open.apps]` in `config.toml` maps a lower-case extension to a program, for example `arw = 'C:\Program Files\…\Editor.exe'`. Types not listed use the system default: `explorer <file>` on Windows, `open <file>` on macOS (`open -a <App>` for an `.app` name).
+- The `opener` crate and `tauri-plugin-opener` were not needed for this.
+- The file is only handed over; Keepsake does not watch or change it.
+
+**Settings.**
+- Cache folder, size limit, image and video workers, and pause-on-battery are saved to `config.toml`. The render service then restarts.
+- Each service run has its own stop flag, so the new service starts while the old one finishes its current job; claiming jobs is atomic, so two running briefly is safe.
+- After the cache moves, `Cache::remove_files` can delete the old folder's thumbnails, previews, proxies, card thumbnails and temporaries. It touches only those sub-folders, never anything else in that folder.
