@@ -57,15 +57,21 @@ pub(crate) fn bad_path(final_path: &Path, session: &str) -> PathBuf {
 fn writer(
     path: &Path,
     rx: mpsc::Receiver<Arc<Vec<u8>>>,
+    ready: mpsc::Sender<()>,
     slot: VolumeId,
     label: &str,
     fault: &FaultPlan,
 ) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    // create_new: never write over anything, including a stale temporary.
-    let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let opened = (|| {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        // create_new: never write over anything, including a stale temporary.
+        OpenOptions::new().write(true).create_new(true).open(path)
+    })();
+    // Tell the reader we are ready (or failed) before it reads the source.
+    let _ = ready.send(());
+    let mut f = opened?;
     let mut done = 0u64;
     let mut corrupt = fault.corrupt_write(slot, label);
     for chunk in rx {
@@ -114,11 +120,21 @@ pub(crate) fn tee(
     let outcome = std::thread::scope(|s| {
         let mut senders = Vec::new();
         let mut handles = Vec::new();
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
         for (path, &slot) in temps.iter().zip(slots) {
             let (tx, rx) = mpsc::sync_channel::<Arc<Vec<u8>>>(4);
             senders.push(Some(tx));
             let label = label.clone();
-            handles.push(s.spawn(move || writer(path, rx, slot, &label, fault)));
+            let ready = ready_tx.clone();
+            handles.push(s.spawn(move || writer(path, rx, ready, slot, &label, fault)));
+        }
+        drop(ready_tx);
+        // Every temporary exists (or has failed) before a byte is read, so a
+        // crash mid-copy always leaves its temporaries for resume to clear.
+        for _ in 0..temps.len() {
+            if ready_rx.recv().is_err() {
+                break;
+            }
         }
         let mut stop: Option<SourceStop> = None;
         let mut buf = vec![0u8; CHUNK];
