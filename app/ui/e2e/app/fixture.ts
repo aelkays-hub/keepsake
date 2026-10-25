@@ -128,28 +128,65 @@ export class App {
   browser: Browser | null = null;
   port: number;
 
+  log: string;
+  exited: string | null = null;
+
   constructor(world: World, extraEnv: NodeJS.ProcessEnv = {}) {
     this.port = 9300 + Math.floor(Math.random() * 500);
+    this.log = world.p(`app-${this.port}.log`);
+    const out = fs.openSync(this.log, "a");
     this.proc = spawn(exe("keepsake-app"), [], {
       env: {
         ...world.env,
         ...extraEnv,
+        RUST_LOG: process.env.RUST_LOG ?? "info",
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${this.port}`,
         WEBVIEW2_USER_DATA_FOLDER: world.p("webview2"),
       },
-      stdio: "ignore",
+      stdio: ["ignore", out, out],
+    });
+    this.proc.on("exit", (code, signal) => {
+      this.exited = `exit code ${code} signal ${signal}`;
     });
   }
 
+  /** What we know when attaching fails: did the app exit, its log, and
+   * whether the debugging port answers. */
+  private async diagnose(): Promise<string> {
+    let port = "no answer";
+    try {
+      const r = await fetch(`http://127.0.0.1:${this.port}/json/version`);
+      port = `${r.status} ${await r.text()}`;
+    } catch (e) {
+      port = `no answer (${String(e)})`;
+    }
+    let procs = "";
+    try {
+      procs = execFileSync("tasklist", ["/FI", "IMAGENAME eq msedgewebview2.exe"], { encoding: "utf8" });
+    } catch {
+      procs = "(tasklist failed)";
+    }
+    const log = fs.existsSync(this.log) ? fs.readFileSync(this.log, "utf8").slice(-4000) : "(no log)";
+    return [
+      `app: ${this.exited ?? "still running"}`,
+      `debug port ${this.port}: ${port}`,
+      `webview processes:\n${procs.trim()}`,
+      `app log:\n${log}`,
+    ].join("\n");
+  }
+
   async connect(): Promise<void> {
-    for (let i = 0; i < 120 && !this.browser; i++) {
+    const deadline = Date.now() + 120_000;
+    while (!this.browser && Date.now() < deadline && !this.exited) {
       try {
-        this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${this.port}`);
+        this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${this.port}`, { timeout: 10_000 });
       } catch {
         await new Promise((r) => setTimeout(r, 500));
       }
     }
-    if (!this.browser) throw new Error("could not attach to the app's WebView2");
+    if (!this.browser) {
+      throw new Error(`could not attach to the app's WebView2\n${await this.diagnose()}`);
+    }
   }
 
   /** The window whose URL matches (main: not the import window). */
