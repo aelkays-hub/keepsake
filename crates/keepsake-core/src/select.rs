@@ -112,3 +112,40 @@ mod tests {
         assert_eq!(parse_shift("+1:00:00:00"), None);
     }
 }
+
+/// The shift (seconds) that makes `reference` read `correct`, both on the
+/// camera's local clock. The reference's UTC offset is kept as it is.
+pub fn shift_for(reference: crate::catalog::CaptureTime, correct: chrono::NaiveDateTime) -> i64 {
+    let local_ms = reference.utc_ms + i64::from(reference.utc_offset_min.unwrap_or(0)) * 60_000;
+    let correct_ms = correct.and_utc().timestamp_millis();
+    (correct_ms - local_ms).div_euclid(1000)
+}
+
+#[cfg(test)]
+mod shift_tests {
+    use super::*;
+    use crate::catalog::CaptureTime;
+
+    fn local(s: &str) -> chrono::NaiveDateTime {
+        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap()
+    }
+
+    #[test]
+    fn offsets_from_a_reference_photo() {
+        // The camera says 13:02:11 local at +09:00, which is 04:02:11 UTC.
+        let r = CaptureTime {
+            utc_ms: local("2024-06-15 04:02:11").and_utc().timestamp_millis(),
+            utc_offset_min: Some(540),
+        };
+        assert_eq!(shift_for(r, local("2024-06-15 14:02:11")), 3600);
+        assert_eq!(shift_for(r, local("2024-06-15 12:32:11")), -1800);
+        assert_eq!(shift_for(r, local("2024-06-16 00:02:11")), 11 * 3600);
+        assert_eq!(shift_for(r, local("2023-06-15 13:02:11")), -366 * 24 * 3600);
+        // No offset known: the stored time is taken as local.
+        let n = CaptureTime {
+            utc_ms: r.utc_ms,
+            utc_offset_min: None,
+        };
+        assert_eq!(shift_for(n, local("2024-06-15 04:02:12")), 1);
+    }
+}

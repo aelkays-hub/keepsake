@@ -46,9 +46,11 @@ pub fn run(ctx: &Ctx, a: BackupArgs) -> Result<u8> {
         }
         BackupProgress::FileDone { .. } => bar.inc(current),
     };
+    let started = keepsake_core::jobs::now_ms();
     let r = backup::run(&mut cat, &lib, &dest, &fault, cancel, &mut progress);
     bar.finish_and_clear();
     let r = r?;
+    keepsake_core::history::record_backup(&lib, started, &dest, &r)?;
     ctx.emit(&serde_json::to_value(&r)?, || {
         println!(
             "Backup to {}: {} file(s) copied ({}), {} already there",

@@ -109,7 +109,13 @@ fn snapshot_library(cat: &Catalog, lib: &Library, dest: &Path) -> Result<PathBuf
     }
     std::fs::create_dir_all(&tmp)?;
     cat.snapshot_to(&tmp.join("catalog.db"))?;
-    for f in ["library.json", "volumes.json", "cards.json", "presets.json"] {
+    for f in [
+        "library.json",
+        "volumes.json",
+        "cards.json",
+        "presets.json",
+        "history.json",
+    ] {
         let p = lib.root().join(f);
         if p.is_file() {
             std::fs::copy(&p, tmp.join(f))?;

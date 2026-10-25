@@ -534,6 +534,21 @@ fn backup_is_incremental_and_verified() {
         .as_array()
         .unwrap()
         .is_empty());
+    // Both runs are in the library's history, newest first; the backup
+    // snapshot carries the history as it was.
+    let lib = keepsake_core::library::Library::open(&e.p("lib")).unwrap();
+    let h = keepsake_core::history::list(&lib).unwrap();
+    use keepsake_core::history::RunKind;
+    assert_eq!(h.len(), 4, "{h:#?}");
+    assert_eq!(h[0].kind, RunKind::Verify);
+    assert!(h[0].ok() && h[0].files == 12, "{:?}", h[0]);
+    assert!(h[1..].iter().all(|r| r.kind == RunKind::Backup && r.ok()));
+    let backup_vol = h[1].volume.unwrap();
+    assert_eq!(
+        keepsake_core::history::last_verified(&lib, backup_vol).unwrap(),
+        Some(h[0].finished_ms)
+    );
+    assert!(e.p("backup/.keepsake-library/history.json").is_file());
     // A damaged library copy is never propagated: damage DSC00001.JPG on
     // both library drives (the catalog still has its original hash), then
     // back up to a fresh drive.
