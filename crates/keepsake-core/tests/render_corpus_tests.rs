@@ -58,6 +58,14 @@ fn corpus_arw_and_avchd_render() {
         exiftool: t.exiftool,
         ffprobe: t.ffprobe,
         ffmpeg,
+        dcraw: common::workspace_root()
+            .join("vendor")
+            .join("libraw")
+            .join(if cfg!(windows) {
+                "dcraw_emu.exe"
+            } else {
+                "dcraw_emu"
+            }),
     };
     let tmp = tempfile::tempdir().unwrap();
     let media = tmp.path().join("media");
@@ -154,5 +162,62 @@ fn corpus_arw_and_avchd_render() {
         m.audio.first().map(|a| a.codec.as_str()),
         Some("aac"),
         "AC-3 is transcoded"
+    );
+}
+
+#[test]
+#[ignore = "needs KEEPSAKE_CORPUS"]
+fn corpus_arw_full_size_via_libraw() {
+    use keepsake_core::render::full::{full_image, Member};
+    let Some(sample) = sample() else {
+        eprintln!("skipping: KEEPSAKE_CORPUS/library-sample not found");
+        return;
+    };
+    let Some((t, ffmpeg)) = common::media::tools() else {
+        return;
+    };
+    let dcraw = common::workspace_root()
+        .join("vendor")
+        .join("libraw")
+        .join(if cfg!(windows) {
+            "dcraw_emu.exe"
+        } else {
+            "dcraw_emu"
+        });
+    if !dcraw.is_file() {
+        eprintln!("skipping: run scripts/setup for LibRaw");
+        return;
+    }
+    let tools = RenderTools {
+        exiftool: t.exiftool,
+        ffprobe: t.ffprobe,
+        ffmpeg,
+        dcraw,
+    };
+    let arw = smallest(&sample, "ARW", 1, 1 << 20);
+    let arw = arw.first().expect("library-sample has an ARW");
+    let tmp = tempfile::tempdir().unwrap();
+    let media = tmp.path().join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::copy(arw, media.join("DSC1.ARW")).unwrap();
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    add_volume(
+        &mut cat,
+        &lib,
+        "S",
+        VolumeKind::External,
+        &media,
+        false,
+        None,
+    )
+    .unwrap();
+    let id = cat.read(|tx| tx.assets().list_ids()).unwrap()[0];
+    let cache = Cache::new(tmp.path().join("cache"));
+    let p = full_image(&mut cat, &lib, &cache, &tools, id, Member::Primary).unwrap();
+    let (w, h) = image::image_dimensions(&p).unwrap();
+    assert!(
+        w.max(h) > 2560,
+        "full size, not the embedded preview: {w}x{h}"
     );
 }

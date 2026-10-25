@@ -14,6 +14,7 @@
 
 pub mod cache;
 pub mod card;
+pub mod full;
 pub mod recipe;
 pub mod service;
 pub mod source;
@@ -79,6 +80,8 @@ pub struct RenderTools {
     pub exiftool: PathBuf,
     pub ffprobe: PathBuf,
     pub ffmpeg: PathBuf,
+    /// LibRaw's `dcraw_emu` (full RAW decoding, ADR-023).
+    pub dcraw: PathBuf,
 }
 
 impl RenderTools {
@@ -94,10 +97,21 @@ impl RenderTools {
                     "ffmpeg"
                 })
             });
+        // vendor/libraw/dcraw_emu, next to vendor/ffprobe.
+        let dcraw = std::env::var_os("KEEPSAKE_DCRAW")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                t.ffprobe.with_file_name("libraw").join(if cfg!(windows) {
+                    "dcraw_emu.exe"
+                } else {
+                    "dcraw_emu"
+                })
+            });
         Self {
             exiftool: t.exiftool.clone(),
             ffprobe: t.ffprobe.clone(),
             ffmpeg,
+            dcraw,
         }
     }
 

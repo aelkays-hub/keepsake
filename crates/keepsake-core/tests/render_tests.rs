@@ -33,6 +33,14 @@ fn tools() -> Option<RenderTools> {
         exiftool: t.exiftool,
         ffprobe: t.ffprobe,
         ffmpeg,
+        dcraw: common::workspace_root()
+            .join("vendor")
+            .join("libraw")
+            .join(if cfg!(windows) {
+                "dcraw_emu.exe"
+            } else {
+                "dcraw_emu"
+            }),
     })
 }
 
@@ -1050,4 +1058,92 @@ fn card_items_get_thumbnails_without_touching_the_card() {
         0,
         "fresh thumbnails are kept"
     );
+}
+
+// ── Viewer: full size and video info ────────────────────────────────────────
+
+#[test]
+fn full_size_is_the_whole_picture_upright_and_made_once() {
+    use keepsake_core::render::full::{full_image, Member};
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    still_file(&t, &w.media.join("wide.jpg"), 4000, 3000, &["-q:v", "3"]);
+    still_file(&t, &w.media.join("turned.jpg"), 3000, 2000, &["-q:v", "3"]);
+    set_orientation(&t, &w.media.join("turned.jpg"), 6);
+    still_file(&t, &w.media.join("small.png"), 800, 600, &[]);
+    w.index();
+    let before = tree(&w.media);
+    for (file, want) in [
+        ("wide.jpg", (4000, 3000)),
+        ("turned.jpg", (2000, 3000)),
+        ("small.png", (800, 600)),
+    ] {
+        let id = w.asset_of(file);
+        let p = full_image(&mut w.cat, &w.lib, &w.cache, &t, id, Member::Primary).unwrap();
+        assert_eq!(dims(&p), want, "{file}");
+        let made = std::fs::metadata(&p).unwrap().modified().unwrap();
+        let again = full_image(&mut w.cat, &w.lib, &w.cache, &t, id, Member::Primary).unwrap();
+        assert_eq!(again, p);
+        assert_eq!(std::fs::metadata(&again).unwrap().modified().unwrap(), made);
+        assert!(p.starts_with(w.cache.root()));
+    }
+    assert_eq!(tree(&w.media), before, "originals untouched");
+}
+
+#[test]
+fn raw_pairs_offer_a_toggle_and_the_raw_goes_to_libraw() {
+    use keepsake_core::render::full::{full_image, members, Member};
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    let dir = w.media.join("DCIM/100MSDCF");
+    still_file(&t, &dir.join("DSC00001.JPG"), 1200, 800, &[]);
+    std::fs::write(dir.join("DSC00001.ARW"), b"not really a raw").unwrap();
+    std::fs::write(dir.join("DSC00002.ARW"), b"not really a raw").unwrap();
+    w.index();
+    let pair = w.asset_of("DCIM/100MSDCF/DSC00001.JPG");
+    let solo = w.asset_of("DCIM/100MSDCF/DSC00002.ARW");
+    let m = members(&w.cat, &w.lib, pair).unwrap();
+    assert!(m.has_pair && !m.raw_only, "{m:?}");
+    let m = members(&w.cat, &w.lib, solo).unwrap();
+    assert!(!m.has_pair && m.raw_only, "{m:?}");
+    let jpeg = full_image(&mut w.cat, &w.lib, &w.cache, &t, pair, Member::Primary).unwrap();
+    assert_eq!(dims(&jpeg), (1200, 800));
+    // A broken RAW fails with a message (LibRaw rejects it, or is missing).
+    let err = full_image(&mut w.cat, &w.lib, &w.cache, &t, pair, Member::Raw).unwrap_err();
+    assert!(err.to_string().contains("LibRaw"), "{err}");
+    assert!(full_image(&mut w.cat, &w.lib, &w.cache, &t, solo, Member::Primary).is_err());
+}
+
+#[test]
+fn video_info_reads_rate_and_start_timecode() {
+    use keepsake_core::render::full::video_info;
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    let out = w.media.join("PRIVATE/M4ROOT/CLIP/C0001.MP4");
+    mk(&out);
+    ff(
+        &t,
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x240:rate=30000/1001",
+            "-t",
+            "2",
+            "-c:v",
+            "libopenh264",
+            "-pix_fmt",
+            "yuv420p",
+            "-timecode",
+            "01:00:00;00",
+            s(&out),
+        ],
+    );
+    w.index();
+    let id = w.asset_of("PRIVATE/M4ROOT/CLIP/C0001.MP4");
+    let v = video_info(&w.cat, &w.lib, &t, id).unwrap();
+    assert_eq!((v.fps_num, v.fps_den), (30000, 1001), "{v:?}");
+    assert_eq!((v.width, v.height), (320, 240));
+    assert_eq!(v.start_timecode.as_deref(), Some("01:00:00;00"));
+    assert!((1900..=2100).contains(&v.duration_ms.unwrap()), "{v:?}");
 }

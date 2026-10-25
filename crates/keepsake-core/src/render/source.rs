@@ -17,6 +17,8 @@ pub struct Source {
     pub original: PathBuf,
     /// The cheapest member to make stills from (the JPEG of RAW + JPEG).
     pub still: PathBuf,
+    /// The RAW member (a RAW-only asset, or the RAW of RAW + JPEG).
+    pub raw: Option<PathBuf>,
     /// Further AVCHD segments, in order.
     pub segments: Vec<PathBuf>,
     /// The camera's proxy, if present.
@@ -32,6 +34,27 @@ fn still_cost(path: &std::path::Path) -> u8 {
         "hif" | "heif" | "heic" => 2,
         _ => 3, // raw: embedded preview
     }
+}
+
+/// A camera RAW file, by extension.
+pub fn is_raw(path: &std::path::Path) -> bool {
+    matches!(
+        lower_ext(path).as_str(),
+        "arw"
+            | "srf"
+            | "sr2"
+            | "dng"
+            | "cr2"
+            | "cr3"
+            | "nef"
+            | "nrw"
+            | "raf"
+            | "orf"
+            | "rw2"
+            | "pef"
+            | "3fr"
+            | "iiq"
+    )
 }
 
 pub fn lower_ext(path: &std::path::Path) -> String {
@@ -96,10 +119,12 @@ pub fn locate(cat: &Catalog, lib: &Library, asset: AssetId) -> Result<Source, Re
             .find(|f| f.role == FileRole::CameraProxy)
             .map(|f| path_of(f))
             .filter(|p| p.is_file());
+        let raw = stills.iter().find(|p| is_raw(p)).cloned();
         return Ok(Source {
             asset,
             media_kind: a.media_kind,
             hash,
+            raw,
             still: stills.first().cloned().unwrap_or_else(|| orig.clone()),
             original: orig,
             segments,

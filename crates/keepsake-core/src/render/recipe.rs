@@ -13,6 +13,8 @@ use crate::catalog::{Blake3Hash, RenditionKind};
 pub const RECIPE_VERSION: u32 = 1;
 /// JPEG quality of thumbnails and previews.
 pub const JPEG_QUALITY: u8 = 82;
+/// JPEG quality of full-size renditions (zoom to 100%).
+pub const FULL_QUALITY: u8 = 92;
 /// Proxy height (spike: `scale=-2:720`); smaller sources are not enlarged.
 pub const PROXY_HEIGHT: u32 = 720;
 /// Proxy audio (spike: AAC 128 kb/s), stereo.
@@ -32,16 +34,24 @@ pub enum Variant {
     Proxy720,
     /// The camera's own H.264 proxy (`PRIVATE/M4ROOT/SUB`), copied unchanged.
     CameraProxy,
+    /// Full size, for zooming to 100%: the JPEG/PNG/TIFF/HEIF decoded, as
+    /// JPEG. Made on demand.
+    Full,
+    /// Full size from the RAW, decoded by LibRaw (camera white balance,
+    /// sRGB). Made on demand.
+    FullRaw,
 }
 
 impl Variant {
     pub const STILLS: [Variant; 3] = [Variant::Preview2560, Variant::Thumb1024, Variant::Thumb256];
-    pub const ALL: [Variant; 5] = [
+    pub const ALL: [Variant; 7] = [
         Variant::Thumb256,
         Variant::Thumb1024,
         Variant::Preview2560,
         Variant::Proxy720,
         Variant::CameraProxy,
+        Variant::Full,
+        Variant::FullRaw,
     ];
 
     pub fn name(self) -> &'static str {
@@ -51,6 +61,8 @@ impl Variant {
             Variant::Preview2560 => "preview-2560",
             Variant::Proxy720 => "proxy-720",
             Variant::CameraProxy => "camera-proxy",
+            Variant::Full => "full",
+            Variant::FullRaw => "full-raw",
         }
     }
 
@@ -61,7 +73,7 @@ impl Variant {
     pub fn kind(self) -> RenditionKind {
         match self {
             Variant::Thumb256 | Variant::Thumb1024 => RenditionKind::Thumbnail,
-            Variant::Preview2560 => RenditionKind::Preview,
+            Variant::Preview2560 | Variant::Full | Variant::FullRaw => RenditionKind::Preview,
             Variant::Proxy720 | Variant::CameraProxy => RenditionKind::Proxy,
         }
     }
@@ -113,6 +125,20 @@ impl Variant {
                 "v": RECIPE_VERSION,
                 "variant": self.name(),
                 "copy": "camera SUB proxy, H.264 only",
+            }),
+            Variant::Full => json!({
+                "v": RECIPE_VERSION,
+                "variant": self.name(),
+                "format": "jpeg",
+                "quality": FULL_QUALITY,
+                "orientation": "baked",
+            }),
+            Variant::FullRaw => json!({
+                "v": RECIPE_VERSION,
+                "variant": self.name(),
+                "decoder": "libraw 0.22 dcraw_emu -w -o 1 -q 3",
+                "format": "jpeg",
+                "quality": FULL_QUALITY,
             }),
         }
     }
