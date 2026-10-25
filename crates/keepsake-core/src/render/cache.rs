@@ -86,6 +86,35 @@ impl Cache {
         Ok(dir.join(format!("{}.{ext}", uuid::Uuid::new_v4().simple())))
     }
 
+    /// Delete every file Keepsake made in this cache folder (after moving
+    /// the cache elsewhere). Only its own sub-folders are touched; anything
+    /// else in the folder stays. Returns the bytes freed.
+    pub fn remove_files(&self) -> Result<u64, RenderError> {
+        fn size(p: &Path) -> u64 {
+            let mut n = 0;
+            let mut stack = vec![p.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                    match e.file_type() {
+                        Ok(t) if t.is_dir() => stack.push(e.path()),
+                        Ok(_) => n += e.metadata().map(|m| m.len()).unwrap_or(0),
+                        Err(_) => {}
+                    }
+                }
+            }
+            n
+        }
+        let mut freed = 0;
+        for sub in ["thumbnail", "preview", "proxy", "export", "card", ".tmp"] {
+            let d = self.root.join(sub);
+            if d.is_dir() {
+                freed += size(&d);
+                std::fs::remove_dir_all(&d)?;
+            }
+        }
+        Ok(freed)
+    }
+
     /// Remove temporaries left by a crash.
     pub fn clear_temp(&self) -> u64 {
         let mut n = 0;

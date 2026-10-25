@@ -1147,3 +1147,29 @@ fn video_info_reads_rate_and_start_timecode() {
     assert_eq!(v.start_timecode.as_deref(), Some("01:00:00;00"));
     assert!((1900..=2100).contains(&v.duration_ms.unwrap()), "{v:?}");
 }
+
+#[test]
+fn removing_an_old_cache_keeps_everything_that_is_not_ours() {
+    let mut w = World::new();
+    let src = Blake3Hash::of(b"original");
+    let p = w
+        .cache
+        .put_bytes(&mut w.cat, &src, Variant::Thumb256, &[7u8; 100])
+        .unwrap();
+    std::fs::create_dir_all(w.cache.root().join("card/ab")).unwrap();
+    std::fs::write(w.cache.root().join("card/ab/x.jpg"), [1u8; 20]).unwrap();
+    std::fs::write(w.cache.root().join("notes.txt"), b"mine").unwrap();
+    std::fs::create_dir_all(w.cache.root().join("photos")).unwrap();
+    std::fs::write(w.cache.root().join("photos/a.jpg"), b"mine").unwrap();
+    assert_eq!(w.cache.remove_files().unwrap(), 120);
+    assert!(!p.exists());
+    assert!(!w.cache.root().join("card").exists());
+    assert!(w.cache.root().join("notes.txt").is_file());
+    assert!(w.cache.root().join("photos/a.jpg").is_file());
+    // The catalog row of the removed file goes on the next lookup.
+    assert!(w
+        .cache
+        .find(&mut w.cat, &src, Variant::Thumb256)
+        .unwrap()
+        .is_none());
+}
