@@ -171,7 +171,9 @@ if [[ ! -x "$LIBRAW_DIR/dcraw_emu" ]]; then
 else
     info "  LibRaw already present, skipping download."
 fi
-if ! "$LIBRAW_DIR/dcraw_emu" 2>&1 | grep -q LibRaw; then
+# dcraw_emu exits non-zero after printing its usage: check the text only.
+LIBRAW_OUT="$("$LIBRAW_DIR/dcraw_emu" 2>&1 || true)"
+if ! grep -q LibRaw <<<"$LIBRAW_OUT"; then
     error "dcraw_emu smoke-test failed ($LIBRAW_DIR/dcraw_emu)"
 fi
 info "  ✓ LibRaw dcraw_emu"

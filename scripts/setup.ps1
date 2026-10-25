@@ -244,6 +244,8 @@ $lrOut = (& $LibrawBin 2>&1 | Out-String)
 if ($lrOut -notmatch "LibRaw") {
     Write-Err "dcraw_emu smoke-test failed`n  Binary: $LibrawBin"
 }
+# Its usage exit status (non-zero) must not become the script's.
+$global:LASTEXITCODE = 0
 Write-Info "  OK LibRaw dcraw_emu"
 
 # -- Done ---------------------------------------------------------------------
