@@ -35,11 +35,15 @@ pub fn open_import_window(app: &AppHandle, mount: &str) {
     }
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let built = WebviewWindowBuilder::new(&app2, "import", WebviewUrl::App(url.into()))
+        let mut b = WebviewWindowBuilder::new(&app2, "import", WebviewUrl::App(url.into()))
             .title("Import")
             .inner_size(1040.0, 780.0)
-            .min_inner_size(760.0, 560.0)
-            .build();
+            .min_inner_size(760.0, 560.0);
+        // Same WebView2 arguments as the main window (they share a profile).
+        if let Some(args) = crate::state::browser_args() {
+            b = b.additional_browser_args(&args);
+        }
+        let built = b.build();
         if let Err(e) = built {
             tracing::error!("import window: {e}");
         }

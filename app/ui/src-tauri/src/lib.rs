@@ -18,6 +18,20 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
+            // The main window is made here (not from the config) so the UI
+            // tests can give WebView2 a debugging port.
+            let conf = app
+                .config()
+                .app
+                .windows
+                .first()
+                .cloned()
+                .ok_or("no window in tauri.conf.json")?;
+            let mut main = tauri::WebviewWindowBuilder::from_config(app.handle(), &conf)?;
+            if let Some(args) = state::browser_args() {
+                main = main.additional_browser_args(&args);
+            }
+            main.build()?;
             commands::open_default(app.handle());
             Ok(())
         })

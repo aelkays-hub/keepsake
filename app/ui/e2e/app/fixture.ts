@@ -124,24 +124,32 @@ function killTree(pid: number) {
 }
 
 export class App {
-  proc: ChildProcess;
+  proc!: ChildProcess;
   browser: Browser | null = null;
-  port: number;
-
-  log: string;
+  port = 0;
+  log = "";
   exited: string | null = null;
 
-  constructor(world: World, extraEnv: NodeJS.ProcessEnv = {}) {
+  constructor(
+    private world: World,
+    private extraEnv: NodeJS.ProcessEnv = {},
+  ) {
+    this.launch();
+  }
+
+  /** Start the app on a fresh debugging port and WebView2 profile. */
+  private launch() {
     this.port = 9300 + Math.floor(Math.random() * 500);
-    this.log = world.p(`app-${this.port}.log`);
+    this.exited = null;
+    this.log = this.world.p(`app-${this.port}.log`);
     const out = fs.openSync(this.log, "a");
     this.proc = spawn(exe("keepsake-app"), [], {
       env: {
-        ...world.env,
-        ...extraEnv,
+        ...this.world.env,
+        ...this.extraEnv,
         RUST_LOG: process.env.RUST_LOG ?? "info",
-        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${this.port}`,
-        WEBVIEW2_USER_DATA_FOLDER: world.p("webview2"),
+        KEEPSAKE_UI_DEBUG_PORT: String(this.port),
+        WEBVIEW2_USER_DATA_FOLDER: this.world.p(`webview2-${this.port}`),
       },
       stdio: ["ignore", out, out],
     });
@@ -162,7 +170,17 @@ export class App {
     }
     let procs = "";
     try {
-      procs = execFileSync("tasklist", ["/FI", "IMAGENAME eq msedgewebview2.exe"], { encoding: "utf8" });
+      // Command lines show whether --remote-debugging-port and our data
+      // folder reached WebView2.
+      procs = execFileSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.CommandLine.Substring(0, [Math]::Min(400, $_.CommandLine.Length)) }",
+        ],
+        { encoding: "utf8" },
+      );
     } catch {
       procs = "(tasklist failed)";
     }
@@ -175,18 +193,30 @@ export class App {
     ].join("\n");
   }
 
+  /** Attach over CDP. WebView2 occasionally never opens its debugging
+   * port; then the app is restarted once on a new port. */
   async connect(): Promise<void> {
-    const deadline = Date.now() + 120_000;
-    while (!this.browser && Date.now() < deadline && !this.exited) {
-      try {
-        this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${this.port}`, { timeout: 10_000 });
-      } catch {
-        await new Promise((r) => setTimeout(r, 500));
+    let report = "";
+    for (let attempt = 1; attempt <= 2 && !this.browser; attempt++) {
+      const deadline = Date.now() + 45_000;
+      while (!this.browser && Date.now() < deadline && !this.exited) {
+        try {
+          this.browser = await chromium.connectOverCDP(`http://127.0.0.1:${this.port}`, {
+            timeout: 10_000,
+          });
+        } catch {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+      if (!this.browser) {
+        report += `attempt ${attempt}:\n${await this.diagnose()}\n`;
+        if (attempt === 1) {
+          if (this.proc.pid) killTree(this.proc.pid);
+          this.launch();
+        }
       }
     }
-    if (!this.browser) {
-      throw new Error(`could not attach to the app's WebView2\n${await this.diagnose()}`);
-    }
+    if (!this.browser) throw new Error(`could not attach to the app's WebView2\n${report}`);
   }
 
   /** The window whose URL matches (main: not the import window). */

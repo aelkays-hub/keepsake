@@ -45,6 +45,17 @@ pub struct AppState {
     pub render: crate::render::RenderState,
 }
 
+/// WebView2 arguments for the UI tests: `KEEPSAKE_UI_DEBUG_PORT=<port>`
+/// opens Chromium's debugging port so Playwright can attach. Passed to
+/// WebView2 directly rather than through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`,
+/// which some machines ignore. Keeps wry's default `--disable-features`.
+pub fn browser_args() -> Option<String> {
+    let port: u16 = std::env::var("KEEPSAKE_UI_DEBUG_PORT").ok()?.parse().ok()?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}"
+    ))
+}
+
 /// Running under the UI tests: allows destinations on one disk.
 pub fn ui_test() -> bool {
     std::env::var_os("KEEPSAKE_UI_TEST").is_some_and(|v| v == "1")
