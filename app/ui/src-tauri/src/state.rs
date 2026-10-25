@@ -43,6 +43,8 @@ pub struct AppState {
     /// The device watcher has been started for this process.
     pub watcher_started: AtomicBool,
     pub render: crate::render::RenderState,
+    /// The running backup or verify.
+    pub maint: crate::maintenance::MaintState,
 }
 
 /// WebView2 arguments for the UI tests: `KEEPSAKE_UI_DEBUG_PORT=<port>`
@@ -80,6 +82,24 @@ impl AppState {
         });
         *lock(&self.open) = Some(Arc::clone(&open));
         lock(&self.views).clear();
+        Ok(open)
+    }
+
+    /// Reload settings for the open library (new cache folder or limits),
+    /// keeping its views.
+    pub fn reload_settings(&self) -> CmdResult<Arc<Open>> {
+        let lib = self.open()?.lib.clone();
+        let settings = Settings::load().map_err(err)?;
+        let cache = Cache::new(settings.render.cache_root().map_err(err)?);
+        std::fs::create_dir_all(cache.root()).map_err(err)?;
+        let cat = lib.open_catalog().map_err(err)?;
+        let open = Arc::new(Open {
+            lib,
+            cache,
+            settings,
+            cat: Mutex::new(cat),
+        });
+        *lock(&self.open) = Some(Arc::clone(&open));
         Ok(open)
     }
 

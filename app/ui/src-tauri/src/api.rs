@@ -371,3 +371,171 @@ pub enum CalendarLevelDto {
     Months { year: i32 },
     Days { year: i32, month: u32 },
 }
+
+dto! {
+    /// What the viewer can toggle between for an asset.
+    pub struct AssetMembers {
+        /// RAW + JPEG (or HEIF): the viewer offers a JPEG | RAW toggle.
+        pub has_pair: bool,
+        /// The asset is a RAW alone.
+        pub raw_only: bool,
+        pub online: bool,
+    }
+
+    /// Frame rate, start timecode and size of a video, for the viewer.
+    pub struct VideoInfo {
+        pub fps_num: u32,
+        pub fps_den: u32,
+        /// `HH:MM:SS:FF`, `;` before the frames when drop-frame.
+        pub start_timecode: Option<String>,
+        #[ts(type = "number | null")]
+        pub duration_ms: Option<i64>,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    /// One asset before and after a time shift.
+    pub struct ShiftSample {
+        pub id: String,
+        pub name: Option<String>,
+        pub before: String,
+        pub after: String,
+    }
+
+    /// What a time shift would do (no writes).
+    pub struct TimeShiftPreview {
+        /// Seconds to add to every selected capture time.
+        #[ts(type = "number")]
+        pub offset_s: i64,
+        /// Assets that will be shifted.
+        #[ts(type = "number")]
+        pub total: u64,
+        /// Selected assets with no capture time (left alone).
+        #[ts(type = "number")]
+        pub undated: u64,
+        /// The first few, in capture order.
+        pub samples: Vec<ShiftSample>,
+        /// The reference photo's current time.
+        pub reference_before: String,
+    }
+
+    /// One backup or verify run.
+    pub struct HistoryRun {
+        /// `backup` or `verify`.
+        pub kind: String,
+        #[ts(type = "number")]
+        pub started_ms: i64,
+        #[ts(type = "number")]
+        pub finished_ms: i64,
+        pub destination: Option<String>,
+        pub volume: Option<String>,
+        pub label: String,
+        #[ts(type = "number")]
+        pub files: u64,
+        #[ts(type = "number")]
+        pub bytes: u64,
+        #[ts(type = "number")]
+        pub problems: u64,
+        pub cancelled: bool,
+        pub ok: bool,
+    }
+
+    /// A folder or drive backed up to before.
+    pub struct BackupDestination {
+        pub volume: String,
+        pub label: String,
+        pub path: Option<String>,
+        pub online: bool,
+        #[ts(type = "number | null")]
+        pub last_backup_ms: Option<i64>,
+        /// Last verify with no problems.
+        #[ts(type = "number | null")]
+        pub last_verified_ms: Option<i64>,
+    }
+
+    pub struct BackupOverview {
+        pub destinations: Vec<BackupDestination>,
+        /// Newest first.
+        pub runs: Vec<HistoryRun>,
+        /// A backup or verify is running.
+        pub busy: bool,
+    }
+
+    /// `maint://progress`: a backup or verify is running.
+    pub struct MaintProgress {
+        /// `backup` or `verify`.
+        pub kind: String,
+        #[ts(type = "number")]
+        pub bytes_done: u64,
+        #[ts(type = "number")]
+        pub bytes_total: u64,
+        #[ts(type = "number")]
+        pub files_done: u64,
+        pub current: Option<String>,
+    }
+
+    /// `maint://done`.
+    pub struct MaintDone {
+        pub kind: String,
+        /// The run as recorded in the history (absent on an error).
+        pub run: Option<HistoryRun>,
+        /// Up to 20 problems, one line each.
+        pub problems: Vec<String>,
+        pub error: Option<String>,
+    }
+
+    /// An "Open in" application for one file type.
+    pub struct OpenApp {
+        /// Lower-case extension without the dot (`arw`).
+        pub ext: String,
+        pub app: String,
+    }
+
+    /// The settings screen.
+    pub struct SettingsInfo {
+        pub library: Option<String>,
+        /// The cache folder in use.
+        pub cache_dir: String,
+        /// Set by the user (else the system cache folder).
+        pub cache_dir_custom: bool,
+        #[ts(type = "number")]
+        pub cache_max_bytes: u64,
+        #[ts(type = "number")]
+        pub cache_bytes: u64,
+        /// `None`: automatic.
+        pub workers: Option<u32>,
+        pub workers_default: u32,
+        pub proxy_workers: u32,
+        pub pause_on_battery: bool,
+        pub open_apps: Vec<OpenApp>,
+        /// Where `config.toml` is.
+        pub config_file: String,
+    }
+
+    /// Changes from the settings screen (every field is the new value).
+    pub struct SettingsUpdate {
+        /// `None`: the system cache folder.
+        pub cache_dir: Option<String>,
+        #[ts(type = "number")]
+        pub cache_max_bytes: u64,
+        pub workers: Option<u32>,
+        pub proxy_workers: u32,
+        pub pause_on_battery: bool,
+        pub open_apps: Vec<OpenApp>,
+    }
+
+    pub struct SettingsSaved {
+        pub settings: SettingsInfo,
+        /// The cache moved: the previous folder, whose files can be removed.
+        pub old_cache: Option<String>,
+    }
+}
+
+/// Which member of an asset to show or open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum MemberDto {
+    Primary,
+    Raw,
+}

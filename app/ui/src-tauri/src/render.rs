@@ -15,10 +15,31 @@ use crate::api::{RenderSummary, ThumbsReady};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
+/// The running service. Each run has its own stop flag, so a restart can
+/// start the new service while the old one finishes its current job.
 #[derive(Default)]
 pub struct RenderState {
-    cancel: Arc<AtomicBool>,
+    cancel: Mutex<Arc<AtomicBool>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl RenderState {
+    fn stop(&self) {
+        if let Ok(c) = self.cancel.lock() {
+            c.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Stop the service (it finishes its current job in the background) and
+/// start one with the current settings.
+pub fn restart_service(app: &AppHandle) -> CmdResult<bool> {
+    let state = app.state::<AppState>();
+    state.render.stop();
+    if let Ok(mut slot) = state.render.worker.lock() {
+        slot.take();
+    }
+    start_service(app)
 }
 
 fn power() -> PowerCheck {
@@ -41,8 +62,12 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
         .with_power(power());
-    state.render.cancel.store(false, Ordering::SeqCst);
-    let cancel = Arc::clone(&state.render.cancel);
+    let cancel = Arc::new(AtomicBool::new(false));
+    *state
+        .render
+        .cancel
+        .lock()
+        .map_err(|_| "render state poisoned")? = Arc::clone(&cancel);
     let app = app.clone();
     let lib = open.lib.clone();
     let handle = std::thread::Builder::new()
@@ -79,7 +104,7 @@ pub fn render_start(app: AppHandle) -> CmdResult<bool> {
 
 #[tauri::command(async)]
 pub fn render_stop(state: State<'_, AppState>) -> CmdResult<()> {
-    state.render.cancel.store(true, Ordering::SeqCst);
+    state.render.stop();
     Ok(())
 }
 
