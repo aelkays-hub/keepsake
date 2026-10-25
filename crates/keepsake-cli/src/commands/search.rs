@@ -60,7 +60,7 @@ pub struct SearchArgs {
 }
 
 pub fn run(ctx: &Ctx, a: SearchArgs) -> Result<u8> {
-    if a.query.as_deref().map_or(true, |q| q.trim().is_empty()) && a.filters.is_empty() {
+    if a.query.as_deref().is_none_or(|q| q.trim().is_empty()) && a.filters.is_empty() {
         bail!("give search words or at least one filter (--from, --to, --camera, --type)");
     }
     let lib = ctx.library()?;

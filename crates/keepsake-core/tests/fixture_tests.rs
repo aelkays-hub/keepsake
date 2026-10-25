@@ -93,25 +93,14 @@ fn role_mp_root() {
 
 /// Wrap scanner::scan so fixture layouts look like a corpus with a `cards/` dir.
 fn scan_fixture(layout: &str) -> Vec<keepsake_core::corpus::types::FileEntry> {
-    let tmp = tempdir();
-    let cards = tmp.join("cards").join("fixture");
+    // A unique folder per call: tests run in parallel and must not share one.
+    let tmp = tempfile::tempdir().unwrap();
+    let cards = tmp.path().join("cards").join("fixture");
     let src = fixtures_root().join(layout);
     copy_dir_all(&src, &cards);
-    let manifest = scan(&tmp).expect("scan failed");
+    let manifest = scan(tmp.path()).expect("scan failed");
     assert_eq!(manifest.cameras.len(), 1);
     manifest.cameras.into_iter().next().unwrap().files
-}
-
-fn tempdir() -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!(
-        "keepsake-fixture-test-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos()
-    ));
-    std::fs::create_dir_all(&d).unwrap();
-    d
 }
 
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {

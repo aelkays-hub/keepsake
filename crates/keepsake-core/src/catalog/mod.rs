@@ -27,8 +27,9 @@ pub use ids::{
 pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
-    Assets, DayCount, EventSpan, Events, Files, Imports, Labels, Meta, Recipes, Renditions, Search,
-    SearchQuery, Sequences, Sidecars, Tags, Volumes,
+    Assets, DayCount, EventSpan, Events, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
+    Meta, NewJob, Priority, Recipes, Renditions, Search, SearchQuery, Sequences, Sidecars, Tags,
+    Volumes,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -67,6 +68,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(recipes, Recipes);
     repo_accessor!(renditions, Renditions);
     repo_accessor!(imports, Imports);
+    repo_accessor!(jobs, Jobs);
     repo_accessor!(sidecars, Sidecars);
     repo_accessor!(search, Search);
     repo_accessor!(sequences, Sequences);

@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use keepsake_core::catalog::{AssetId, Catalog};
 use keepsake_core::library::Library;
@@ -53,44 +53,8 @@ impl Ctx {
     }
 }
 
-/// `config.toml` in the OS config folder (`KEEPSAKE_CONFIG_DIR` overrides it).
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Config {
-    pub default_library: Option<PathBuf>,
-}
-
-impl Config {
-    pub fn dir() -> Result<PathBuf> {
-        match std::env::var_os("KEEPSAKE_CONFIG_DIR") {
-            Some(d) => Ok(PathBuf::from(d)),
-            None => {
-                keepsake_core::paths::config_dir().context("no configuration folder on this system")
-            }
-        }
-    }
-
-    pub fn path() -> Result<PathBuf> {
-        Ok(Self::dir()?.join("config.toml"))
-    }
-
-    pub fn load() -> Result<Self> {
-        let p = Self::path()?;
-        match std::fs::read_to_string(&p) {
-            Ok(s) => toml::from_str(&s).with_context(|| format!("reading {}", p.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(e).with_context(|| format!("reading {}", p.display())),
-        }
-    }
-
-    pub fn save(&self) -> Result<PathBuf> {
-        let p = Self::path()?;
-        if let Some(d) = p.parent() {
-            std::fs::create_dir_all(d)?;
-        }
-        std::fs::write(&p, toml::to_string_pretty(self)?)?;
-        Ok(p)
-    }
-}
+/// `config.toml` (shared with the app): `keepsake_core::settings`.
+pub type Config = keepsake_core::settings::Settings;
 
 /// Start ExifTool/ffprobe unless disabled; note it when they are missing.
 pub fn maybe_prober(disabled: bool, json: bool) -> Option<Prober> {

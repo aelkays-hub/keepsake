@@ -58,6 +58,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::preset::PresetAction,
     },
+    /// Thumbnails, previews and video proxies: status, run, queue, bench.
+    Renders {
+        #[command(subcommand)]
+        action: commands::renders::RendersAction,
+    },
     /// Test-corpus tools for developers.
     #[command(hide = true)]
     Corpus {
@@ -87,6 +92,7 @@ fn main() -> ExitCode {
         Commands::RebuildCatalog(a) => commands::rebuild::run(&ctx, a),
         Commands::Probe(a) => commands::probe::run(&ctx, a),
         Commands::Watch(a) => commands::watch::run(&ctx, a),
+        Commands::Renders { action } => commands::renders::run(&ctx, action),
         Commands::Card { action } => commands::card::run(&ctx, action),
         Commands::Preset { action } => commands::preset::run(&ctx, action),
         Commands::Corpus { action } => commands::corpus::run(action).map(|()| 0),

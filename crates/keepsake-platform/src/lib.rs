@@ -5,6 +5,7 @@
 
 pub mod devices;
 pub mod fake;
+pub mod power;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -16,3 +17,4 @@ pub use devices::{
 };
 pub use fake::FakeDevices;
 pub use keepsake_core::devices::{DeviceEvent, VolumeIdentity};
+pub use power::{on_battery, power_source, PowerSource};

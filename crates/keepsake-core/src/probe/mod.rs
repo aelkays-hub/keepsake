@@ -7,7 +7,7 @@ pub mod capture;
 mod error;
 pub mod exiftool;
 pub mod ffprobe;
-mod process;
+pub(crate) mod process;
 pub mod sony_xml;
 pub mod tools;
 

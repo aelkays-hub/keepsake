@@ -23,6 +23,13 @@ keepsake probe <folder>
 keepsake watch [--auto-ingest] [--no-probe]
 keepsake card list | trust <card> --preset P | untrust <card> | rename <card> <name> | forget <card>
 keepsake preset save <name> --dest A [--dest B] [--template T] [--event E] | list | delete <name>
+keepsake renders status
+keepsake renders run [--workers N] [--proxy-workers N] [--encoder NAME] [--ignore-battery] [--keep-running] [--queued-only]
+keepsake renders enqueue (--all | PATH… | --query Q | --from/--to/--camera/--type …) [--visible]
+keepsake renders show <file>
+keepsake renders retry
+keepsake renders evict [--max-bytes N]
+keepsake renders bench <folder> [--per-type N] [--videos N] [--workers N] [--encoder NAME]
 ```
 
 ## DESCRIPTION
@@ -263,9 +270,74 @@ JSON: `cards[]` for `list`, each with `id`, `key`, `label`, `layouts`, `capacity
 
 JSON: `preset` (`name`, `destinations[]`, `template`, `event`), `presets[]`, or `deleted`.
 
+### renders
+
+Thumbnails (256 and 1024 px), previews (2560 px, never enlarged) and video proxies (720p H.264 with a one-second GOP, or the camera's own H.264 proxy copied unchanged). They are made in the background into a cache folder (see FILES). Originals are only read.
+
+The work runs from a queue that survives restarts, in this order:
+1. assets on screen in the app;
+2. recent imports (`ingest` queues what it imports);
+3. everything else.
+
+Workers pause on battery power and while an import is running (in any Keepsake process). They finish the job in hand first.
+
+How the full-size picture is obtained:
+- JPEG, PNG, TIFF: decoded.
+- RAW (ARW, DNG): the largest embedded JPEG. For Sony ARW that is 1616 px.
+- HEIF: decoded by FFmpeg.
+- Video: the frame at 10 % of the duration.
+
+A RAW + JPEG pair uses the JPEG.
+
+`keepsake renders status`
+: Jobs done, queued (visible / recent / backlog), running and failed, with the errors; cache use against its limit; and whether workers would pause right now.
+
+`keepsake renders run`
+: Queue the backlog (every asset not queued yet; `--queued-only` skips this), then work through the queue with a progress bar until it is empty.
+
+  `--keep-running`
+  : Wait for new jobs until Ctrl-C.
+
+  `--workers`, `--proxy-workers`
+  : Override the settings.
+
+  `--encoder`
+  : Use this H.264 encoder (`h264_nvenc`, `h264_qsv`, `h264_amf`, `h264_mf`, `libopenh264`, `h264_videotoolbox`). Otherwise the first that works on this machine is used.
+
+  `--ignore-battery`
+  : Keep working on battery.
+
+  Ctrl-C finishes the current job(s) and stops. Media that is offline is put back for later, not failed. Other failures retry twice (after 30 s and 60 s) and then stay failed until `retry`.
+
+`keepsake renders enqueue`
+: Queue renditions for some assets: `--all` (the backlog), or catalogued files and folders, or the same filters as `search`. Assets whose renditions are missing (evicted, deleted) are queued again. `--visible` puts them first.
+
+`keepsake renders show <file>`
+: The cache paths of a catalogued file's renditions.
+
+`keepsake renders retry`
+: Queue failed jobs again.
+
+`keepsake renders evict [--max-bytes N]`
+: Trim the cache now: least recently used first, down to the limit. Renditions whose media is offline are never removed.
+
+`keepsake renders bench <folder>`
+: Copy a sample of `folder` (spread across sizes; `--per-type` photos per type, `--videos` clips) into a temporary library. Then time each rendition type on this machine and print a Markdown table of items per minute and proxy speed in × real time, for `docs/PERFORMANCE.md`. The folder is only read.
+
+JSON:
+- `status`: `status` (`jobs` with `by_kind` and `queued_by_priority`, `running[]`, `failed[]`, `cache` with `root`/`files`/`bytes`/`max_bytes`/`kept_offline_bytes`, `paused`) and `failed_files[]`.
+- `run`: JSON Lines events, each with `event` set to `started`, `done` (with `made[]`, `ms` and `encoder`), `failed` (with `retry`), `deferred`, `paused` (with `reason`: `on_battery`/`ingesting`), `resumed`, `evicted` or `finished` (with `done`, `failed` and `cancelled`).
+- `enqueue`: `queued`.
+- `show`: `asset` and `renditions` (variant → path).
+- `retry`: `requeued`.
+- `evict`: `evict`.
+- `bench`: `machine`, `workers`, `encoder`, `results[]` (`type`, `items`, `seconds`, `items_per_minute`, `note`) and `failures[]`.
+
+Exit status for `run`: 0, 2 if some jobs failed for good, 130 if stopped with Ctrl-C.
+
 ## CTRL-C
 
-During `ingest`, `verify`, `backup` and automatic imports in `watch`, the **first Ctrl-C** lets the file being copied or checked finish (it is verified and recorded), then the command stops cleanly with exit status 130. Nothing partial is left under a final name. The **second Ctrl-C** stops at once. Either way, `ingest --resume` (or running `backup` again) continues safely.
+During `ingest`, `verify`, `backup`, `renders run` and automatic imports in `watch`, the **first Ctrl-C** lets the file being copied or checked finish (it is verified and recorded), then the command stops cleanly with exit status 130. Nothing partial is left under a final name. The **second Ctrl-C** stops at once. Either way, `ingest --resume` (or running `backup` again) continues safely.
 
 ## EXIT STATUS
 
@@ -284,8 +356,8 @@ During `ingest`, `verify`, `backup` and automatic imports in `watch`, the **firs
 `KEEPSAKE_CONFIG_DIR`
 : Folder for `config.toml` (default: the OS configuration folder).
 
-`KEEPSAKE_VENDOR`, `KEEPSAKE_EXIFTOOL`, `KEEPSAKE_FFPROBE`
-: Where to find ExifTool and ffprobe (default: the nearest `vendor/` folder).
+`KEEPSAKE_VENDOR`, `KEEPSAKE_EXIFTOOL`, `KEEPSAKE_FFPROBE`, `KEEPSAKE_FFMPEG`
+: Where to find ExifTool, ffprobe and ffmpeg (default: the nearest `vendor/` folder; ffmpeg sits next to ffprobe).
 
 `RUST_LOG`
 : Diagnostic logging to standard error (for example `RUST_LOG=keepsake_core=debug`).
@@ -293,7 +365,12 @@ During `ingest`, `verify`, `backup` and automatic imports in `watch`, the **firs
 ## FILES
 
 `<config>/config.toml`
-: `default_library = "…"`, written by `init`. The config folder is `%APPDATA%\keepsake` on Windows and `~/Library/Application Support/keepsake` on macOS.
+: Shared with the app. `default_library = "…"`, written by `init`. The optional `[render]` section holds:
+  - `cache_dir`: where renditions go (ideally an SSD; default `%LOCALAPPDATA%\keepsake\cache\renditions` or `~/Library/Caches/keepsake/renditions`);
+  - `max_bytes`: the cache limit (default 20 GiB);
+  - `workers`: thumbnail/preview workers (default half the threads, 1–4);
+  - `proxy_workers` (default 1);
+  - `pause_on_battery` (default `true`). The config folder is `%APPDATA%\keepsake` on Windows and `~/Library/Application Support/keepsake` on macOS.
 
 `<library>/catalog.db`
 : The catalog (SQLite, WAL mode).

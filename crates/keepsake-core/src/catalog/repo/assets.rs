@@ -81,6 +81,16 @@ impl<M> Assets<'_, M> {
     }
 
     /// All asset ids, oldest capture first (unknown dates last).
+    /// Assets with no job of any kind yet (the render backlog).
+    pub fn without_jobs(&self) -> Result<Vec<AssetId>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT id FROM assets a WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.asset_id = a.id)
+             ORDER BY capture_ts_ms IS NULL, capture_ts_ms DESC, id",
+        )?;
+        let rows = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     pub fn list_ids(&self) -> Result<Vec<AssetId>, CatalogError> {
         let mut st = self
             .conn
