@@ -9,14 +9,15 @@
 //! its limit, but never one whose source is not on a mounted volume: it
 //! could not be made again, and it is what lets offline media be browsed.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use super::recipe::Variant;
 use super::RenderError;
-use crate::catalog::{AssetId, Blake3Hash, Catalog, CatalogError, Rendition, RenditionId};
+use crate::catalog::{
+    AssetId, Blake3Hash, Catalog, CatalogError, Rendition, RenditionId, VolumeId,
+};
 use crate::library::Library;
 use crate::relpath::RelPath;
 
@@ -213,21 +214,17 @@ impl Cache {
         lib: &Library,
         max_bytes: u64,
     ) -> Result<CacheStats, RenderError> {
-        let rows = cat.read(|tx| tx.renditions().list_lru())?;
-        let online = online_sources(cat, lib)?;
-        let mut s = CacheStats {
+        // Two indexed queries: cheap enough to poll.
+        let online = online_volumes(cat, lib)?;
+        let (files, bytes) = cat.read(|tx| tx.renditions().totals())?;
+        let kept_offline_bytes = cat.read(|tx| tx.renditions().bytes_not_on(&online))?;
+        Ok(CacheStats {
             root: self.root.clone(),
+            files,
+            bytes,
             max_bytes,
-            ..Default::default()
-        };
-        for r in &rows {
-            s.files += 1;
-            s.bytes += r.size_bytes;
-            if !online.contains(&r.source_hash) {
-                s.kept_offline_bytes += r.size_bytes;
-            }
-        }
-        Ok(s)
+            kept_offline_bytes,
+        })
     }
 
     /// Remove least-recently-used renditions of online media until the
@@ -238,17 +235,17 @@ impl Cache {
         lib: &Library,
         max_bytes: u64,
     ) -> Result<EvictReport, RenderError> {
-        let rows = cat.read(|tx| tx.renditions().list_lru())?;
-        let mut total: u64 = rows.iter().map(|r| r.size_bytes).sum();
+        let (_, mut total) = cat.read(|tx| tx.renditions().totals())?;
         let mut rep = EvictReport::default();
         if total > max_bytes {
-            let online = online_sources(cat, lib)?;
+            let rows = cat.read(|tx| tx.renditions().list_lru())?;
+            let online = online_volumes(cat, lib)?;
             let mut gone = Vec::new();
             for r in &rows {
                 if total <= max_bytes {
                     break;
                 }
-                if !online.contains(&r.source_hash) {
+                if !cat.read(|tx| tx.renditions().source_on(&r.source_hash, &online))? {
                     rep.kept_offline_bytes += r.size_bytes;
                     continue;
                 }
@@ -278,19 +275,12 @@ impl Cache {
     }
 }
 
-/// BLAKE3 of every original on a mounted volume.
-fn online_sources(cat: &Catalog, lib: &Library) -> Result<HashSet<Blake3Hash>, RenderError> {
-    let vols = cat.read(|tx| tx.volumes().list())?;
-    let mut out = HashSet::new();
-    for v in vols {
-        if crate::verify::mount_of(cat, lib, v.id).is_none() {
-            continue;
-        }
-        for f in cat.read(|tx| tx.files().for_volume(v.id))? {
-            if f.role == crate::catalog::FileRole::Original {
-                out.insert(f.blake3);
-            }
-        }
-    }
-    Ok(out)
+/// Volumes mounted right now.
+fn online_volumes(cat: &Catalog, lib: &Library) -> Result<Vec<VolumeId>, RenderError> {
+    Ok(cat
+        .read(|tx| tx.volumes().list())?
+        .into_iter()
+        .filter(|v| crate::verify::mount_of(cat, lib, v.id).is_some())
+        .map(|v| v.id)
+        .collect())
 }

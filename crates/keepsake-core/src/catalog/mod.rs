@@ -27,9 +27,9 @@ pub use ids::{
 pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
-    Assets, DayCount, EventSpan, Events, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
-    Meta, NewJob, Priority, Recipes, Renditions, Search, SearchQuery, Sequences, Sidecars, Tags,
-    Volumes,
+    Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, EventSpan, Events, Facet,
+    FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels, Meta, NewJob, Priority,
+    Recipes, Renditions, Search, SearchQuery, Sequences, Sidecars, Sort, SortField, Tags, Volumes,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -71,7 +71,13 @@ impl<M> Tx<'_, M> {
     repo_accessor!(jobs, Jobs);
     repo_accessor!(sidecars, Sidecars);
     repo_accessor!(search, Search);
+    repo_accessor!(browse, Browse);
     repo_accessor!(sequences, Sequences);
+
+    /// The raw connection, for bulk paths inside the crate (seeding).
+    pub(crate) fn conn(&self) -> &rusqlite::Connection {
+        &self.tx
+    }
 
     /// Canonical dump of everything a rebuild must reproduce.
     pub fn snapshot(&self) -> Result<CatalogSnapshot, CatalogError> {

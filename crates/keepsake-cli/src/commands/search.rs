@@ -44,6 +44,7 @@ impl Filters {
             camera: self.camera.clone(),
             kind,
             limit,
+            ..Default::default()
         })
     }
 }

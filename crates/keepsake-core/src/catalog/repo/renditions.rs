@@ -44,6 +44,55 @@ impl<M> Renditions<'_, M> {
             .optional()?)
     }
 
+    /// Number of renditions and their total size.
+    pub fn totals(&self) -> Result<(u64, u64), CatalogError> {
+        let (n, b): (i64, i64) = self.conn.query_row(
+            "SELECT count(*), ifnull(sum(size_bytes), 0) FROM renditions",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((u64::try_from(n).unwrap_or(0), u64::try_from(b).unwrap_or(0)))
+    }
+
+    /// Bytes of renditions whose source has no original on these volumes.
+    pub fn bytes_not_on(&self, volumes: &[crate::catalog::VolumeId]) -> Result<u64, CatalogError> {
+        let list = vec!["?"; volumes.len()].join(",");
+        let on = if volumes.is_empty() {
+            "0".to_owned()
+        } else {
+            format!(
+                "EXISTS (SELECT 1 FROM files f WHERE f.blake3 = r.source_hash AND f.role = 'original'
+                         AND f.volume_id IN ({list}))"
+            )
+        };
+        let b: i64 = self.conn.query_row(
+            &format!("SELECT ifnull(sum(r.size_bytes), 0) FROM renditions r WHERE NOT {on}"),
+            rusqlite::params_from_iter(volumes.iter()),
+            |r| r.get(0),
+        )?;
+        Ok(u64::try_from(b).unwrap_or(0))
+    }
+
+    /// Does `source` have an original on one of these volumes?
+    pub fn source_on(
+        &self,
+        source: &Blake3Hash,
+        volumes: &[crate::catalog::VolumeId],
+    ) -> Result<bool, CatalogError> {
+        if volumes.is_empty() {
+            return Ok(false);
+        }
+        let sql = format!(
+            "SELECT EXISTS (SELECT 1 FROM files WHERE blake3 = ? AND role = 'original' AND volume_id IN ({}))",
+            vec!["?"; volumes.len()].join(",")
+        );
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![source];
+        for v in volumes {
+            args.push(v);
+        }
+        Ok(self.conn.query_row(&sql, args.as_slice(), |r| r.get(0))?)
+    }
+
     /// Least recently used first (for cache eviction).
     pub fn list_lru(&self) -> Result<Vec<Rendition>, CatalogError> {
         let mut st = self.conn.prepare(&format!(

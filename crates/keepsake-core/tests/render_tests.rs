@@ -989,3 +989,65 @@ fn ingest_queues_its_assets_as_recent() {
     );
     let _ = FileRole::Original;
 }
+
+// ── Card thumbnails (import window) ─────────────────────────────────────────
+
+#[test]
+fn card_items_get_thumbnails_without_touching_the_card() {
+    let Some(t) = tools() else { return };
+    let w = World::new();
+    let card = w.root.join("card");
+    let m4 = card.join("PRIVATE/M4ROOT");
+    clip(&t, &m4.join("CLIP/C0001.MP4"), 1280, 720, 2, "libopenh264");
+    still_file(&t, &m4.join("THMBNL/C0001T01.JPG"), 160, 90, &[]);
+    clip(&t, &m4.join("CLIP/C0002.MP4"), 1280, 720, 3, "libkvazaar");
+    clip(&t, &m4.join("SUB/C0002S01.MP4"), 640, 360, 3, "libopenh264");
+    clip(&t, &m4.join("CLIP/C0003.MP4"), 1280, 720, 2, "libopenh264");
+    still_file(
+        &t,
+        &card.join("DCIM/100MSDCF/DSC00001.JPG"),
+        3000,
+        2000,
+        &[],
+    );
+    std::fs::write(card.join("DCIM/100MSDCF/DSC00001.ARW"), b"raw").unwrap();
+    let before = tree(&card);
+    let cases: [(&[&str], (u32, u32)); 4] = [
+        (
+            &[
+                "PRIVATE/M4ROOT/CLIP/C0001.MP4",
+                "PRIVATE/M4ROOT/THMBNL/C0001T01.JPG",
+            ],
+            (160, 90),
+        ),
+        (
+            &[
+                "PRIVATE/M4ROOT/CLIP/C0002.MP4",
+                "PRIVATE/M4ROOT/SUB/C0002S01.MP4",
+            ],
+            (320, 180),
+        ),
+        (&["PRIVATE/M4ROOT/CLIP/C0003.MP4"], (320, 180)),
+        (
+            &["DCIM/100MSDCF/DSC00001.JPG", "DCIM/100MSDCF/DSC00001.ARW"],
+            (320, 213),
+        ),
+    ];
+    for (files, want) in cases {
+        let files: Vec<String> = files.iter().map(|s| s.to_string()).collect();
+        let p = render::card::card_thumbnail(&w.cache, &t, None, &card, &files).unwrap();
+        assert_eq!(dims(&p), want, "{files:?}");
+        let again = render::card::card_thumbnail(&w.cache, &t, None, &card, &files).unwrap();
+        assert_eq!(p, again, "served from the cache");
+        assert!(p.starts_with(w.cache.root().join("card")));
+    }
+    assert_eq!(tree(&card), before, "the card is only read");
+    // No catalog rows: these never count as renditions of offline media.
+    let rows = w.cat.read(|tx| tx.renditions().list_lru()).unwrap();
+    assert!(rows.is_empty());
+    assert_eq!(
+        render::card::sweep(&w.cache),
+        0,
+        "fresh thumbnails are kept"
+    );
+}

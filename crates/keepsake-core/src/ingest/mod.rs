@@ -1797,3 +1797,145 @@ pub fn asset_keys(cat: &Catalog, session: ImportSessionId) -> Result<Vec<String>
 pub fn key_for(rel: &RelPath) -> String {
     path_key(rel.as_str(), CaseSensitivity::Insensitive)
 }
+
+/// One asset found on a card, for an import preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CardAsset {
+    /// The key `select` and plans use (the original's normalised path).
+    pub key: String,
+    pub kind: crate::catalog::MediaKind,
+    /// Paths relative to the card, the original first.
+    pub files: Vec<String>,
+    /// Bytes of all its files.
+    pub size: u64,
+    /// The original's modified time (ms), a stand-in for the capture day.
+    pub mtime_ms: Option<i64>,
+    pub diff: ImportDiff,
+}
+
+/// What is on the card at `mount`, grouped into assets, and whether each is
+/// already in the library. Cheap: items this card's memory says were
+/// imported are not read; others are quick-hashed (first and last MiB of
+/// the original) against the catalog. Writes nothing.
+pub fn scan_card(
+    cat: &Catalog,
+    lib: &Library,
+    mount: &Path,
+    card: Option<&crate::cards::CardRecord>,
+) -> Result<Vec<CardAsset>, IngestError> {
+    let src =
+        SourceVolume::new(mount).map_err(|_| IngestError::SourceMissing(mount.to_path_buf()))?;
+    let (files, _) = crate::rebuild::list_media_files(src.root());
+    let grouping = crate::rebuild::group_folder(src.root(), &files);
+    let imported: HashSet<String> = match card {
+        Some(c) => {
+            let st = crate::cards::status(lib, c, mount)?;
+            let new: HashSet<&String> = st.new.iter().collect();
+            crate::cards::items(mount)
+                .into_iter()
+                .filter(|i| !new.contains(&i.original))
+                .map(|i| i.key)
+                .collect()
+        }
+        None => HashSet::new(),
+    };
+    let mut out = Vec::with_capacity(grouping.groups.len());
+    for g in &grouping.groups {
+        let Some(orig) = g.members.first().and_then(|m| files.get(m.index)) else {
+            continue;
+        };
+        let key = orig.key(CaseSensitivity::Insensitive);
+        let mut size = 0u64;
+        let mut paths = Vec::with_capacity(g.members.len());
+        for m in &g.members {
+            if let Some(f) = files.get(m.index) {
+                size += src.metadata(f).map(|md| md.len()).unwrap_or(0);
+                paths.push(f.as_str().to_owned());
+            }
+        }
+        let md = src.metadata(orig)?;
+        let mtime_ms = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|d| i64::try_from(d.as_millis()).ok());
+        let diff = if imported.contains(&key) {
+            ImportDiff::AlreadyImported
+        } else {
+            let q = src.quick_hash(orig)?;
+            let known = cat.read(|tx| tx.files().by_quick(md.len(), q))?;
+            if known.is_empty() {
+                ImportDiff::New
+            } else {
+                ImportDiff::AlreadyImported
+            }
+        };
+        out.push(CardAsset {
+            key,
+            kind: g.media_kind(),
+            files: paths,
+            size,
+            mtime_ms,
+            diff,
+        });
+    }
+    out.sort_by(|a, b| a.mtime_ms.cmp(&b.mtime_ms).then(a.key.cmp(&b.key)));
+    Ok(out)
+}
+
+/// A cheap pre-check for an import window: are these destinations
+/// acceptable for this source (same rules as [`plan`]), and how much space
+/// is free on each? Registers and creates nothing.
+pub fn check_destinations_for(
+    lib: &Library,
+    source: &Path,
+    destinations: &[PathBuf],
+    allow_same_filesystem: bool,
+) -> Result<Vec<(PathBuf, Option<u64>)>, IngestError> {
+    let src =
+        SourceVolume::new(source).map_err(|_| IngestError::SourceMissing(source.to_path_buf()))?;
+    let mut dests = Vec::new();
+    for (i, d) in destinations.iter().enumerate() {
+        if sys::existing_ancestor(d).is_none() {
+            return Err(IngestError::DestinationMissing(d.display().to_string()));
+        }
+        dests.push(preview_destination(
+            lib,
+            d,
+            &format!("Destination {}", i + 1),
+        )?);
+    }
+    check_destinations(&src, &dests, allow_same_filesystem)?;
+    Ok(dests
+        .iter()
+        .map(|d| {
+            let free = sys::existing_ancestor(&d.mount).and_then(|p| sys::free_space(&p));
+            (d.mount.clone(), free)
+        })
+        .collect())
+}
+
+/// Where the template would put an original named `file_name` captured at
+/// `local_time` (an example for the import window).
+pub fn example_name(
+    template: &Template,
+    file_name: &str,
+    local_time: Option<chrono::NaiveDateTime>,
+    event: Option<&str>,
+) -> Result<String, IngestError> {
+    let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s);
+    let ext = file_name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    let input = TemplateInput {
+        local_time,
+        event: event.map(str::to_owned),
+        camera: None,
+        lens: None,
+        orig: stem.to_owned(),
+    };
+    let base = template.render(&input, Some(1))?;
+    Ok(if ext.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}.{ext}")
+    })
+}
