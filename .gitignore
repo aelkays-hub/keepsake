@@ -47,3 +47,7 @@ app/ui/src-tauri/gen/
 
 # Spike timing output (raw data; interpreted results live in docs/spikes/playback.md)
 docs/spikes/playback-timings.txt
+
+# Playwright output
+app/ui/test-results/
+app/ui/playwright-report/

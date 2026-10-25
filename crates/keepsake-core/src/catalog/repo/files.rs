@@ -133,11 +133,12 @@ impl Files<'_, Rw> {
         let case = volume_case(self.conn, f.volume_id)?;
         let key = f.rel_path.key(case);
         let id = FileId::for_location(f.volume_id, &key);
-        self.conn.execute(
+        self.conn.prepare_cached(
             "INSERT INTO files (id, asset_id, volume_id, rel_path, rel_path_key, file_name, role,
                                 size_bytes, blake3, xxh3, mtime_ms, segment_index)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
+        )?
+        .execute(params![
                 id,
                 asset,
                 f.volume_id,
@@ -151,8 +152,7 @@ impl Files<'_, Rw> {
                 f.mtime_ms,
                 // Segment positions are only stored for segments (> 0).
                 f.segment_index.filter(|i| *i > 0)
-            ],
-        )
+            ])
         .map_err(|e| match CatalogError::from(e) {
             CatalogError::Duplicate(_) => {
                 CatalogError::Duplicate(format!("file {} on volume {}", f.rel_path, f.volume_id))

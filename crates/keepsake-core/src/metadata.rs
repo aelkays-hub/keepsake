@@ -222,6 +222,17 @@ impl<'a> MetadataService<'a> {
     }
 
     /// Replace the asset's user tags.
+    /// The asset's user keywords (not AI tags).
+    pub fn user_tags(&self, id: AssetId) -> Result<Vec<TagPath>, LibraryError> {
+        Ok(self
+            .cat
+            .read(|tx| tx.tags().for_asset(id))?
+            .into_iter()
+            .filter(|t| t.source == crate::catalog::TagSource::User)
+            .map(|t| t.path)
+            .collect())
+    }
+
     pub fn set_user_tags(&mut self, id: AssetId, tags: &[TagPath]) -> Result<Asset, LibraryError> {
         let tags: Vec<AssetTag> = tags.iter().cloned().map(AssetTag::user).collect();
         self.edit(id, |tx, _| {

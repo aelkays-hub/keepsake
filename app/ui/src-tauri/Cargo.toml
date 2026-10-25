@@ -17,6 +17,11 @@ path = "src/main.rs"
 keepsake-core = { path = "../../../crates/keepsake-core" }
 keepsake-platform = { path = "../../../crates/keepsake-platform" }
 tauri = { version = "2", features = ["protocol-asset"] }
+# Native folder picker (ADR-022).
+tauri-plugin-dialog = "2"
+# TypeScript types for the command API, generated into ../src/bindings (ADR-022).
+ts-rs = "12"
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

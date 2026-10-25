@@ -13,6 +13,7 @@
 //! pass (the source is decoded once); [`JOB_PROXY`] makes the proxy.
 
 pub mod cache;
+pub mod card;
 pub mod recipe;
 pub mod service;
 pub mod source;
@@ -114,6 +115,21 @@ fn sort_key(capture_utc_ms: Option<i64>) -> i64 {
 /// again only when `again` (e.g. a rendition was evicted or is missing).
 /// Returns how many jobs were added.
 pub fn enqueue(
+    cat: &mut Catalog,
+    assets: &[AssetId],
+    priority: Priority,
+    again: bool,
+) -> Result<u64, CatalogError> {
+    // Short transactions, so a big backlog never blocks other writers
+    // (claims, edits) for long.
+    let mut n = 0;
+    for chunk in assets.chunks(2000) {
+        n += enqueue_chunk(cat, chunk, priority, again)?;
+    }
+    Ok(n)
+}
+
+fn enqueue_chunk(
     cat: &mut Catalog,
     assets: &[AssetId],
     priority: Priority,

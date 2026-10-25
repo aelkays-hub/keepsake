@@ -147,14 +147,16 @@ impl Assets<'_, Rw> {
             .as_deref()
             .map(|l| ensure_label(self.conn, l))
             .transpose()?;
-        self.conn.execute(
-            "INSERT INTO assets (id, media_kind, capture_ts_ms, capture_utc_offset_min,
+        self.conn
+            .prepare_cached(
+                "INSERT INTO assets (id, media_kind, capture_ts_ms, capture_utc_offset_min,
                 capture_shift_s, duration_ms, camera_make, camera_model, lens_model,
                 event_id, rating, label_id, comment, created_ms, metadata_ms,
                 capture_source, capture_confidence, gps_lat, gps_lon, gps_alt_m)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                      ?16, ?17, ?18, ?19, ?20)",
-            params![
+            )?
+            .execute(params![
                 a.id,
                 a.media_kind,
                 a.capture.map(|c| c.utc_ms),
@@ -175,8 +177,7 @@ impl Assets<'_, Rw> {
                 a.gps.map(|g| g.lat),
                 a.gps.map(|g| g.lon),
                 a.gps.and_then(|g| g.alt_m)
-            ],
-        )?;
+            ])?;
         fts::reindex(self.conn, a.id)
     }
 

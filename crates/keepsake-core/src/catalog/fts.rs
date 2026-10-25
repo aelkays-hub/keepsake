@@ -20,20 +20,19 @@ pub(crate) struct FtsText {
 }
 
 pub(crate) fn compute(conn: &Connection, asset: AssetId) -> Result<FtsText, CatalogError> {
-    let mut st = conn.prepare("SELECT DISTINCT file_name FROM files WHERE asset_id = ?1")?;
+    let mut st = conn.prepare_cached("SELECT DISTINCT file_name FROM files WHERE asset_id = ?1")?;
     let names: BTreeSet<String> = st
         .query_map([asset], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
 
     let comment: Option<String> = conn
-        .query_row("SELECT comment FROM assets WHERE id = ?1", [asset], |r| {
-            r.get(0)
-        })
+        .prepare_cached("SELECT comment FROM assets WHERE id = ?1")?
+        .query_row([asset], |r| r.get(0))
         .optional()?
         .flatten();
 
     // Every tag on the asset plus all its ancestors.
-    let mut st = conn.prepare(
+    let mut st = conn.prepare_cached(
         "WITH RECURSIVE up(id, parent_id, name) AS (
            SELECT t.id, t.parent_id, t.name FROM tags t
              JOIN asset_tags at ON at.tag_id = t.id WHERE at.asset_id = ?1
@@ -54,9 +53,8 @@ pub(crate) fn compute(conn: &Connection, asset: AssetId) -> Result<FtsText, Cata
 
 fn seq_of(conn: &Connection, asset: AssetId) -> Result<Option<i64>, CatalogError> {
     Ok(conn
-        .query_row("SELECT seq FROM assets WHERE id = ?1", [asset], |r| {
-            r.get(0)
-        })
+        .prepare_cached("SELECT seq FROM assets WHERE id = ?1")?
+        .query_row([asset], |r| r.get(0))
         .optional()?)
 }
 
@@ -82,11 +80,12 @@ pub(crate) fn remove(conn: &Connection, asset: AssetId) -> Result<(), CatalogErr
 }
 
 fn write_row(conn: &Connection, seq: i64, t: &FtsText) -> Result<(), CatalogError> {
-    conn.execute("DELETE FROM asset_fts WHERE rowid = ?1", [seq])?;
-    conn.execute(
+    conn.prepare_cached("DELETE FROM asset_fts WHERE rowid = ?1")?
+        .execute([seq])?;
+    conn.prepare_cached(
         "INSERT INTO asset_fts (rowid, names, comment, tags) VALUES (?1, ?2, ?3, ?4)",
-        params![seq, t.names, t.comment, t.tags],
-    )?;
+    )?
+    .execute(params![seq, t.names, t.comment, t.tags])?;
     Ok(())
 }
 
@@ -109,7 +108,7 @@ pub(crate) fn stored(conn: &Connection, asset: AssetId) -> Result<Option<FtsText
 }
 
 pub(crate) fn mismatches(conn: &Connection) -> Result<Vec<AssetId>, CatalogError> {
-    let mut st = conn.prepare("SELECT id FROM assets ORDER BY id")?;
+    let mut st = conn.prepare_cached("SELECT id FROM assets ORDER BY id")?;
     let ids: Vec<AssetId> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
     let mut bad = Vec::new();
     for id in ids {

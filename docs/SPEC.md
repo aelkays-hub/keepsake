@@ -17,13 +17,16 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
   - AVCHD `MPL`/`CLPI` playlist files alongside `BDMV/STREAM/*.MTS` segments.
 
 ### Library views
-- **Calendar view**: year → month → day drill-down.
-- **Grid view**: thumbnail grid with TanStack Virtual for smooth scrolling of large libraries.
-- **Details view**: full metadata panel for the selected asset.
+- Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.
+- **Calendar view**: year → month → day drill-down, with item counts and cover thumbnails per cell; a day opens its grid.
+- **Grid view**: virtualized thumbnail grid (TanStack Virtual) that stays smooth at 300,000 items. Multi-select by mouse and keyboard, sort by capture time and more. Items on offline drives show their cached thumbnail with an offline badge.
+- **Details view**: virtualized table with sortable columns: name, date, camera, lens, type, size, duration, rating.
+- **Inspector**: metadata, rating (1–5), colour label, comment and keywords, written to XMP. Rating, label and keywords apply to the whole selection.
+- **Import window**: opens when a Sony card is inserted. It shows new items grouped by day, one tile per asset with a live thumbnail, plus select all/none, a preset or destination and template, a second-destination toggle, a pre-check (space, same-disk rule, example name), progress with Stop, and the safe-to-format result.
 
 ### Metadata and search
 - Ratings (1–5 stars), colour labels, free-text comments stored in XMP sidecars.
-- Search by date range, camera model, lens, media type (photo / video / raw), and free text.
+- Search by date range, camera model, lens, media type (photo / video / raw), minimum rating, and free text, from a search bar above the grid.
 - Batch time-shift: write corrected `DateTimeOriginal` to XMP sidecar (never to the original file).
 
 ### Viewer

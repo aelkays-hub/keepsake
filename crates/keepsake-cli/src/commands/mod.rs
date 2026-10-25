@@ -2,6 +2,7 @@ pub mod backup;
 pub mod card;
 pub mod common;
 pub mod corpus;
+pub mod dev;
 pub mod ingest;
 pub mod init;
 pub mod preset;

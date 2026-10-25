@@ -16,7 +16,7 @@
 └─────────────────────────────────────────────────────────┘
          ↑                  ↑                ↑
   Tauri app (GUI)    keepsake-cli    background watcher
-  app/src-tauri     keepsake-cli    (`keepsake watch`)
+  app/ui/src-tauri  keepsake-cli    (`keepsake watch`)
 ```
 
 All three executables call into `keepsake-core` through the same public API. There is no business logic outside of `keepsake-core` and `keepsake-platform`.
@@ -30,6 +30,20 @@ The CLI (`keepsake-cli`, manual in `docs/CLI.md`) parses arguments, picks the li
 - `rebuild::rebuild_library` for `rebuild-catalog`;
 - `watch::Watcher`, with `keepsake_platform::system_devices()`, for `watch`;
 - `cards` and `presets` for `card` and `preset`.
+
+**The app** (`app/ui`, ADR-022):
+- **Bridge.** `src-tauri` exposes typed commands and events. The types are in `src-tauri/src/api.rs`, with TypeScript generated into `app/ui/src/bindings/` by `ts-rs`. The React UI calls them only through `app/ui/src/api.ts`.
+- **App state** holds the open library, one read connection (writes get their own), the view snapshots, and handles to the background work:
+  - the render service (`render://thumbs` when a thumbnail is made);
+  - the device watcher (`device://card`, which opens the `import` window);
+  - a running import (`import://progress`, `import://done`).
+- **Grid and details** show a *view*: `view_open(query, sort)` keeps the sorted ids (`Browse::ordered_ids`), and `view_rows` pages through them.
+  - The UI virtualizes with TanStack Virtual and keeps about 30 pages of 200 rows.
+  - It reports the tiles on screen with `render_set_visible`.
+  - Selections are index ranges into the view.
+- **Calendar** buckets come from `Browse::calendar`. The sidebar uses `Browse::{volume,event,session}_counts`.
+- **Inspector edits** go through `MetadataService` (XMP), on a thread for large selections (`edit://progress`).
+- **The UI** has no router or state library: a reducer (`uiModel.ts`), a context (`state.tsx`) and CSS variables for the light and dark themes.
 
 ---
 

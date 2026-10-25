@@ -870,3 +870,66 @@ Their own dependencies are all permissive: `zune-jpeg`/`zune-core` (MIT/Apache/Z
 **Settings**: `config.toml` moves from the CLI into `keepsake_core::settings`, shared with the app. The `[render]` section has `cache_dir`, `max_bytes` (default 20 GiB), `workers` (default half the threads, 1–4), `proxy_workers` (1) and `pause_on_battery` (true).
 
 **App**: thin Tauri commands `render_status`, `render_set_visible`, `render_lookup`, `render_start` and `render_stop`. `render_start` runs the service on its own thread and emits `render://progress`.
+
+---
+
+## ADR-022 — The main app UI
+
+**Status**: Accepted (Prompt 10, approved by the product owner 2026-10-25)
+
+**Dependencies**
+
+| Dependency | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `ts-rs` | 12 | MIT | `keepsake-app` | TypeScript types generated from the Rust command types |
+| `tauri-plugin-dialog` + `@tauri-apps/plugin-dialog` | 2 | MIT / Apache-2.0 | app | Native folder picker (library, destinations) |
+| `@playwright/test` | 1.x | Apache-2.0 | UI dev | UI tests, in the browser and against the real app |
+| `vitest` | 3.2 | MIT | UI dev | Unit tests. 3.x because Vitest 4+ needs Vite 6.4+, and the UI is on Vite 5 |
+
+The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
+
+**Typed bridge.**
+- Every command and event type is a Rust type in `src-tauri/src/api.rs`, with `#[derive(TS)]`.
+- `cargo test -p keepsake-app` writes `app/ui/src/bindings/*.ts`. These files are checked in, and CI fails if they change.
+- The UI calls the app only through `src/api.ts`.
+- Commands stay thin: they validate, call core and convert the result. The work is in core.
+
+**Views are snapshots.**
+- `view_open(query, sort)` runs one sorted id scan in core (`Browse::ordered_ids`), keeps the ids in app state and returns `{view, count}`. At 300,000 items this takes 0.16–0.27 s in release.
+- `view_rows(view, offset, limit)` looks up the ids it needs, so any page, however deep, takes 4–6 ms.
+- Selections are index ranges into the snapshot: select-all is `[[0, 300000]]`, not 300,000 ids. Edits resolve the ranges in the app.
+- `LIMIT/OFFSET` paging was rejected: missing-values-last ordering cannot use an index, so every deep page re-sorted the whole library (0.4–0.55 s).
+
+**Schema v5** adds to `assets`:
+- `primary_name`, `size_bytes` and `is_raw`, kept current by triggers on `files`, so name, size and type sort from an index;
+- indexes for every sort and filter.
+
+`SearchQuery` gains lens, minimum rating, RAW, label, event, volume, import session and undated. The calendar uses date ranges rather than `LIKE`, so it can use the date index.
+
+**Connections.**
+- Reads share one connection.
+- Commands that write (edits, "these are on screen", status polling) open their own. With WAL, reads then never wait behind a slow write. Before this, the status bar's poll blocked grid scrolling for seconds at 300,000 items.
+- Core queues the render backlog 2,000 jobs per transaction.
+- Cache stats are two indexed SQL queries rather than a scan of every file.
+
+**Edits.**
+- Rating, label and keywords apply to the selection; the comment applies to one item. All go through `MetadataService`, which writes the XMP.
+- Selections over 50 items run on a background thread and report `edit://progress`.
+
+**Import window.**
+- The app runs the device watcher (prompt 8). A Sony card with new items opens or focuses an `import` window.
+- `ingest::scan_card` lists the card from the card memory first and quick-hashes only unknown items.
+- The pre-check (`check_destinations_for`, plus an example name) writes nothing.
+- The import runs on a thread and reports `import://progress` and `import://done`.
+- Thumbnails of items still on the card go to `<cache>/card/`, outside the catalog, and are swept after a week. They are never written to the card.
+
+**Security.** The asset protocol's static scope is empty. At runtime the app allows only the rendition cache, so the webview cannot load arbitrary files.
+
+**Dev builds** optimise dependencies (`[profile.dev.package."*"] opt-level = 2`), so the debug app and UI tests are usable on large libraries. Keepsake's own crates stay unoptimised.
+
+**Tests.**
+- **Mocked:** Playwright drives the UI in Chromium against `src/mock/backend.ts` (Tauri's `mockIPC`, 300,000 synthetic items). This runs on Windows and macOS; WKWebView cannot be automated, so it is the macOS UI coverage.
+- **Real app:** on Windows, Playwright attaches to the app's WebView2 over its debugging port, using a temporary library, real media, fake device events (`KEEPSAKE_FAKE_EVENTS`) and `KEEPSAKE_UI_TEST=1`. That setting allows test destinations on one disk; nothing in the UI can set it.
+- **Seeding:** a hidden `keepsake dev seed` fills an empty library with synthetic assets that share 64 cached pictures.
+
+**The spike page is gone.** Its results are in `docs/spikes/playback.md`.

@@ -2,6 +2,7 @@
 //! methods only on repositories from a [`super::WriteTx`].
 
 mod assets;
+mod browse;
 mod events;
 mod files;
 mod imports;
@@ -17,6 +18,9 @@ mod tags;
 mod volumes;
 
 pub use assets::{Assets, DayCount};
+pub use browse::{
+    Browse, BrowseRow, CalendarBucket, CalendarLevel, Facet, FacetColumn, Sort, SortField,
+};
 pub use events::{EventSpan, Events};
 pub use files::Files;
 pub use imports::Imports;
