@@ -115,10 +115,11 @@ mod tests {
 
 /// The shift (seconds) that makes `reference` read `correct`, both on the
 /// camera's local clock. The reference's UTC offset is kept as it is.
+/// Compared in whole seconds, as people see times: a reference at
+/// 13:02:11.6 told it was 14:02:11 moves by exactly one hour.
 pub fn shift_for(reference: crate::catalog::CaptureTime, correct: chrono::NaiveDateTime) -> i64 {
     let local_ms = reference.utc_ms + i64::from(reference.utc_offset_min.unwrap_or(0)) * 60_000;
-    let correct_ms = correct.and_utc().timestamp_millis();
-    (correct_ms - local_ms).div_euclid(1000)
+    correct.and_utc().timestamp() - local_ms.div_euclid(1000)
 }
 
 #[cfg(test)]
@@ -147,5 +148,17 @@ mod shift_tests {
             utc_offset_min: None,
         };
         assert_eq!(shift_for(n, local("2024-06-15 04:02:12")), 1);
+        // Sub-second capture times: the seconds shown are what count.
+        let sub = CaptureTime {
+            utc_ms: r.utc_ms + 600,
+            utc_offset_min: Some(540),
+        };
+        assert_eq!(shift_for(sub, local("2024-06-15 13:02:11")), 0);
+        assert_eq!(shift_for(sub, local("2024-06-15 14:02:11")), 3600);
+        let before = CaptureTime {
+            utc_ms: r.utc_ms - 400,
+            utc_offset_min: Some(540),
+        };
+        assert_eq!(shift_for(before, local("2024-06-15 13:02:10")), 0);
     }
 }
