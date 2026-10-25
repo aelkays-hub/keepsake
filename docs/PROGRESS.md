@@ -12,6 +12,7 @@
 | 7 | CLI: init, ingest, verify, search, shift-time, backup, rebuild-catalog; --json, progress, Ctrl-C | ✅ Done (Windows; macOS CI pending) |
 | 8 | Device detection: Windows CM notifications + macOS DiskArbitration, card memory, `keepsake watch` with trusted auto-ingest | ✅ Done (Windows; macOS backend in CI only) |
 | 9 | Renditions: persistent priority job queue, thumbnails/previews/proxies, content-addressed LRU cache, `keepsake renders`, benchmarks | ✅ Done (Windows; macOS video needs FFmpeg) |
+| 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -19,11 +20,11 @@
 | 5 | Catalog: SQLite schema, migrations, WAL/FTS5 setup | ✅ Done in prompt 4 |
 | 6 | XMP sidecar read/write (ratings, labels, comments, date shift) | ✅ Done in prompt 4 |
 | 7 | Thumbnail and preview generation via FFmpeg/LibRaw | ✅ Done in prompt 9 (LibRaw decode later) |
-| 8 | Tauri command layer: ingest, catalog queries, progress events | ⬜ Pending |
-| 9 | UI: calendar view | ⬜ Pending |
-| 10 | UI: grid view with TanStack Virtual | ⬜ Pending |
-| 11 | UI: details view and metadata panel | ⬜ Pending |
-| 12 | UI: ingest wizard (preview, destination, confirm) | ⬜ Pending |
+| 8 | Tauri command layer: ingest, catalog queries, progress events | ✅ Done in prompt 10 |
+| 9 | UI: calendar view | ✅ Done in prompt 10 |
+| 10 | UI: grid view with TanStack Virtual | ✅ Done in prompt 10 |
+| 11 | UI: details view and metadata panel | ✅ Done in prompt 10 |
+| 12 | UI: ingest wizard (preview, destination, confirm) | ✅ Done in prompt 10 (import window) |
 | 13 | Search: date, camera, lens, type, text (FTS5) | 🟡 CLI done in prompt 7 (no lens filter, no UI) |
 | 14 | Video proxy generation and playback | 🟡 Proxies done in prompt 9; playback UI pending |
 | 15 | Backup verification command (CLI + UI) | 🟡 CLI done in prompt 7 (`verify`, `backup`); UI pending |
@@ -34,6 +35,72 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 10 — The main app UI (2026-10-25)
+
+### What was built
+
+**The app** (`app/ui`): a sidebar (Library, Calendar, Events, Volumes, Imports), a main area, an inspector and a status bar. Light and dark themes follow the OS, and everything works from the keyboard.
+- **Calendar:** years, then months, then days, with counts and cover thumbnails. A day opens its grid; Backspace goes up a level.
+- **Grid:** virtualized, smooth at 300,000 items.
+  - Multi-select is stored as index ranges, so select-all is instant.
+  - Mouse: Shift/Ctrl-click. Keyboard: arrows, PgUp/PgDn, Home/End.
+  - Ratings, labels, video durations, RAW and **offline** badges; offline items keep their cached thumbnails.
+- **Details:** a virtualized table with sortable columns (name, date, camera, lens, type, size, duration, rating).
+- **Inspector:** metadata, rating (keys 1–5), colour label (keys 6–9), comment and keywords, written to XMP through core. Rating, label and keywords apply to the selection; large selections run in the background with progress.
+- **Search bar:** words, date range, camera, lens, type (photo/RAW/video), minimum rating.
+- **Import window:** opened by the device watcher when a Sony card is inserted.
+  - New items grouped by day, one tile per asset, with live thumbnails made from the card (read only).
+  - Select all, none or new only; presets (and save as preset); destination and template; a second-destination toggle.
+  - A pre-check: space, the same-disk rule, an example name.
+  - Progress with Stop, and the SAFE TO FORMAT result.
+- **First run:** create or open a library, with a native folder picker.
+
+**Typed bridge** (ADR-022):
+- `src-tauri/src/api.rs` defines every command and event type; `ts-rs` generates `app/ui/src/bindings/`.
+- Commands: library, views, calendar, sidebar, details, edits, renders, import. Events: `render://thumbs`, `device://card`, `edit://progress`, `import://progress`, `import://done`.
+- The asset protocol may load only the rendition cache.
+
+**Core**
+- `Browse` repository: count, `ordered_ids` (view snapshots), `rows`, `ids_range`, `index_of`, calendar buckets with covers, facets, per-volume/event/import counts.
+- `SearchQuery`: lens, minimum rating, RAW, label, event, volume, import, undated.
+- Catalog schema v5: name, size and RAW copied onto assets by triggers, plus sort and filter indexes.
+- `ingest::scan_card`, `check_destinations_for`, `example_name`; `render::card` (card thumbnails).
+- `seed` (hidden `keepsake dev seed`).
+- Faster inserts: cached statements in the text index and the inserts.
+- The backlog is queued in chunks of 2,000.
+- Cache stats are two indexed queries.
+
+**Performance at 300,000 items** (release core):
+
+| Operation | Time |
+|---|---|
+| Count | 8 ms |
+| Open a view | 0.16–0.27 s |
+| Any page | 4–6 ms |
+| Years calendar | 0.19 s |
+| Seed | about 70 s |
+
+In the debug app's UI test, End reaches the last tile with its thumbnail in about 0.2 s.
+
+**Tests**
+- Core: `browse_tests` (10, plus 2 timing probes ignored), and a card-thumbnail render test.
+- UI unit tests (Vitest, 8): selection ranges, keyboard map, formatting.
+- Playwright **mocked** (14): first run, 300,000-item virtualization, multi-select and rating, keyboard rating and label, comment and keywords, calendar drill-down, search filters, details sort, offline badges, sidebar and view keys, themes, and the import window (grouping, select all/none, presets, progress, SAFE TO FORMAT, one destination, same disk).
+- Playwright **real app**, Windows (4): first run; the library with real thumbnails, keyboard rating checked **in the XMP file**, filters, details sort, calendar and offline; card insert → import window → SAFE TO FORMAT; 300,000 items.
+
+**CI.** Windows runs the unit, mocked and real-app suites and checks that the bindings are up to date. macOS runs the unit and mocked suites.
+
+### Also changed
+- Dev builds optimise dependencies (SQLite, image, BLAKE3).
+- The spike page was removed (its results are in `docs/spikes/playback.md`).
+
+### Not done / next
+- No viewer or player yet: Enter opens the inspector.
+- Events cannot be created from the UI yet.
+- On macOS the UI is tested only against the mocked backend.
 
 ---
 

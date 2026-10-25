@@ -1,156 +1,129 @@
-# Manual Test Steps — Prompt 9: thumbnails, previews and proxies
+# Manual Test Steps — Prompt 10: the main app UI
 
-Test on **Windows 11 x64** (primary) and **macOS 14+**. On macOS, video items need an LGPL FFmpeg in `vendor/`, which isn't available yet, so expect only photo renditions there.
+Test on **Windows 11** (primary) and **macOS 14+**.
 
-Build with `cargo build --release -p keepsake-cli` and run `scripts/setup.ps1` once. Below, `$K` is `.\target\release\keepsake.exe` (or `./target/release/keepsake`). The commands are PowerShell.
+**Build:**
+- `scripts/setup.ps1` (or `setup.sh`) once.
+- `cargo build -p keepsake-app -p keepsake-cli` (and `--release -p keepsake-cli` for step B3).
 
-Renditions are written only to the cache folder. Your photos and videos are only read; step H checks this.
+**Run the app:** from `app/ui`, `pnpm tauri dev`. This starts Vite and the debug app.
+
+To keep your real settings apart, start it from a shell with a test config folder:
+```powershell
+$T = "$env:TEMP\ks10"; $env:KEEPSAKE_CONFIG_DIR = "$T\config"
+```
+On macOS the paths are `/tmp/ks10`.
+
+Nothing in the app modifies your photos or videos. Edits go to XMP sidecars and the catalog.
 
 ---
 
 ## A. Automated tests
 
 1. `cargo test --workspace`
-   **Expected:** all pass, including `render_tests` (18) and the `renders_…` CLI tests.
-2. `$env:KEEPSAKE_CORPUS = "C:\path\to\corpus"`, then `cargo test -p keepsake-core --test render_corpus_tests -- --include-ignored corpus`
-   **Expected:** passes, rendering real ARW, JPEG and AVCHD files from `library-sample`.
-3. `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`
-   **Expected:** no output.
+   **Expected:** all pass, including `browse_tests`, and `render_tests` with the card thumbnail test. Running `cargo test -p keepsake-app` must leave `app/ui/src/bindings` unchanged (`git status`).
+2. In `app/ui`:
+   - `pnpm test` **Expected:** the unit tests pass.
+   - `pnpm test:e2e` **Expected:** 14 browser tests pass against the mocked backend.
+   - On Windows, after the builds above: `pnpm test:app` **Expected:** 4 real-app tests pass. They cover first run, the library flows, card import, and 300,000 items.
+3. `pnpm lint`, `pnpm format:check`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+   **Expected:** no problems.
 
 ---
 
-## B. Set up
+## B. First run and the library
 
-```powershell
-$T = "$env:TEMP\ks9"; Remove-Item -Recurse -Force $T -ErrorAction SilentlyContinue
-$env:KEEPSAKE_CONFIG_DIR = "$T\config"
-& $K init "$T\lib"
-(Get-Content "$T\config\config.toml") -replace '^\[render\]$', "[render]`ncache_dir = '$T\cache'" | Set-Content "$T\config\config.toml"
-```
-
-Open `$T\config\config.toml`.
-**Expected:** `default_library`, then a `[render]` section with `cache_dir` (your temp folder), `max_bytes = 21474836480` (20 GiB), `proxy_workers = 1` and `pause_on_battery = true`.
-
-Import some real media: a card, or a copy of a few folders from your library with JPEGs, ARWs and some clips (XAVC S, XAVC HS, AVCHD):
-
-```powershell
-& $K ingest E:\ --dest "$T\A" --dest "$T\B"     # add --unsafe-allow-same-disk if A and B share a disk
-```
-
----
-
-## C. Status and the queue
-
-1. `& $K renders status`
-   **Expected:**
-   - `Renditions: 0 done, N queued (0 visible, N recent, 0 backlog)`;
-   - one stills job per asset and one proxy job per clip;
-   - `Cache: 0 B of 21.47 GB in …\ks9\cache`.
-2. Unplug the charger (laptop) and run `& $K renders status` again.
-   **Expected:** `Workers would pause now: on battery power.` Plug it back in.
-
----
-
-## D. Run
-
-1. `& $K renders run`
-   **Expected:**
-   - a header with the worker counts and the cache folder;
-   - a progress bar;
-   - at the end, `Done: N job(s), 0 failed for good.` and exit code 0.
-
-   It takes about 2–3 minutes per 1,000 photos, plus about 1 minute per 9 minutes of footage (see `docs/PERFORMANCE.md`).
-2. `& $K renders status`
-   **Expected:** everything done; the cache holds about 3 files per asset plus one proxy per clip.
-3. Pick an imported photo and a clip, and run `& $K renders show "$T\A\…\DSC01234.JPG"`.
-   **Expected:** paths for `thumb-256`, `thumb-1024` and `preview-2560`. Open them:
-   - each is upright (photos taken in portrait are portrait);
-   - the long edges are 256, 1024 and 2560 px, or smaller if the original is smaller. **ARW-only photos** have 1616 px previews (the size of the JPEG embedded in the file).
-4. For a clip, `renders show`.
-   **Expected:**
-   - a poster (the preview) from about 10 % into the clip;
-   - `proxy-720` or `camera-proxy`.
-
-   Play the proxy in a browser or media player. **Expected:**
-   - it plays with sound;
-   - seeking is instant;
-   - it is 720 px tall (or the clip's height if smaller).
-
-   Check with:
+1. Start the app with an empty `$T\config`.
+   **Expected:** "Welcome to Keepsake". Browse… opens a native folder picker. Choose or type `$T\lib`, then click **Create or open library**.
+   **Expected:** the main window opens with "0 items".
+2. Import some media with the CLI (or with the import window, in F):
    ```powershell
-   & vendor\ffprobe.exe -v error -select_streams v:0 -show_entries stream=codec_name,height -of csv=p=0 <proxy>
+   keepsake ingest <card or folder> --dest "$T\A" --dest "$T\B"
    ```
-   **Expected:** `h264,720`.
-5. **XAVC with a SUB proxy:** a clip whose card had `PRIVATE\M4ROOT\SUB\…S01.MP4`.
-   **Expected:**
-   - if that proxy is H.264, it shows as `camera-proxy`, and the run took almost no time for it;
-   - if your camera records HEVC proxies (XAVC HS proxy setting), it shows as `proxy-720` instead.
-6. **AVCHD:** the proxy plays with the sound in sync after a minute or more. That was the spike's AVCHD failure.
-
----
-
-## E. Pauses and Ctrl-C
-
-1. Queue more work (import another folder), start `& $K renders run`, and unplug the charger.
-   **Expected:** the bar shows `paused: on battery power` and no new jobs start. Plug in: it resumes.
-2. While `renders run` is working, start an import in another window (`& $K ingest …`).
-   **Expected:**
-   - the bar shows `paused: an import is running` within about 2 s;
-   - it resumes within about 10 s of the import finishing.
-3. Press Ctrl-C during a run.
-   **Expected:**
-   - the current job(s) finish;
-   - `Stopped after the current job(s)…`, exit code 130;
-   - `renders status` shows the rest still queued, none running;
-   - `renders run` continues.
-4. Kill the process instead (Task Manager), then `& $K renders run`.
-   **Expected:** the interrupted jobs run again (nothing stays "running").
-
----
-
-## F. Offline media and the cache limit
-
-1. Unplug drive A, so only B has the files.
-   **Expected:** `renders run` still works, reading from B.
-2. Unplug both drives and queue work: `& $K renders enqueue --all`, then `renders run`.
-   **Expected:** the jobs are **deferred** (not failed) and `renders status` shows them queued. Plug the drives back in: the next run makes them.
-3. Make the limit tiny:
+   Back in the app, **Expected:** within a few seconds:
+   - the status bar shows the item count;
+   - thumbnails appear as they are made ("Renders: N queued", then "up to date");
+   - Volumes in the sidebar lists A and B with green dots;
+   - Imports lists the session.
+3. **Large library:**
    ```powershell
-   & $K renders evict --max-bytes 1000000
+   keepsake init "$T\big"
+   keepsake dev seed --assets 300000
    ```
-   **Expected:** `Removed N rendition(s)…`, leaving the cache at about 1 MB or less.
-4. Unplug both drives, then `& $K renders evict --max-bytes 0`.
+   Use the release CLI for the seed (about a minute). Then restart the app; it opens the default library.
    **Expected:**
-   - nothing is removed;
-   - `Kept … for media that is offline (never evicted)`;
-   - `renders status` shows the bytes kept for offline media.
-5. Plug the drives back in and run `& $K renders enqueue "$T\A\…\DSC01234.JPG" --visible`, then `& $K renders run --queued-only`.
-   **Expected:** the evicted renditions for that file are made again first.
+   - "300,000 items", and scrolling stays smooth;
+   - End jumps to the last item, which has its thumbnail within a second or so;
+   - Ctrl+A shows "300,000 selected" instantly;
+   - "Seed archive (unplugged)" shows a hollow dot, and its items show dimmed thumbnails with an orange **offline** badge.
 
 ---
 
-## G. Benchmark (your machine)
+## C. Views and keyboard
 
-```powershell
-& $K renders bench "$env:KEEPSAKE_CORPUS\library-sample" --per-type 40 --videos 6
-```
-**Expected:** a Markdown table (JPEG, ARW, PNG/TIFF, video poster, video proxy). It takes about 1–2 minutes. Paste it into `docs/PERFORMANCE.md` under your machine's name, especially for the Mac.
-
-To compare encoders, add `--encoder h264_mf` or `--encoder libopenh264`.
-
----
-
-## H. Originals untouched
-
-Before C, run:
-```powershell
-Get-ChildItem -Recurse -File "$T\A" | Get-FileHash | Export-Csv "$T\before.csv"
-```
-After F, run the same command into `after.csv`, then compare: `Compare-Object (Import-Csv "$T\before.csv") (Import-Csv "$T\after.csv") -Property Hash,Path`
-**Expected:** no differences, apart from `.xmp` sidecars if you changed metadata.
+1. Ctrl+1 / Ctrl+2 / Ctrl+3 switch Calendar / Grid / Details (also the buttons top right).
+2. **Calendar:**
+   - Years show counts and a cover picture. Click (or arrow keys + Enter) a year, then a month, then a day.
+   - **Expected:** the day's grid, with the breadcrumb "Calendar › 2024 › June › 15" and the right count.
+   - Backspace returns to the month.
+   - "No date" (if any) opens the undated items.
+3. **Grid:**
+   - The arrow keys move the dashed focus.
+   - Shift+arrows and Shift+click extend; Ctrl/⌘+click toggles; Ctrl/⌘+A selects all; Esc clears.
+   - Home/End and PgUp/PgDn work.
+4. **Details:**
+   - Click Name, Date, Camera, Lens, Type, Size, Duration or Rating to sort; click again to reverse (the ▲/▼ shows which).
+   - The keyboard works as in the grid.
+5. **Tab and F6** move between the sidebar, the main area and the inspector. In the sidebar, ↑/↓ move between entries and Enter opens one.
+6. **Themes:** switch the OS between light and dark. **Expected:** the app follows at once.
 
 ---
 
-## I. macOS
+## D. Inspector and edits (XMP)
 
-Repeat C, D (photos only) and F with `/tmp/ks9`. `renders status` shows the battery pause on a MacBook. If you place an LGPL `ffmpeg` in `vendor/`, the video steps work too: VideoToolbox is tried first, then OpenH264.
+1. Select one photo. **Expected:** its preview, name, capture time and source, camera, lens and type.
+2. Press **4**. **Expected:** four stars in the tile and the inspector. Open the `.xmp` beside the file in `$T\A\…`: it now has `xmp:Rating` 4. **0** clears the rating.
+3. Press **6**. **Expected:** a Red label (keys 6–9: Red, Yellow, Green, Blue, as in Lightroom). Click a swatch to change it.
+4. Type a comment and click elsewhere. **Expected:** it is saved; the XMP has the description.
+5. Add the keyword `Places|Lake` and press Enter. **Expected:** a chip appears, and the XMP has `lr:hierarchicalSubject`. ✕ removes it.
+6. Select 5 items and press 3. **Expected:** "5 items selected — rating, label and keywords apply to all", and all five get 3 stars.
+7. In the 300,000-item library, select all and press 2. **Expected:** "Saving N / 300,000…" in the status bar until it finishes; the app stays responsive.
+
+---
+
+## E. Search and filters
+
+1. Type part of a file name. **Expected:** the grid narrows as you type.
+2. Combine **From/To**, **Camera**, **Lens**, **Type** (Photos/RAW/Videos) and **★ or more**. **Expected:** each one narrows the result, and the count in the status bar matches.
+3. **✕ Clear** resets everything. Ctrl/⌘+F focuses the search box.
+
+---
+
+## F. Import window (real card)
+
+1. With the app open, insert a Sony card that has items not yet imported.
+   **Expected:** within about 2 seconds:
+   - an **Import** window opens: "N new items since last import (M on the card)";
+   - tiles grouped by day, each with a thumbnail;
+   - a RAW+JPEG pair, or a clip with its XML and proxy, is **one** tile.
+
+   Nothing is written to the card.
+2. **None**, then **Select all**, then **New only** behave as named, and the selected count updates.
+3. Pick a preset, or fill in **Destination** (Browse…) and **Second destination** on another drive.
+   **Expected:** "needs X GB, Y free" for each, and the first file's example name next to the template.
+4. Choose two folders on the same disk. **Expected:** "both destinations are on the same disk…", and Import is disabled.
+5. Untick the second destination. **Expected:** the warning that the card will not be safe to format.
+6. With two drives, click **Import**.
+   **Expected:**
+   - a progress bar with bytes and the current file;
+   - at the end, **✅ SAFE TO FORMAT**;
+   - the main window shows the new items;
+   - reinserting the card shows "0 new items".
+7. Start another import and click **Stop**. **Expected:** the current file finishes, then **NOT safe to format (stopped…)**. Importing again continues.
+8. **Save preset** stores the current destinations and template for next time.
+
+---
+
+## G. macOS
+
+Repeat B–E (and F if a card is at hand). Folder pickers are native. The real-app UI tests do not run on macOS (WKWebView cannot be automated); `pnpm test:e2e` covers the UI there.
