@@ -94,6 +94,11 @@ jobs:
         run: cargo test --workspace
         # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
 
+      # `cargo test -p keepsake-app` regenerates the TypeScript bindings.
+      - name: UI bindings are up to date
+        shell: bash
+        run: git diff --exit-code -- app/ui/src/bindings
+
       # ── UI checks ───────────────────────────────────────────────────────────
       - name: UI lint
         working-directory: app/ui
@@ -107,6 +112,18 @@ jobs:
         working-directory: app/ui
         run: pnpm build
 
+      - name: UI unit tests
+        working-directory: app/ui
+        run: pnpm test
+
+      - name: Install Playwright Chromium
+        working-directory: app/ui
+        run: pnpm exec playwright install chromium
+
+      - name: UI tests (mocked backend)
+        working-directory: app/ui
+        run: pnpm test:e2e
+
       # ── Tauri + CLI release build ────────────────────────────────────────────
       # We use plain cargo build (not tauri-action) because tauri-action is
       # designed for publishing release installers and tries to re-initialise
@@ -116,6 +133,26 @@ jobs:
 
       - name: Build CLI (release)
         run: cargo build --release -p keepsake-cli
+
+      # The real app over WebView2's debugging port. Debug builds load the UI
+      # from the Vite dev server, which the test fixture starts; the release
+      # CLI seeds the 300,000-item library.
+      - name: Build app and CLI (debug) for UI tests
+        run: cargo build -p keepsake-app -p keepsake-cli
+
+      - name: UI tests (real app)
+        working-directory: app/ui
+        run: pnpm test:app
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-windows
+          path: |
+            app/ui/playwright-report
+            app/ui/test-results
+          retention-days: 7
 
       # Verify tauri.conf.json declares ExifTool resources.
       # vendor/ is not present in CI (gitignored), so we only check the config
@@ -196,3 +233,30 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace --exclude keepsake-app
+
+      # The UI against the mocked backend (WKWebView cannot be automated, so
+      # the real-app suite runs on Windows only).
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: UI unit tests
+        working-directory: app/ui
+        run: pnpm test
+
+      - name: UI tests (mocked backend)
+        working-directory: app/ui
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:e2e
