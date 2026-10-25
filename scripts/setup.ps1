@@ -210,6 +210,42 @@ if (-not ($etVer -match "^\d")) {
 }
 Write-Info "  OK ExifTool $etVer"
 
+# -- 6. LibRaw dcraw_emu (RAW decoding sidecar, ADR-023) -----------------------
+# Official LibRaw 0.22.2 Windows build (MSVC, x64), mirrored unchanged.
+# LGPL-2.1 or CDDL-1.0; invoked as a process, never linked. Windows on ARM
+# runs the x64 build under emulation (LibRaw publishes no ARM64 binary).
+# Install layout:  vendor\libraw\dcraw_emu.exe + libraw.dll (+ licences)
+$LibrawZipName = "LibRaw-0.22.2-Win64.zip"
+$LibrawZipSHA  = "ac64fa12bb00a7581332d4c6ab918c0533fb3f119d6b668d47a6875410dca948"
+$LibrawDir     = Join-Path $Vendor "libraw"
+$LibrawBin     = Join-Path $LibrawDir "dcraw_emu.exe"
+
+if (-not (Test-Path $LibrawBin)) {
+    $LibrawZip = Join-Path $Vendor $LibrawZipName
+    Invoke-MirroredDownload -FileName $LibrawZipName -OutFile $LibrawZip -ExpectedSHA256 $LibrawZipSHA
+    $LibrawExtract = Join-Path $Vendor "libraw-extract"
+    if (Test-Path $LibrawExtract) { Remove-Item $LibrawExtract -Recurse -Force }
+    Expand-Archive -Path $LibrawZip -DestinationPath $LibrawExtract -Force
+    $Root = Get-ChildItem $LibrawExtract -Directory | Select-Object -First 1
+    New-Item -ItemType Directory -Force $LibrawDir | Out-Null
+    foreach ($f in @("bin\dcraw_emu.exe", "bin\libraw.dll", "LICENSE.LGPL", "LICENSE.CDDL", "COPYRIGHT")) {
+        $src = Join-Path $Root.FullName $f
+        if (-not (Test-Path $src)) { Write-Err "$f not found in $LibrawZipName" }
+        Copy-Item $src $LibrawDir -Force
+    }
+    Remove-Item $LibrawExtract -Recurse -Force
+    Remove-Item $LibrawZip -Force
+    Write-Info "  Installed dcraw_emu.exe and libraw.dll"
+} else {
+    Write-Info "  LibRaw already present, skipping download."
+}
+# Smoke-test: dcraw_emu prints its usage (and version) with no arguments.
+$lrOut = (& $LibrawBin 2>&1 | Out-String)
+if ($lrOut -notmatch "LibRaw") {
+    Write-Err "dcraw_emu smoke-test failed`n  Binary: $LibrawBin"
+}
+Write-Info "  OK LibRaw dcraw_emu"
+
 # -- Done ---------------------------------------------------------------------
 Write-Info ""
 Write-Info "Dev environment ready. Next steps:"

@@ -144,6 +144,38 @@ if [[ ! "$ET_VER" =~ ^[0-9] ]]; then
 fi
 info "  ✓ ExifTool $ET_VER"
 
+# ── 6. LibRaw dcraw_emu (RAW decoding sidecar, ADR-023) ──────────────────────
+# Official LibRaw 0.22.2 macOS build (universal, Apple Silicon + Intel),
+# mirrored unchanged. LGPL-2.1 or CDDL-1.0; run as a process, never linked.
+LIBRAW_ZIP_NAME="LibRaw-0.22.2-macOS.zip"
+LIBRAW_ZIP_SHA="46e9cec8798419775df1411cc4554bb023e003509ff44b4057fd3b84eb55a517"
+LIBRAW_DIR="$VENDOR/libraw"
+
+if [[ ! -x "$LIBRAW_DIR/dcraw_emu" ]]; then
+    LIBRAW_ZIP="$VENDOR/$LIBRAW_ZIP_NAME"
+    download_mirrored "$LIBRAW_ZIP_NAME" "$LIBRAW_ZIP" "$LIBRAW_ZIP_SHA"
+    TMPX="$VENDOR/libraw-extract"
+    rm -rf "$TMPX" && mkdir -p "$TMPX" "$LIBRAW_DIR"
+    unzip -q "$LIBRAW_ZIP" -d "$TMPX"
+    ROOT="$TMPX/LibRaw-0.22.2"
+    for f in bin/dcraw_emu LICENSE.LGPL LICENSE.CDDL COPYRIGHT; do
+        [[ -f "$ROOT/$f" ]] || error "$f not found in $LIBRAW_ZIP_NAME"
+        cp "$ROOT/$f" "$LIBRAW_DIR/"
+    done
+    chmod +x "$LIBRAW_DIR/dcraw_emu"
+    # Downloaded binaries are quarantined by Gatekeeper; this one is mirrored
+    # from the official release and checksum-verified above.
+    xattr -d com.apple.quarantine "$LIBRAW_DIR/dcraw_emu" 2>/dev/null || true
+    rm -rf "$TMPX" "$LIBRAW_ZIP"
+    info "  Installed $LIBRAW_DIR/dcraw_emu"
+else
+    info "  LibRaw already present, skipping download."
+fi
+if ! "$LIBRAW_DIR/dcraw_emu" 2>&1 | grep -q LibRaw; then
+    error "dcraw_emu smoke-test failed ($LIBRAW_DIR/dcraw_emu)"
+fi
+info "  ✓ LibRaw dcraw_emu"
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 info ""
 info "Dev environment ready. Next steps:"
