@@ -13,6 +13,11 @@ export type Section =
 
 export type Mode = "calendar" | "grid" | "details";
 
+/** The library, or one of the full-window screens. */
+export type Screen = "library" | "backup" | "settings";
+
+export type Dialog = "timeShift" | null;
+
 /** Calendar position: no year = years level. A day opens a grid. */
 export interface CalPos {
   year: number | null;
@@ -30,6 +35,10 @@ export interface UiState {
   /** Bumped after edits so rows are fetched again. */
   revision: number;
   inspector: boolean;
+  screen: Screen;
+  /** The full-screen viewer shows the focused item. */
+  viewer: boolean;
+  dialog: Dialog;
 }
 
 export type Msg =
@@ -40,7 +49,10 @@ export type Msg =
   | { t: "cal"; cal: CalPos }
   | { t: "sel"; sel: sel.Sel }
   | { t: "edited" }
-  | { t: "inspector"; open: boolean };
+  | { t: "inspector"; open: boolean }
+  | { t: "screen"; screen: Screen }
+  | { t: "viewer"; open: boolean }
+  | { t: "dialog"; dialog: Dialog };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -51,6 +63,9 @@ export const initial: UiState = {
   sel: sel.emptySel,
   revision: 0,
   inspector: true,
+  screen: "library",
+  viewer: false,
+  dialog: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -59,12 +74,13 @@ export function reduce(s: UiState, m: Msg): UiState {
       const cal = { year: null, month: null, day: null };
       const mode: Mode =
         m.section.kind === "calendar" ? "calendar" : s.mode === "calendar" ? "grid" : s.mode;
-      return { ...s, section: m.section, cal, mode, sel: sel.emptySel };
+      return { ...s, section: m.section, cal, mode, sel: sel.emptySel, screen: "library" };
     }
     case "mode":
       return {
         ...s,
         mode: m.mode,
+        screen: "library",
         section: m.mode === "calendar" ? { kind: "calendar" } : s.section,
       };
     case "filters":
@@ -85,6 +101,12 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, revision: s.revision + 1 };
     case "inspector":
       return { ...s, inspector: m.open };
+    case "screen":
+      return { ...s, screen: m.screen, viewer: false };
+    case "viewer":
+      return { ...s, viewer: m.open && s.sel.focus !== null };
+    case "dialog":
+      return { ...s, dialog: m.dialog };
   }
 }
 

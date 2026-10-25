@@ -3,7 +3,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const calls = (page: Page, cmd: string) =>
-  page.evaluate((c) => (window.__mock?.calls ?? []).filter((x) => x.cmd === c).map((x) => x.args), cmd);
+  page.evaluate(
+    (c) => (window.__mock?.calls ?? []).filter((x) => x.cmd === c).map((x) => x.args),
+    cmd,
+  );
 
 async function openLibrary(page: Page, items = 300000) {
   await page.goto(`/?items=${items}`);
@@ -50,10 +53,12 @@ test("multi-select with mouse and keyboard, then rate the selection", async ({ p
   await page.keyboard.press("Control+a");
   await expect(page.getByTestId("selected")).toHaveText("300,000 selected");
   await page.keyboard.press("4");
-  await expect.poll(() => calls(page, "edit_rating")).toContainEqual({
-    selection: { ids: [], view: expect.any(Number), ranges: [[0, 300000]] },
-    rating: 4,
-  });
+  await expect
+    .poll(() => calls(page, "edit_rating"))
+    .toContainEqual({
+      selection: { ids: [], view: expect.any(Number), ranges: [[0, 300000]] },
+      rating: 4,
+    });
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("selected")).toHaveCount(0);
 });
@@ -64,11 +69,17 @@ test("keyboard rating and label show in the inspector", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("3");
   const insp = page.getByTestId("inspector");
-  await expect(insp.getByRole("radio", { name: "3 stars" })).toHaveAttribute("aria-checked", "true");
+  await expect(insp.getByRole("radio", { name: "3 stars" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await page.keyboard.press("6");
   await expect(insp.getByRole("radio", { name: "Red" })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("0");
-  await expect(insp.getByRole("radio", { name: "3 stars" })).toHaveAttribute("aria-checked", "false");
+  await expect(insp.getByRole("radio", { name: "3 stars" })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
 });
 
 test("inspector edits comment and keywords", async ({ page }) => {
@@ -120,11 +131,18 @@ test("search with words and filters narrows the grid", async ({ page }) => {
   await page.getByTestId("camera").selectOption("ILCE-7M4");
   await page.getByTestId("from").fill("2016-01-01");
   await page.getByTestId("to").fill("2019-12-31");
-  const shown = async () => Number(((await page.getByTestId("count").textContent()) ?? "").split(" ")[0].replace(/,/g, ""));
+  const shown = async () =>
+    Number(((await page.getByTestId("count").textContent()) ?? "").split(" ")[0].replace(/,/g, ""));
   await expect.poll(shown).toBeLessThan(2000);
   expect(await shown()).toBeGreaterThan(0);
   const q = (await calls(page, "view_open")).pop() as { query: Record<string, unknown> };
-  expect(q.query).toMatchObject({ kind: "video", minRating: 3, camera: "ILCE-7M4", from: "2016-01-01", to: "2019-12-31" });
+  expect(q.query).toMatchObject({
+    kind: "video",
+    minRating: 3,
+    camera: "ILCE-7M4",
+    from: "2016-01-01",
+    to: "2019-12-31",
+  });
   await expect(page.locator(".badge", { hasText: "▶" }).first()).toBeVisible();
 });
 
@@ -152,7 +170,10 @@ test("offline items show their cached thumbnail and a badge", async ({ page }) =
   await expect(off.locator(".badge.off")).toHaveText("offline");
   await expect(off.locator("img")).toBeVisible();
   // The unplugged volume in the sidebar lists exactly those.
-  await page.getByTestId("sidebar").getByRole("button", { name: /Archive/ }).click();
+  await page
+    .getByTestId("sidebar")
+    .getByRole("button", { name: /Archive/ })
+    .click();
   await expect(page.getByTestId("heading")).toHaveText("Archive (unplugged)");
   await expect(page.getByTestId("count")).toHaveText("500 items");
   await expect(page.locator(".tile.offline").first()).toBeVisible();

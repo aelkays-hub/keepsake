@@ -74,3 +74,44 @@ export function clamp(s: Sel, count: number): Sel {
   const f = s.focus !== null && s.focus < count ? s.focus : null;
   return { ranges, anchor: s.anchor !== null && s.anchor < count ? s.anchor : f, focus: f };
 }
+
+/**
+ * Where the viewer goes next from `current`: through the selection when
+ * more than one item is selected, else through the whole view. `null` when
+ * there is nowhere to go.
+ */
+export function viewerStep(
+  s: Sel,
+  count: number,
+  current: number,
+  dir: "next" | "prev" | "first" | "last",
+): number | null {
+  if (count === 0) return null;
+  let to: number | null;
+  if (size(s) > 1) {
+    const r = s.ranges;
+    switch (dir) {
+      case "first":
+        to = r[0][0];
+        break;
+      case "last":
+        to = r[r.length - 1][1] - 1;
+        break;
+      case "next": {
+        const hit = r.find(([, b]) => b - 1 > current);
+        to = hit ? Math.max(hit[0], current + 1) : null;
+        break;
+      }
+      case "prev": {
+        const hit = [...r].reverse().find(([a]) => a < current);
+        to = hit ? Math.min(hit[1] - 1, current - 1) : null;
+        break;
+      }
+    }
+  } else {
+    to =
+      dir === "first" ? 0 : dir === "last" ? count - 1 : dir === "next" ? current + 1 : current - 1;
+  }
+  if (to === null || to < 0 || to >= count || to === current) return null;
+  return to;
+}

@@ -695,3 +695,261 @@ textarea {
 .result.bad {
   background: color-mix(in srgb, var(--warn) 18%, transparent);
 }
+
+/* ── Viewer ────────────────────────────────────────────────────────── */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: #0d0d0f;
+  color: #ececf1;
+  outline: none;
+}
+.viewer button {
+  background: #26262b;
+  border-color: #3a3a42;
+}
+.viewer .muted {
+  color: #9a9aa6;
+}
+.viewer-bar,
+.viewer-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #17171a;
+}
+.viewer-name {
+  font-weight: 600;
+}
+.stars-text {
+  color: #f5c542;
+}
+.viewer-stage {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  cursor: zoom-in;
+  user-select: none;
+}
+.viewer-stage > img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.viewer-stage.zoomed {
+  overflow: auto;
+  display: block;
+  cursor: grab;
+}
+.viewer-stage.zoomed > img {
+  max-width: none;
+  max-height: none;
+  display: block;
+  margin: auto;
+}
+.viewer-note {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.7);
+}
+.viewer-video {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.viewer-video .viewer-stage {
+  cursor: default;
+}
+.viewer-video video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.viewer-wait {
+  text-align: center;
+}
+.viewer-wait img {
+  max-width: 60vw;
+  max-height: 60vh;
+  opacity: 0.6;
+}
+.viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #17171a;
+}
+.viewer-controls .scrub {
+  flex: 1;
+}
+.timecode {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Dialogs ───────────────────────────────────────────────────────── */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.modal h2 {
+  margin: 0 0 6px;
+}
+.modal-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ts-ref {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.ts-ref img,
+.ts-ref .ph {
+  width: 160px;
+  height: 107px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+}
+.ts-fields {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+}
+.ts-fields label,
+.preset-edit label,
+.screen label {
+  display: grid;
+  gap: 3px;
+}
+.ts-table,
+.history,
+.apps {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.ts-table th,
+.ts-table td,
+.history th,
+.history td,
+.apps td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.history .num {
+  text-align: right;
+}
+
+/* ── Screens (Backup, Settings) ────────────────────────────────────── */
+.screen-main {
+  overflow: auto;
+}
+.screen {
+  max-width: 900px;
+  padding: 0 16px 24px;
+}
+.card {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.card h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.screen .row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.screen label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+input.grow {
+  width: 100%;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.dest-list,
+.preset-list,
+.problems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dest-list li,
+.preset-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dest-dates {
+  font-size: 12px;
+}
+.preset-edit {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+.ok {
+  color: var(--ok);
+}
+.bad {
+  color: var(--bad);
+}
+progress {
+  width: 100%;
+}

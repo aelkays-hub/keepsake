@@ -5,6 +5,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { AppInfo } from "./bindings/AppInfo";
+import type { AssetMembers } from "./bindings/AssetMembers";
+import type { BackupOverview } from "./bindings/BackupOverview";
 import type { Bucket } from "./bindings/Bucket";
 import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { CardNotice } from "./bindings/CardNotice";
@@ -17,18 +19,29 @@ import type { ImportCheck } from "./bindings/ImportCheck";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
 import type { ImportResult } from "./bindings/ImportResult";
+import type { MaintDone } from "./bindings/MaintDone";
+import type { MaintProgress } from "./bindings/MaintProgress";
+import type { MemberDto } from "./bindings/MemberDto";
+import type { OpenApp } from "./bindings/OpenApp";
 import type { Preset } from "./bindings/Preset";
 import type { Query } from "./bindings/Query";
 import type { RenderSummary } from "./bindings/RenderSummary";
 import type { Row } from "./bindings/Row";
 import type { Selection } from "./bindings/Selection";
+import type { SettingsInfo } from "./bindings/SettingsInfo";
+import type { SettingsSaved } from "./bindings/SettingsSaved";
+import type { SettingsUpdate } from "./bindings/SettingsUpdate";
 import type { Sidebar } from "./bindings/Sidebar";
 import type { SortSpec } from "./bindings/SortSpec";
 import type { ThumbsReady } from "./bindings/ThumbsReady";
+import type { TimeShiftPreview } from "./bindings/TimeShiftPreview";
+import type { VideoInfo } from "./bindings/VideoInfo";
 import type { ViewInfo } from "./bindings/ViewInfo";
 
 export type {
   AppInfo,
+  AssetMembers,
+  BackupOverview,
   Bucket,
   CalendarLevelDto,
   CardNotice,
@@ -40,13 +53,22 @@ export type {
   ImportProgress,
   ImportRequest,
   ImportResult,
+  MaintDone,
+  MaintProgress,
+  MemberDto,
+  OpenApp,
   Preset,
   Query,
   RenderSummary,
   Row,
   Selection,
+  SettingsInfo,
+  SettingsSaved,
+  SettingsUpdate,
   Sidebar,
   SortSpec,
+  TimeShiftPreview,
+  VideoInfo,
   ViewInfo,
 };
 
@@ -114,6 +136,26 @@ export const api = {
   ) => invoke<ImportCheck>("import_check", { request, sizes, first, firstMs }),
   importStart: (request: ImportRequest) => invoke<void>("import_start", { request }),
   importCancel: () => invoke<void>("import_cancel"),
+  presetDelete: (name: string) => invoke<boolean>("preset_delete", { name }),
+
+  fullImage: (id: string, member: MemberDto) => invoke<string>("full_image", { id, member }),
+  assetMembers: (id: string) => invoke<AssetMembers>("asset_members", { id }),
+  videoInfo: (id: string) => invoke<VideoInfo>("video_info", { id }),
+  openExternal: (id: string, member: MemberDto) => invoke<string>("open_external", { id, member }),
+
+  timeShiftPreview: (selection: Selection, reference: string, correct: string) =>
+    invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),
+  timeShiftApply: (selection: Selection, offsetS: number) =>
+    invoke<EditResult>("time_shift_apply", { selection, offsetS }),
+
+  backupOverview: () => invoke<BackupOverview>("backup_overview"),
+  backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
+  verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
+  maintCancel: () => invoke<void>("maint_cancel"),
+
+  settingsGet: () => invoke<SettingsInfo>("settings_get"),
+  settingsSet: (update: SettingsUpdate) => invoke<SettingsSaved>("settings_set", { update }),
+  cacheRemoveOld: (path: string) => invoke<number>("cache_remove_old", { path }),
 };
 
 export const events = {
@@ -127,7 +169,18 @@ export const events = {
     listen<ImportProgress>("import://progress", (e) => f(e.payload)),
   importDone: (f: (e: ImportResult) => void): Promise<UnlistenFn> =>
     listen<ImportResult>("import://done", (e) => f(e.payload)),
+  maintProgress: (f: (e: MaintProgress) => void): Promise<UnlistenFn> =>
+    listen<MaintProgress>("maint://progress", (e) => f(e.payload)),
+  maintDone: (f: (e: MaintDone) => void): Promise<UnlistenFn> =>
+    listen<MaintDone>("maint://done", (e) => f(e.payload)),
 };
+
+/** Ask the native dialog for a file, e.g. an application (null if cancelled). */
+export async function pickFile(title: string): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ directory: false, multiple: false, title });
+  return typeof r === "string" ? r : null;
+}
 
 /** Ask the native dialog for a folder (null if cancelled). */
 export async function pickFolder(title: string): Promise<string | null> {

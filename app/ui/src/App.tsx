@@ -3,15 +3,20 @@
 import { useEffect, useState } from "react";
 
 import { api, type AppInfo } from "./api";
+import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
 import { DetailsView } from "./components/DetailsView";
 import { FirstRun } from "./components/FirstRun";
 import { GridView } from "./components/GridView";
 import { Inspector } from "./components/Inspector";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
+import { TimeShiftDialog } from "./components/TimeShiftDialog";
 import { Toolbar } from "./components/Toolbar";
+import { Viewer } from "./components/Viewer";
 import * as fmt from "./format";
+import * as sel from "./selection";
 import { UiProvider, useUi } from "./state";
 
 function Heading() {
@@ -52,8 +57,23 @@ function Heading() {
 
 function Main() {
   const { s, dispatch } = useUi();
-  // Enter on an item: show it in the inspector (and open the inspector).
-  const open = () => dispatch({ t: "inspector", open: true });
+  // Enter or double-click on an item: the full-screen viewer.
+  const open = (i: number) => {
+    dispatch({ t: "sel", sel: sel.has(s.sel, i) ? { ...s.sel, focus: i } : sel.only(i) });
+    dispatch({ t: "viewer", open: true });
+  };
+  if (s.screen === "backup")
+    return (
+      <main className="main screen-main" aria-label="Backup">
+        <BackupScreen />
+      </main>
+    );
+  if (s.screen === "settings")
+    return (
+      <main className="main screen-main" aria-label="Settings">
+        <SettingsScreen />
+      </main>
+    );
   return (
     <main className="main" aria-label="Items">
       {s.mode !== "calendar" && <Heading />}
@@ -69,7 +89,7 @@ function Main() {
 }
 
 function Shell() {
-  const { s, dispatch } = useUi();
+  const { s, dispatch, view } = useUi();
   // F6 cycles sidebar → main → inspector; Ctrl+I toggles the inspector.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -88,6 +108,18 @@ function Shell() {
         const k = e.key.toLowerCase();
         const modes = { "1": "calendar", "2": "grid", "3": "details" } as const;
         if (k === "i") dispatch({ t: "inspector", open: !s.inspector });
+        else if (k === ",") dispatch({ t: "screen", screen: "settings" });
+        else if (
+          k === "t" &&
+          s.screen === "library" &&
+          (s.sel.focus !== null || s.sel.ranges.length)
+        )
+          dispatch({ t: "dialog", dialog: "timeShift" });
+        else if (k === "o" && view && s.sel.focus !== null && !s.viewer)
+          api
+            .viewRows(view.view, s.sel.focus, 1)
+            .then(([r]) => r && api.openExternal(r.id, "primary"))
+            .catch(console.error);
         else if (k === "f") document.getElementById("search")?.focus();
         else if (k in modes) dispatch({ t: "mode", mode: modes[k as keyof typeof modes] });
         else return;
@@ -96,14 +128,16 @@ function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, s.inspector]);
+  }, [dispatch, s.inspector, s.screen, s.sel, s.viewer, view]);
   return (
-    <div className={`shell${s.inspector ? "" : " no-inspector"}`}>
+    <div className={`shell${s.inspector && s.screen === "library" ? "" : " no-inspector"}`}>
       <Toolbar />
       <Sidebar />
       <Main />
-      {s.inspector && <Inspector />}
+      {s.inspector && s.screen === "library" && <Inspector />}
       <StatusBar />
+      {s.viewer && <Viewer />}
+      {s.dialog === "timeShift" && <TimeShiftDialog />}
     </div>
   );
 }

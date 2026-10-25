@@ -11,6 +11,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import type { Bucket } from "../bindings/Bucket";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
+import type { HistoryRun } from "../bindings/HistoryRun";
 import type { Details } from "../bindings/Details";
 import type { ImportRequest } from "../bindings/ImportRequest";
 import type { ItemKind } from "../bindings/ItemKind";
@@ -18,6 +19,8 @@ import type { Preset } from "../bindings/Preset";
 import type { Query } from "../bindings/Query";
 import type { Row } from "../bindings/Row";
 import type { Selection } from "../bindings/Selection";
+import type { SettingsInfo } from "../bindings/SettingsInfo";
+import type { SettingsUpdate } from "../bindings/SettingsUpdate";
 import type { SortSpec } from "../bindings/SortSpec";
 
 const CAMERAS = ["ILCE-7M4", "ILCE-6000", "ZV-E10", "ILCE-1"];
@@ -36,6 +39,13 @@ const svg = (h: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="171"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h},60%,55%)"/><stop offset="1" stop-color="hsl(${(h + 60) % 360},60%,35%)"/></linearGradient></defs><rect width="256" height="171" fill="url(#g)"/></svg>`,
   );
 const THUMBS = Array.from({ length: 16 }, (_, i) => svg(i * 22));
+
+/** A 4000 × 3000 "full-size" picture with a grid, to see zoom and pan. */
+const fullSvg = (h: number, raw: boolean) =>
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="3000"><defs><pattern id="p" width="200" height="200" patternUnits="userSpaceOnUse"><rect width="200" height="200" fill="hsl(${h},50%,${raw ? 30 : 50}%)"/><path d="M0 0H200V200" fill="none" stroke="white" stroke-width="4"/></pattern></defs><rect width="4000" height="3000" fill="url(#p)"/><text x="2000" y="1500" font-size="200" text-anchor="middle" fill="white">${raw ? "RAW" : "JPEG"} 100%</text></svg>`,
+  );
 
 interface Item {
   i: number;
@@ -59,6 +69,11 @@ export interface MockState {
   keywords: Map<number, string[]>;
   presets: Preset[];
   imported: Set<string>;
+  /** Seconds added to capture times by time shifts. */
+  shift: Map<number, number>;
+  history: HistoryRun[];
+  settings: SettingsInfo;
+  opened: { id: string; member: string }[];
 }
 
 declare global {
@@ -107,6 +122,22 @@ export function installMock(): void {
       },
     ],
     imported: new Set(),
+    shift: new Map(),
+    history: [],
+    settings: {
+      library: "D:\\Keepsake",
+      cacheDir: "C:\\Users\\me\\AppData\\Local\\keepsake\\cache\\renditions",
+      cacheDirCustom: false,
+      cacheMaxBytes: 20 * 1024 ** 3,
+      cacheBytes: 3e9,
+      workers: null,
+      workersDefault: 4,
+      proxyWorkers: 1,
+      pauseOnBattery: true,
+      openApps: [],
+      configFile: "C:\\Users\\me\\AppData\\Roaming\\keepsake\\config.toml",
+    },
+    opened: [],
   };
   window.__mock = st;
   let library: string | null = noLibrary ? null : "D:\\Keepsake";
@@ -118,10 +149,11 @@ export function installMock(): void {
     st.rating.get(it.i) ?? ((it.i * 7) % 10 > 6 ? ((it.i * 7) % 10) - 4 : 0);
   const label = (it: Item) =>
     st.label.has(it.i) ? (st.label.get(it.i) ?? null) : it.i % 13 === 0 ? "Red" : null;
+  const time = (it: Item) => (it.t === null ? null : it.t + (st.shift.get(it.i) ?? 0) * 1000);
   const row = (it: Item): Row => ({
     id: `a${it.i}`,
     name: it.name,
-    captured: iso(it.t),
+    captured: iso(time(it)),
     camera: it.camera,
     lens: it.lens,
     kind: it.kind,
@@ -308,7 +340,7 @@ export function installMock(): void {
             id: `a${it.i}`,
             name: it.name,
             kind: it.kind,
-            captured: iso(it.t),
+            captured: iso(time(it)),
             captureSource: "exif",
             confidence: "high",
             cameraMake: "SONY",
@@ -331,7 +363,8 @@ export function installMock(): void {
               },
             ],
             preview: THUMBS[it.i % 16],
-            proxy: null,
+            // A tiny synthetic WebM (Playwright's Chromium has no H.264).
+            proxy: it.kind === "video" ? `${window.location.origin}/e2e/assets/clip.webm` : null,
             online: it.online,
           };
           return d;
@@ -443,6 +476,156 @@ export function installMock(): void {
         }
         case "import_cancel":
           return null;
+        case "preset_delete": {
+          const before = st.presets.length;
+          st.presets = st.presets.filter((p) => p.name !== a.name);
+          return st.presets.length < before;
+        }
+        case "full_image": {
+          const it = all[Number(String(a.id).slice(1))];
+          if (!it.online) throw new Error("the drive with this item is not connected");
+          return fullSvg((it.i * 22) % 360, a.member === "raw");
+        }
+        case "asset_members": {
+          const it = all[Number(String(a.id).slice(1))];
+          // Even RAWs have a JPEG beside them; odd ones are RAW alone.
+          return {
+            hasPair: it.kind === "raw" && it.i % 2 === 0,
+            rawOnly: it.kind === "raw" && it.i % 2 === 1,
+            online: it.online,
+          };
+        }
+        case "video_info":
+          return {
+            fpsNum: 25,
+            fpsDen: 1,
+            startTimecode: "10:00:00:00",
+            durationMs: 2000,
+            width: 160,
+            height: 90,
+          };
+        case "open_external":
+          st.opened.push({ id: String(a.id), member: String(a.member) });
+          return "explorer";
+        case "time_shift_preview": {
+          const ids = resolve(a.selection as Selection);
+          const ref = all[Number(String(a.reference).slice(1))];
+          const correct = Date.parse(`${String(a.correct)}Z`);
+          const rt = time(ref);
+          if (rt === null) throw new Error("the reference photo has no capture time");
+          if (Number.isNaN(correct)) throw new Error(`not a date and time: ${String(a.correct)}`);
+          const off = Math.floor(correct / 1000) - Math.floor(rt / 1000);
+          const dated = ids.map((i) => all[i]).filter((x) => x.t !== null);
+          dated.sort((x, y) => (time(x) ?? 0) - (time(y) ?? 0));
+          const fmtT = (t: number | null) => (iso(t) ?? "").replace("T", " ");
+          return {
+            offsetS: off,
+            total: dated.length,
+            undated: ids.length - dated.length,
+            samples: dated.slice(0, 10).map((x) => ({
+              id: `a${x.i}`,
+              name: x.name,
+              before: fmtT(time(x)),
+              after: fmtT((time(x) ?? 0) + off * 1000),
+            })),
+            referenceBefore: fmtT(rt),
+          };
+        }
+        case "time_shift_apply": {
+          const ids = resolve(a.selection as Selection).filter((i) => all[i].t !== null);
+          for (const i of ids) st.shift.set(i, (st.shift.get(i) ?? 0) + (a.offsetS as number));
+          return { changed: ids.length, background: false };
+        }
+        case "backup_overview": {
+          const dests = new Map<string, HistoryRun>();
+          for (const r of st.history)
+            if (r.kind === "backup" && r.volume && !dests.has(r.volume)) dests.set(r.volume, r);
+          return {
+            destinations: [...dests.values()].map((r) => ({
+              volume: r.volume ?? "",
+              label: r.label,
+              path: r.destination,
+              online: true,
+              lastBackupMs: r.finishedMs,
+              lastVerifiedMs:
+                st.history.find((v) => v.kind === "verify" && v.volume === r.volume && v.ok)
+                  ?.finishedMs ?? null,
+            })),
+            runs: st.history,
+            busy: false,
+          };
+        }
+        case "backup_run":
+        case "verify_run": {
+          const kind = cmd === "backup_run" ? "backup" : "verify";
+          const prev = st.history.find(
+            (r) => r.kind === "backup" && (r.volume === a.volume || r.destination === a.dest),
+          );
+          const dest = kind === "backup" ? String(a.dest) : (prev?.destination ?? "");
+          const label =
+            kind === "backup" ? String(a.label ?? dest.split(/[\\/]/).pop()) : (prev?.label ?? "");
+          const volume = prev?.volume ?? `vb${st.history.length}`;
+          const total = 120e6;
+          let done = 0;
+          const started = Date.now();
+          const tick = setInterval(() => {
+            done = Math.min(total, done + total / 4);
+            void emit("maint://progress", {
+              kind,
+              bytesDone: done,
+              bytesTotal: total,
+              filesDone: Math.round((done / total) * 30),
+              current: "2024/2024-06-15/DSC01003.JPG",
+            });
+            if (done >= total) {
+              clearInterval(tick);
+              const run: HistoryRun = {
+                kind,
+                startedMs: started,
+                finishedMs: Date.now(),
+                destination: dest,
+                volume,
+                label,
+                files: 30,
+                bytes: kind === "backup" ? total : 0,
+                problems: 0,
+                cancelled: false,
+                ok: true,
+              };
+              st.history = [run, ...st.history];
+              void emit("maint://done", { kind, run, problems: [], error: null });
+            }
+          }, 100);
+          return null;
+        }
+        case "maint_cancel":
+          return null;
+        case "settings_get":
+          return st.settings;
+        case "settings_set": {
+          const u = a.update as SettingsUpdate;
+          if (u.cacheMaxBytes < 256 * 1024 ** 2)
+            throw new Error("the cache limit must be at least 256 MB");
+          const old = st.settings.cacheDir;
+          st.settings = {
+            ...st.settings,
+            cacheDir: u.cacheDir ?? st.settings.cacheDir,
+            cacheDirCustom: u.cacheDir !== null,
+            cacheMaxBytes: u.cacheMaxBytes,
+            workers: u.workers,
+            proxyWorkers: u.proxyWorkers,
+            pauseOnBattery: u.pauseOnBattery,
+            openApps: u.openApps
+              .map((x) => ({
+                ext: x.ext.trim().replace(/^\./, "").toLowerCase(),
+                app: x.app.trim(),
+              }))
+              .filter((x) => x.ext && x.app),
+          };
+          return { settings: st.settings, oldCache: old !== st.settings.cacheDir ? old : null };
+        }
+        case "cache_remove_old":
+          return 2.5e9;
         default:
           throw new Error(`mock: unknown command ${cmd}`);
       }
