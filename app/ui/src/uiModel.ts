@@ -1,0 +1,117 @@
+// The UI state model: pure types, the reducer and the effective query
+// (unit-tested). The React provider lives in state.tsx.
+
+import { emptyQuery, type Query, type SortSpec } from "./api";
+import * as sel from "./selection";
+
+export type Section =
+  | { kind: "all" }
+  | { kind: "calendar" }
+  | { kind: "event"; id: string; title: string }
+  | { kind: "volume"; id: string; title: string }
+  | { kind: "import"; id: string; title: string };
+
+export type Mode = "calendar" | "grid" | "details";
+
+/** Calendar position: no year = years level. A day opens a grid. */
+export interface CalPos {
+  year: number | null;
+  month: number | null;
+  day: number | null;
+}
+
+export interface UiState {
+  section: Section;
+  mode: Mode;
+  filters: Query;
+  sort: SortSpec;
+  cal: CalPos;
+  sel: sel.Sel;
+  /** Bumped after edits so rows are fetched again. */
+  revision: number;
+  inspector: boolean;
+}
+
+export type Msg =
+  | { t: "section"; section: Section }
+  | { t: "mode"; mode: Mode }
+  | { t: "filters"; filters: Query }
+  | { t: "sort"; sort: SortSpec }
+  | { t: "cal"; cal: CalPos }
+  | { t: "sel"; sel: sel.Sel }
+  | { t: "edited" }
+  | { t: "inspector"; open: boolean };
+
+export const initial: UiState = {
+  section: { kind: "all" },
+  mode: "grid",
+  filters: emptyQuery,
+  sort: { field: "date", descending: true },
+  cal: { year: null, month: null, day: null },
+  sel: sel.emptySel,
+  revision: 0,
+  inspector: true,
+};
+
+export function reduce(s: UiState, m: Msg): UiState {
+  switch (m.t) {
+    case "section": {
+      const cal = { year: null, month: null, day: null };
+      const mode: Mode =
+        m.section.kind === "calendar" ? "calendar" : s.mode === "calendar" ? "grid" : s.mode;
+      return { ...s, section: m.section, cal, mode, sel: sel.emptySel };
+    }
+    case "mode":
+      return {
+        ...s,
+        mode: m.mode,
+        section: m.mode === "calendar" ? { kind: "calendar" } : s.section,
+      };
+    case "filters":
+      return { ...s, filters: m.filters, sel: sel.emptySel };
+    case "sort":
+      return { ...s, sort: m.sort, sel: sel.emptySel };
+    case "cal":
+      return {
+        ...s,
+        cal: m.cal,
+        section: { kind: "calendar" },
+        mode: m.cal.day !== null ? "grid" : "calendar",
+        sel: sel.emptySel,
+      };
+    case "sel":
+      return { ...s, sel: m.sel };
+    case "edited":
+      return { ...s, revision: s.revision + 1 };
+    case "inspector":
+      return { ...s, inspector: m.open };
+  }
+}
+
+const two = (n: number) => String(n).padStart(2, "0");
+
+/** The query for the grid/details: filters + section + calendar scope. */
+export function effectiveQuery(s: UiState): Query {
+  const q: Query = { ...s.filters };
+  switch (s.section.kind) {
+    case "event":
+      q.event = s.section.id;
+      break;
+    case "volume":
+      q.volume = s.section.id;
+      break;
+    case "import":
+      q.session = s.section.id;
+      break;
+    case "calendar": {
+      const { year, month, day } = s.cal;
+      if (year !== null && month !== null && day !== null) {
+        const d = `${year}-${two(month)}-${two(day)}`;
+        q.from = d;
+        q.to = d;
+      }
+      break;
+    }
+  }
+  return q;
+}
