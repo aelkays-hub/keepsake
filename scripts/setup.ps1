@@ -1,7 +1,7 @@
 # Keepsake dev-environment setup - Windows
 # Re-running is safe; every step is idempotent.
 #Requires -Version 5.1
-# -VendorOnly: only download the pinned FFmpeg/ffprobe/ExifTool into vendor# (used by CI; skips installing Rust, Node and pnpm).
+# -VendorOnly: only download the pinned FFmpeg/ffprobe/ExifTool/LibRaw into vendor# (used by CI; skips installing Rust, Node and pnpm).
 param([switch]$VendorOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
