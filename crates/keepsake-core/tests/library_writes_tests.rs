@@ -62,8 +62,8 @@ fn recipes_are_written_and_removed_in_the_library_only() {
     assert!(std::fs::read_to_string(&path).unwrap().contains("0.4"));
     svc.remove_recipe(r.id).unwrap();
     assert!(!path.exists());
-    svc.remove_recipe(r.id).unwrap(); // already gone: fine
-    drop(svc);
+    // Already gone: fine.
+    svc.remove_recipe(r.id).unwrap();
     // The recipe lives in the library; the media folder only gains the
     // XMP sidecar that records it (beside the original, never inside it).
     let after = common::tree_hashes(&media);

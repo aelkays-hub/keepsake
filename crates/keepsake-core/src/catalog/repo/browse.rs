@@ -330,6 +330,9 @@ impl<M> Browse<'_, M> {
             CalendarLevel::Months { year } => (7, Some(format!("{year:04}-"))),
             CalendarLevel::Days { year, month } => (10, Some(format!("{year:04}-{month:02}-"))),
         };
+        if level == CalendarLevel::Years && f.joins.is_empty() && f.wh.is_empty() {
+            return self.calendar_years_unfiltered();
+        }
         let mut wh = f.wh.clone();
         wh.push("a.capture_local_date IS NOT NULL".into());
         // Ranges, not LIKE, so the date index is used.
@@ -385,6 +388,86 @@ impl<M> Browse<'_, M> {
                     cover_hash: None,
                 });
             }
+        }
+        Ok(out)
+    }
+
+    /// The years level of the whole library, from indexes alone: a range
+    /// count per year, and the cover found by seeking the rating index
+    /// (best rating first, then the earliest capture). The one-pass query
+    /// reads every asset (170 ms at 300,000); this takes a few ms.
+    fn calendar_years_unfiltered(&self) -> Result<Vec<CalendarBucket>, CatalogError> {
+        let (lo, hi): (Option<String>, Option<String>) = self.conn.query_row(
+            "SELECT min(capture_local_date), max(capture_local_date) FROM assets",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let year = |d: &Option<String>| d.as_deref().and_then(|s| s.get(..4)?.parse::<i32>().ok());
+        let mut out = Vec::new();
+        if let (Some(a), Some(b)) = (year(&lo), year(&hi)) {
+            let mut count = self.conn.prepare_cached(
+                "SELECT count(*) FROM assets WHERE capture_local_date >= ?1 AND capture_local_date < ?2",
+            )?;
+            // Capture times within a day of the year (local dates can be
+            // up to 14 hours from UTC), checked against the local date.
+            let mut seek = self.conn.prepare_cached(
+                "SELECT a.id FROM assets a
+                  WHERE a.rating = ?1 AND a.capture_ts_ms >= ?2 AND a.capture_ts_ms < ?3
+                    AND a.capture_local_date >= ?4 AND a.capture_local_date < ?5
+                  ORDER BY a.capture_ts_ms, a.seq LIMIT 1",
+            )?;
+            let mut hash = self.conn.prepare_cached(
+                "SELECT blake3 FROM files WHERE asset_id = ? AND role = 'original' LIMIT 1",
+            )?;
+            const DAY: i64 = 86_400_000;
+            for y in a..=b {
+                let key = format!("{y:04}");
+                let (from, to) = (format!("{y:04}-"), format!("{y:04}-~"));
+                let n: i64 = count.query_row(rusqlite::params![from, to], |r| r.get(0))?;
+                if n == 0 {
+                    continue;
+                }
+                let start = chrono::NaiveDate::from_ymd_opt(y, 1, 1)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0))
+                    .map_or(i64::MIN, |t| t.and_utc().timestamp_millis());
+                let end = chrono::NaiveDate::from_ymd_opt(y + 1, 1, 1)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0))
+                    .map_or(i64::MAX, |t| t.and_utc().timestamp_millis());
+                let mut cover: Option<AssetId> = None;
+                for rating in (0..=5).rev() {
+                    cover = seek
+                        .query_row(
+                            rusqlite::params![rating, start - DAY, end + DAY, from, to],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    if cover.is_some() {
+                        break;
+                    }
+                }
+                let cover_hash: Option<Blake3Hash> = match cover {
+                    Some(c) => hash.query_row([c], |r| r.get(0)).optional()?,
+                    None => None,
+                };
+                out.push(CalendarBucket {
+                    key,
+                    count: u64::try_from(n).unwrap_or(0),
+                    cover,
+                    cover_hash,
+                });
+            }
+        }
+        let undated = self.count(&SearchQuery {
+            undated: true,
+            ..SearchQuery::default()
+        })?;
+        if undated > 0 {
+            out.push(CalendarBucket {
+                key: "undated".into(),
+                count: undated,
+                cover: None,
+                cover_hash: None,
+            });
         }
         Ok(out)
     }

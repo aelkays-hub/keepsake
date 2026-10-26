@@ -573,3 +573,33 @@ fn copy(src: &std::path::Path, dst: &std::path::Path) {
         }
     }
 }
+
+#[test]
+fn the_unfiltered_years_level_matches_the_general_query() {
+    let w = world(3000);
+    let fast = w
+        .cat
+        .read(|tx| tx.browse().calendar(&all(), CalendarLevel::Years))
+        .unwrap();
+    // A filter that every dated asset passes takes the general path.
+    let general = w
+        .cat
+        .read(|tx| {
+            tx.browse().calendar(
+                &SearchQuery {
+                    from: Some("0001-01-01".into()),
+                    ..all()
+                },
+                CalendarLevel::Years,
+            )
+        })
+        .unwrap();
+    let dated: Vec<_> = fast.iter().filter(|b| b.key != "undated").collect();
+    assert_eq!(dated.len(), general.len());
+    for (a, b) in dated.iter().zip(&general) {
+        assert_eq!((&a.key, a.count), (&b.key, b.count));
+        assert_eq!(a.cover, b.cover, "cover of {}", a.key);
+        assert_eq!(a.cover_hash, b.cover_hash);
+    }
+    assert!(fast.iter().any(|b| b.key == "undated"));
+}
