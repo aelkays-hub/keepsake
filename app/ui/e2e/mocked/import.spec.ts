@@ -8,7 +8,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("lists new items grouped by day, with select all and none", async ({ page }) => {
-  await expect(page.getByTestId("import-summary")).toContainText("11 new items since last import (12 on the card)");
+  await expect(page.getByTestId("import-summary")).toContainText(
+    "11 new items since last import (12 on the card)",
+  );
   await expect(page.getByTestId("import-summary")).toContainText("11 selected");
   await expect(page.getByRole("heading", { name: /2024-06-15/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /2024-06-16/ })).toBeVisible();
@@ -41,7 +43,9 @@ test("one destination is never safe to format; same disk is refused", async ({ p
   await expect(page.getByTestId("check")).toContainText("same disk");
   await expect(page.getByTestId("start-import")).toBeDisabled();
   await page.getByTestId("use-b").uncheck();
-  await expect(page.getByText("With one destination the card will not be safe to format.")).toBeVisible();
+  await expect(
+    page.getByText("With one destination the card will not be safe to format."),
+  ).toBeVisible();
   await page.getByTestId("start-import").click();
   await expect(page.getByTestId("result")).toContainText("NOT safe to format");
   await expect(page.getByTestId("result")).toContainText("only one destination");

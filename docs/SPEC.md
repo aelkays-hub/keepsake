@@ -27,20 +27,26 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 ### Metadata and search
 - Ratings (1–5 stars), colour labels, free-text comments stored in XMP sidecars.
 - Search by date range, camera model, lens, media type (photo / video / raw), minimum rating, and free text, from a search bar above the grid.
-- Batch time-shift: write corrected `DateTimeOriginal` to XMP sidecar (never to the original file).
+- Batch time-shift: pick a reference photo, enter the time it really was, preview the offset on the selection, then write the corrected `DateTimeOriginal` to the XMP sidecars (never to the original file). Ctrl+T.
 
 ### Viewer
-- JPEG and HEIF display.
-- ARW raw preview (embedded JPEG; LibRaw decode later).
+- Full-screen viewer (Enter or double-click; Esc closes, F for full screen). Arrows move through the selection, or through the whole view when one item is selected. Rating and label keys work in the viewer.
+- Photos: the preview fits the window; Z, a click or the wheel zooms to 100% from a full-size picture made on demand (JPEG, HEIF, and RAW decoded by LibRaw). Drag or arrows pan.
+- RAW + JPEG pairs are one item, with a JPEG | RAW toggle (R).
+- Video: the proxy with a scrub bar, Space to play, `,` and `.` to step one frame, J and L to jump a second, and the timecode of the frame on screen (start timecode + position, drop-frame aware).
 - Renditions for every asset: 256 px and 1024 px thumbnails, a 2560 px preview (never enlarged), and for video a 720p H.264 proxy (or the camera's H.264 SUB proxy). They are made in the background in this order: on screen, then recent imports, then the rest. Work pauses on battery and during imports. The cache has a size limit, and renditions of offline drives are always kept. Speeds are in `docs/PERFORMANCE.md`.
 - Video playback via camera-generated proxies or app-generated H.264 proxies (webviews cannot decode XAVC HS 10-bit or AVCHD natively).
 
 ### Backup and verification
-- Verify any previously imported destination on demand (re-hash, compare against catalog).
+- Backup screen: choose a destination, run an incremental verified backup with progress and Stop, and see every backup and verify in a history (`<library>/history.json`), with the last verification date per destination.
+- Verify any previously imported destination or backup on demand (re-hash, compare against catalog).
 - Visual report of missing, corrupt, or mismatched files.
 
 ### Interop
-- Open selected file in the system default application.
+- Open the item in another application (Ctrl+O): the system default, or an application set per file type in Settings.
+
+### Settings
+- Library (open or create another), cache folder (with removal of the old cache's files after a move), cache size limit, image and video workers, pause on battery, Open in applications, and import presets (create, edit, delete). Ctrl+,.
 - CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.
 
 ---

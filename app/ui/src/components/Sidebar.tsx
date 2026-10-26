@@ -6,11 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import { api, events, type Sidebar as SidebarData } from "../api";
 import * as fmt from "../format";
 import { useUi, type Section } from "../state";
+import type { Screen } from "../uiModel";
 
 interface Entry {
   key: string;
   label: string;
   section: Section;
+  /** A full-window screen instead of a library section. */
+  screen?: Screen;
   count?: number;
   status?: "online" | "offline";
 }
@@ -62,6 +65,13 @@ export function Sidebar() {
       })),
     },
     {
+      title: "Tools",
+      entries: [
+        { key: "backup", label: "Backup", section: { kind: "all" }, screen: "backup" },
+        { key: "settings", label: "Settings", section: { kind: "all" }, screen: "settings" },
+      ],
+    },
+    {
       title: "Imports",
       entries: (data?.imports ?? []).map((i) => {
         const when = new Date(i.startedMs).toLocaleString(undefined, {
@@ -78,10 +88,9 @@ export function Sidebar() {
     },
   ];
   const flat = groups.flatMap((g) => g.entries);
-  const active = Math.max(
-    0,
-    flat.findIndex((e) => same(e.section, s.section)),
-  );
+  const isActive = (e: Entry) =>
+    e.screen ? s.screen === e.screen : s.screen === "library" && same(e.section, s.section);
+  const active = Math.max(0, flat.findIndex(isActive));
   const [focus, setFocus] = useState(active);
   const nav = useRef<HTMLElement>(null);
   const move = (to: number) => {
@@ -101,7 +110,7 @@ export function Sidebar() {
   return (
     <nav ref={nav} className="sidebar" aria-label="Library" onKeyDown={onKey} data-testid="sidebar">
       {groups.map((g) =>
-        g.entries.length === 0 && g.title !== "Library" ? null : (
+        g.entries.length === 0 ? null : (
           <section key={g.title}>
             <h3>{g.title}</h3>
             <ul>
@@ -113,11 +122,12 @@ export function Sidebar() {
                     <button
                       data-entry={i}
                       tabIndex={i === focus ? 0 : -1}
-                      aria-current={same(e.section, s.section) ? "page" : undefined}
-                      className={same(e.section, s.section) ? "active" : ""}
+                      aria-current={isActive(e) ? "page" : undefined}
+                      className={isActive(e) ? "active" : ""}
                       onClick={() => {
                         setFocus(i);
-                        dispatch({ t: "section", section: e.section });
+                        if (e.screen) dispatch({ t: "screen", screen: e.screen });
+                        else dispatch({ t: "section", section: e.section });
                       }}
                     >
                       {e.status && (

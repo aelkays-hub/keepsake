@@ -1,129 +1,183 @@
-# Manual Test Steps — Prompt 10: the main app UI
+# Manual Test Steps — Prompt 11: viewer, time shift, Open in, Backup, Settings
 
 Test on **Windows 11** (primary) and **macOS 14+**.
 
 **Build:**
-- `scripts/setup.ps1` (or `setup.sh`) once.
-- `cargo build -p keepsake-app -p keepsake-cli` (and `--release -p keepsake-cli` for step B3).
+- Run `scripts/setup.ps1` (or `setup.sh`) once. It now also downloads LibRaw into `vendor/libraw`.
+- `cargo build -p keepsake-app -p keepsake-cli`
 
-**Run the app:** from `app/ui`, `pnpm tauri dev`. This starts Vite and the debug app.
+**Run the app:** from `app/ui`, `pnpm tauri dev`.
 
 To keep your real settings apart, start it from a shell with a test config folder:
 ```powershell
-$T = "$env:TEMP\ks10"; $env:KEEPSAKE_CONFIG_DIR = "$T\config"
+$T = "$env:TEMP\ks11"; $env:KEEPSAKE_CONFIG_DIR = "$T\config"
 ```
-On macOS the paths are `/tmp/ks10`.
+On macOS use `export KEEPSAKE_CONFIG_DIR=/tmp/ks11/config` and `/tmp/ks11` for the paths below.
 
-Nothing in the app modifies your photos or videos. Edits go to XMP sidecars and the catalog.
+Use a library with a few photos, a RAW + JPEG pair, a RAW on its own and a video. Import them with the import window or `keepsake ingest`. Nothing in this prompt changes your photos or videos.
 
 ---
 
 ## A. Automated tests
 
 1. `cargo test --workspace`
-   **Expected:** all pass, including `browse_tests`, and `render_tests` with the card thumbnail test. Running `cargo test -p keepsake-app` must leave `app/ui/src/bindings` unchanged (`git status`).
-2. In `app/ui`:
-   - `pnpm test` **Expected:** the unit tests pass.
-   - `pnpm test:e2e` **Expected:** 14 browser tests pass against the mocked backend.
-   - On Windows, after the builds above: `pnpm test:app` **Expected:** 4 real-app tests pass. They cover first run, the library flows, card import, and 300,000 items.
-3. `pnpm lint`, `pnpm format:check`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+   **Expected:** all pass. New tests include `full_size_is_the_whole_picture_upright_and_made_once`, `raw_pairs_offer_a_toggle_and_the_raw_goes_to_libraw`, `video_info_reads_rate_and_start_timecode`, `removing_an_old_cache_keeps_everything_that_is_not_ours`, and the history check in `backup_is_incremental_and_verified`.
+2. With `KEEPSAKE_CORPUS` set: `cargo test -p keepsake-core --test render_corpus_tests -- --include-ignored`
+   **Expected:** `corpus_arw_full_size_via_libraw` passes. The ARW decodes larger than 2560 px.
+3. In `app/ui`:
+   - `pnpm test` **Expected:** 14 unit tests pass.
+   - `pnpm test:e2e` **Expected:** 23 mocked browser tests pass.
+   - On Windows, after the build: `pnpm test:app` **Expected:** 8 real-app tests pass.
+4. `pnpm lint`, `pnpm format:check`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`
    **Expected:** no problems.
 
 ---
 
-## B. First run and the library
+## B. Viewer: photos
 
-1. Start the app with an empty `$T\config`.
-   **Expected:** "Welcome to Keepsake". Browse… opens a native folder picker. Choose or type `$T\lib`, then click **Create or open library**.
-   **Expected:** the main window opens with "0 items".
-2. Import some media with the CLI (or with the import window, in F):
-   ```powershell
-   keepsake ingest <card or folder> --dest "$T\A" --dest "$T\B"
-   ```
-   Back in the app, **Expected:** within a few seconds:
-   - the status bar shows the item count;
-   - thumbnails appear as they are made ("Renders: N queued", then "up to date");
-   - Volumes in the sidebar lists A and B with green dots;
-   - Imports lists the session.
-3. **Large library:**
-   ```powershell
-   keepsake init "$T\big"
-   keepsake dev seed --assets 300000
-   ```
-   Use the release CLI for the seed (about a minute). Then restart the app; it opens the default library.
+1. Select a JPEG and press **Enter** (or double-click it).
+   **Expected:** a dark full-window viewer opens with the photo fitted, its name, date and "N of M" at the top.
+2. Press **Z**, then click somewhere else on the photo.
    **Expected:**
-   - "300,000 items", and scrolling stays smooth;
-   - End jumps to the last item, which has its thumbnail within a second or so;
-   - Ctrl+A shows "300,000 selected" instantly;
-   - "Seed archive (unplugged)" shows a hollow dot, and its items show dimmed thumbnails with an orange **offline** badge.
-
----
-
-## C. Views and keyboard
-
-1. Ctrl+1 / Ctrl+2 / Ctrl+3 switch Calendar / Grid / Details (also the buttons top right).
-2. **Calendar:**
-   - Years show counts and a cover picture. Click (or arrow keys + Enter) a year, then a month, then a day.
-   - **Expected:** the day's grid, with the breadcrumb "Calendar › 2024 › June › 15" and the right count.
-   - Backspace returns to the month.
-   - "No date" (if any) opens the undated items.
-3. **Grid:**
-   - The arrow keys move the dashed focus.
-   - Shift+arrows and Shift+click extend; Ctrl/⌘+click toggles; Ctrl/⌘+A selects all; Esc clears.
-   - Home/End and PgUp/PgDn work.
-4. **Details:**
-   - Click Name, Date, Camera, Lens, Type, Size, Duration or Rating to sort; click again to reverse (the ▲/▼ shows which).
-   - The keyboard works as in the grid.
-5. **Tab and F6** move between the sidebar, the main area and the inspector. In the sidebar, ↑/↓ move between entries and Enter opens one.
-6. **Themes:** switch the OS between light and dark. **Expected:** the app follows at once.
-
----
-
-## D. Inspector and edits (XMP)
-
-1. Select one photo. **Expected:** its preview, name, capture time and source, camera, lens and type.
-2. Press **4**. **Expected:** four stars in the tile and the inspector. Open the `.xmp` beside the file in `$T\A\…`: it now has `xmp:Rating` 4. **0** clears the rating.
-3. Press **6**. **Expected:** a Red label (keys 6–9: Red, Yellow, Green, Blue, as in Lightroom). Click a swatch to change it.
-4. Type a comment and click elsewhere. **Expected:** it is saved; the XMP has the description.
-5. Add the keyword `Places|Lake` and press Enter. **Expected:** a chip appears, and the XMP has `lr:hierarchicalSubject`. ✕ removes it.
-6. Select 5 items and press 3. **Expected:** "5 items selected — rating, label and keywords apply to all", and all five get 3 stars.
-7. In the 300,000-item library, select all and press 2. **Expected:** "Saving N / 300,000…" in the status bar until it finishes; the app stays responsive.
-
----
-
-## E. Search and filters
-
-1. Type part of a file name. **Expected:** the grid narrows as you type.
-2. Combine **From/To**, **Camera**, **Lens**, **Type** (Photos/RAW/Videos) and **★ or more**. **Expected:** each one narrows the result, and the count in the status bar matches.
-3. **✕ Clear** resets everything. Ctrl/⌘+F focuses the search box.
-
----
-
-## F. Import window (real card)
-
-1. With the app open, insert a Sony card that has items not yet imported.
-   **Expected:** within about 2 seconds:
-   - an **Import** window opens: "N new items since last import (M on the card)";
-   - tiles grouped by day, each with a thumbnail;
-   - a RAW+JPEG pair, or a clip with its XML and proxy, is **one** tile.
-
-   Nothing is written to the card.
-2. **None**, then **Select all**, then **New only** behave as named, and the selected count updates.
-3. Pick a preset, or fill in **Destination** (Browse…) and **Second destination** on another drive.
-   **Expected:** "needs X GB, Y free" for each, and the first file's example name next to the template.
-4. Choose two folders on the same disk. **Expected:** "both destinations are on the same disk…", and Import is disabled.
-5. Untick the second destination. **Expected:** the warning that the card will not be safe to format.
-6. With two drives, click **Import**.
+   - "Loading full size…" shows briefly, then the photo at 100%: one photo pixel per screen pixel, so a 24 MP photo is much bigger than the window.
+   - The click zooms in around where you clicked.
+   - Drag pans; arrow keys pan; Z or scrolling the wheel down goes back to fit.
+3. Zoom the same photo again.
+   **Expected:** it is instant (the full-size picture is cached).
+4. Open a **RAW + JPEG pair**.
    **Expected:**
-   - a progress bar with bytes and the current file;
-   - at the end, **✅ SAFE TO FORMAT**;
-   - the main window shows the new items;
-   - reinserting the card shows "0 new items".
-7. Start another import and click **Stop**. **Expected:** the current file finishes, then **NOT safe to format (stopped…)**. Importing again continues.
-8. **Save preset** stores the current destinations and template for next time.
+   - A JPEG | RAW switch at the top right.
+   - **R** switches to RAW: "Decoding the RAW…" (about 1–2 s), then the RAW decode. Its colours and detail differ slightly from the camera JPEG.
+   - R again switches back to the JPEG.
+5. Open a **RAW without a JPEG**.
+   **Expected:** no switch; the full RAW decode is shown.
+6. Press **→**, **←**, **Home** and **End**.
+   **Expected:** the next, previous, first and last item of the view.
+7. Close with **Esc**. Select 3 non-adjacent items with Ctrl-click and press Enter.
+   **Expected:**
+   - "· 3 selected" in the top bar.
+   - The arrows visit only those three.
+   - After Esc the three are still selected.
+8. In the viewer, press **3** and then **7**.
+   **Expected:** three stars and a yellow label on that item only. The XMP sidecar beside the original changes.
+9. Press **F**.
+   **Expected:** the window goes full screen; F again returns.
+10. Disconnect the drive with an item, then open it.
+    **Expected:** the preview shows, with "The drive with this photo is not connected: showing the preview." Z does not load a full size.
 
 ---
 
-## G. macOS
+## C. Viewer: video
 
-Repeat B–E (and F if a card is at hand). Folder pickers are native. The real-app UI tests do not run on macOS (WKWebView cannot be automated); `pnpm test:e2e` covers the UI there.
+1. Open a video.
+   **Expected:**
+   - The proxy plays in the viewer, with play, ‹| |› buttons, a scrub bar, a timecode, "frame N" and position/duration.
+   - If the proxy is not made yet: "Making a playable copy…", then the player appears within a few seconds.
+2. Press **Space** to play and again to pause.
+3. Press **.** three times, then **,** once.
+   **Expected:** the timecode's frame number goes up 1, 2, 3, then back to 2. The picture changes each time.
+4. Press **L** and then **J**.
+   **Expected:** the timecode jumps one second forward, then back.
+5. On a Sony clip with a recorded timecode, compare the first frame with the camera.
+   **Expected:** the same starting timecode. A 29.97 drop-frame clip shows `;` before the frames, and frame numbers 00 and 01 are skipped at each new minute, except every tenth minute.
+6. Drag the scrub bar.
+   **Expected:** the picture and timecode follow.
+
+---
+
+## D. Batch time shift
+
+1. Select several photos from one shoot whose camera clock was wrong. Press **Ctrl+T**, or **Shift time…** in the inspector.
+   **Expected:** a dialog with the reference photo (the focused one), what the camera says, and a date/time field filled with that time.
+2. Change the time, for example one hour later.
+   **Expected:**
+   - The offset reads "+1 h".
+   - A table shows the first 10 items, now → after; a note gives how many more.
+   - Items with no date are counted and left alone.
+3. Pick a different reference photo in the list.
+   **Expected:** the time field changes to that photo's time.
+4. Click **Shift N items**.
+   **Expected:**
+   - The dialog closes and the grid re-sorts. The inspector shows the new time.
+   - The `.xmp` sidecar of each photo has the new `exif:DateTimeOriginal` and `keepsake:CaptureShiftSeconds`.
+   - The original files are unchanged: same size, same modified time, and `keepsake verify` reports them intact.
+5. Press Ctrl+T and then Esc.
+   **Expected:** nothing changes.
+
+---
+
+## E. Open in
+
+1. Select a photo and press **Ctrl+O** (or **Open in…** in the inspector or viewer).
+   **Expected:** it opens in the system default app (Photos on Windows, Preview on macOS).
+2. In **Settings → Open in**, add file type `arw` with an application:
+   - Windows: for example `C:\Program Files\…\YourEditor.exe` (Browse… helps).
+   - macOS: `Preview.app`, or a full path.
+
+   Click **Save settings**, then press Ctrl+O on a RAW.
+   **Expected:** the RAW opens in that application. Other types still open in the default.
+3. Disconnect the drive with an item, then select it.
+   **Expected:**
+   - The inspector's **Open in…** button is greyed out.
+   - In the viewer, Ctrl+O shows "the drive with this item is not connected", and nothing opens.
+
+---
+
+## F. Backup
+
+1. Click **Backup** in the sidebar.
+   **Expected:** an explanation, a "Back up to a new place" box, and "No backups yet".
+2. Type or browse to a folder on another drive, for example `E:\Keepsake backup`, and click **Start backup**.
+   **Expected:**
+   - A progress bar with files, bytes and the current file, and **Stop after this file**.
+   - Then "Backup finished" with the count.
+   - The destination appears with today's "Last backup" and "Last verified: never".
+   - The history lists the run.
+3. In Explorer or Finder, check the backup.
+   **Expected:**
+   - Originals by date with their sidecars.
+   - `.keepsake-library\` with `catalog.db` and `history.json`.
+4. Click **Back up now** again.
+   **Expected:** "0 B copied this time".
+5. Click **Verify now**.
+   **Expected:** "Verification finished", N files checked. "Last verified" now has today's date, and the history has a Verify row with OK.
+6. Change one byte of a photo on the backup (a hex editor, or append a character with a text editor). Click Verify now.
+   **Expected:**
+   - "Verification found problems", with that file listed as changed.
+   - The history row reads "1 problem".
+   - "Last verified" keeps the earlier good date.
+7. Start a backup and click **Stop after this file**.
+   **Expected:** "Backup stopped" and a "Stopped" history row. Running it again finishes the rest.
+8. In a terminal: `keepsake backup E:\other` and `keepsake verify`.
+   **Expected:** both runs appear in the Backup screen's history (reopen the screen).
+
+---
+
+## G. Settings
+
+1. Press **Ctrl+,** (or **Settings** in the sidebar).
+   **Expected:** sections for Library, Previews and thumbnails, Open in, and Import presets. The settings file path is shown.
+2. **Cache:**
+   - Choose a new cache folder, set the limit to 30 GB and image workers to 2, then **Save settings**.
+   - **Expected:** "Saved." and a note that the previous cache is still at its old folder.
+   - Thumbnails reappear as they are made in the new folder (scroll the grid).
+   - Click **Remove old files**. **Expected:** "Removed N GB from the old cache". Only Keepsake's `thumbnail`, `preview`, `proxy`, `card` and `.tmp` folders are removed from the old folder; anything else there stays.
+3. Set the limit to 0.1 and save.
+   **Expected:** "the cache limit must be at least 256 MB". Nothing is saved.
+4. Close and restart the app.
+   **Expected:** the settings are as saved, and `config.toml` has `[render]` and `[open.apps]`.
+5. **Presets:**
+   - Edit a preset's destinations and save; delete a preset; create a new one.
+   - **Expected:** the list updates, and the import window offers the same presets.
+6. **Library:** click **Open another library…** and pick another library folder.
+   **Expected:** the app reloads showing that library.
+
+---
+
+## H. macOS
+
+Repeat B–G on macOS 14+.
+- The viewer's RAW decode uses LibRaw's macOS build. The setup script removes the quarantine flag from it.
+- Ctrl is ⌘ for Ctrl+O, Ctrl+T and Ctrl+,.
+- Open in uses `open`, or `open -a <App>` for an `.app` name.
+- There are no automated real-app tests on macOS; the mocked browser tests cover the UI there.

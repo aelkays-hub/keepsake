@@ -96,6 +96,7 @@ pub fn card_thumbnail(
                 _ => path_of(original),
             },
             still: jpeg.unwrap_or_else(|| path_of(original)),
+            raw: None,
             segments: Vec::new(),
             camera_proxy: None,
             duration_ms: None,

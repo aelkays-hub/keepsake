@@ -8,8 +8,14 @@ import * as path from "node:path";
 
 import { App, exe, startVite, stopVite, World } from "./fixture";
 
-test.skip(process.platform !== "win32", "WebView2 automation is Windows-only (macOS runs the mocked suite)");
-test.skip(!fs.existsSync(exe("keepsake-app")), "build first: cargo build -p keepsake-app -p keepsake-cli");
+test.skip(
+  process.platform !== "win32",
+  "WebView2 automation is Windows-only (macOS runs the mocked suite)",
+);
+test.skip(
+  !fs.existsSync(exe("keepsake-app")),
+  "build first: cargo build -p keepsake-app -p keepsake-cli",
+);
 
 test.beforeAll(async () => {
   await startVite();
@@ -27,7 +33,9 @@ test("first run creates a library", async () => {
     await page.getByTestId("create-library").click();
     await expect(page.getByTestId("count")).toHaveText("0 items");
     expect(fs.existsSync(path.join(w.p("lib"), "catalog.db"))).toBe(true);
-    expect(fs.readFileSync(path.join(w.config, "config.toml"), "utf8")).toContain("default_library");
+    expect(fs.readFileSync(path.join(w.config, "config.toml"), "utf8")).toContain(
+      "default_library",
+    );
   } finally {
     await app.close();
     w.cleanup();
@@ -49,7 +57,9 @@ test("library: thumbnails, rating writes XMP, calendar, search, details, offline
     // Thumbnails come from the cache through the asset protocol.
     const img = page.getByTestId("tile").first().locator("img");
     await expect(img).toBeVisible();
-    await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+    await expect
+      .poll(() => img.evaluate((i: HTMLImageElement) => i.naturalWidth))
+      .toBeGreaterThan(0);
     expect(await img.getAttribute("src")).toMatch(/asset\.localhost|asset:/);
 
     // Rate with the keyboard: the XMP sidecar beside the original changes.
@@ -59,9 +69,13 @@ test("library: thumbnails, rating writes XMP, calendar, search, details, offline
     await page.keyboard.press("4");
     await page.keyboard.press("6");
     const xmp = path.join(w.p("A"), "0000-undated", "0000-00-00", "DSC01002.JPG.xmp");
-    await expect.poll(() => (fs.existsSync(xmp) ? fs.readFileSync(xmp, "utf8") : "")).toMatch(/Rating[^0-9]*4/);
+    await expect
+      .poll(() => (fs.existsSync(xmp) ? fs.readFileSync(xmp, "utf8") : ""))
+      .toMatch(/Rating[^0-9]*4/);
     await expect.poll(() => fs.readFileSync(xmp, "utf8")).toContain("Red");
-    await expect(page.getByTestId("inspector").getByRole("radio", { name: "4 stars" })).toHaveAttribute("aria-checked", "true");
+    await expect(
+      page.getByTestId("inspector").getByRole("radio", { name: "4 stars" }),
+    ).toHaveAttribute("aria-checked", "true");
     await page.getByRole("button", { name: "Clear filters" }).click();
     await expect(page.getByTestId("count")).toHaveText("7 items");
 
@@ -104,7 +118,11 @@ test("a card insert opens the import window; import ends SAFE TO FORMAT", async 
   const events = w.p("events.jsonl");
   fs.writeFileSync(
     events,
-    JSON.stringify({ event: "arrived", mount: card, identity: { fs_serial: "AB12-CD34", fs_type: "exFAT", label: "A7IV" } }) + "\n",
+    JSON.stringify({
+      event: "arrived",
+      mount: card,
+      identity: { fs_serial: "AB12-CD34", fs_type: "exFAT", label: "A7IV" },
+    }) + "\n",
   );
   const app = new App(w, { KEEPSAKE_FAKE_EVENTS: events });
   try {
@@ -123,7 +141,9 @@ test("a card insert opens the import window; import ends SAFE TO FORMAT", async 
     // The main window shows the imported items.
     const main = await app.page("main");
     await expect(main.getByTestId("count")).toHaveText("5 items");
-    expect(fs.readdirSync(w.p("B"), { recursive: true }).some((f) => String(f).endsWith("C0001.MP4"))).toBe(true);
+    expect(
+      fs.readdirSync(w.p("B"), { recursive: true }).some((f) => String(f).endsWith("C0001.MP4")),
+    ).toBe(true);
   } finally {
     await app.close();
     w.cleanup();
@@ -132,7 +152,10 @@ test("a card insert opens the import window; import ends SAFE TO FORMAT", async 
 
 test("300,000 items stay virtualized in the real app", async () => {
   const n = Number(process.env.KEEPSAKE_UI_SEED ?? 300000);
-  test.skip(!fs.existsSync(exe("keepsake", "release")) && n > 50000, "needs a release CLI to seed 300,000 items");
+  test.skip(
+    !fs.existsSync(exe("keepsake", "release")) && n > 50000,
+    "needs a release CLI to seed 300,000 items",
+  );
   const w = new World();
   w.cli(["init", w.p("lib")]);
   w.cacheHere();
@@ -141,7 +164,9 @@ test("300,000 items stay virtualized in the real app", async () => {
   try {
     await app.connect();
     const page = await app.page("main");
-    await expect(page.getByTestId("count")).toHaveText(`${n.toLocaleString("en-US")} items`, { timeout: 60_000 });
+    await expect(page.getByTestId("count")).toHaveText(`${n.toLocaleString("en-US")} items`, {
+      timeout: 60_000,
+    });
     expect(await page.getByTestId("tile").count()).toBeLessThan(400);
     await page.getByTestId("tile").first().click();
     const t0 = Date.now();

@@ -21,7 +21,8 @@ function Field({ name, value }: { name: string; value: React.ReactNode }) {
 }
 
 export function Inspector() {
-  const { s, view } = useUi();
+  const { s, view, dispatch } = useUi();
+  const [opened, setOpened] = useState<string | null>(null);
   const edits = useEdits();
   const focus = s.sel.focus;
   const [row, setRow] = useState<Row | null>(null);
@@ -107,6 +108,34 @@ export function Inspector() {
         <Stars value={d.rating} onChange={(v) => edits.rate(v)} />
         <LabelPicker value={d.label} onChange={(v) => edits.label(v)} />
       </section>
+      <div className="actions" aria-label="Actions">
+        <button onClick={() => dispatch({ t: "viewer", open: true })} title="View (Enter)">
+          View
+        </button>
+        <button
+          onClick={() => dispatch({ t: "dialog", dialog: "timeShift" })}
+          title="Correct the capture time (Ctrl+T)"
+        >
+          Shift time…
+        </button>
+        <button
+          onClick={() =>
+            api
+              .openExternal(d.id, "primary")
+              .then((app) => setOpened(`Opened with ${app}`))
+              .catch((e) => setOpened(String(e)))
+          }
+          disabled={!d.online}
+          title="Open in another application (Ctrl+O)"
+        >
+          Open in…
+        </button>
+      </div>
+      {opened && (
+        <p className="muted" role="status" data-testid="opened">
+          {opened}
+        </p>
+      )}
       <dl className="meta">
         <Field name="Captured" value={fmt.dateTime(d.captured)} />
         <Field

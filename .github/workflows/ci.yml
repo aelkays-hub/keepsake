@@ -70,7 +70,7 @@ jobs:
 
       # WebView2 is pre-installed on windows-latest; no extra system deps needed.
 
-      # Real, checksum-verified FFmpeg/ffprobe/ExifTool from the vendor-binaries
+      # Real, checksum-verified FFmpeg/ffprobe/ExifTool/LibRaw from the vendor-binaries
       # mirror (ADR-005). tauri-build needs them as bundle resources and the
       # probe tests run them. Cached by the setup script's content.
       - name: Cache vendor binaries

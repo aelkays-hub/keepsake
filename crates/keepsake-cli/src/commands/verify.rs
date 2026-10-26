@@ -46,7 +46,9 @@ pub fn run(ctx: &Ctx, a: VerifyArgs) -> Result<u8> {
             }
         }
     };
+    let started = keepsake_core::jobs::now_ms();
     let r = verify::verify(&cat, &lib, only, &mut progress, cancel)?;
+    keepsake_core::history::record_verify(&lib, started, &r)?;
     if let Some(b) = bar {
         b.finish_and_clear();
     }

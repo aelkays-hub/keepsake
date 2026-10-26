@@ -349,6 +349,7 @@ library-<uuid>/
   library.json     identity
   volumes.json     volume registry (ids, labels, case/read-only flags, last mount hint)
   catalog.db       SQLite catalog (rebuildable; -wal / -shm beside it)
+  history.json     backup and verify runs (not rebuildable; kept in backups)
   recipes/<asset-uuid>/<recipe-uuid>.json
   sidecars/<volume-uuid>/...   mirrored sidecars for read-only or offline volumes
 ```
@@ -371,3 +372,22 @@ keepsake rebuild-catalog --fresh
 4. Replace the volume's rows in one transaction. If the asset already exists from another volume, the sidecar wins only when its metadata is newer.
 
 Not rebuilt: renditions (regenerated on demand), import session history, and labels or tags nothing uses. A test builds a catalog, deletes it, rebuilds, and asserts the two are equal (`crates/keepsake-core/tests/rebuild_tests.rs`).
+
+## Viewer
+
+The viewer is a full-window overlay over the library (`components/Viewer.tsx`). It shows the focused item.
+
+| Shows | Comes from |
+|---|---|
+| Photo, fitted | The 2560 px preview rendition |
+| Photo at 100% | `full_image`: a full-size JPEG rendition made on demand (`render::full`), decoded in-process, by FFmpeg (HEIF) or by LibRaw `dcraw_emu` (RAW) |
+| RAW of a RAW + JPEG pair | `full_image` with `member: raw` (key R toggles) |
+| Video | The proxy (the camera's H.264 SUB proxy, or Keepsake's 720p), with `video_info` for frame rate and start timecode |
+
+Arrows move through the selection when more than one item is selected, otherwise through the whole view, selecting what they land on. Decoding runs on a blocking worker (`spawn_blocking`), never on a command thread.
+
+## Settings and history
+
+- `config.toml` holds `[render]` (cache folder, limit, workers, battery) and `[open.apps]` (Open in, per type). The Settings screen writes it through `settings_set`, which checks the values, reloads the open library's settings (keeping its views) and restarts the render service.
+- `<library>/history.json` holds backup and verify runs (`keepsake_core::history`), from the app and the CLI. The Backup screen's destinations and "last verified" dates are read from it.
+- One backup or verify runs at a time in the app, on its own thread, reporting `maint://progress` and `maint://done`.

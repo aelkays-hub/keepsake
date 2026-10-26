@@ -77,6 +77,25 @@ pub fn default_workers() -> usize {
         .unwrap_or(1)
 }
 
+/// "Open in" applications per file type (`[open.apps]`, lower-case
+/// extensions without the dot). Types not listed use the system default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenSettings {
+    pub apps: std::collections::BTreeMap<String, String>,
+}
+
+impl OpenSettings {
+    /// The application for `path`, if one is set for its type.
+    pub fn app_for(&self, path: &Path) -> Option<&str> {
+        let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+        self.apps
+            .get(&ext)
+            .map(String::as_str)
+            .filter(|a| !a.trim().is_empty())
+    }
+}
+
 /// Everything in `config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -84,6 +103,7 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_library: Option<PathBuf>,
     pub render: RenderSettings,
+    pub open: OpenSettings,
 }
 
 impl Settings {
@@ -144,6 +164,16 @@ mod tests {
         let mut s = Settings::default();
         s.render.cache_dir = Some(PathBuf::from("E:/cache"));
         s.render.max_bytes = 5;
+        s.open
+            .apps
+            .insert("arw".into(), r"C:\Apps\Raw Editor.exe".into());
+        s.open.apps.insert("mp4".into(), " ".into());
+        assert_eq!(
+            s.open.app_for(Path::new("x/DSC1.ARW")),
+            Some(r"C:\Apps\Raw Editor.exe")
+        );
+        assert_eq!(s.open.app_for(Path::new("C1.MP4")), None, "blank: default");
+        assert_eq!(s.open.app_for(Path::new("a.jpg")), None);
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!((1..=4).contains(&default_workers()));

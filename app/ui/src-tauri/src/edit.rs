@@ -10,7 +10,7 @@ use keepsake_core::library::LibraryError;
 use keepsake_core::metadata::MetadataService;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::api::{EditProgress, EditResult, Selection};
+use crate::api::{EditProgress, EditResult, Selection, ShiftSample, TimeShiftPreview};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult, Open};
 
@@ -194,4 +194,98 @@ pub fn keywords(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
         .collect();
     v.sort_by_key(|s| s.to_lowercase());
     Ok(v)
+}
+
+// ── Time shift ──────────────────────────────────────────────────────────────
+
+/// How many before → after examples the dialog shows.
+const SAMPLES: usize = 10;
+
+fn parse_local(s: &str) -> CmdResult<chrono::NaiveDateTime> {
+    let s = s.trim().replace(' ', "T");
+    chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M"))
+        .map_err(|_| format!("not a date and time: {s} (use YYYY-MM-DD HH:MM:SS)"))
+}
+
+/// The offset that makes `reference` read `correct` (camera-local time),
+/// and what it does to the selection. Writes nothing.
+#[tauri::command(async)]
+pub fn time_shift_preview(
+    state: State<'_, AppState>,
+    selection: Selection,
+    reference: String,
+    correct: String,
+) -> CmdResult<TimeShiftPreview> {
+    let open = state.open()?;
+    let reference = convert::id(&reference, "asset")?;
+    let correct = parse_local(&correct)?;
+    let ids = resolve(&state, &selection)?;
+    let cat = open.cat();
+    let r = cat
+        .read(|tx| tx.assets().require(reference))
+        .map_err(err)?
+        .capture
+        .ok_or("the reference photo has no capture time")?;
+    let offset = keepsake_core::select::shift_for(r, correct);
+    let mut rows = cat.read(|tx| tx.browse().rows(&ids)).map_err(err)?;
+    drop(cat);
+    let undated = rows.iter().filter(|r| r.capture_ms.is_none()).count() as u64;
+    rows.retain(|r| r.capture_ms.is_some());
+    rows.sort_by_key(|r| r.capture_ms);
+    let fmt = |ms: Option<i64>, off: Option<i16>| {
+        convert::local_time(ms, off)
+            .unwrap_or_default()
+            .replace('T', " ")
+    };
+    let samples = rows
+        .iter()
+        .take(SAMPLES)
+        .map(|r| ShiftSample {
+            id: r.id.to_string(),
+            name: r.name.clone(),
+            before: fmt(r.capture_ms, r.utc_offset_min),
+            after: fmt(r.capture_ms.map(|t| t + offset * 1000), r.utc_offset_min),
+        })
+        .collect();
+    Ok(TimeShiftPreview {
+        offset_s: offset,
+        total: rows.len() as u64,
+        undated,
+        samples,
+        reference_before: fmt(Some(r.utc_ms), r.utc_offset_min),
+    })
+}
+
+/// Shift the capture time of the selection by `offset_s` seconds. Only the
+/// catalog and the XMP sidecars change; originals are never written.
+#[tauri::command(async)]
+pub fn time_shift_apply(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection: Selection,
+    offset_s: i64,
+) -> CmdResult<EditResult> {
+    if offset_s == 0 {
+        return Ok(EditResult {
+            changed: 0,
+            background: false,
+        });
+    }
+    let open = state.open()?;
+    let ids = resolve(&state, &selection)?;
+    let dated: Vec<AssetId> = open
+        .cat()
+        .read(|tx| tx.browse().rows(&ids))
+        .map_err(err)?
+        .into_iter()
+        .filter(|r| r.capture_ms.is_some())
+        .map(|r| r.id)
+        .collect();
+    apply(
+        &app,
+        open,
+        dated,
+        Arc::new(move |svc, id| svc.shift_capture_time(id, offset_s).map(|_| ())),
+    )
 }

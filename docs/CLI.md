@@ -125,6 +125,8 @@ JSON (import or resume): `session`, `report` (`assets`, `by_state`, `unselected`
 
 Re-reads every catalogued file on every mounted volume (or only volume `X`, by label or id). Files are hashed past the operating system's cache, and each file is reported as **missing**, **changed** (content differs from what was imported) or **unreadable**. Volumes that are not mounted are listed and not checked. Verify reads only; it never repairs or rewrites anything.
 
+Each checked volume is recorded in the library's history (`history.json`), which the app's Backup screen shows as "last verified".
+
 JSON: `volumes[]` (`id`, `label`, `mount`, `files_checked`, `bytes_checked`, `ok`), `issues[]` (`volume`, `path`, `asset`, `kind`: `missing`/`changed`/`unreadable`, plus `expected`/`actual` or `error`), and `cancelled`.
 
 ### search
@@ -175,7 +177,7 @@ Copies the whole library to `dest` (a drive or folder, created if missing). Ever
 
 The backup is **incremental**: files already on the backup with the same content are skipped, so run it as often as you like. A file is copied only if its source still matches the catalog. A damaged copy is reported, not spread; run `verify` to find out more.
 
-The library itself (a consistent copy of the catalog, the volume registry, recipes and mirrored sidecars) is written to `dest/.keepsake-library/`.
+The library itself (a consistent copy of the catalog, the volume registry, the backup history, recipes and mirrored sidecars) is written to `dest/.keepsake-library/`. Every run is recorded in the library's `history.json`.
 
 JSON: `destination`, `assets`, `files_copied`, `bytes_copied`, `files_already_there`, `failed[]` (`[path, error]`), `unavailable[]` (assets with no mounted copy), `library_snapshot`, `stale_temporaries_removed`, `cancelled`.
 

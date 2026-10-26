@@ -162,7 +162,7 @@ pub(crate) fn ffmpeg_inputs(src: &Source, list: &Path) -> Result<Vec<String>, Re
 }
 
 /// Parse a binary PPM (P6, 8-bit), as written by FFmpeg.
-fn parse_ppm(b: &[u8]) -> Result<RgbImage, RenderError> {
+pub(crate) fn parse_ppm(b: &[u8]) -> Result<RgbImage, RenderError> {
     let bad = || RenderError::Failed("ffmpeg returned no frame".into());
     let mut fields = Vec::new();
     let mut i = 0;

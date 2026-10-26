@@ -4,8 +4,11 @@ mod commands;
 mod convert;
 mod edit;
 mod import;
+mod maintenance;
+mod prefs;
 mod render;
 mod state;
+mod viewer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -63,6 +66,20 @@ pub fn run() {
             import::import_check,
             import::import_start,
             import::import_cancel,
+            viewer::full_image,
+            viewer::asset_members,
+            viewer::video_info,
+            viewer::open_external,
+            edit::time_shift_preview,
+            edit::time_shift_apply,
+            maintenance::backup_overview,
+            maintenance::backup_run,
+            maintenance::verify_run,
+            maintenance::maint_cancel,
+            prefs::settings_get,
+            prefs::settings_set,
+            prefs::cache_remove_old,
+            prefs::preset_delete,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {
