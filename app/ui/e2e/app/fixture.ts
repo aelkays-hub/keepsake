@@ -144,13 +144,15 @@ export class App {
     this.exited = null;
     this.log = this.world.p(`app-${this.port}.log`);
     const out = fs.openSync(this.log, "a");
-    this.proc = spawn(exe("keepsake-app"), [], {
+    // KEEPSAKE_APP_PROFILE=release runs the release app (UI built in; no
+    // Vite), for performance tests.
+    this.proc = spawn(exe("keepsake-app", process.env.KEEPSAKE_APP_PROFILE ?? "debug"), [], {
       env: {
         ...this.world.env,
-        ...this.extraEnv,
         RUST_LOG: process.env.RUST_LOG ?? "info",
         KEEPSAKE_UI_DEBUG_PORT: String(this.port),
         WEBVIEW2_USER_DATA_FOLDER: this.world.p(`webview2-${this.port}`),
+        ...this.extraEnv,
       },
       stdio: ["ignore", out, out],
     });

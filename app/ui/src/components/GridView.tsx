@@ -12,6 +12,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
+import { markReady } from "../diagnostics";
 
 const TILE = 176;
 const GAP = 8;
@@ -115,6 +116,10 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     else if (e.ctrlKey || e.metaKey) dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
     else dispatch({ t: "sel", sel: sel.only(i) });
   };
+  const loaded = view !== null && (view.count === 0 || rows.get(0) !== undefined);
+  useEffect(() => {
+    if (loaded) markReady("grid");
+  }, [loaded]);
   if (view && view.count === 0) {
     return <div className="empty">Nothing here. Change the filters, or import a card.</div>;
   }

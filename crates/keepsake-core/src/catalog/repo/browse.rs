@@ -343,42 +343,33 @@ impl<M> Browse<'_, M> {
             args.push(p);
             args.push(u);
         }
+        // Counts and covers in one pass (one search, however many cells).
+        // The cover is the best-rated, then earliest, asset of the cell:
+        // with max(), SQLite takes the other columns from the row holding
+        // the maximum. Rating dominates (×10^13 > any capture time in ms);
+        // the earlier capture wins within a rating.
         let sql = format!(
-            "SELECT substr(a.capture_local_date, 1, {len}) AS k, count(*) FROM assets a{}{where_sql}
-             GROUP BY k ORDER BY k",
+            "SELECT substr(a.capture_local_date, 1, {len}) AS k, count(*), a.id,
+                    max(a.rating * 10000000000000 - a.capture_ts_ms)
+               FROM assets a{}{where_sql}
+              GROUP BY k ORDER BY k",
             f.joins
         );
         let mut st = self.conn.prepare(&sql)?;
-        let counts: Vec<(String, i64)> = st
-            .query_map(args.as_slice(), |r| Ok((r.get(0)?, r.get(1)?)))?
+        let cells: Vec<(String, i64, AssetId)> = st
+            .query_map(args.as_slice(), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<Result<_, _>>()?;
-        let cover_sql = format!(
-            "SELECT a.id, (SELECT blake3 FROM files WHERE asset_id = a.id AND role = 'original' LIMIT 1)
-               FROM assets a{} WHERE {} AND a.capture_local_date >= ? AND a.capture_local_date < ?
-              ORDER BY a.rating DESC, a.capture_ts_ms, a.seq LIMIT 1",
-            f.joins,
-            {
-                let mut w = f.wh.clone();
-                w.push("a.capture_local_date IS NOT NULL".into());
-                w.join(" AND ")
-            }
-        );
-        let mut cover = self.conn.prepare(&cover_sql)?;
-        let mut out = Vec::with_capacity(counts.len() + 1);
-        for (key, n) in counts {
-            let mut a: Vec<&dyn rusqlite::ToSql> = f.args.iter().map(|b| b.as_ref()).collect();
-            // `~` sorts after digits and `-`, so `key~` bounds every date in `key`.
-            let hi = format!("{key}~");
-            a.push(&key);
-            a.push(&hi);
-            let c: Option<(AssetId, Option<Blake3Hash>)> = cover
-                .query_row(a.as_slice(), |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()?;
+        let mut hash = self.conn.prepare_cached(
+            "SELECT blake3 FROM files WHERE asset_id = ? AND role = 'original' LIMIT 1",
+        )?;
+        let mut out = Vec::with_capacity(cells.len() + 1);
+        for (key, n, cover) in cells {
+            let h: Option<Blake3Hash> = hash.query_row([cover], |r| r.get(0)).optional()?;
             out.push(CalendarBucket {
                 key,
                 count: u64::try_from(n).unwrap_or(0),
-                cover: c.map(|c| c.0),
-                cover_hash: c.and_then(|c| c.1),
+                cover: Some(cover),
+                cover_hash: h,
             });
         }
         if level == CalendarLevel::Years {
@@ -401,7 +392,7 @@ impl<M> Browse<'_, M> {
     /// Assets per volume (counting originals).
     pub fn volume_counts(&self) -> Result<Vec<(VolumeId, u64)>, CatalogError> {
         self.counts(
-            "SELECT volume_id, count(DISTINCT asset_id) FROM files WHERE role = 'original' GROUP BY volume_id",
+            "SELECT volume_id, count(*) FROM files WHERE role = 'original' GROUP BY volume_id",
         )
     }
 

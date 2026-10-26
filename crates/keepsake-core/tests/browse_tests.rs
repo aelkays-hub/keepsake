@@ -330,7 +330,27 @@ fn calendar_counts_add_up_and_have_covers() {
         })
         .unwrap();
     assert_eq!(n, d.count);
-    // The cover is the best-rated asset of the cell, and has a thumbnail.
+    // The cover is the best-rated asset of the cell, the earliest of those.
+    for b in &days {
+        let day = SearchQuery {
+            from: Some(b.key.clone()),
+            to: Some(b.key.clone()),
+            ..all()
+        };
+        let by_date = sort(SortField::Date, false);
+        let ids = w
+            .cat
+            .read(|tx| tx.browse().ordered_ids(&day, by_date))
+            .unwrap();
+        let rows = w.cat.read(|tx| tx.browse().rows(&ids)).unwrap();
+        let best = rows.iter().map(|r| r.rating).max().unwrap();
+        let first_best = ids
+            .iter()
+            .find(|id| rows.iter().any(|r| r.id == **id && r.rating == best))
+            .unwrap();
+        assert_eq!(b.cover.as_ref(), Some(first_best), "day {}", b.key);
+    }
+    // ... and has a thumbnail.
     let mut cat = w.lib.open_catalog().unwrap();
     assert!(w
         .cache

@@ -3,6 +3,20 @@
 
 import { api } from "./api";
 
+let ready = false;
+
+/** The window shows its first content: tell the app once (start-up time),
+ * after the browser has painted it. */
+export function markReady(what: string): void {
+  if (ready) return;
+  ready = true;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      api.uiReady(what).catch(() => undefined);
+    }),
+  );
+}
+
 /** Copy text to the clipboard (the async API, else a hidden text box). */
 export async function copyText(text: string): Promise<void> {
   try {

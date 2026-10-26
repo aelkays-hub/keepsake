@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use keepsake_core::logs;
 use keepsake_core::render::RenderTools;
@@ -13,6 +14,13 @@ use crate::api::CrashNotice;
 use crate::state::{err, AppState, CmdResult};
 
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
+static STARTED: OnceLock<Instant> = OnceLock::new();
+static READY_MS: OnceLock<u64> = OnceLock::new();
+
+/// Note when the process started (first thing in `run`).
+pub fn mark_start() {
+    let _ = STARTED.set(Instant::now());
+}
 
 pub fn log_dir() -> Option<&'static PathBuf> {
     LOG_DIR.get()
@@ -100,6 +108,24 @@ pub fn log_ui_error(message: String, detail: Option<String>) {
         "{}",
         cut(&message)
     );
+}
+
+/// The window shows its first content (grid rows, the calendar or the
+/// first-run screen): start-up is over. Logged once; returns the time from
+/// process start in milliseconds.
+#[tauri::command(async)]
+pub fn ui_ready(what: String) -> u64 {
+    let ms = STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64);
+    if READY_MS.set(ms).is_ok() {
+        tracing::info!(ms, what = %what, "start-up: window ready");
+    }
+    READY_MS.get().copied().unwrap_or(ms)
+}
+
+/// How long start-up took, once the window is ready.
+#[tauri::command(async)]
+pub fn startup_ms() -> Option<u64> {
+    READY_MS.get().copied()
 }
 
 /// The last crash, if the user has not seen it yet.

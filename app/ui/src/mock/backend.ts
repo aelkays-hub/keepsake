@@ -658,6 +658,8 @@ export function installMock(): void {
           return crashed && !st.crashSeen
             ? { file: "crash-20261025-221500-4242.txt", summary: "panicked at src/render.rs:88" }
             : null;
+        case "ui_ready":
+          return 0;
         case "crash_dismiss":
           st.crashSeen = true;
           return null;

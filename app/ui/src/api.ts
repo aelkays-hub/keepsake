@@ -165,6 +165,7 @@ export const api = {
     invoke<void>("log_ui_error", { message, detail }),
   crashNotice: () => invoke<CrashNotice | null>("crash_notice"),
   crashDismiss: () => invoke<void>("crash_dismiss"),
+  uiReady: (what: string) => invoke<number>("ui_ready", { what }),
 };
 
 export const events = {
