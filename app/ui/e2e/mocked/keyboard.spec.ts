@@ -58,7 +58,9 @@ test("grid: move, select, rate, and each tile is announced", async ({ page }) =>
   expect(f.label).toContain("5 stars");
   await page.keyboard.press("PageDown");
   await page.keyboard.press("End");
-  expect((await focused(page)).index).toBe("1999");
+  // The last tile is drawn only after the grid scrolls there, so focus
+  // reaches it a moment later.
+  await expect.poll(async () => (await focused(page)).index).toBe("1999");
 });
 
 test("viewer: open, move, close, and focus comes back", async ({ page }) => {
