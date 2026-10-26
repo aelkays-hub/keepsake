@@ -1016,7 +1016,9 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - The sidebar's per-volume count now uses a partial index (schema v6): 1.9 s → 31 ms.
 - The calendar computes counts and covers in one pass: with a word filter, 1.8 s → 63 ms.
 - Camera and lens lists are fetched once, not with every view; they had held up the next search.
-- Typing pauses shortened: 150 ms for words, 30 ms before a new view.
+- Reads use a small pool of connections (WAL lets readers run side by side), so a 300,000-item view never holds up the calendar.
+- The years calendar uses index range counts and seeks; browsing word filters are `seq IN (matches)`.
+- Typing pause 80 ms (was 250); a new view opens on the next turn of the event loop (was 120 ms).
 
 **Accessibility.**
 - Lists use roving focus: the focused tile or row has keyboard focus and a spoken description.

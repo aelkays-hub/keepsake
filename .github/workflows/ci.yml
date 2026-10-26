@@ -94,6 +94,13 @@ jobs:
         run: cargo test --workspace
         # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
 
+      # 300,000 synthetic items: start-up queries, searches and the calendar
+      # against the prompt-12 limits, doubled for CI machines (ADR-024).
+      - name: Scale test (300,000 items, release)
+        run: cargo test --release -p keepsake-core --test scale_tests -- --ignored --nocapture
+        env:
+          KEEPSAKE_SCALE_SLACK: "2"
+
       # `cargo test -p keepsake-app` regenerates the TypeScript bindings.
       - name: UI bindings are up to date
         shell: bash

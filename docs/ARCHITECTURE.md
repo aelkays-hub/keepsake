@@ -391,3 +391,28 @@ Arrows move through the selection when more than one item is selected, otherwise
 - `config.toml` holds `[render]` (cache folder, limit, workers, battery) and `[open.apps]` (Open in, per type). The Settings screen writes it through `settings_set`, which checks the values, reloads the open library's settings (keeping its views) and restarts the render service.
 - `<library>/history.json` holds backup and verify runs (`keepsake_core::history`), from the app and the CLI. The Backup screen's destinations and "last verified" dates are read from it.
 - One backup or verify runs at a time in the app, on its own thread, reporting `maint://progress` and `maint://done`.
+
+## Finding the tools
+
+`ToolPaths::discover` looks, in order:
+1. `KEEPSAKE_VENDOR` (tests and overrides).
+2. The folder the installed app registered with `probe::tools::set_bundled`: its resource folder, laid out like `vendor/` (`tauri.windows.conf.json`).
+3. A `vendor/` folder above the current directory, then above the program (development).
+4. The program's own folder.
+
+`keepsake-app --self-check <file>` runs every tool and writes what it found (`diag::tools`).
+
+## Reading the catalog in the app
+
+- Read commands borrow a connection from a small pool (`Open::cat`, up to 6 idle). SQLite in WAL mode runs readers side by side, so opening a 300,000-item view never holds up a calendar level or a page of the grid.
+- Writes open their own connection (`Open::writer`).
+
+## Logs and crash reports
+
+- `keepsake_core::logs`: one log file per run in the OS log folder (`KEEPSAKE_LOG_DIR` overrides it), the newest 10 kept, 10 MB each at most.
+- A panic hook writes `crash-<time>-<pid>.txt`.
+- The app logs through `tracing` to stderr and the file. UI errors arrive through `log_ui_error`.
+- `diag::report` builds the diagnostic report; the home folder is replaced by `~`.
+- Nothing leaves the computer.
+
+See `docs/SAFETY.md` for every write to disk.

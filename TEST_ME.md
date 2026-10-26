@@ -1,183 +1,148 @@
-# Manual Test Steps — Prompt 11: viewer, time shift, Open in, Backup, Settings
+# Manual Test Steps — Prompt 12: hardening and release 0.1.0
 
-Test on **Windows 11** (primary) and **macOS 14+**.
+Test on **Windows 11** (primary) and **macOS 14+** (sections A, C–F; the release is Windows only).
 
 **Build:**
-- Run `scripts/setup.ps1` (or `setup.sh`) once. It now also downloads LibRaw into `vendor/libraw`.
+- Run `scripts/setup.ps1` (or `setup.sh`) once. It now also puts `LICENSE-ffmpeg.txt` in `vendor/`.
 - `cargo build -p keepsake-app -p keepsake-cli`
+- For the timing checks: `cd app/ui; pnpm tauri build --no-bundle` and `cargo build --release -p keepsake-cli`.
 
-**Run the app:** from `app/ui`, `pnpm tauri dev`.
-
-To keep your real settings apart, start it from a shell with a test config folder:
+To keep your real settings and logs apart:
 ```powershell
-$T = "$env:TEMP\ks11"; $env:KEEPSAKE_CONFIG_DIR = "$T\config"
+$T = "$env:TEMP\ks12"; $env:KEEPSAKE_CONFIG_DIR = "$T\config"; $env:KEEPSAKE_LOG_DIR = "$T\logs"
 ```
-On macOS use `export KEEPSAKE_CONFIG_DIR=/tmp/ks11/config` and `/tmp/ks11` for the paths below.
-
-Use a library with a few photos, a RAW + JPEG pair, a RAW on its own and a video. Import them with the import window or `keepsake ingest`. Nothing in this prompt changes your photos or videos.
 
 ---
 
 ## A. Automated tests
 
 1. `cargo test --workspace`
-   **Expected:** all pass. New tests include `full_size_is_the_whole_picture_upright_and_made_once`, `raw_pairs_offer_a_toggle_and_the_raw_goes_to_libraw`, `video_info_reads_rate_and_start_timecode`, `removing_an_old_cache_keeps_everything_that_is_not_ours`, and the history check in `backup_is_incremental_and_verified`.
-2. With `KEEPSAKE_CORPUS` set: `cargo test -p keepsake-core --test render_corpus_tests -- --include-ignored`
-   **Expected:** `corpus_arw_full_size_via_libraw` passes. The ARW decodes larger than 2560 px.
+   **Expected:** all pass. New this time:
+   - `source_safety_tests`: a card and a read-only volume, locked by the OS, are byte-for-byte unchanged after everything that reads them;
+   - `safety_audit_tests`: every write to disk is listed in `docs/SAFETY.md`;
+   - `tools_tests`, `library_writes_tests`;
+   - the `logs` and `diag` unit tests;
+   - the CLI crash and corpus tests.
+2. `cargo test --release -p keepsake-core --test scale_tests -- --ignored --nocapture`
+   **Expected:** seeds 300,000 items (about a minute), then prints a table.
+   - Every search is under 300 ms, the calendar under 300 ms, and the catalog side of start-up under 1 s.
+   - On the reference PC: searches 0–115 ms, the calendar at most about 170 ms, start-up about 0.4 s.
 3. In `app/ui`:
-   - `pnpm test` **Expected:** 14 unit tests pass.
-   - `pnpm test:e2e` **Expected:** 23 mocked browser tests pass.
-   - On Windows, after the build: `pnpm test:app` **Expected:** 8 real-app tests pass.
+   - `pnpm test` **Expected:** 15 unit tests pass.
+   - `pnpm test:e2e` **Expected:** 38 browser tests pass, including `keyboard.spec.ts` (every flow without a mouse) and `a11y.spec.ts` (axe in light and dark).
+   - On Windows: `pnpm test:app` **Expected:** the real-app tests pass.
+   - With the release builds: `$env:KEEPSAKE_APP_PROFILE="release"; pnpm test:app -- perf.spec.ts` prints start-up, search, calendar and scrolling at 300,000 items; all within the limits.
 4. `pnpm lint`, `pnpm format:check`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`
    **Expected:** no problems.
 
 ---
 
-## B. Viewer: photos
+## B. The installed app (Windows; the release check)
 
-1. Select a JPEG and press **Enter** (or double-click it).
-   **Expected:** a dark full-window viewer opens with the photo fitted, its name, date and "N of M" at the top.
-2. Press **Z**, then click somewhere else on the photo.
+1. Install `Keepsake_0.1.0_x64_en-US.msi` from the draft release (or `pnpm tauri build` locally) on a PC **without** the source code or `vendor/`.
    **Expected:**
-   - "Loading full size…" shows briefly, then the photo at 100%: one photo pixel per screen pixel, so a 24 MP photo is much bigger than the window.
-   - The click zooms in around where you clicked.
-   - Drag pans; arrow keys pan; Z or scrolling the wheel down goes back to fit.
-3. Zoom the same photo again.
-   **Expected:** it is instant (the full-size picture is cached).
-4. Open a **RAW + JPEG pair**.
+   - SmartScreen may warn (the installers are unsigned): **More info → Run anyway**.
+   - `C:\Program Files\Keepsake\` holds `ffmpeg.exe`, `ffprobe.exe`, `exiftool\`, `libraw\` and `licenses\`.
+2. In PowerShell:
+   ```powershell
+   & "C:\Program Files\Keepsake\keepsake-app.exe" --self-check "$env:TEMP\check.json"; $LASTEXITCODE; Get-Content "$env:TEMP\check.json"
+   ```
+   **Expected:** exit code `0`, and four tools, each with a version.
+3. Start Keepsake from the Start menu and create a library. Import a card or a folder of photos and a video.
    **Expected:**
-   - A JPEG | RAW switch at the top right.
-   - **R** switches to RAW: "Decoding the RAW…" (about 1–2 s), then the RAW decode. Its colours and detail differ slightly from the camera JPEG.
-   - R again switches back to the JPEG.
-5. Open a **RAW without a JPEG**.
-   **Expected:** no switch; the full RAW decode is shown.
-6. Press **→**, **←**, **Home** and **End**.
-   **Expected:** the next, previous, first and last item of the view.
-7. Close with **Esc**. Select 3 non-adjacent items with Ctrl-click and press Enter.
-   **Expected:**
-   - "· 3 selected" in the top bar.
-   - The arrows visit only those three.
-   - After Esc the three are still selected.
-8. In the viewer, press **3** and then **7**.
-   **Expected:** three stars and a yellow label on that item only. The XMP sidecar beside the original changes.
-9. Press **F**.
-   **Expected:** the window goes full screen; F again returns.
-10. Disconnect the drive with an item, then open it.
-    **Expected:** the preview shows, with "The drive with this photo is not connected: showing the preview." Z does not load a full size.
+   - thumbnails appear;
+   - the video plays in the viewer;
+   - Z zooms a JPEG to 100%;
+   - on a RAW + JPEG pair, R shows the RAW, decoded at full size.
+
+   Before this release, an installed copy could do none of this: it could not find its tools.
+4. On an ARM PC, repeat with the ARM64 installer.
+   **Expected:** the same. The RAW decode runs under emulation, a little slower.
 
 ---
 
-## C. Viewer: video
+## C. A large library
 
-1. Open a video.
+1. Make a throwaway 300,000-item library:
+   ```powershell
+   keepsake init "$T\big"; keepsake --library "$T\big" dev seed --assets 300000
+   ```
+   Open it in the app (Settings → Open another library, or first run).
    **Expected:**
-   - The proxy plays in the viewer, with play, ‹| |› buttons, a scrub bar, a timecode, "frame N" and position/duration.
-   - If the proxy is not made yet: "Making a playable copy…", then the player appears within a few seconds.
-2. Press **Space** to play and again to pause.
-3. Press **.** three times, then **,** once.
-   **Expected:** the timecode's frame number goes up 1, 2, 3, then back to 2. The picture changes each time.
-4. Press **L** and then **J**.
-   **Expected:** the timecode jumps one second forward, then back.
-5. On a Sony clip with a recorded timecode, compare the first frame with the camera.
-   **Expected:** the same starting timecode. A 29.97 drop-frame clip shows `;` before the frames, and frame numbers 00 and 01 are skipped at each new minute, except every tenth minute.
-6. Drag the scrub bar.
-   **Expected:** the picture and timecode follow.
+   - the window shows thumbnails within about 1–1.5 s of starting;
+   - typing "lake" in search updates the count about a third of a second after you stop typing;
+   - the calendar opens at once;
+   - scrolling the grid quickly is smooth, without stutter.
+2. Press Ctrl+A, then End.
+   **Expected:** instant, still smooth.
 
 ---
 
-## D. Batch time shift
+## D. Data safety
 
-1. Select several photos from one shoot whose camera clock was wrong. Press **Ctrl+T**, or **Shift time…** in the inspector.
-   **Expected:** a dialog with the reference photo (the focused one), what the camera says, and a date/time field filled with that time.
-2. Change the time, for example one hour later.
-   **Expected:**
-   - The offset reads "+1 h".
-   - A table shows the first 10 items, now → after; a note gives how many more.
-   - Items with no date are counted and left alone.
-3. Pick a different reference photo in the list.
-   **Expected:** the time field changes to that photo's time.
-4. Click **Shift N items**.
-   **Expected:**
-   - The dialog closes and the grid re-sorts. The inspector shows the new time.
-   - The `.xmp` sidecar of each photo has the new `exif:DateTimeOriginal` and `keepsake:CaptureShiftSeconds`.
-   - The original files are unchanged: same size, same modified time, and `keepsake verify` reports them intact.
-5. Press Ctrl+T and then Esc.
-   **Expected:** nothing changes.
+1. Read `docs/SAFETY.md`.
+   **Expected:** every place Keepsake writes to disk, with what, where and the test.
+2. Lock a card copy against writing:
+   - Windows: right-click the folder → Properties → Security → Edit → Everyone → Deny **Write**.
+   - macOS: `chmod -R a-w`.
+
+   Then import it, and add it as a library volume with `keepsake rebuild-catalog`. View items, rate them and back up.
+   **Expected:** everything works. Ratings and labels go to the library's mirrored sidecars. No file in the locked folder changes (compare `Get-FileHash` or `shasum` before and after).
 
 ---
 
-## E. Open in
+## E. Logs, crashes and the diagnostic report
 
-1. Select a photo and press **Ctrl+O** (or **Open in…** in the inspector or viewer).
-   **Expected:** it opens in the system default app (Photos on Windows, Preview on macOS).
-2. In **Settings → Open in**, add file type `arw` with an application:
-   - Windows: for example `C:\Program Files\…\YourEditor.exe` (Browse… helps).
-   - macOS: `Preview.app`, or a full path.
-
-   Click **Save settings**, then press Ctrl+O on a RAW.
-   **Expected:** the RAW opens in that application. Other types still open in the default.
-3. Disconnect the drive with an item, then select it.
+1. Start the app, then open `$T\logs` (Settings → Help and diagnostics → **Open log folder**).
+   **Expected:** a `keepsake-<time>-<pid>.log` that says "Keepsake started" and, later, "start-up: window ready" with the time in ms.
+2. Run `keepsake dev crash`, then start the app.
    **Expected:**
-   - The inspector's **Open in…** button is greyed out.
-   - In the viewer, Ctrl+O shows "the drive with this item is not connected", and nothing opens.
+   - a `crash-….txt` file in the log folder;
+   - in the app, the notice "Keepsake closed unexpectedly last time." with the file name;
+   - **Copy diagnostic report** copies the report; **Dismiss** hides the notice, and it does not come back after a restart (the file is renamed `….seen.txt`).
+3. Settings → **Copy diagnostic report**, then paste it into Notepad.
+   **Expected:**
+   - the version, OS, the four tools with versions, library counts, settings, the last crash and the last log lines;
+   - your user folder appears as `~`, never as `C:\Users\<you>`.
+4. Disconnect from the network for all of the above.
+   **Expected:** nothing changes. Keepsake never connects anywhere.
 
 ---
 
-## F. Backup
+## F. Accessibility
 
-1. Click **Backup** in the sidebar.
-   **Expected:** an explanation, a "Back up to a new place" box, and "No backups yet".
-2. Type or browse to a folder on another drive, for example `E:\Keepsake backup`, and click **Start backup**.
+1. **Keyboard only** (put the mouse away). Do each of these:
+   - first run;
+   - browse with the arrows; Ctrl+1/2/3 to switch views; Ctrl+F to search; Tab through the filters;
+   - F6 to the inspector; type a comment; rate with 0–5;
+   - Enter to open the viewer; arrows and Esc;
+   - Ctrl+T to shift times;
+   - the import window (Tab, Space to tick an item, Enter to start);
+   - the sidebar arrows to Backup; start a backup; Verify now;
+   - Ctrl+, for Settings; save.
+
    **Expected:**
-   - A progress bar with files, bytes and the current file, and **Stop after this file**.
-   - Then "Backup finished" with the count.
-   - The destination appears with today's "Last backup" and "Last verified: never".
-   - The history lists the run.
-3. In Explorer or Finder, check the backup.
+   - every control can be reached;
+   - the focus ring is always visible;
+   - Tab stays inside the viewer and the time-shift dialog, and closing them returns focus to the item;
+   - in the calendar, Enter opens one level at a time and Backspace goes back up.
+2. **Screen reader.** Turn on Narrator (Ctrl+Win+Enter), or VoiceOver on macOS (⌘F5). Move through the grid with the arrows.
    **Expected:**
-   - Originals by date with their sidecars.
-   - `.keepsake-library\` with `catalog.db` and `history.json`.
-4. Click **Back up now** again.
-   **Expected:** "0 B copied this time".
-5. Click **Verify now**.
-   **Expected:** "Verification finished", N files checked. "Last verified" now has today's date, and the history has a Verify row with OK.
-6. Change one byte of a photo on the backup (a hex editor, or append a character with a text editor). Click Verify now.
+   - each item is read, e.g. "DSC01234.ARW, RAW photo, 2024-06-15 14:02, 4 stars, Red label";
+   - progress, results and errors are announced;
+   - every button has a name.
+3. **Contrast.** Check both themes (Windows Settings → Personalization → Colors → Light/Dark; macOS Appearance).
    **Expected:**
-   - "Verification found problems", with that file listed as changed.
-   - The history row reads "1 problem".
-   - "Last verified" keeps the earlier good date.
-7. Start a backup and click **Stop after this file**.
-   **Expected:** "Backup stopped" and a "Stopped" history row. Running it again finishes the rest.
-8. In a terminal: `keepsake backup E:\other` and `keepsake verify`.
-   **Expected:** both runs appear in the Backup screen's history (reopen the screen).
+   - text is readable everywhere: blue buttons, the orange "offline" badges, grey text on a selected row;
+   - axe passes on every screen, in both themes (A.3).
 
 ---
 
-## G. Settings
+## G. The release (product owner)
 
-1. Press **Ctrl+,** (or **Settings** in the sidebar).
-   **Expected:** sections for Library, Previews and thumbnails, Open in, and Import presets. The settings file path is shown.
-2. **Cache:**
-   - Choose a new cache folder, set the limit to 30 GB and image workers to 2, then **Save settings**.
-   - **Expected:** "Saved." and a note that the previous cache is still at its old folder.
-   - Thumbnails reappear as they are made in the new folder (scroll the grid).
-   - Click **Remove old files**. **Expected:** "Removed N GB from the old cache". Only Keepsake's `thumbnail`, `preview`, `proxy`, `card` and `.tmp` folders are removed from the old folder; anything else there stays.
-3. Set the limit to 0.1 and save.
-   **Expected:** "the cache limit must be at least 256 MB". Nothing is saved.
-4. Close and restart the app.
-   **Expected:** the settings are as saved, and `config.toml` has `[render]` and `[open.apps]`.
-5. **Presets:**
-   - Edit a preset's destinations and save; delete a preset; create a new one.
-   - **Expected:** the list updates, and the import window offers the same presets.
-6. **Library:** click **Open another library…** and pick another library folder.
-   **Expected:** the app reloads showing that library.
-
----
-
-## H. macOS
-
-Repeat B–G on macOS 14+.
-- The viewer's RAW decode uses LibRaw's macOS build. The setup script removes the quarantine flag from it.
-- Ctrl is ⌘ for Ctrl+O, Ctrl+T and Ctrl+,.
-- Open in uses `open`, or `open -a <App>` for an `.app` name.
-- There are no automated real-app tests on macOS; the mocked browser tests cover the UI there.
+1. After the stack is merged and `v0.1.0` is pushed, the **Release** workflow runs.
+   **Expected:**
+   - x64 and ARM64 installers are built;
+   - the smoke test installs the MSI, checks the bundled files and licences, runs the installed tools and `keepsake-app --self-check`;
+   - a **draft** release appears with four installers and the notes from `docs/RELEASE_NOTES.md`.
+2. Check the draft: installer names, notes, the signing caveat. Then publish it on GitHub (Releases → Edit → Publish).

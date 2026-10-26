@@ -14,6 +14,7 @@
 | 9 | Renditions: persistent priority job queue, thumbnails/previews/proxies, content-addressed LRU cache, `keepsake renders`, benchmarks | ✅ Done (Windows; macOS video needs FFmpeg) |
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
+| 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -36,6 +37,74 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Prompt 12 — Hardening and release 0.1.0 (2026-10-26)
+
+### What was built
+
+**The installed app works** (found before planning)
+- An installed copy looked for its tools only in a `vendor/` folder beside the source, so it found none: no metadata, thumbnails, proxies or full-size pictures.
+- The installer now lays its resources out like `vendor/` (`tauri.windows.conf.json`), and the app registers that folder with core at start-up.
+- `keepsake-app --self-check <file>` finds and runs every tool. The release smoke test runs it on the installed app, and also runs each installed tool.
+- LibRaw and the FFmpeg licence are bundled.
+- The release jobs use the setup script (`-Arch ARM64` for the cross build) instead of their own copies of the download code.
+- The release is created as a **draft**.
+- The LibRaw check looked for "libraw" in the program's *path*, so it could never fail. It now checks the program's own banner.
+
+**Scale: 300,000 items** (`docs/PERFORMANCE.md`)
+- A core scale test (`scale_tests.rs`, ignored by default, run in release; CI runs it with doubled limits) and a real-app test (`perf.spec.ts`).
+- The seeder adds keywords and comments, so text search is realistic.
+- Fixed:
+
+  | Problem | Before | After |
+  |---|---:|---:|
+  | Sidebar per-volume count (partial index, schema v6) | 1.9 s | 31 ms |
+  | Calendar with a word filter (counts and covers in one pass, not one search per cell) | 1.8 s | 63 ms |
+
+- Also fixed:
+  - the camera and lens lists were fetched with every new view (200 ms), which held up the next search;
+  - all reads shared one connection behind a lock, so opening a 300,000-item view held up the calendar. Reads now use a small connection pool;
+  - the years calendar uses indexes (170 ms → 65 ms); browsing word filters are `seq IN (matches)`;
+  - the typing pause is now 80 ms (was 250), and a new view opens at once (was after 120 ms).
+- In the release app at 300,000: start-up 0.98 s, search 109–233 ms from the last keystroke, calendar 93–137 ms, scrolling with no dropped frames (details in PERFORMANCE.md).
+
+**Data safety** (`docs/SAFETY.md`)
+- Every code path that writes to disk, with what, where and its test: 58 functions.
+- `safety_audit_tests.rs` scans every crate's code and fails on a write that is not listed, or on a named test that does not exist.
+- `source_safety_tests.rs` locks a card and a read-only library volume at the OS level (deny ACL / `chmod a-w`) and runs every path that reads them. Afterwards every file is byte-for-byte unchanged.
+- New tests for recipes, a backup's stale temporaries, the corpus CLI and `--self-check`.
+
+**Logs and crash reports, local only**
+- One log file per run in the OS log folder (the newest 10, 10 MB cap).
+- Panics in the app or the CLI write `crash-….txt` with a backtrace. The app shows a one-time notice at the next start.
+- UI errors are logged; a render failure shows an error screen with Reload and Copy diagnostic report.
+- Settings → **Copy diagnostic report** (version, OS, tools, library counts, settings, last crash, last 200 log lines; the home folder shown as `~`) and **Open log folder**.
+- No telemetry; nothing is sent.
+
+**Accessibility**
+- Roving focus in the grid and details: the focused item has keyboard focus and a spoken description ("DSC01234.ARW, RAW photo, 2024-06-15 14:02, 4 stars, Red label").
+- Dialogs trap Tab and return focus when they close.
+- Contrast fixes in both themes:
+  - the accent and warning colours, with separate fill colours for white text;
+  - grey text on selected rows.
+- Table structure fixed.
+- Bugs found by the keyboard tests:
+  - one Enter in the calendar opened two levels;
+  - focus was lost when moving between calendar levels and after End in a large grid.
+- Tests: `keyboard.spec.ts` (every MVP flow without a mouse) and `a11y.spec.ts` (axe, WCAG 2.1 AA, every screen, light and dark).
+
+**Release 0.1.0**
+- `docs/RELEASE_NOTES.md` is used as the release body.
+- ADR-024 records the decisions and the new test-only dependency `@axe-core/playwright` 4.13.0 (MPL-2.0).
+
+### Found and not fixed
+- Re-importing to new drives a card whose photos are byte-for-byte identical under different names reports "not safe to format" (a duplicate-file check while cataloguing). Keepsake errs on the safe side and no data is at risk. Real cameras do not write identical files under different names.
+
+### Not done / next
+- macOS release: it needs a mirrored LGPL FFmpeg for macOS (ADR-005).
+- Code signing: there is no certificate yet.
 
 ---
 
