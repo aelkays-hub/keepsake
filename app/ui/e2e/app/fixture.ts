@@ -27,6 +27,7 @@ export class World {
   env: NodeJS.ProcessEnv = {
     ...process.env,
     KEEPSAKE_CONFIG_DIR: this.config,
+    KEEPSAKE_LOG_DIR: path.join(this.root, "logs"),
     KEEPSAKE_VENDOR: vendor,
     KEEPSAKE_UI_TEST: "1",
   };

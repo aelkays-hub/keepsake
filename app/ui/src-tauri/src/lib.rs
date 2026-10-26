@@ -2,6 +2,7 @@ pub mod api;
 mod background;
 mod commands;
 mod convert;
+mod diagnostics;
 mod edit;
 mod import;
 mod maintenance;
@@ -41,11 +42,7 @@ pub fn run() {
     if args.get(1).map(String::as_str) == Some("--self-check") {
         std::process::exit(self_check(args.get(2)));
     }
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(std::io::stderr)
-        .try_init()
-        .ok();
+    diagnostics::init();
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
@@ -53,7 +50,10 @@ pub fn run() {
             // The installed app's tools are in its resource folder, laid out
             // like vendor/ (tauri.windows.conf.json).
             if let Ok(dir) = app.path().resource_dir() {
-                if keepsake_core::probe::ToolPaths::in_vendor(&dir).ffprobe.is_file() {
+                if keepsake_core::probe::ToolPaths::in_vendor(&dir)
+                    .ffprobe
+                    .is_file()
+                {
                     keepsake_core::probe::tools::set_bundled(dir);
                 }
             }
@@ -116,6 +116,11 @@ pub fn run() {
             prefs::settings_set,
             prefs::cache_remove_old,
             prefs::preset_delete,
+            diagnostics::diagnostic_report,
+            diagnostics::open_log_folder,
+            diagnostics::log_ui_error,
+            diagnostics::crash_notice,
+            diagnostics::crash_dismiss,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

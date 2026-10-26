@@ -953,3 +953,39 @@ input.grow {
 progress {
   width: 100%;
 }
+
+/* ── Errors and diagnostics ────────────────────────────────────────── */
+.error-screen {
+  max-width: 560px;
+  margin: 12vh auto;
+  padding: 20px;
+}
+.error-screen h1:focus {
+  outline: none;
+}
+.crash-banner {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(820px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+pre.report {
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-size: 11px;
+  white-space: pre-wrap;
+}

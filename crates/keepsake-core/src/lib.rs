@@ -11,6 +11,7 @@ pub mod history;
 pub mod ingest;
 pub mod jobs;
 pub mod library;
+pub mod logs;
 pub mod metadata;
 pub mod paths;
 pub mod presets;

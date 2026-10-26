@@ -11,6 +11,7 @@ import type { Bucket } from "./bindings/Bucket";
 import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { CardNotice } from "./bindings/CardNotice";
 import type { CardScan } from "./bindings/CardScan";
+import type { CrashNotice } from "./bindings/CrashNotice";
 import type { Details } from "./bindings/Details";
 import type { EditProgress } from "./bindings/EditProgress";
 import type { EditResult } from "./bindings/EditResult";
@@ -46,6 +47,7 @@ export type {
   CalendarLevelDto,
   CardNotice,
   CardScan,
+  CrashNotice,
   Details,
   EditProgress,
   Facets,
@@ -156,6 +158,13 @@ export const api = {
   settingsGet: () => invoke<SettingsInfo>("settings_get"),
   settingsSet: (update: SettingsUpdate) => invoke<SettingsSaved>("settings_set", { update }),
   cacheRemoveOld: (path: string) => invoke<number>("cache_remove_old", { path }),
+
+  diagnosticReport: () => invoke<string>("diagnostic_report"),
+  openLogFolder: () => invoke<string>("open_log_folder"),
+  logUiError: (message: string, detail: string | null) =>
+    invoke<void>("log_ui_error", { message, detail }),
+  crashNotice: () => invoke<CrashNotice | null>("crash_notice"),
+  crashDismiss: () => invoke<void>("crash_dismiss"),
 };
 
 export const events = {

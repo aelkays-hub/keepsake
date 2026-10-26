@@ -32,7 +32,21 @@ pub fn open(path: &Path, app: Option<&str>) -> Result<(), LibraryError> {
             path.display()
         )));
     }
-    let (prog, args) = command_for(path, app);
+    launch(command_for(path, app))
+}
+
+/// Show a folder in Explorer or Finder (e.g. the log folder).
+pub fn open_folder(dir: &Path) -> Result<(), LibraryError> {
+    if !dir.is_dir() {
+        return Err(LibraryError::Invalid(format!(
+            "{} does not exist",
+            dir.display()
+        )));
+    }
+    launch(command_for(dir, None))
+}
+
+fn launch((prog, args): (String, Vec<String>)) -> Result<(), LibraryError> {
     Command::new(&prog)
         .args(&args)
         .stdin(Stdio::null())

@@ -74,6 +74,8 @@ export interface MockState {
   history: HistoryRun[];
   settings: SettingsInfo;
   opened: { id: string; member: string }[];
+  uiErrors: { message: string; detail: string | null }[];
+  crashSeen: boolean;
 }
 
 declare global {
@@ -138,7 +140,14 @@ export function installMock(): void {
       configFile: "C:\\Users\\me\\AppData\\Roaming\\keepsake\\config.toml",
     },
     opened: [],
+    uiErrors: [],
+    crashSeen: false,
   };
+  // `?crash=1`: the app closed unexpectedly last time.
+  const crashed = params.get("crash") === "1";
+  // `?broken=details`: the backend returns malformed details (tests the
+  // error screen with a real render failure).
+  const broken = params.get("broken");
   window.__mock = st;
   let library: string | null = noLibrary ? null : "D:\\Keepsake";
   const all = Array.from({ length: n }, (_, i) => item(i, n));
@@ -367,6 +376,7 @@ export function installMock(): void {
             proxy: it.kind === "video" ? `${window.location.origin}/e2e/assets/clip.webm` : null,
             online: it.online,
           };
+          if (broken === "details") return { ...d, files: null };
           return d;
         }
         case "edit_rating":
@@ -626,6 +636,31 @@ export function installMock(): void {
         }
         case "cache_remove_old":
           return 2.5e9;
+        case "diagnostic_report":
+          return [
+            "Keepsake diagnostic report",
+            "==========================",
+            "Program: keepsake-app 0.1.0-mock",
+            "Tools:",
+            "  exiftool   13.59  [~\\AppData\\Local\\Keepsake\\exiftool\\exiftool.exe]",
+            `Library: D:\\Keepsake`,
+            `  ${n} assets`,
+          ].join("\n");
+        case "open_log_folder":
+          return "~\\AppData\\Local\\keepsake\\logs";
+        case "log_ui_error":
+          st.uiErrors.push({
+            message: String(a.message),
+            detail: (a.detail as string | null) ?? null,
+          });
+          return null;
+        case "crash_notice":
+          return crashed && !st.crashSeen
+            ? { file: "crash-20261025-221500-4242.txt", summary: "panicked at src/render.rs:88" }
+            : null;
+        case "crash_dismiss":
+          st.crashSeen = true;
+          return null;
         default:
           throw new Error(`mock: unknown command ${cmd}`);
       }

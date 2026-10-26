@@ -82,6 +82,10 @@ fn main() -> ExitCode {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
+    // Crashes are written to the local log folder (never sent anywhere).
+    if let Some(d) = keepsake_core::logs::log_dir() {
+        keepsake_core::logs::install_crash_hook(d, "keepsake");
+    }
 
     let cli = Cli::parse();
     let ctx = Ctx {
