@@ -20,6 +20,7 @@ import {
   type Row,
   type VideoInfo,
 } from "../api";
+import { useFocusTrap } from "../a11y";
 import * as fmt from "../format";
 import { LABEL_KEYS } from "../keys";
 import * as sel from "../selection";
@@ -341,6 +342,7 @@ export function Viewer() {
   const [note, setNote] = useState<string | null>(null);
   const stageKey = useRef<KeyFn>(() => false);
   const root = useRef<HTMLDivElement>(null);
+  useFocusTrap(root);
   const close = useCallback(() => dispatch({ t: "viewer", open: false }), [dispatch]);
 
   useEffect(() => {

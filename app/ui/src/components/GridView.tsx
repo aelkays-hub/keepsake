@@ -13,6 +13,7 @@ import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
 import { markReady } from "../diagnostics";
+import { describeRow, useRovingFocus } from "../a11y";
 
 const TILE = 176;
 const GAP = 8;
@@ -39,6 +40,9 @@ function Tile({
       aria-selected={selected}
       data-index={index}
       data-testid="tile"
+      id={`tile-${index}`}
+      tabIndex={focused ? 0 : -1}
+      aria-label={describeRow(row, index)}
       className={`tile${selected ? " selected" : ""}${focused ? " focused" : ""}${row && !row.online ? " offline" : ""}`}
       style={{ width: TILE, height: TILE }}
       onMouseDown={(e) => onPick(index, e)}
@@ -108,6 +112,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   useEffect(() => {
     if (s.sel.focus !== null) v.scrollToIndex(Math.floor(s.sel.focus / cols), { align: "auto" });
   }, [s.sel.focus, cols, v]);
+  useRovingFocus(parent, s.sel.focus, [first, last, cols]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
   const onKey = useListKeys(rows.count, cols, pageRows, onOpen);
   const pick = (i: number, e: React.MouseEvent) => {

@@ -4,13 +4,17 @@
   --panel: #ffffff;
   --panel-2: #efeff1;
   --text: #1b1b1f;
-  --muted: #6b6b75;
+  --muted: #5c5c66;
   --border: #dcdce1;
-  --accent: #2f6fde;
+  /* Text and borders; fills with white text use the -fill colours.
+     Every pair meets WCAG AA (4.5:1), checked by e2e/mocked/a11y.spec.ts. */
+  --accent: #255fd1;
+  --accent-fill: #255fd1;
   --accent-text: #ffffff;
   --sel: rgba(47, 111, 222, 0.16);
   --focus: #2f6fde;
-  --warn: #b25b00;
+  --warn: #a35300;
+  --warn-fill: #a35300;
   --bad: #c62828;
   --ok: #1b7f3b;
   --tile: #e4e4e8;
@@ -33,12 +37,14 @@
     --panel: #1f1f23;
     --panel-2: #26262b;
     --text: #ececf1;
-    --muted: #9a9aa6;
+    --muted: #a8a8b4;
     --border: #34343b;
-    --accent: #5b8ff0;
+    --accent: #7aa5f5;
+    --accent-fill: #2f62c8;
     --sel: rgba(91, 143, 240, 0.25);
     --focus: #7aa5f5;
     --warn: #f0a24a;
+    --warn-fill: #9a5000;
     --bad: #ff6b6b;
     --ok: #5fd38a;
     --tile: #2a2a30;
@@ -77,8 +83,8 @@ button:disabled {
   cursor: default;
 }
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-text);
 }
 input,
@@ -150,9 +156,9 @@ textarea {
   border-radius: 0 6px 6px 0;
 }
 .segmented button[aria-selected="true"] {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
-  border-color: var(--accent);
+  border-color: var(--accent-fill);
 }
 .sidebar {
   grid-area: sidebar;
@@ -300,7 +306,7 @@ textarea {
   border-radius: 4px;
 }
 .badge.off {
-  background: var(--warn);
+  background: var(--warn-fill);
 }
 .tile .foot {
   position: absolute;
