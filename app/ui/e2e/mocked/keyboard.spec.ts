@@ -180,7 +180,7 @@ test("settings with the keyboard", async ({ page }) => {
   await page.keyboard.press("Control+,");
   const screen = page.getByTestId("settings-screen");
   await tabTo(page, screen.getByTestId("cache-limit"));
-  await page.keyboard.press("Control+a");
+  await page.keyboard.press("ControlOrMeta+a"); // Ctrl+A, or Cmd+A on macOS
   await page.keyboard.type("40");
   await tabTo(page, screen.getByTestId("settings-save"));
   await page.keyboard.press("Enter");

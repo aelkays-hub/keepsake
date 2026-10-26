@@ -94,7 +94,9 @@ export function useFocusTrap(ref: RefObject<HTMLElement>): void {
     return () => {
       document.removeEventListener("keydown", onKey, true);
       const b = back.current;
-      if (b && document.contains(b)) b.focus();
+      // Without scrolling: the list behind may have moved on (the viewer
+      // went to another item), and the list puts focus on that item.
+      if (b && document.contains(b)) b.focus({ preventScroll: true });
     };
   }, [ref]);
 }
