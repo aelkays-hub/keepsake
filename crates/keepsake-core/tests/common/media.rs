@@ -160,6 +160,24 @@ pub fn jpeg(ffmpeg: &Path, out: &Path) {
     );
 }
 
+/// A small JPEG whose bytes differ for each `n` (its size does).
+pub fn jpeg_n(ffmpeg: &Path, out: &Path, n: u32) {
+    mkparent(out);
+    let size = format!("testsrc2=size={}x48", 64 + 2 * n);
+    run(
+        ffmpeg,
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            &size,
+            "-frames:v",
+            "1",
+            out.to_str().unwrap(),
+        ],
+    );
+}
+
 /// Write EXIF tags into a test file (never used on originals).
 pub fn set_tags(et: &ExifTool, file: &Path, tags: &[&str]) {
     let mut args: Vec<String> = vec!["-overwrite_original".into(), "-q".into()];

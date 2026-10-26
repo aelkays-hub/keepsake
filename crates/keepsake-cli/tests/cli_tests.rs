@@ -1283,3 +1283,43 @@ fn a_crash_writes_a_report_to_the_local_log_folder() {
     // The usual message still reaches the terminal.
     assert!(String::from_utf8_lossy(&out.stderr).contains("crash requested"));
 }
+
+// ── corpus (developer tool) ──────────────────────────────────────────────────
+
+#[test]
+fn corpus_scan_and_init_expected_write_only_their_own_files() {
+    let e = Env::new();
+    let corpus = e.p("corpus-root");
+    copy_dir(&fixture("dcim"), &corpus.join("cards").join("cam1"));
+    let before = tree(&corpus);
+    let manifest = e.p("out/manifest.json");
+    let expected = e.p("out/expected.toml");
+    let out = e.run(&[
+        "corpus",
+        "scan",
+        &e.s("corpus-root"),
+        "--output",
+        &e.s("out/manifest.json"),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(std::fs::read_to_string(&manifest).unwrap().contains("cam1"));
+    let out = e.run(&[
+        "corpus",
+        "init-expected",
+        "--manifest",
+        &e.s("out/manifest.json"),
+        "--output",
+        &e.s("out/expected.toml"),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(expected.is_file());
+    assert_eq!(tree(&corpus), before, "the corpus media is only read");
+}

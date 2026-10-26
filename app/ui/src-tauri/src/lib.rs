@@ -38,6 +38,7 @@ fn self_check(out: Option<&String>) -> i32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    diagnostics::mark_start();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-check") {
         std::process::exit(self_check(args.get(2)));
@@ -121,10 +122,27 @@ pub fn run() {
             diagnostics::log_ui_error,
             diagnostics::crash_notice,
             diagnostics::crash_dismiss,
+            diagnostics::ui_ready,
+            diagnostics::startup_ms,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {
         eprintln!("Keepsake could not start: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn self_check_writes_its_report_where_asked() {
+        let d = tempfile::tempdir().unwrap();
+        let out = d.path().join("self-check.json");
+        let code = super::self_check(Some(&out.to_string_lossy().into_owned()));
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(v["version"], keepsake_core::version());
+        assert_eq!(v["tools"].as_array().unwrap().len(), 4);
+        assert_eq!(code == 0, v["ok"].as_bool().unwrap());
     }
 }
