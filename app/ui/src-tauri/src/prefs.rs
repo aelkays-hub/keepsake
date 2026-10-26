@@ -20,7 +20,7 @@ fn info(state: &AppState, s: &Settings) -> CmdResult<SettingsInfo> {
     let cache = s.render.cache_root().map_err(err)?;
     let open = state.try_open();
     let cache_bytes = match &open {
-        Some(o) => o.cat().read(|tx| tx.renditions().totals()).map_err(err)?.1,
+        Some(o) => o.cat()?.read(|tx| tx.renditions().totals()).map_err(err)?.1,
         None => 0,
     };
     Ok(SettingsInfo {

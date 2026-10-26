@@ -60,7 +60,7 @@ pub fn import_scan(state: State<'_, AppState>, mount: String) -> CmdResult<CardS
     let status = cards::identify(&open.lib, &m, &id).map_err(err)?;
     let card = status.as_ref().map(|s| &s.card);
     let items = {
-        let cat = open.cat();
+        let cat = open.cat()?;
         ingest::scan_card(&cat, &open.lib, &m, card).map_err(err)?
     };
     Ok(CardScan {

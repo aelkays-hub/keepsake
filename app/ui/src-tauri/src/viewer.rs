@@ -66,7 +66,7 @@ pub async fn full_image(
 pub fn asset_members(state: State<'_, AppState>, id: String) -> CmdResult<AssetMembers> {
     let open = state.open()?;
     let a = convert::id(&id, "asset")?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     match full::members(&cat, &open.lib, a) {
         Ok(m) => Ok(AssetMembers {
             has_pair: m.has_pair,
@@ -112,7 +112,7 @@ pub fn open_external(
 ) -> CmdResult<String> {
     let open = state.open()?;
     let a = convert::id(&id, "asset")?;
-    let src = locate(&open.cat(), &open.lib, a).map_err(offline_text)?;
+    let src = locate(&*open.cat()?, &open.lib, a).map_err(offline_text)?;
     let path = match (member, &src.raw) {
         (MemberDto::Raw, Some(r)) => r.clone(),
         _ if src.media_kind == MediaKind::Photo => src.still.clone(),

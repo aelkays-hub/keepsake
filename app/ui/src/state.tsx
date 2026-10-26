@@ -48,7 +48,9 @@ export function UiProvider({ children }: { children: ReactNode }) {
           }
         })
         .catch((e) => console.error("view_open", e));
-    }, 120);
+      // Just long enough to merge changes made together (a filter and the
+      // sort, say) into one view.
+    }, 30);
     return () => clearTimeout(t);
     // `key` covers query, sort and refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
