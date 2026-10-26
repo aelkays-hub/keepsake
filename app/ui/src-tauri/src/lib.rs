@@ -10,8 +10,37 @@ mod render;
 mod state;
 mod viewer;
 
+use tauri::Manager;
+
+/// `keepsake-app --self-check [out.json]`: find and run every bundled tool,
+/// write what was found (JSON, to the file or stdout) and exit 0 if all
+/// work. Used by the release smoke test on the installed app.
+fn self_check(out: Option<&String>) -> i32 {
+    let tools = keepsake_core::diag::tools(&keepsake_core::render::RenderTools::discover());
+    let ok = tools.iter().all(|t| t.ok());
+    let report = serde_json::json!({
+        "version": keepsake_core::version(),
+        "ok": ok,
+        "tools": tools,
+    });
+    let text = serde_json::to_string_pretty(&report).unwrap_or_default();
+    match out {
+        Some(p) => {
+            if std::fs::write(p, text).is_err() {
+                return 2;
+            }
+        }
+        None => println!("{text}"),
+    }
+    i32::from(!ok)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--self-check") {
+        std::process::exit(self_check(args.get(2)));
+    }
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
@@ -21,6 +50,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
+            // The installed app's tools are in its resource folder, laid out
+            // like vendor/ (tauri.windows.conf.json).
+            if let Ok(dir) = app.path().resource_dir() {
+                if keepsake_core::probe::ToolPaths::in_vendor(&dir).ffprobe.is_file() {
+                    keepsake_core::probe::tools::set_bundled(dir);
+                }
+            }
             // The main window is made here (not from the config) so the UI
             // tests can give WebView2 a debugging port.
             let conf = app

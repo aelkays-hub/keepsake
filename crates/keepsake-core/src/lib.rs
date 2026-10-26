@@ -3,6 +3,7 @@ pub mod cards;
 pub mod catalog;
 pub mod corpus;
 pub mod devices;
+pub mod diag;
 pub mod error;
 pub mod external;
 pub mod grouping;

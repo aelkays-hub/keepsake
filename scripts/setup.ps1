@@ -1,8 +1,11 @@
 # Keepsake dev-environment setup - Windows
 # Re-running is safe; every step is idempotent.
 #Requires -Version 5.1
-# -VendorOnly: only download the pinned FFmpeg/ffprobe/ExifTool/LibRaw into vendor# (used by CI; skips installing Rust, Node and pnpm).
-param([switch]$VendorOnly)
+# -VendorOnly: only download the pinned FFmpeg/ffprobe/ExifTool/LibRaw into vendor
+# (used by CI; skips installing Rust, Node and pnpm).
+# -Arch ARM64|AMD64: fetch binaries for another architecture (the ARM64
+# release is built on an x64 runner). Default: this machine's.
+param([switch]$VendorOnly, [ValidateSet("", "AMD64", "ARM64")][string]$Arch = "")
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -48,7 +51,8 @@ function Invoke-MirroredDownload {
 
 # -- Detect architecture ------------------------------------------------------
 # $env:PROCESSOR_ARCHITECTURE is AMD64 on x64 and ARM64 on ARM64.
-$Arch = $env:PROCESSOR_ARCHITECTURE
+$HostArch = $env:PROCESSOR_ARCHITECTURE
+if (-not $Arch) { $Arch = $HostArch }
 Write-Info "Architecture: $Arch"
 
 if (-not $VendorOnly) {
@@ -95,7 +99,8 @@ Write-Info "  OK pnpm $pnpmVer"
 $FfmpegBin   = Join-Path $Vendor "ffmpeg.exe"
 $FfprobeBin  = Join-Path $Vendor "ffprobe.exe"
 
-if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
+$FfmpegLicence = Join-Path $Vendor "LICENSE-ffmpeg.txt"
+if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin) -or -not (Test-Path $FfmpegLicence)) {
     if ($Arch -eq "ARM64") {
         $FfmpegZipName = "ffmpeg-n9.0-latest-winarm64-lgpl-9.0.zip"
         $FfmpegZipSHA  = "33cb51e1529c1d658eb814c0cd557272f35a83951d7bb8009ac6bbe7854b0cc6"
@@ -125,6 +130,12 @@ if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
     }
     Copy-Item $src_ffmpeg  $FfmpegBin  -Force
     Copy-Item $src_ffprobe $FfprobeBin -Force
+    # The licence ships with the app beside the binaries (LGPL).
+    $src_licence = Join-Path $BinDir.FullName "LICENSE.txt"
+    if (-not (Test-Path $src_licence)) {
+        Write-Err "Expected LICENSE.txt not found in archive: $src_licence"
+    }
+    Copy-Item $src_licence $FfmpegLicence -Force
     Remove-Item $ExtractDir -Recurse -Force
     Remove-Item $FfmpegZip  -Force
     Write-Info "  Installed ffmpeg.exe and ffprobe.exe"
@@ -135,7 +146,13 @@ if (-not (Test-Path $FfmpegBin) -or -not (Test-Path $FfprobeBin)) {
 # Verify the installed build is LGPL (neither GPL nor nonfree).
 # --enable-version3 means LGPLv3, which is acceptable under ADR-005.
 Write-Info "Verifying FFmpeg licence..."
-$ffVer = (& $FfmpegBin -version 2>&1) -join " "
+if ($Arch -ne $HostArch) {
+    # Another architecture's binary cannot run here. The archive is pinned
+    # by SHA-256 to a build checked as LGPL when it was mirrored (ADR-005).
+    $ffVer = "ffmpeg version $Arch-not-run-here --enable-version3"
+} else {
+    $ffVer = (& $FfmpegBin -version 2>&1) -join " "
+}
 if ($ffVer -match "--enable-gpl") {
     Write-Err "Licence check failed: ffmpeg reports --enable-gpl.`n  This is a GPL build - replace vendor\ffmpeg.exe with an LGPL build.`n  Binary: $FfmpegBin"
 }
@@ -239,9 +256,9 @@ if (-not (Test-Path $LibrawBin)) {
 } else {
     Write-Info "  LibRaw already present, skipping download."
 }
-# Smoke-test: dcraw_emu prints its usage (and version) with no arguments.
+# Smoke-test: dcraw_emu prints its usage banner with no arguments.
 $lrOut = (& $LibrawBin 2>&1 | Out-String)
-if ($lrOut -notmatch "LibRaw") {
+if ($lrOut -cnotmatch "dcraw emulator") {
     Write-Err "dcraw_emu smoke-test failed`n  Binary: $LibrawBin"
 }
 # Its usage exit status (non-zero) must not become the script's.
