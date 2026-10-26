@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use super::define_repo;
-use super::search::{filter_sql, FilterSql, SearchQuery};
+use super::search::{filter_sql_in, FilterSql, SearchQuery};
 use crate::catalog::error::CatalogError;
 use crate::catalog::{AssetId, Blake3Hash, MediaKind, VolumeId};
 
@@ -144,7 +144,7 @@ fn params(f: &FilterSql) -> rusqlite::ParamsFromIter<impl Iterator<Item = &dyn r
 impl<M> Browse<'_, M> {
     /// How many assets match.
     pub fn count(&self, q: &SearchQuery) -> Result<u64, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(0);
         }
@@ -161,7 +161,7 @@ impl<M> Browse<'_, M> {
         offset: u64,
         limit: u32,
     ) -> Result<Vec<BrowseRow>, CatalogError> {
-        let mut f = filter_sql(q)?;
+        let mut f = filter_sql_in(q)?;
         if f.empty || limit == 0 {
             return Ok(Vec::new());
         }
@@ -218,7 +218,7 @@ impl<M> Browse<'_, M> {
     /// this as the view's snapshot and pages through it with [`Self::rows`],
     /// so deep pages cost the same as the first.
     pub fn ordered_ids(&self, q: &SearchQuery, sort: Sort) -> Result<Vec<AssetId>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(Vec::new());
         }
@@ -267,7 +267,7 @@ impl<M> Browse<'_, M> {
         from: u64,
         to: u64,
     ) -> Result<Vec<AssetId>, CatalogError> {
-        let mut f = filter_sql(q)?;
+        let mut f = filter_sql_in(q)?;
         if f.empty || to <= from {
             return Ok(Vec::new());
         }
@@ -295,7 +295,7 @@ impl<M> Browse<'_, M> {
         sort: Sort,
         asset: AssetId,
     ) -> Result<Option<u64>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(None);
         }
@@ -321,7 +321,7 @@ impl<M> Browse<'_, M> {
         q: &SearchQuery,
         level: CalendarLevel,
     ) -> Result<Vec<CalendarBucket>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(Vec::new());
         }

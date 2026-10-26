@@ -38,7 +38,7 @@ export function Toolbar() {
     const t = setTimeout(() => {
       if ((s.filters.text ?? "") !== text)
         dispatch({ t: "filters", filters: { ...s.filters, text: text || null } });
-    }, 100);
+    }, 80);
     return () => clearTimeout(t);
   }, [text, s.filters, dispatch]);
   const set = (patch: Partial<Query>) =>
