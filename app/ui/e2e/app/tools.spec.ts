@@ -137,7 +137,9 @@ test("time shift writes the XMP sidecars and leaves the originals alone", async 
     }
     // The originals are byte-for-byte what was imported.
     for (const f of originals) expect(sha(path.join(dest, f))).toBe(before[f]);
-    // The inspector shows the new time.
+    // The inspector shows the new time. Wait for the view to be reopened
+    // with the new times first (that clears the selection).
+    await expect(page.getByTestId("selected")).toHaveCount(0);
     await page.getByTestId("tile").first().click();
     await expect(page.getByTestId("inspector")).toContainText("2024-06-15 14:32");
   } finally {
