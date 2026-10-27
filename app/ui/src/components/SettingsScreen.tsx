@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 
 import { api, pickFile, pickFolder, type OpenApp, type Preset, type SettingsInfo } from "../api";
+import { copyDiagnosticReport } from "../diagnostics";
 import * as fmt from "../format";
 
 const GB = 1024 ** 3;
@@ -31,6 +32,60 @@ function Library({ info }: { info: SettingsInfo }) {
         </button>
       </div>
       {problem && <p className="error">{problem}</p>}
+    </div>
+  );
+}
+
+function Diagnostics() {
+  const [status, setStatus] = useState<string | null>(null);
+  const [report, setReport] = useState<string | null>(null);
+  return (
+    <div className="card" data-testid="diagnostics">
+      <h2>Help and diagnostics</h2>
+      <p className="muted">
+        If something goes wrong, copy the diagnostic report and paste it into your bug report. It
+        lists versions, tools, library counts, settings and recent log lines, with your home folder
+        shown as ~. Logs stay on this computer; Keepsake never sends anything.
+      </p>
+      <div className="row">
+        <button
+          className="primary"
+          onClick={() =>
+            copyDiagnosticReport()
+              .then((t) => {
+                setReport(t);
+                setStatus("Copied to the clipboard.");
+              })
+              .catch((e) => setStatus(`Could not copy: ${String(e)}`))
+          }
+          data-testid="copy-report"
+        >
+          Copy diagnostic report
+        </button>
+        <button
+          onClick={() =>
+            api
+              .openLogFolder()
+              .then((p) => setStatus(`Opened ${p}`))
+              .catch((e) => setStatus(String(e)))
+          }
+        >
+          Open log folder
+        </button>
+      </div>
+      {status && (
+        <p role="status" data-testid="diagnostics-status">
+          {status}
+        </p>
+      )}
+      {report && (
+        <details>
+          <summary>What was copied</summary>
+          <pre className="report" data-testid="report-text" tabIndex={0}>
+            {report}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
@@ -399,6 +454,7 @@ export function SettingsScreen() {
       </div>
 
       <Presets />
+      <Diagnostics />
     </section>
   );
 }

@@ -55,6 +55,22 @@ fn now() -> i64 {
     crate::jobs::now_ms()
 }
 
+/// Bytes of the files under `p`.
+fn dir_size(p: &Path) -> u64 {
+    let mut n = 0;
+    let mut stack = vec![p.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => stack.push(e.path()),
+                Ok(_) => n += e.metadata().map(|m| m.len()).unwrap_or(0),
+                Err(_) => {}
+            }
+        }
+    }
+    n
+}
+
 impl Cache {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -90,25 +106,11 @@ impl Cache {
     /// the cache elsewhere). Only its own sub-folders are touched; anything
     /// else in the folder stays. Returns the bytes freed.
     pub fn remove_files(&self) -> Result<u64, RenderError> {
-        fn size(p: &Path) -> u64 {
-            let mut n = 0;
-            let mut stack = vec![p.to_path_buf()];
-            while let Some(d) = stack.pop() {
-                for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                    match e.file_type() {
-                        Ok(t) if t.is_dir() => stack.push(e.path()),
-                        Ok(_) => n += e.metadata().map(|m| m.len()).unwrap_or(0),
-                        Err(_) => {}
-                    }
-                }
-            }
-            n
-        }
         let mut freed = 0;
         for sub in ["thumbnail", "preview", "proxy", "export", "card", ".tmp"] {
             let d = self.root.join(sub);
             if d.is_dir() {
-                freed += size(&d);
+                freed += dir_size(&d);
                 std::fs::remove_dir_all(&d)?;
             }
         }

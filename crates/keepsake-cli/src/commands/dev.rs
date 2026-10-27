@@ -1,4 +1,4 @@
-//! Hidden developer tools: `keepsake dev seed`.
+//! Hidden developer tools: `keepsake dev seed`, `keepsake dev crash`.
 
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -22,10 +22,13 @@ pub enum DevAction {
         #[arg(long, default_value_t = 0.25)]
         offline: f64,
     },
+    /// Panic on purpose, to test crash reports.
+    Crash,
 }
 
 pub fn run(ctx: &Ctx, action: DevAction) -> Result<u8> {
     match action {
+        DevAction::Crash => panic!("crash requested with `keepsake dev crash`"),
         DevAction::Seed {
             assets,
             distinct,

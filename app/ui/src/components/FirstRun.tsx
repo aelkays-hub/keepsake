@@ -1,10 +1,12 @@
 // First run: create or open a library.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api, pickFolder, type AppInfo } from "../api";
+import { markReady } from "../diagnostics";
 
 export function FirstRun({ onReady, uiTest }: { onReady: (i: AppInfo) => void; uiTest: boolean }) {
+  useEffect(() => markReady("first run"), []);
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

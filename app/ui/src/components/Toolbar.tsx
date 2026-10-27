@@ -21,21 +21,24 @@ const SORTS: { key: SortKey; label: string }[] = [
 ];
 
 export function Toolbar() {
-  const { s, dispatch, view } = useUi();
+  const { s, dispatch, refreshes } = useUi();
   const [text, setText] = useState(s.filters.text ?? "");
   const [facets, setFacets] = useState<Facets>({ cameras: [], lenses: [] });
+  // Cameras and lenses of the whole library: they change only with imports
+  // and edits, not with each new view (fetching them per view held up the
+  // next search behind a 200 ms query at 300,000 items).
   useEffect(() => {
     api
       .facets()
       .then(setFacets)
       .catch(() => undefined);
-  }, [view?.view]);
+  }, [refreshes, s.revision]);
   // Words are applied after a short pause in typing.
   useEffect(() => {
     const t = setTimeout(() => {
       if ((s.filters.text ?? "") !== text)
         dispatch({ t: "filters", filters: { ...s.filters, text: text || null } });
-    }, 250);
+    }, 80);
     return () => clearTimeout(t);
   }, [text, s.filters, dispatch]);
   const set = (patch: Partial<Query>) =>

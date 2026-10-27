@@ -6,6 +6,7 @@
 
 # Windows scripts stay CRLF on Windows checkout.
 *.ps1 text eol=crlf
+*.bat text eol=crlf
 
 # Binaries — no line-ending conversion.
 *.exe binary

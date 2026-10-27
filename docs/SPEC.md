@@ -45,6 +45,15 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 ### Interop
 - Open the item in another application (Ctrl+O): the system default, or an application set per file type in Settings.
 
+### Help and diagnostics
+- Logs and crash reports are kept in a local folder only; there is no telemetry. After a crash the app says so once, at the next start.
+- "Copy diagnostic report" (Settings, the crash notice and the error screen) copies versions, tools, library counts, settings, the last crash and recent log lines, with the home folder shown as `~`.
+
+### Accessibility
+- Every MVP flow works with the keyboard alone.
+- Items, controls, progress and errors are announced by screen readers.
+- Text meets WCAG 2.1 AA contrast in both themes.
+
 ### Settings
 - Library (open or create another), cache folder (with removal of the old cache's files after a move), cache size limit, image and video workers, pause on battery, Open in applications, and import presets (create, edit, delete). Ctrl+,.
 - CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.

@@ -186,7 +186,7 @@ pub fn edit_keywords(
 pub fn keywords(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     let open = state.open()?;
     let mut v: Vec<String> = open
-        .cat()
+        .cat()?
         .read(|tx| tx.tags().all_paths())
         .map_err(err)?
         .iter()
@@ -221,7 +221,7 @@ pub fn time_shift_preview(
     let reference = convert::id(&reference, "asset")?;
     let correct = parse_local(&correct)?;
     let ids = resolve(&state, &selection)?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let r = cat
         .read(|tx| tx.assets().require(reference))
         .map_err(err)?
@@ -275,7 +275,7 @@ pub fn time_shift_apply(
     let open = state.open()?;
     let ids = resolve(&state, &selection)?;
     let dated: Vec<AssetId> = open
-        .cat()
+        .cat()?
         .read(|tx| tx.browse().rows(&ids))
         .map_err(err)?
         .into_iter()

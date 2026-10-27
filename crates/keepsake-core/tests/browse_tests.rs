@@ -330,7 +330,27 @@ fn calendar_counts_add_up_and_have_covers() {
         })
         .unwrap();
     assert_eq!(n, d.count);
-    // The cover is the best-rated asset of the cell, and has a thumbnail.
+    // The cover is the best-rated asset of the cell, the earliest of those.
+    for b in &days {
+        let day = SearchQuery {
+            from: Some(b.key.clone()),
+            to: Some(b.key.clone()),
+            ..all()
+        };
+        let by_date = sort(SortField::Date, false);
+        let ids = w
+            .cat
+            .read(|tx| tx.browse().ordered_ids(&day, by_date))
+            .unwrap();
+        let rows = w.cat.read(|tx| tx.browse().rows(&ids)).unwrap();
+        let best = rows.iter().map(|r| r.rating).max().unwrap();
+        let first_best = ids
+            .iter()
+            .find(|id| rows.iter().any(|r| r.id == **id && r.rating == best))
+            .unwrap();
+        assert_eq!(b.cover.as_ref(), Some(first_best), "day {}", b.key);
+    }
+    // ... and has a thumbnail.
     let mut cat = w.lib.open_catalog().unwrap();
     assert!(w
         .cache
@@ -552,4 +572,34 @@ fn copy(src: &std::path::Path, dst: &std::path::Path) {
             std::fs::copy(e.path(), to).unwrap();
         }
     }
+}
+
+#[test]
+fn the_unfiltered_years_level_matches_the_general_query() {
+    let w = world(3000);
+    let fast = w
+        .cat
+        .read(|tx| tx.browse().calendar(&all(), CalendarLevel::Years))
+        .unwrap();
+    // A filter that every dated asset passes takes the general path.
+    let general = w
+        .cat
+        .read(|tx| {
+            tx.browse().calendar(
+                &SearchQuery {
+                    from: Some("0001-01-01".into()),
+                    ..all()
+                },
+                CalendarLevel::Years,
+            )
+        })
+        .unwrap();
+    let dated: Vec<_> = fast.iter().filter(|b| b.key != "undated").collect();
+    assert_eq!(dated.len(), general.len());
+    for (a, b) in dated.iter().zip(&general) {
+        assert_eq!((&a.key, a.count), (&b.key, b.count));
+        assert_eq!(a.cover, b.cover, "cover of {}", a.key);
+        assert_eq!(a.cover_hash, b.cover_hash);
+    }
+    assert!(fast.iter().any(|b| b.key == "undated"));
 }

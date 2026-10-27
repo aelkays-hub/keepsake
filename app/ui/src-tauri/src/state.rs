@@ -27,8 +27,43 @@ pub struct Open {
     pub lib: Library,
     pub cache: Cache,
     pub settings: Settings,
-    /// For reads and small writes from commands.
-    pub cat: Mutex<Catalog>,
+    /// Idle read connections (see [`Open::cat`]).
+    pub readers: Mutex<Vec<Catalog>>,
+}
+
+/// Read connections kept for reuse. SQLite in WAL mode runs readers side
+/// by side, so a long read (opening a 300,000-item view) never holds up a
+/// short one (a calendar level, a page of the grid).
+const IDLE_READERS: usize = 6;
+
+/// A read connection lent from the pool; it goes back when dropped.
+pub struct Reader<'a> {
+    cat: Option<Catalog>,
+    pool: &'a Mutex<Vec<Catalog>>,
+}
+
+impl std::ops::Deref for Reader<'_> {
+    type Target = Catalog;
+    fn deref(&self) -> &Catalog {
+        self.cat.as_ref().expect("present until dropped")
+    }
+}
+
+impl std::ops::DerefMut for Reader<'_> {
+    fn deref_mut(&mut self) -> &mut Catalog {
+        self.cat.as_mut().expect("present until dropped")
+    }
+}
+
+impl Drop for Reader<'_> {
+    fn drop(&mut self) {
+        if let Some(c) = self.cat.take() {
+            let mut idle = lock(self.pool);
+            if idle.len() < IDLE_READERS {
+                idle.push(c);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -78,7 +113,7 @@ impl AppState {
             lib,
             cache,
             settings,
-            cat: Mutex::new(cat),
+            readers: Mutex::new(vec![cat]),
         });
         *lock(&self.open) = Some(Arc::clone(&open));
         lock(&self.views).clear();
@@ -97,7 +132,7 @@ impl AppState {
             lib,
             cache,
             settings,
-            cat: Mutex::new(cat),
+            readers: Mutex::new(vec![cat]),
         });
         *lock(&self.open) = Some(Arc::clone(&open));
         Ok(open)
@@ -138,11 +173,19 @@ impl AppState {
 }
 
 impl Open {
-    /// The shared connection, for reads. Commands that write use
-    /// [`Self::writer`] instead, so a slow write (waiting on the render
-    /// service, say) never holds up reads such as scrolling the grid.
-    pub fn cat(&self) -> MutexGuard<'_, Catalog> {
-        lock(&self.cat)
+    /// A connection for reads, from the pool (a new one if all are busy).
+    /// Commands that write use [`Self::writer`] instead, so a slow write
+    /// (waiting on the render service, say) never holds up reads.
+    pub fn cat(&self) -> CmdResult<Reader<'_>> {
+        let idle = lock(&self.readers).pop();
+        let cat = match idle {
+            Some(c) => c,
+            None => self.lib.open_catalog().map_err(err)?,
+        };
+        Ok(Reader {
+            cat: Some(cat),
+            pool: &self.readers,
+        })
     }
 
     /// A fresh connection for a command that writes.

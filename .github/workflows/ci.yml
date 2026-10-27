@@ -94,6 +94,13 @@ jobs:
         run: cargo test --workspace
         # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
 
+      # 300,000 synthetic items: start-up queries, searches and the calendar
+      # against the prompt-12 limits, doubled for CI machines (ADR-024).
+      - name: Scale test (300,000 items, release)
+        run: cargo test --release -p keepsake-core --test scale_tests -- --ignored --nocapture
+        env:
+          KEEPSAKE_SCALE_SLACK: "2"
+
       # `cargo test -p keepsake-app` regenerates the TypeScript bindings.
       - name: UI bindings are up to date
         shell: bash
@@ -154,34 +161,34 @@ jobs:
             app/ui/test-results
           retention-days: 7
 
-      # Verify tauri.conf.json declares ExifTool resources.
-      # vendor/ is not present in CI (gitignored), so we only check the config
-      # structure — file presence is validated by setup.ps1 on dev machines.
+      # The Windows installer's resources (tauri.windows.conf.json) declare
+      # every sidecar tool and licence, laid out like vendor/ so the
+      # installed app finds them (ADR-024). The release smoke test checks
+      # the installed files themselves.
       - name: Verify sidecar bundle resources declared
         shell: pwsh
         run: |
-          $conf = Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $conf = Get-Content app/ui/src-tauri/tauri.windows.conf.json | ConvertFrom-Json
           $res  = $conf.bundle.resources
           if (-not $res) {
-            Write-Error "tauri.conf.json: bundle.resources is missing"
+            Write-Error "tauri.windows.conf.json: bundle.resources is missing"
             exit 1
           }
-          $keys = $res.PSObject.Properties.Name
-          $checks = @{
-            "exiftool.exe"    = ($keys | Where-Object { $_ -like "*exiftool.exe*" })
-            "exiftool_files/" = ($keys | Where-Object { $_ -like "*exiftool_files*" })
-            "ffmpeg.exe"      = ($keys | Where-Object { $_ -like "*ffmpeg.exe*" })
-            "ffprobe.exe"     = ($keys | Where-Object { $_ -like "*ffprobe.exe*" })
-          }
+          $targets = $res.PSObject.Properties.Value
+          $want = @(
+            "ffmpeg.exe", "ffprobe.exe", "exiftool/exiftool.exe", "exiftool/exiftool_files/",
+            "libraw/dcraw_emu.exe", "libraw/libraw.dll", "libraw/LICENSE.LGPL",
+            "licenses/FFmpeg-LICENSE.txt"
+          )
           $failed = $false
-          foreach ($name in $checks.Keys) {
-            if (-not $checks[$name]) {
-              Write-Error "bundle.resources does not declare $name"
+          foreach ($t in $want) {
+            if ($targets -notcontains $t) {
+              Write-Error "bundle.resources does not install $t"
               $failed = $true
             }
           }
           if ($failed) { exit 1 }
-          Write-Host "OK: bundle.resources declares exiftool.exe, exiftool_files/, ffmpeg.exe, ffprobe.exe"
+          Write-Host "OK: the installer declares FFmpeg, ExifTool, LibRaw and their licences"
 
       # ── Upload build artifacts ───────────────────────────────────────────────
       - name: Upload Tauri binary
@@ -260,3 +267,13 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-macos
+          path: |
+            app/ui/playwright-report
+            app/ui/test-results
+          retention-days: 7

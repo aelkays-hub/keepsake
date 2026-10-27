@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useFocusTrap } from "../a11y";
 import { api, events, fileUrl, type EditProgress, type Row, type TimeShiftPreview } from "../api";
 import { selectionPayload } from "../edits";
 import * as fmt from "../format";
@@ -26,6 +27,8 @@ export function TimeShiftDialog() {
   const [progress, setProgress] = useState<EditProgress | null>(null);
   const [busy, setBusy] = useState(false);
   const first = useRef<HTMLSelectElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  useFocusTrap(box);
   const close = () => dispatch({ t: "dialog", dialog: null });
 
   // Candidates: dated items of the selection, the focused one first.
@@ -111,6 +114,7 @@ export function TimeShiftDialog() {
       onMouseDown={(e) => e.target === e.currentTarget && !busy && close()}
     >
       <div
+        ref={box}
         className="modal"
         role="dialog"
         aria-modal="true"

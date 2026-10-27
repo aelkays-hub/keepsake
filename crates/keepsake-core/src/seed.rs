@@ -8,6 +8,9 @@
 //! previews in the cache, so a 300,000-item grid shows pictures while the
 //! cache holds only `distinct` × 3 small JPEGs.
 //!
+//! For realistic text search, half of the assets get keywords and about a
+//! fifth a comment, from a small vocabulary, in the search index.
+//!
 //! Never run this on a real library: it is for throwaway test libraries.
 
 use std::path::PathBuf;
@@ -249,7 +252,20 @@ pub fn seed(lib: &Library, cache: &Cache, opts: &SeedOptions) -> Result<SeedRepo
             }
             c.execute(
                 "INSERT INTO asset_fts (rowid, names, comment, tags)
-                 SELECT a.seq, f.file_name, '', '' FROM assets a
+                 SELECT a.seq, f.file_name,
+                        CASE a.seq % 13
+                          WHEN 0 THEN 'Sunset at the lake'
+                          WHEN 1 THEN 'Birthday party in the garden'
+                          WHEN 2 THEN 'First snow of the winter'
+                          ELSE '' END,
+                        CASE a.seq % 10
+                          WHEN 0 THEN 'Places Lake Family'
+                          WHEN 1 THEN 'Places Beach'
+                          WHEN 2 THEN 'Places Mountains Hiking'
+                          WHEN 3 THEN 'People Anna'
+                          WHEN 4 THEN 'Events Wedding Family'
+                          ELSE '' END
+                   FROM assets a
                    JOIN files f ON f.asset_id = a.id AND f.role = 'original'
                   WHERE a.seq > ?1",
                 [first_seq],

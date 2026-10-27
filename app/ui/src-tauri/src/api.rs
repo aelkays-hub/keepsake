@@ -531,6 +531,16 @@ dto! {
     }
 }
 
+dto! {
+    /// The app crashed last time: shown once at start-up.
+    pub struct CrashNotice {
+        /// The crash file's name in the log folder.
+        pub file: String,
+        /// Where it happened, in a line.
+        pub summary: String,
+    }
+}
+
 /// Which member of an asset to show or open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

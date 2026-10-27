@@ -86,6 +86,7 @@ impl Env {
         let mut c = Command::new(env!("CARGO_BIN_EXE_keepsake"));
         c.args(args)
             .env("KEEPSAKE_CONFIG_DIR", self.p("config"))
+            .env("KEEPSAKE_LOG_DIR", self.p("logs"))
             .env("KEEPSAKE_VENDOR", workspace().join("vendor"))
             .env_remove("KEEPSAKE_LIBRARY")
             .env_remove("RUST_LOG");
@@ -1248,4 +1249,77 @@ fn renders_bench_reports_items_per_minute() {
         .is_some_and(|c| !c.is_empty()));
     // The sample folder is untouched.
     assert_eq!(std::fs::read_dir(&media).unwrap().count(), 3);
+}
+
+// ── Crash reports ────────────────────────────────────────────────────────────
+
+#[test]
+fn a_crash_writes_a_report_to_the_local_log_folder() {
+    let e = Env::new();
+    let out = e.run(&["dev", "crash"]);
+    assert!(!out.status.success());
+    let crashes: Vec<_> = std::fs::read_dir(e.p("logs"))
+        .unwrap()
+        .flatten()
+        .map(|f| f.path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("crash-")
+        })
+        .collect();
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    let text = std::fs::read_to_string(&crashes[0]).unwrap();
+    assert!(
+        text.contains(&format!("keepsake {}", keepsake_core::version())),
+        "{text}"
+    );
+    assert!(
+        text.contains("crash requested with `keepsake dev crash`"),
+        "{text}"
+    );
+    assert!(text.contains("Backtrace:"), "{text}");
+    // The usual message still reaches the terminal.
+    assert!(String::from_utf8_lossy(&out.stderr).contains("crash requested"));
+}
+
+// ── corpus (developer tool) ──────────────────────────────────────────────────
+
+#[test]
+fn corpus_scan_and_init_expected_write_only_their_own_files() {
+    let e = Env::new();
+    let corpus = e.p("corpus-root");
+    copy_dir(&fixture("dcim"), &corpus.join("cards").join("cam1"));
+    let before = tree(&corpus);
+    let manifest = e.p("out/manifest.json");
+    let expected = e.p("out/expected.toml");
+    let out = e.run(&[
+        "corpus",
+        "scan",
+        &e.s("corpus-root"),
+        "--output",
+        &e.s("out/manifest.json"),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(std::fs::read_to_string(&manifest).unwrap().contains("cam1"));
+    let out = e.run(&[
+        "corpus",
+        "init-expected",
+        "--manifest",
+        &e.s("out/manifest.json"),
+        "--output",
+        &e.s("out/expected.toml"),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(expected.is_file());
+    assert_eq!(tree(&corpus), before, "the corpus media is only read");
 }

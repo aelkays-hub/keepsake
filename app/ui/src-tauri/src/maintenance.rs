@@ -51,7 +51,7 @@ pub fn run_dto(r: &Run) -> HistoryRun {
 pub fn backup_overview(state: State<'_, AppState>) -> CmdResult<BackupOverview> {
     let open = state.open()?;
     let runs = history::list(&open.lib).map_err(err)?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let mut destinations: Vec<BackupDestination> = Vec::new();
     for r in runs.iter().filter(|r| r.kind == RunKind::Backup) {
         let Some(v) = r.volume else { continue };
@@ -244,7 +244,7 @@ pub fn backup_run(
 pub fn verify_run(app: AppHandle, state: State<'_, AppState>, volume: String) -> CmdResult<()> {
     let open = state.open()?;
     let v: VolumeId = convert::id(&volume, "volume")?;
-    if verify::mount_of(&open.cat(), &open.lib, v).is_none() {
+    if verify::mount_of(&*open.cat()?, &open.lib, v).is_none() {
         return Err("that drive is not connected".into());
     }
     spawn(&state, "verify", move |cancel| {

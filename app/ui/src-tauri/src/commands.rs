@@ -97,7 +97,7 @@ pub fn view_open(state: State<'_, AppState>, query: Query, sort: SortSpec) -> Cm
     let q = convert::query(&query)?;
     let s = convert::sort(&sort);
     let ids = open
-        .cat()
+        .cat()?
         .read(|tx| tx.browse().ordered_ids(&q, s))
         .map_err(err)?;
     let count = ids.len() as u64;
@@ -118,7 +118,7 @@ pub fn view_rows(
         let end = (start + limit.min(1000) as usize).min(v.ids.len());
         v.ids[start..end].to_vec()
     })?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let rows = cat.read(|tx| tx.browse().rows(&ids)).map_err(err)?;
     let online = open.online_volumes(&cat);
     Ok(rows
@@ -145,7 +145,7 @@ pub fn calendar(
     let open = state.open()?;
     let q = convert::query(&query)?;
     let buckets = open
-        .cat()
+        .cat()?
         .read(|tx| tx.browse().calendar(&q, convert::level(level)))
         .map_err(err)?;
     Ok(buckets
@@ -162,7 +162,7 @@ pub fn calendar(
 #[tauri::command(async)]
 pub fn facets(state: State<'_, AppState>) -> CmdResult<Facets> {
     let open = state.open()?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let f = |c| -> CmdResult<Vec<FacetItem>> {
         Ok(cat
             .read(|tx| tx.browse().facets(c))
@@ -183,7 +183,7 @@ pub fn facets(state: State<'_, AppState>) -> CmdResult<Facets> {
 #[tauri::command(async)]
 pub fn sidebar(state: State<'_, AppState>) -> CmdResult<Sidebar> {
     let open = state.open()?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let online = open.online_volumes(&cat);
     let vcount: std::collections::HashMap<_, _> = cat
         .read(|tx| tx.browse().volume_counts())
@@ -259,7 +259,7 @@ pub fn sidebar(state: State<'_, AppState>) -> CmdResult<Sidebar> {
 pub fn details(state: State<'_, AppState>, id: String) -> CmdResult<Details> {
     let open = state.open()?;
     let a_id = convert::id(&id, "asset")?;
-    let cat = open.cat();
+    let cat = open.cat()?;
     let a = cat.read(|tx| tx.assets().require(a_id)).map_err(err)?;
     let files = cat.read(|tx| tx.files().for_asset(a_id)).map_err(err)?;
     let tags = cat.read(|tx| tx.tags().for_asset(a_id)).map_err(err)?;

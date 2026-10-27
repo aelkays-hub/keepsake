@@ -66,6 +66,24 @@ impl FilterSql {
     }
 }
 
+/// The filter for browsing (views sorted by their own columns): words as
+/// `a.seq IN (matches)` rather than a join, so SQLite can walk a sort index
+/// in order instead of sorting every match (a 60,000-match search at
+/// 300,000 items), or look up a few rows when the words are rare.
+pub(crate) fn filter_sql_in(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
+    let mut f = filter_sql(q)?;
+    if f.fts {
+        f.joins.clear();
+        // The words' argument is the first one, so the condition goes first.
+        f.wh.insert(
+            0,
+            "a.seq IN (SELECT rowid FROM asset_fts WHERE asset_fts MATCH ?)".into(),
+        );
+        f.fts = false;
+    }
+    Ok(f)
+}
+
 pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
     let mut f = FilterSql {
         joins: String::new(),

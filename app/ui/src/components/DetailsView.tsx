@@ -12,6 +12,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
+import { useRovingFocus } from "../a11y";
 
 const ROW = 30;
 
@@ -46,6 +47,7 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
   useEffect(() => {
     if (s.sel.focus !== null) v.scrollToIndex(s.sel.focus, { align: "auto" });
   }, [s.sel.focus, v]);
+  useRovingFocus(parent, s.sel.focus, [first, last]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / ROW) - 1);
   const onKey = useListKeys(rows.count, 1, pageRows, onOpen);
   const sortBy = (key: SortKey) => {
@@ -83,6 +85,7 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
       <div
         ref={parent}
         className="details-scroll"
+        role="rowgroup"
         tabIndex={0}
         data-testid="details"
         data-count={rows.count}
@@ -99,6 +102,7 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
                 aria-selected={sel.has(s.sel, i)}
                 data-index={i}
                 data-testid="drow"
+                tabIndex={s.sel.focus === i ? 0 : -1}
                 className={`drow${sel.has(s.sel, i) ? " selected" : ""}${s.sel.focus === i ? " focused" : ""}${r && !r.online ? " offline" : ""}`}
                 style={{
                   transform: `translateY(${vr.start}px)`,

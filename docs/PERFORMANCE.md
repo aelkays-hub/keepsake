@@ -55,3 +55,47 @@ Not measured yet. It needs a Mac, and an LGPL FFmpeg for macOS for posters, HEIF
 ## HEIF
 
 Not measured: the corpus has no HEIF files yet. HEIF decodes through the FFmpeg sidecar, so expect speeds similar to video poster frames.
+
+## Scale: 300,000 items (prompt 12)
+
+A synthetic library from `keepsake dev seed` (ten years, four cameras, a quarter of it on an unplugged drive, keywords and comments for half), on the same PC, 2026-10-26.
+
+**In the release app** (`app/ui/e2e/app/perf.spec.ts`, release build, WebView2):
+
+| Measure | Result | Limit |
+|---|---:|---:|
+| Start-up: process start to the first grid rows on screen | 0.98 s (1.1 s on the first launch, with a new WebView2 profile) | 3 s |
+| Search, from the last keystroke to the new count on screen (includes the 80 ms typing pause) | 109–233 ms | 300 ms |
+| Filter: 4 stars or more | 218 ms | 300 ms |
+| Calendar: the years on screen | 137 ms | 300 ms |
+| Calendar: a year's months on screen | 93 ms | 300 ms |
+| Scrolling the grid for 4 s at about 15 rows a second | 0 dropped frames of 238 (slowest 17.2 ms at 60 Hz), no long tasks | 0 |
+
+**In core** (`crates/keepsake-core/tests/scale_tests.rs`, release; the slowest of three runs):
+
+| Operation | Time |
+|---|---:|
+| Open the catalog | 3 ms |
+| Sidebar counts | 31 ms |
+| First view (300,000 sorted) and its first 200 rows | 181 ms |
+| Camera and lens lists | 200 ms |
+| Searches: 13 kinds of query, each sorted by date and by name | 0–115 ms |
+| Calendar levels, with and without a word filter | 2–104 ms |
+
+**What was slow, and the fixes:**
+
+| Problem | Before | After |
+|---|---:|---:|
+| Sidebar per-volume count read every file row (partial index, schema v6) | 1.9 s | 31 ms |
+| Calendar with words: one search per cell for its cover (now one pass) | 1.8 s | 58 ms |
+| Calendar years: every asset read (now index range counts and seeks) | 170 ms | 65 ms |
+
+Also:
+- **Shared reads:** every read shared one connection behind a lock, so opening a 300,000-item view held up the calendar and the next search. Reads now use a pool of connections.
+- **Camera and lens lists:** fetched with every view (200 ms). Now fetched once.
+- **Pauses:** typing pause 250 → 80 ms; view pause 120 → 0 ms.
+- **Word filters when browsing:** written as `seq IN (matches)`.
+
+In the real app, keystroke-to-results went from 418–581 ms to 109–233 ms. The calendar years went from 388 ms to 137 ms.
+
+CI runs the core scale test on every push with the limits doubled (`KEEPSAKE_SCALE_SLACK=2`).

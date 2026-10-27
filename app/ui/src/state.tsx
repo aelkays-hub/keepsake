@@ -48,7 +48,9 @@ export function UiProvider({ children }: { children: ReactNode }) {
           }
         })
         .catch((e) => console.error("view_open", e));
-    }, 120);
+      // The next turn of the event loop: changes made together (a filter
+      // and the sort, say) still make one view.
+    }, 0);
     return () => clearTimeout(t);
     // `key` covers query, sort and refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

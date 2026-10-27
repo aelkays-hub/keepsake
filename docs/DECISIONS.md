@@ -983,3 +983,45 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - Cache folder, size limit, image and video workers, and pause-on-battery are saved to `config.toml`. The render service then restarts.
 - Each service run has its own stop flag, so the new service starts while the old one finishes its current job; claiming jobs is atomic, so two running briefly is safe.
 - After the cache moves, `Cache::remove_files` can delete the old folder's thumbnails, previews, proxies, card thumbnails and temporaries. It touches only those sub-folders, never anything else in that folder.
+
+---
+
+## ADR-024 — Hardening for 0.1.0: tools, logs, safety audit, scale, accessibility
+
+**Status**: Accepted (Prompt 12, approved by the product owner 2026-10-26)
+
+**Dependency**
+
+| Dependency | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `@axe-core/playwright` | 4.x | MPL-2.0 | UI tests only (not shipped) | Automated WCAG 2.1 A/AA checks (contrast, labels, roles) on every screen |
+
+**The installed app finds its tools.**
+- Before this, the app looked for ExifTool, FFmpeg and LibRaw only in a `vendor/` folder near the source, so an installed copy found none.
+- The installer now lays its resources out like `vendor/` (`tauri.windows.conf.json`), and the app registers its resource folder with core at start-up (`probe::tools::set_bundled`).
+- `keepsake-app --self-check <file>` finds and runs every tool. The release smoke test runs it on the installed app.
+- LibRaw and the FFmpeg licence are bundled. The release jobs use the setup script (`-Arch ARM64` for the cross build).
+- The release is created as a **draft**, so a person checks it before publishing.
+
+**Logs and crash reports stay local.**
+- One log file per run in the OS log folder (`%LOCALAPPDATA%\keepsake\logs`, `~/Library/Logs/keepsake`): the newest 10 kept, 10 MB each at most. Written by a `tracing` layer over a plain file, with no new dependency.
+- A panic hook writes `crash-<time>-<pid>.txt` with a backtrace. The app shows a one-time notice at the next start.
+- UI errors (render failures, uncaught exceptions, unhandled promises) go to the same log, and render failures show an error screen.
+- "Copy diagnostic report" puts a plain-text report on the clipboard: version, OS, tools, library counts, settings, the last crash and 200 log lines, with the home folder shown as `~`.
+- Nothing is ever sent anywhere; there is no telemetry.
+
+**The safety audit is a test.** `docs/SAFETY.md` lists every code path that writes to disk. `safety_audit_tests.rs` scans the code for anything that can write and fails on a write in a function SAFETY.md does not name. Two tests lock a card and a read-only volume at the OS level and run every reading path against them.
+
+**Scale: 300,000 items** (release build, AMD Ryzen 7 7735HS; `docs/PERFORMANCE.md`).
+- The sidebar's per-volume count now uses a partial index (schema v6): 1.9 s → 31 ms.
+- The calendar computes counts and covers in one pass: with a word filter, 1.8 s → 63 ms.
+- Camera and lens lists are fetched once, not with every view; they had held up the next search.
+- Reads use a small pool of connections (WAL lets readers run side by side), so a 300,000-item view never holds up the calendar.
+- The years calendar uses index range counts and seeks; browsing word filters are `seq IN (matches)`.
+- Typing pause 80 ms (was 250); a new view opens on the next turn of the event loop (was 120 ms).
+
+**Accessibility.**
+- Lists use roving focus: the focused tile or row has keyboard focus and a spoken description.
+- Dialogs keep Tab inside and return focus when they close.
+- The calendar keeps focus when moving between levels. Enter on a cell opens one level, not two.
+- Tests use the keyboard alone for every MVP flow; axe checks every screen in both themes.

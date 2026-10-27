@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use super::define_repo;
-use super::search::{filter_sql, FilterSql, SearchQuery};
+use super::search::{filter_sql_in, FilterSql, SearchQuery};
 use crate::catalog::error::CatalogError;
 use crate::catalog::{AssetId, Blake3Hash, MediaKind, VolumeId};
 
@@ -144,7 +144,7 @@ fn params(f: &FilterSql) -> rusqlite::ParamsFromIter<impl Iterator<Item = &dyn r
 impl<M> Browse<'_, M> {
     /// How many assets match.
     pub fn count(&self, q: &SearchQuery) -> Result<u64, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(0);
         }
@@ -161,7 +161,7 @@ impl<M> Browse<'_, M> {
         offset: u64,
         limit: u32,
     ) -> Result<Vec<BrowseRow>, CatalogError> {
-        let mut f = filter_sql(q)?;
+        let mut f = filter_sql_in(q)?;
         if f.empty || limit == 0 {
             return Ok(Vec::new());
         }
@@ -218,7 +218,7 @@ impl<M> Browse<'_, M> {
     /// this as the view's snapshot and pages through it with [`Self::rows`],
     /// so deep pages cost the same as the first.
     pub fn ordered_ids(&self, q: &SearchQuery, sort: Sort) -> Result<Vec<AssetId>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(Vec::new());
         }
@@ -267,7 +267,7 @@ impl<M> Browse<'_, M> {
         from: u64,
         to: u64,
     ) -> Result<Vec<AssetId>, CatalogError> {
-        let mut f = filter_sql(q)?;
+        let mut f = filter_sql_in(q)?;
         if f.empty || to <= from {
             return Ok(Vec::new());
         }
@@ -295,7 +295,7 @@ impl<M> Browse<'_, M> {
         sort: Sort,
         asset: AssetId,
     ) -> Result<Option<u64>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(None);
         }
@@ -321,7 +321,7 @@ impl<M> Browse<'_, M> {
         q: &SearchQuery,
         level: CalendarLevel,
     ) -> Result<Vec<CalendarBucket>, CatalogError> {
-        let f = filter_sql(q)?;
+        let f = filter_sql_in(q)?;
         if f.empty {
             return Ok(Vec::new());
         }
@@ -330,6 +330,9 @@ impl<M> Browse<'_, M> {
             CalendarLevel::Months { year } => (7, Some(format!("{year:04}-"))),
             CalendarLevel::Days { year, month } => (10, Some(format!("{year:04}-{month:02}-"))),
         };
+        if level == CalendarLevel::Years && f.joins.is_empty() && f.wh.is_empty() {
+            return self.calendar_years_unfiltered();
+        }
         let mut wh = f.wh.clone();
         wh.push("a.capture_local_date IS NOT NULL".into());
         // Ranges, not LIKE, so the date index is used.
@@ -343,42 +346,33 @@ impl<M> Browse<'_, M> {
             args.push(p);
             args.push(u);
         }
+        // Counts and covers in one pass (one search, however many cells).
+        // The cover is the best-rated, then earliest, asset of the cell:
+        // with max(), SQLite takes the other columns from the row holding
+        // the maximum. Rating dominates (×10^13 > any capture time in ms);
+        // the earlier capture wins within a rating.
         let sql = format!(
-            "SELECT substr(a.capture_local_date, 1, {len}) AS k, count(*) FROM assets a{}{where_sql}
-             GROUP BY k ORDER BY k",
+            "SELECT substr(a.capture_local_date, 1, {len}) AS k, count(*), a.id,
+                    max(a.rating * 10000000000000 - a.capture_ts_ms)
+               FROM assets a{}{where_sql}
+              GROUP BY k ORDER BY k",
             f.joins
         );
         let mut st = self.conn.prepare(&sql)?;
-        let counts: Vec<(String, i64)> = st
-            .query_map(args.as_slice(), |r| Ok((r.get(0)?, r.get(1)?)))?
+        let cells: Vec<(String, i64, AssetId)> = st
+            .query_map(args.as_slice(), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<Result<_, _>>()?;
-        let cover_sql = format!(
-            "SELECT a.id, (SELECT blake3 FROM files WHERE asset_id = a.id AND role = 'original' LIMIT 1)
-               FROM assets a{} WHERE {} AND a.capture_local_date >= ? AND a.capture_local_date < ?
-              ORDER BY a.rating DESC, a.capture_ts_ms, a.seq LIMIT 1",
-            f.joins,
-            {
-                let mut w = f.wh.clone();
-                w.push("a.capture_local_date IS NOT NULL".into());
-                w.join(" AND ")
-            }
-        );
-        let mut cover = self.conn.prepare(&cover_sql)?;
-        let mut out = Vec::with_capacity(counts.len() + 1);
-        for (key, n) in counts {
-            let mut a: Vec<&dyn rusqlite::ToSql> = f.args.iter().map(|b| b.as_ref()).collect();
-            // `~` sorts after digits and `-`, so `key~` bounds every date in `key`.
-            let hi = format!("{key}~");
-            a.push(&key);
-            a.push(&hi);
-            let c: Option<(AssetId, Option<Blake3Hash>)> = cover
-                .query_row(a.as_slice(), |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()?;
+        let mut hash = self.conn.prepare_cached(
+            "SELECT blake3 FROM files WHERE asset_id = ? AND role = 'original' LIMIT 1",
+        )?;
+        let mut out = Vec::with_capacity(cells.len() + 1);
+        for (key, n, cover) in cells {
+            let h: Option<Blake3Hash> = hash.query_row([cover], |r| r.get(0)).optional()?;
             out.push(CalendarBucket {
                 key,
                 count: u64::try_from(n).unwrap_or(0),
-                cover: c.map(|c| c.0),
-                cover_hash: c.and_then(|c| c.1),
+                cover: Some(cover),
+                cover_hash: h,
             });
         }
         if level == CalendarLevel::Years {
@@ -398,10 +392,90 @@ impl<M> Browse<'_, M> {
         Ok(out)
     }
 
+    /// The years level of the whole library, from indexes alone: a range
+    /// count per year, and the cover found by seeking the rating index
+    /// (best rating first, then the earliest capture). The one-pass query
+    /// reads every asset (170 ms at 300,000); this takes a few ms.
+    fn calendar_years_unfiltered(&self) -> Result<Vec<CalendarBucket>, CatalogError> {
+        let (lo, hi): (Option<String>, Option<String>) = self.conn.query_row(
+            "SELECT min(capture_local_date), max(capture_local_date) FROM assets",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let year = |d: &Option<String>| d.as_deref().and_then(|s| s.get(..4)?.parse::<i32>().ok());
+        let mut out = Vec::new();
+        if let (Some(a), Some(b)) = (year(&lo), year(&hi)) {
+            let mut count = self.conn.prepare_cached(
+                "SELECT count(*) FROM assets WHERE capture_local_date >= ?1 AND capture_local_date < ?2",
+            )?;
+            // Capture times within a day of the year (local dates can be
+            // up to 14 hours from UTC), checked against the local date.
+            let mut seek = self.conn.prepare_cached(
+                "SELECT a.id FROM assets a
+                  WHERE a.rating = ?1 AND a.capture_ts_ms >= ?2 AND a.capture_ts_ms < ?3
+                    AND a.capture_local_date >= ?4 AND a.capture_local_date < ?5
+                  ORDER BY a.capture_ts_ms, a.seq LIMIT 1",
+            )?;
+            let mut hash = self.conn.prepare_cached(
+                "SELECT blake3 FROM files WHERE asset_id = ? AND role = 'original' LIMIT 1",
+            )?;
+            const DAY: i64 = 86_400_000;
+            for y in a..=b {
+                let key = format!("{y:04}");
+                let (from, to) = (format!("{y:04}-"), format!("{y:04}-~"));
+                let n: i64 = count.query_row(rusqlite::params![from, to], |r| r.get(0))?;
+                if n == 0 {
+                    continue;
+                }
+                let start = chrono::NaiveDate::from_ymd_opt(y, 1, 1)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0))
+                    .map_or(i64::MIN, |t| t.and_utc().timestamp_millis());
+                let end = chrono::NaiveDate::from_ymd_opt(y + 1, 1, 1)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0))
+                    .map_or(i64::MAX, |t| t.and_utc().timestamp_millis());
+                let mut cover: Option<AssetId> = None;
+                for rating in (0..=5).rev() {
+                    cover = seek
+                        .query_row(
+                            rusqlite::params![rating, start - DAY, end + DAY, from, to],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    if cover.is_some() {
+                        break;
+                    }
+                }
+                let cover_hash: Option<Blake3Hash> = match cover {
+                    Some(c) => hash.query_row([c], |r| r.get(0)).optional()?,
+                    None => None,
+                };
+                out.push(CalendarBucket {
+                    key,
+                    count: u64::try_from(n).unwrap_or(0),
+                    cover,
+                    cover_hash,
+                });
+            }
+        }
+        let undated = self.count(&SearchQuery {
+            undated: true,
+            ..SearchQuery::default()
+        })?;
+        if undated > 0 {
+            out.push(CalendarBucket {
+                key: "undated".into(),
+                count: undated,
+                cover: None,
+                cover_hash: None,
+            });
+        }
+        Ok(out)
+    }
+
     /// Assets per volume (counting originals).
     pub fn volume_counts(&self) -> Result<Vec<(VolumeId, u64)>, CatalogError> {
         self.counts(
-            "SELECT volume_id, count(DISTINCT asset_id) FROM files WHERE role = 'original' GROUP BY volume_id",
+            "SELECT volume_id, count(*) FROM files WHERE role = 'original' GROUP BY volume_id",
         )
     }
 

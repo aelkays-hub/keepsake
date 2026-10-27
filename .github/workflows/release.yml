@@ -69,39 +69,10 @@ jobs:
         working-directory: app/ui
         run: pnpm install --frozen-lockfile
 
-      - name: Download vendor binaries — x64 FFmpeg + ExifTool
+      # FFmpeg, ExifTool and LibRaw, pinned by SHA-256 (same as dev and CI).
+      - name: Download vendor binaries — x64
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force vendor | Out-Null
-          New-Item -ItemType Directory -Force vendor\exiftool | Out-Null
-
-          # FFmpeg x64
-          $zip = "vendor\ffmpeg-win64.zip"
-          Invoke-WebRequest "$env:MIRROR/ffmpeg-n9.0-latest-win64-lgpl-9.0.zip" -OutFile $zip -UseBasicParsing
-          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          $want = "73950cc6d7548c08d435bfb9c65b60798b6cd59647e59bb41e9af3876c90ebef"
-          if ($hash -ne $want) { Write-Error "FFmpeg x64 SHA-256 mismatch: got $hash"; exit 1 }
-          $ext = "vendor\ffmpeg-ext"
-          Expand-Archive $zip $ext -Force
-          $bin = (Get-ChildItem $ext -Directory | Select-Object -First 1).FullName + "\bin"
-          Copy-Item "$bin\ffmpeg.exe"  vendor\ffmpeg.exe
-          Copy-Item "$bin\ffprobe.exe" vendor\ffprobe.exe
-          Remove-Item $ext -Recurse -Force
-          Remove-Item $zip -Force
-
-          # ExifTool
-          $zip = "vendor\exiftool.zip"
-          Invoke-WebRequest "$env:MIRROR/exiftool-13.59_64.zip" -OutFile $zip -UseBasicParsing
-          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          $want = "44b512b25af500724ba579d0a53c8fc5851628b692dd5e5d94ae4a15c2cba9ec"
-          if ($hash -ne $want) { Write-Error "ExifTool SHA-256 mismatch: got $hash"; exit 1 }
-          $ext = "vendor\et-ext"
-          Expand-Archive $zip $ext -Force
-          $exe = Get-ChildItem $ext -Recurse -Filter "exiftool*.exe" | Select-Object -First 1
-          Copy-Item $exe.FullName vendor\exiftool\exiftool.exe
-          Copy-Item (Join-Path $exe.DirectoryName "exiftool_files") vendor\exiftool -Recurse -Force
-          Remove-Item $ext -Recurse -Force
-          Remove-Item $zip -Force
+        run: ./scripts/setup.ps1 -VendorOnly -Arch AMD64
 
       - name: Build Tauri installer — x64
         working-directory: app/ui
@@ -193,39 +164,10 @@ jobs:
         working-directory: app/ui
         run: pnpm install --frozen-lockfile
 
-      - name: Download vendor binaries — ARM64 FFmpeg + ExifTool
+      # ARM64 FFmpeg; ExifTool is Perl; LibRaw's x64 build runs emulated.
+      - name: Download vendor binaries — ARM64
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force vendor | Out-Null
-          New-Item -ItemType Directory -Force vendor\exiftool | Out-Null
-
-          # FFmpeg ARM64 (bundled into the ARM64 installer so it runs on ARM64 machines)
-          $zip = "vendor\ffmpeg-arm64.zip"
-          Invoke-WebRequest "$env:MIRROR/ffmpeg-n9.0-latest-winarm64-lgpl-9.0.zip" -OutFile $zip -UseBasicParsing
-          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          $want = "33cb51e1529c1d658eb814c0cd557272f35a83951d7bb8009ac6bbe7854b0cc6"
-          if ($hash -ne $want) { Write-Error "FFmpeg ARM64 SHA-256 mismatch: got $hash"; exit 1 }
-          $ext = "vendor\ffmpeg-ext"
-          Expand-Archive $zip $ext -Force
-          $bin = (Get-ChildItem $ext -Directory | Select-Object -First 1).FullName + "\bin"
-          Copy-Item "$bin\ffmpeg.exe"  vendor\ffmpeg.exe
-          Copy-Item "$bin\ffprobe.exe" vendor\ffprobe.exe
-          Remove-Item $ext -Recurse -Force
-          Remove-Item $zip -Force
-
-          # ExifTool (same binary for both arches — Windows x64 Perl exe)
-          $zip = "vendor\exiftool.zip"
-          Invoke-WebRequest "$env:MIRROR/exiftool-13.59_64.zip" -OutFile $zip -UseBasicParsing
-          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          $want = "44b512b25af500724ba579d0a53c8fc5851628b692dd5e5d94ae4a15c2cba9ec"
-          if ($hash -ne $want) { Write-Error "ExifTool SHA-256 mismatch: got $hash"; exit 1 }
-          $ext = "vendor\et-ext"
-          Expand-Archive $zip $ext -Force
-          $exe = Get-ChildItem $ext -Recurse -Filter "exiftool*.exe" | Select-Object -First 1
-          Copy-Item $exe.FullName vendor\exiftool\exiftool.exe
-          Copy-Item (Join-Path $exe.DirectoryName "exiftool_files") vendor\exiftool -Recurse -Force
-          Remove-Item $ext -Recurse -Force
-          Remove-Item $zip -Force
+        run: ./scripts/setup.ps1 -VendorOnly -Arch ARM64
 
       - name: Build Tauri installer — ARM64 cross
         working-directory: app/ui
@@ -358,12 +300,39 @@ jobs:
           Write-Host "OK: installed at $found"
           # Verify sidecars are present
           $dir = Split-Path $found
-          foreach ($f in @("ffmpeg\ffmpeg.exe", "exiftool\exiftool.exe")) {
+          $files = @(
+            "ffmpeg.exe", "ffprobe.exe", "exiftool\exiftool.exe",
+            "libraw\dcraw_emu.exe", "libraw\libraw.dll", "libraw\LICENSE.LGPL",
+            "licenses\FFmpeg-LICENSE.txt"
+          )
+          foreach ($f in $files) {
             if (-not (Test-Path (Join-Path $dir $f))) {
               Write-Error "Expected sidecar missing: $f"
             }
           }
-          Write-Host "OK: FFmpeg and ExifTool sidecars present"
+          Write-Host "OK: FFmpeg, ExifTool and LibRaw sidecars and licences present"
+          # The installed tools run (the app finds them in this folder).
+          $v = & (Join-Path $dir "ffprobe.exe") -version 2>&1 | Select-Object -First 1
+          if ("$v" -notmatch "ffprobe version") { Write-Error "installed ffprobe does not run: $v" }
+          $v = & (Join-Path $dir "exiftool\exiftool.exe") -ver 2>&1
+          if ("$v" -notmatch "^\d+\.\d+") { Write-Error "installed exiftool does not run: $v" }
+          $v = & (Join-Path $dir "libraw\dcraw_emu.exe") 2>&1 | Out-String
+          if ($v -cnotmatch "dcraw emulator") { Write-Error "installed dcraw_emu does not run" }
+          $global:LASTEXITCODE = 0
+          Write-Host "OK: installed tools run"
+          "INSTALL_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The installed app itself finds and runs every bundled tool, with no
+      # vendor/ folder or environment variables (as on a user's machine).
+      - name: App smoke — keepsake-app --self-check
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\self-check.json"
+          $p = Start-Process (Join-Path $env:INSTALL_DIR "keepsake-app.exe") `
+                 -ArgumentList "--self-check `"$out`"" -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { Write-Error "self-check failed (exit $($p.ExitCode))" }
+          Write-Host "OK: the installed app finds and runs its tools"
 
       - name: CLI smoke — keepsake --version
         shell: pwsh
@@ -408,17 +377,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: release-assets/*
-          generate_release_notes: true
-          body: |
-            ## Keepsake ${{ github.ref_name }}
-
-            ### Signing status
-
-            | Platform | Status |
-            |---|---|
-            | Windows x64  | ⚠️ Unsigned — add `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` repo secrets to enable signing |
-            | Windows ARM64 | ⚠️ Unsigned — same secrets as above |
-            | macOS Apple Silicon | Not yet available — see [ADR-005](docs/DECISIONS.md) |
-
-            If Windows shows a SmartScreen warning, click **More info → Run anyway**.
-            The installers bundle FFmpeg (LGPL) and ExifTool — no separate download needed.
+          # A draft: a person checks the assets and notes, then publishes.
+          draft: true
+          body_path: docs/RELEASE_NOTES.md

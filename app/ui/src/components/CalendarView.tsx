@@ -62,7 +62,19 @@ export function CalendarView() {
     return [...pad, ...days];
   }, [buckets, year, month]);
 
+  // Moving between levels redraws every cell: keep keyboard focus in the
+  // calendar (on the new level's first cell) instead of losing it.
+  const keep = useRef(false);
+  const remember = () => {
+    keep.current = ref.current?.contains(document.activeElement) ?? false;
+  };
+  useEffect(() => {
+    if (!keep.current || buckets === null) return;
+    keep.current = false;
+    ref.current?.querySelector<HTMLElement>('[data-cell="0"]')?.focus();
+  }, [buckets]);
   const open = (k: string) => {
+    remember();
     if (k === "undated") {
       dispatch({ t: "filters", filters: { ...s.filters, undated: true } });
       dispatch({ t: "mode", mode: "grid" });
@@ -74,6 +86,7 @@ export function CalendarView() {
     else dispatch({ t: "cal", cal: { year: y, month: m, day: d } });
   };
   const up = () => {
+    remember();
     if (month !== null) dispatch({ t: "cal", cal: { year, month: null, day: null } });
     else if (year !== null) dispatch({ t: "cal", cal: { year: null, month: null, day: null } });
   };
@@ -92,11 +105,10 @@ export function CalendarView() {
       ArrowUp: -cols,
       ArrowDown: cols,
     };
+    // Enter and Space are the cell buttons' own: handling them here too
+    // opened two levels at once.
     if (e.key in moves) {
       setFocus((f) => Math.max(0, Math.min(real.length - 1, f + moves[e.key])));
-    } else if (e.key === "Enter" || e.key === " ") {
-      const c = real[focus];
-      if (c?.bucket) open(c.key);
     } else if (e.key === "Backspace") up();
     else return;
     e.preventDefault();
@@ -125,7 +137,7 @@ export function CalendarView() {
         <div
           ref={ref}
           className={`cal-grid ${month !== null ? "days" : year !== null ? "months" : "years"}`}
-          role="grid"
+          role="group"
           aria-label={month !== null ? "Days" : year !== null ? "Months" : "Years"}
           onKeyDown={onKey}
         >

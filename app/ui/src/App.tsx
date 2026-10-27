@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, type AppInfo } from "./api";
 import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
+import { CrashBanner } from "./components/CrashBanner";
 import { DetailsView } from "./components/DetailsView";
 import { FirstRun } from "./components/FirstRun";
 import { GridView } from "./components/GridView";
@@ -136,6 +137,7 @@ function Shell() {
       <Main />
       {s.inspector && s.screen === "library" && <Inspector />}
       <StatusBar />
+      <CrashBanner />
       {s.viewer && <Viewer />}
       {s.dialog === "timeShift" && <TimeShiftDialog />}
     </div>

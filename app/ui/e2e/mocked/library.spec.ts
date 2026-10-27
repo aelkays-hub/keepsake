@@ -104,9 +104,9 @@ test("calendar drills from year to day and opens the day's grid", async ({ page 
   const years = await cells.allTextContents();
   expect(years.some((t) => t.startsWith("2018"))).toBe(true);
   await page.locator('[data-testid="cal-cell"][data-key="2018"]').click();
-  await expect(page.getByRole("grid", { name: "Months" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Months" })).toBeVisible();
   await page.locator('[data-testid="cal-cell"][data-key="2018-06"]').click();
-  await expect(page.getByRole("grid", { name: "Days" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Days" })).toBeVisible();
   const day = page.locator('[data-testid="cal-cell"]:not([disabled])').first();
   const key = await day.getAttribute("data-key");
   const label = (await day.getAttribute("aria-label")) ?? "";
@@ -117,7 +117,7 @@ test("calendar drills from year to day and opens the day's grid", async ({ page 
   // Backspace from the grid goes back to the month.
   await page.getByTestId("tile").first().click();
   await page.keyboard.press("Backspace");
-  await expect(page.getByRole("grid", { name: "Days" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Days" })).toBeVisible();
 });
 
 test("search with words and filters narrows the grid", async ({ page }) => {
