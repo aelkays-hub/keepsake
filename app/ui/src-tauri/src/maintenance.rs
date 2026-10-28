@@ -80,15 +80,15 @@ pub fn backup_overview(state: State<'_, AppState>) -> CmdResult<BackupOverview> 
 }
 
 /// Throttled progress events.
-struct Reporter {
+pub(crate) struct Reporter {
     app: AppHandle,
     kind: &'static str,
     last: Instant,
-    p: MaintProgress,
+    pub(crate) p: MaintProgress,
 }
 
 impl Reporter {
-    fn new(app: &AppHandle, kind: &'static str) -> Self {
+    pub(crate) fn new(app: &AppHandle, kind: &'static str) -> Self {
         Self {
             app: app.clone(),
             kind,
@@ -103,7 +103,7 @@ impl Reporter {
         }
     }
 
-    fn send(&mut self, force: bool) {
+    pub(crate) fn send(&mut self, force: bool) {
         if force || self.last.elapsed() >= Duration::from_millis(150) {
             self.last = Instant::now();
             let _ = self.app.emit("maint://progress", self.p.clone());
@@ -124,13 +124,13 @@ impl Reporter {
 }
 
 /// Run `work` on its own thread, as the one maintenance job.
-fn spawn(
+pub(crate) fn spawn(
     state: &AppState,
     name: &str,
     work: impl FnOnce(Arc<AtomicBool>) + Send + 'static,
 ) -> CmdResult<()> {
     if state.maint.running.swap(true, Ordering::SeqCst) {
-        return Err("a backup or verification is already running".into());
+        return Err("a backup, verification or folder scan is already running".into());
     }
     let cancel = Arc::new(AtomicBool::new(false));
     if let Ok(mut slot) = state.maint.cancel.lock() {
@@ -146,7 +146,7 @@ fn spawn(
     Ok(())
 }
 
-fn finish(app: &AppHandle) {
+pub(crate) fn finish(app: &AppHandle) {
     use tauri::Manager;
     app.state::<AppState>()
         .maint

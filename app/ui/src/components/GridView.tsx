@@ -126,7 +126,21 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     if (loaded) markReady("grid");
   }, [loaded]);
   if (view && view.count === 0) {
-    return <div className="empty">Nothing here. Change the filters, or import a card.</div>;
+    return (
+      <div className="empty" data-testid="empty">
+        <p>Nothing here. Change the filters, or import a card.</p>
+        <p>
+          Photos already on this computer or a drive?{" "}
+          <button
+            className="primary"
+            onClick={() => dispatch({ t: "screen", screen: "folders" })}
+            data-testid="empty-add-folder"
+          >
+            Add a folder…
+          </button>
+        </p>
+      </div>
+    );
   }
   return (
     <div

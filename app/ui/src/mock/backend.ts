@@ -72,6 +72,8 @@ export interface MockState {
   /** Seconds added to capture times by time shifts. */
   shift: Map<number, number>;
   history: HistoryRun[];
+  /** Folders added in place. */
+  folders: { id: string; label: string; mount: string; count: number }[];
   settings: SettingsInfo;
   opened: { id: string; member: string }[];
   uiErrors: { message: string; detail: string | null }[];
@@ -126,6 +128,7 @@ export function installMock(): void {
     imported: new Set(),
     shift: new Map(),
     history: [],
+    folders: [],
     settings: {
       library: "D:\\Keepsake",
       cacheDir: "C:\\Users\\me\\AppData\\Local\\keepsake\\cache\\renditions",
@@ -331,7 +334,8 @@ export function installMock(): void {
                 mount: null,
                 count: Math.floor(n / 4),
               },
-            ],
+              ...st.folders.map((f) => ({ ...f, online: true })),
+            ].filter((v) => v.count > 0),
             imports: [
               {
                 id: "s1",
@@ -604,6 +608,43 @@ export function installMock(): void {
               };
               st.history = [run, ...st.history];
               void emit("maint://done", { kind, run, problems: [], error: null });
+            }
+          }, 100);
+          return null;
+        }
+        case "folder_add": {
+          const mount = String(a.path ?? "").trim();
+          if (!mount) throw new Error("choose a folder");
+          if (mount.toLowerCase().includes("missing")) throw new Error(`${mount} is not a folder`);
+          const prev = st.folders.find((f) => f.mount === mount);
+          const label = prev?.label ?? mount.split(/[\\/]/).filter(Boolean).pop() ?? mount;
+          const id = prev?.id ?? `vf${st.folders.length}`;
+          const total = 250e6;
+          let bytes = 0;
+          const tick = setInterval(() => {
+            bytes = Math.min(total, bytes + total / 4);
+            void emit("maint://progress", {
+              kind: "folder",
+              bytesDone: bytes,
+              bytesTotal: total,
+              filesDone: Math.round((bytes / total) * 40),
+              current: "January/DSC00002.ARW",
+            });
+            if (bytes >= total) {
+              clearInterval(tick);
+              if (!prev) st.folders.push({ id, label, mount, count: 38 });
+              void emit("folder://done", {
+                folder: mount,
+                volume: id,
+                label,
+                items: 38,
+                files: 40,
+                withSidecars: 12,
+                otherFiles: 2,
+                problems: [],
+                cancelled: false,
+                error: null,
+              });
             }
           }, 100);
           return null;

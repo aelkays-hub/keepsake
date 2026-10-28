@@ -56,9 +56,12 @@ export function UiProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   useEffect(() => {
-    const un = events.importDone(() => setRefreshes((n) => n + 1));
+    const bump = () => setRefreshes((n) => n + 1);
+    const a = events.importDone(bump);
+    const b = events.folderDone(bump);
     return () => {
-      un.then((f) => f());
+      a.then((f) => f());
+      b.then((f) => f());
     };
   }, []);
   const ctx: Ctx = {

@@ -16,6 +16,7 @@ import type { Details } from "./bindings/Details";
 import type { EditProgress } from "./bindings/EditProgress";
 import type { EditResult } from "./bindings/EditResult";
 import type { Facets } from "./bindings/Facets";
+import type { FolderDone } from "./bindings/FolderDone";
 import type { ImportCheck } from "./bindings/ImportCheck";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
@@ -51,6 +52,7 @@ export type {
   Details,
   EditProgress,
   Facets,
+  FolderDone,
   ImportCheck,
   ImportProgress,
   ImportRequest,
@@ -154,6 +156,7 @@ export const api = {
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),
+  folderAdd: (path: string) => invoke<void>("folder_add", { path }),
 
   settingsGet: () => invoke<SettingsInfo>("settings_get"),
   settingsSet: (update: SettingsUpdate) => invoke<SettingsSaved>("settings_set", { update }),
@@ -183,6 +186,8 @@ export const events = {
     listen<MaintProgress>("maint://progress", (e) => f(e.payload)),
   maintDone: (f: (e: MaintDone) => void): Promise<UnlistenFn> =>
     listen<MaintDone>("maint://done", (e) => f(e.payload)),
+  folderDone: (f: (e: FolderDone) => void): Promise<UnlistenFn> =>
+    listen<FolderDone>("folder://done", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

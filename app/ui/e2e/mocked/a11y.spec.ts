@@ -82,6 +82,12 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByTestId("backup-outcome")).toContainText("Backup finished");
     all.push(...(await check(page, "backup")));
 
+    await page.getByTestId("sidebar").getByRole("button", { name: "Folders" }).click();
+    await page.getByTestId("folder-path").fill("E:\\Pictures\\2025");
+    await page.getByTestId("folder-add").click();
+    await expect(page.getByTestId("folder-outcome")).toContainText("Added 2025");
+    all.push(...(await check(page, "folders")));
+
     await page.getByTestId("sidebar").getByRole("button", { name: "Settings" }).click();
     await page.getByTestId("copy-report").click().catch(() => undefined);
     await expect(page.getByTestId("settings-screen")).toBeVisible();
