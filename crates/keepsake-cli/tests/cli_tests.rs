@@ -1323,3 +1323,36 @@ fn corpus_scan_and_init_expected_write_only_their_own_files() {
     assert!(expected.is_file());
     assert_eq!(tree(&corpus), before, "the corpus media is only read");
 }
+
+// ── add-folder ───────────────────────────────────────────────────────────────
+
+#[test]
+fn add_folder_catalogues_in_place_and_writes_nothing_into_the_folder() {
+    let e = Env::new();
+    e.init();
+    let photos = e.p("Pictures/2025");
+    copy_dir(&fixture("dcim"), &photos.join("January"));
+    copy_dir(&fixture("xavc"), &photos.join("February"));
+    std::fs::copy(
+        fixture("xmp/lightroom.xmp"),
+        photos.join("January/DCIM/100MSDCF/DSC00002.xmp"),
+    )
+    .unwrap();
+    let before = tree(&photos);
+    let doc = e.json(&["add-folder", &e.s("Pictures/2025"), "--no-probe"], 0);
+    assert_eq!(doc["label"], "2025");
+    // DSC00001 (ARW + HIF + JPG), DSC00002, and the two XAVC clips.
+    assert_eq!(doc["report"]["assets"], 4, "{doc:#}");
+    assert_eq!(doc["report"]["sidecars_used"], 1, "{doc:#}");
+    assert_eq!(tree(&photos), before, "the folder is only read");
+
+    // Adding it again scans it again; a folder inside it is refused.
+    let again = e.json(&["add-folder", &e.s("Pictures/2025"), "--no-probe"], 0);
+    assert_eq!(again["volume"], doc["volume"]);
+    let out = e.run(&["add-folder", &e.s("Pictures/2025/January"), "--no-probe"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("already in the library"));
+    // Search finds them like imported items.
+    let found = e.json(&["search", "DSC00001"], 0);
+    assert_eq!(found["count"], 1, "{found:#}");
+}

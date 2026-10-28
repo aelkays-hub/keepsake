@@ -5,7 +5,7 @@ use clap::Args;
 use serde_json::json;
 
 use keepsake_core::catalog::Catalog;
-use keepsake_core::rebuild::rebuild_library;
+use keepsake_core::rebuild::{rebuild_library_opts, RebuildOptions};
 
 use super::common::{maybe_prober, Ctx, EXIT_OK, EXIT_PROBLEMS};
 
@@ -26,7 +26,16 @@ pub fn run(ctx: &Ctx, a: RebuildArgs) -> Result<u8> {
     }
     let mut cat = lib.open_catalog()?;
     let prober = maybe_prober(a.no_probe, ctx.json);
-    let results = rebuild_library(&mut cat, &lib, prober.as_ref())?;
+    // The thumbnail cache is never catalogued, even inside a volume.
+    let results = rebuild_library_opts(
+        &mut cat,
+        &lib,
+        &mut RebuildOptions {
+            prober: prober.as_ref(),
+            skip: super::add_folder::cache_dirs(),
+            ..Default::default()
+        },
+    )?;
     let problems: usize = results
         .iter()
         .filter_map(|(_, r)| r.as_ref())
