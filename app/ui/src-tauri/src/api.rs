@@ -507,6 +507,16 @@ dto! {
         pub error: Option<String>,
     }
 
+    /// An application in the Open in menu for one item.
+    pub struct OpenChoice {
+        /// The program, as set in Settings; empty for the system default.
+        pub app: String,
+        /// Its name for people (`Photoshop`, `Topaz Photo`, `System default`).
+        pub name: String,
+        /// The one Ctrl+O uses.
+        pub default: bool,
+    }
+
     /// An "Open in" application for one file type.
     pub struct OpenApp {
         /// Lower-case extension without the dot (`arw`).

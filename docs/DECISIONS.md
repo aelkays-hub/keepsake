@@ -1045,3 +1045,17 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - No watching of added folders for changes; "Scan again" is manual.
 - A volume cannot be removed from the library yet.
 - A rescan hashes every file again, even when nothing changed.
+
+## ADR-026 — Open in: several applications per file type, and a menu
+
+**Status**: Accepted (2026-10-29). No new dependency.
+
+**Context.** A user edits photos in both Photoshop and Topaz Photo. "Open in" (ADR-023) allowed one application per file type, used by Ctrl+O and the Open in… button.
+
+**Decision.**
+- `[open.apps]` values may be a list: `arw = ['…\Photoshop.exe', '…\Topaz Photo.exe']`. The first is the default (Ctrl+O). One application is still written as a plain string, so earlier files read and write unchanged (`settings::OpenApps`, untagged).
+- **Open in…** in the inspector and the viewer is a menu: the applications set for the item's type, then "System default". The menu is a WAI-ARIA menu button: arrows, Home/End, Enter, Escape (which does not close the viewer).
+- `open_choices(id, member)` lists them; `open_external(id, member, app)` takes `None` (the default), `""` (the system default) or one of the applications set for the type. Any other program is refused, so the UI cannot start an arbitrary program.
+- Settings keeps one row per application. Several rows for a type make its list, in order. A row may name several types (`arw, jpg, dng`).
+
+**Not done.** Reordering rows in Settings (remove and add again); a per-item "remember my choice".

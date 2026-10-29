@@ -14,7 +14,9 @@ async function check(page: Page, what: string) {
       `${what}: ${v.id} (${v.impact}) ${v.help}\n` +
       v.nodes
         .slice(0, 5)
-        .map((n) => `    ${n.target.join(" ")}: ${n.failureSummary?.split("\n").slice(1).join("; ")}`)
+        .map(
+          (n) => `    ${n.target.join(" ")}: ${n.failureSummary?.split("\n").slice(1).join("; ")}`,
+        )
         .join("\n"),
   );
   return problems;
@@ -58,6 +60,11 @@ for (const scheme of ["light", "dark"] as const) {
     await page.getByTestId("tile").first().dblclick();
     await expect(page.getByTestId("viewer-image")).toBeVisible();
     all.push(...(await check(page, "viewer (photo)")));
+    await page.getByTestId("viewer").getByTestId("open-in").click();
+    await expect(page.getByRole("menu", { name: "Open in" }).getByRole("menuitem")).toHaveCount(1);
+    all.push(...(await check(page, "Open in menu")));
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu", { name: "Open in" })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     await page.getByTestId("type").selectOption("video");
@@ -70,7 +77,10 @@ for (const scheme of ["light", "dark"] as const) {
     await page.getByRole("button", { name: "Clear filters" }).click();
 
     await page.getByTestId("tile").first().click();
-    await page.getByTestId("tile").nth(2).click({ modifiers: ["Shift"] });
+    await page
+      .getByTestId("tile")
+      .nth(2)
+      .click({ modifiers: ["Shift"] });
     await page.keyboard.press("Control+t");
     await expect(page.getByTestId("ts-preview")).toBeVisible();
     all.push(...(await check(page, "time shift")));
@@ -89,7 +99,10 @@ for (const scheme of ["light", "dark"] as const) {
     all.push(...(await check(page, "folders")));
 
     await page.getByTestId("sidebar").getByRole("button", { name: "Settings" }).click();
-    await page.getByTestId("copy-report").click().catch(() => undefined);
+    await page
+      .getByTestId("copy-report")
+      .click()
+      .catch(() => undefined);
     await expect(page.getByTestId("settings-screen")).toBeVisible();
     all.push(...(await check(page, "settings")));
 

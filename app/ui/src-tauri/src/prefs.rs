@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use keepsake_core::presets;
 use keepsake_core::render::Cache;
-use keepsake_core::settings::Settings;
+use keepsake_core::settings::{OpenApps, Settings};
 use tauri::{AppHandle, Manager, State};
 
 use crate::api::{OpenApp, SettingsInfo, SettingsSaved, SettingsUpdate};
@@ -33,13 +33,16 @@ fn info(state: &AppState, s: &Settings) -> CmdResult<SettingsInfo> {
         workers_default: keepsake_core::settings::default_workers() as u32,
         proxy_workers: s.render.proxy_workers as u32,
         pause_on_battery: s.render.pause_on_battery,
+        // One row per application, default first within each type.
         open_apps: s
             .open
             .apps
             .iter()
-            .map(|(ext, app)| OpenApp {
-                ext: ext.clone(),
-                app: app.clone(),
+            .flat_map(|(ext, apps)| {
+                apps.list().into_iter().map(move |app| OpenApp {
+                    ext: ext.clone(),
+                    app: app.to_owned(),
+                })
             })
             .collect(),
         config_file: convert::path_text(&Settings::path().map_err(err)?),
@@ -82,18 +85,32 @@ pub fn apply_update(s: &mut Settings, u: &SettingsUpdate) -> CmdResult<()> {
     s.render.workers = u.workers.map(|w| w as usize);
     s.render.proxy_workers = u.proxy_workers as usize;
     s.render.pause_on_battery = u.pause_on_battery;
-    s.open.apps.clear();
+    // Rows in order: several rows for a type make a list, the first being
+    // the default. A row may name several types: `arw, jpg, dng`.
+    let mut lists: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for a in &u.open_apps {
-        let ext = ext_key(&a.ext);
         let app = a.app.trim();
-        if ext.is_empty() || app.is_empty() {
+        if app.is_empty() {
             continue;
         }
-        if ext.contains(['/', '\\', ' ']) {
-            return Err(format!("not a file type: {}", a.ext));
+        for e in a.ext.split([',', ';']) {
+            let ext = ext_key(e);
+            if ext.is_empty() {
+                continue;
+            }
+            if ext.contains(['/', '\\', ' ']) {
+                return Err(format!("not a file type: {}", e.trim()));
+            }
+            let list = lists.entry(ext).or_default();
+            if !list.iter().any(|x| x.eq_ignore_ascii_case(app)) {
+                list.push(app.to_owned());
+            }
         }
-        s.open.apps.insert(ext, app.to_owned());
     }
+    s.open.apps = lists
+        .into_iter()
+        .map(|(ext, apps)| (ext, OpenApps::from_list(apps)))
+        .collect();
     Ok(())
 }
 
@@ -182,8 +199,8 @@ mod tests {
         assert_eq!(s.render.workers, Some(2));
         assert!(!s.render.pause_on_battery);
         assert_eq!(
-            s.open.apps.get("arw").map(String::as_str),
-            Some(r"C:\Apps\Raw.exe")
+            s.open.apps.get("arw"),
+            Some(&OpenApps::One(r"C:\Apps\Raw.exe".into()))
         );
         assert!(!s.open.apps.contains_key("mp4"), "blank app: default");
         let mut bad = update();
@@ -194,6 +211,41 @@ mod tests {
         assert!(apply_update(&mut s, &bad).is_err());
         let mut bad = update();
         bad.cache_dir = Some("relative/cache".into());
+        assert!(apply_update(&mut s, &bad).is_err());
+    }
+
+    #[test]
+    fn several_rows_for_a_type_make_a_list_in_order() {
+        let (ps, topaz) = (r"C:\Apps\Photoshop.exe", r"C:\Apps\Topaz Photo.exe");
+        let row = |ext: &str, app: &str| OpenApp {
+            ext: ext.into(),
+            app: app.into(),
+        };
+        let mut u = update();
+        u.open_apps = vec![
+            row("arw, .JPG; dng", ps),
+            row("arw", topaz),
+            row("jpg", topaz),
+            row("ARW", ps), // a repeat: ignored
+        ];
+        let mut s = Settings::default();
+        apply_update(&mut s, &u).unwrap();
+        let path = |p: &str| std::path::PathBuf::from(p);
+        assert_eq!(s.open.apps_for(&path("a.ARW")), [ps, topaz]);
+        assert_eq!(s.open.apps_for(&path("a.jpg")), [ps, topaz]);
+        assert_eq!(s.open.apps_for(&path("a.dng")), [ps]);
+        assert_eq!(s.open.app_for(&path("a.arw")), Some(ps), "first row");
+        // Read back as one row per app, default first.
+        let back: Vec<(String, String)> = s
+            .open
+            .apps
+            .iter()
+            .flat_map(|(e, a)| a.list().into_iter().map(move |x| (e.clone(), x.to_owned())))
+            .collect();
+        assert_eq!(back[0], ("arw".into(), ps.into()));
+        assert_eq!(back[1], ("arw".into(), topaz.into()));
+        let mut bad = update();
+        bad.open_apps = vec![row("arw, a b", ps)];
         assert!(apply_update(&mut s, &bad).is_err());
     }
 }

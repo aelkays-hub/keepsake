@@ -25,6 +25,7 @@ import type { MaintDone } from "./bindings/MaintDone";
 import type { MaintProgress } from "./bindings/MaintProgress";
 import type { MemberDto } from "./bindings/MemberDto";
 import type { OpenApp } from "./bindings/OpenApp";
+import type { OpenChoice } from "./bindings/OpenChoice";
 import type { Preset } from "./bindings/Preset";
 import type { Query } from "./bindings/Query";
 import type { RenderSummary } from "./bindings/RenderSummary";
@@ -61,6 +62,7 @@ export type {
   MaintProgress,
   MemberDto,
   OpenApp,
+  OpenChoice,
   Preset,
   Query,
   RenderSummary,
@@ -145,7 +147,11 @@ export const api = {
   fullImage: (id: string, member: MemberDto) => invoke<string>("full_image", { id, member }),
   assetMembers: (id: string) => invoke<AssetMembers>("asset_members", { id }),
   videoInfo: (id: string) => invoke<VideoInfo>("video_info", { id }),
-  openExternal: (id: string, member: MemberDto) => invoke<string>("open_external", { id, member }),
+  /** Open in another application: `app` from `openChoices` ("" = system default), or the default. */
+  openExternal: (id: string, member: MemberDto, app: string | null = null) =>
+    invoke<string>("open_external", { id, member, app }),
+  openChoices: (id: string, member: MemberDto) =>
+    invoke<OpenChoice[]>("open_choices", { id, member }),
 
   timeShiftPreview: (selection: Selection, reference: string, correct: string) =>
     invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),

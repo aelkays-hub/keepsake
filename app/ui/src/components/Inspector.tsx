@@ -9,6 +9,7 @@ import { useEdits } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
+import { OpenInMenu } from "./OpenInMenu";
 import { LabelPicker, Stars } from "./Stars";
 
 function Field({ name, value }: { name: string; value: React.ReactNode }) {
@@ -118,18 +119,7 @@ export function Inspector() {
         >
           Shift time…
         </button>
-        <button
-          onClick={() =>
-            api
-              .openExternal(d.id, "primary")
-              .then((app) => setOpened(`Opened with ${app}`))
-              .catch((e) => setOpened(String(e)))
-          }
-          disabled={!d.online}
-          title="Open in another application (Ctrl+O)"
-        >
-          Open in…
-        </button>
+        <OpenInMenu id={d.id} member="primary" disabled={!d.online} onOpened={setOpened} />
       </div>
       {opened && (
         <p className="muted" role="status" data-testid="opened">
