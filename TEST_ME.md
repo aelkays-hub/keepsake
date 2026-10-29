@@ -1,10 +1,53 @@
-# Manual Test Steps — Add a folder in place
+# Manual Test Steps — Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
 
 ---
+
+## Open in: Photoshop and Topaz Photo
+
+Automated:
+```
+cargo test -p keepsake-core --lib settings
+cargo test -p keepsake-app --lib
+cd app/ui; pnpm exec playwright test e2e/mocked/open-in.spec.ts e2e/mocked/a11y.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. **Settings → Open in.** Add a row:
+   - types `arw, jpg, dng`;
+   - Browse… to `C:\Program Files\Adobe\Adobe Photoshop 2026\Photoshop.exe` (macOS: `Adobe Photoshop 2026.app`).
+
+   Then add a second row: the same types, with `C:\Program Files\Topaz Labs LLC\Topaz Photo\Topaz Photo.exe` (macOS: `Topaz Photo.app`). Click **Save**.
+   **Expected:**
+   - one row per type and application;
+   - the first row of each type shows "(Ctrl+O)";
+   - `config.toml` has `arw = ['…Photoshop.exe', '…Topaz Photo.exe']`.
+2. Select a JPEG or ARW and click **Open in… ▾** in the right-hand panel.
+   **Expected:**
+   - the menu lists Photoshop (marked Ctrl+O), Topaz Photo and System default;
+   - the first entry has focus.
+3. Press ↓ then Enter.
+   **Expected:**
+   - Topaz Photo opens the file;
+   - the panel says "Opened with Topaz Photo";
+   - focus is back on the button.
+4. Press **Ctrl+O** (macOS: Cmd+O).
+   **Expected:** Photoshop opens the file.
+5. Open the viewer (Enter), click **Open in… ▾**, then press Escape.
+   **Expected:** the menu closes and the viewer stays open.
+6. Pick **Photoshop** from the viewer's menu.
+   **Expected:** it opens.
+7. On a RAW + JPEG pair, press R (to show the RAW), then use Open in.
+   **Expected:** the ARW is opened.
+8. Select a video and open the menu.
+   **Expected:** only System default (unless an app is set for mp4).
+
+---
+
+## Add a folder in place
 
 ## A. Automated tests
 

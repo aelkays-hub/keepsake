@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
+| — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -38,6 +39,30 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Open in: several applications and a menu (2026-10-29)
+
+### Why
+The user wants to open photos in Photoshop or Topaz Photo. Open in allowed one application per file type. ADR-026.
+
+### What was built
+- **Core:** `settings::OpenApps`: one application or a list per type (first = default); `OpenSettings::apps_for`. Old `config.toml` files load unchanged.
+- **App:**
+  - `open_choices` lists an item's applications, then the system default.
+  - `open_external` takes the one chosen, refusing any program not set for the type.
+  - Settings rows allow repeats, and a row can name several types (`arw, jpg, dng`).
+- **UI:**
+  - `OpenInMenu` (a menu button) in the inspector and the viewer. The default is marked Ctrl+O; Ctrl+O still opens it directly.
+  - Escape closes the menu, not the viewer.
+
+### Tests
+- `settings.rs`: lists, blanks and repeats, plain string kept.
+- `prefs.rs`: rows grouped in order, comma-separated types.
+- `viewer.rs`: choices, and only configured apps can be picked.
+- `open-in.spec.ts`: menu, keyboard, Ctrl+O, Escape in the viewer.
+- The menu is in the axe check.
 
 ---
 

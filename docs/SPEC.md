@@ -61,7 +61,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - Text meets WCAG 2.1 AA contrast in both themes.
 
 ### Settings
-- Library (open or create another), cache folder (with removal of the old cache's files after a move), cache size limit, image and video workers, pause on battery, Open in applications, and import presets (create, edit, delete). Ctrl+,.
+- Library (open or create another), cache folder (with removal of the old cache's files after a move), cache size limit, image and video workers, pause on battery, Open in applications (several per file type; the first is the default for Ctrl+O, all are in the Open in… menu of the inspector and the viewer), and import presets (create, edit, delete). Ctrl+,.
 - CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.
 
 ---
