@@ -1,5 +1,7 @@
-// Sidebar: Library, Calendar, Events, Volumes, Imports. Arrow keys move
-// between entries (a single tab stop), Enter or click opens one.
+// Sidebar: Library (with the calendar as a tree of years, months and days),
+// Events, Volumes, Tools, Imports. Arrow keys move between entries (a
+// single tab stop), Enter or click opens one; Right and Left open and close
+// a calendar node, or go to its first child or its parent.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -7,6 +9,7 @@ import { api, events, type Sidebar as SidebarData } from "../api";
 import * as fmt from "../format";
 import { useUi, type Section } from "../state";
 import type { Screen } from "../uiModel";
+import { useCalendarTree, type CalNode } from "../useCalendarTree";
 
 interface Entry {
   key: string;
@@ -16,6 +19,8 @@ interface Entry {
   screen?: Screen;
   count?: number;
   status?: "online" | "offline";
+  /** A calendar tree node. */
+  cal?: CalNode;
 }
 
 function same(a: Section, b: Section): boolean {
@@ -37,12 +42,24 @@ export function Sidebar() {
       un.then((f) => f());
     };
   }, []);
+  const tree = useCalendarTree(s.filters, [refreshes, s.revision]);
+  // The tree follows the calendar view down to where it is.
+  const { reveal } = tree;
+  useEffect(() => {
+    if (s.section.kind === "calendar") reveal(s.cal.year, s.cal.month);
+  }, [reveal, s.section.kind, s.cal.year, s.cal.month]);
   const groups: { title: string; entries: Entry[] }[] = [
     {
       title: "Library",
       entries: [
         { key: "all", label: "All items", section: { kind: "all" } },
-        { key: "cal", label: "Calendar", section: { kind: "calendar" } },
+        ...tree.nodes.map((c) => ({
+          key: `c${c.key}`,
+          label: c.label,
+          count: c.count,
+          section: { kind: "calendar" } as Section,
+          cal: c,
+        })),
       ],
     },
     {
@@ -89,8 +106,22 @@ export function Sidebar() {
     },
   ];
   const flat = groups.flatMap((g) => g.entries);
+  const calActive = (c: CalNode) => {
+    if (s.screen !== "library") return false;
+    if (c.key === "undated") return s.filters.undated && s.section.kind !== "calendar";
+    return (
+      s.section.kind === "calendar" &&
+      s.cal.year === c.year &&
+      s.cal.month === c.month &&
+      s.cal.day === c.day
+    );
+  };
   const isActive = (e: Entry) =>
-    e.screen ? s.screen === e.screen : s.screen === "library" && same(e.section, s.section);
+    e.cal
+      ? calActive(e.cal)
+      : e.screen
+        ? s.screen === e.screen
+        : s.screen === "library" && same(e.section, s.section);
   const active = Math.max(0, flat.findIndex(isActive));
   const [focus, setFocus] = useState(active);
   const nav = useRef<HTMLElement>(null);
@@ -99,12 +130,45 @@ export function Sidebar() {
     setFocus(i);
     nav.current?.querySelector<HTMLButtonElement>(`[data-entry="${i}"]`)?.focus();
   };
+  const openEntry = (e: Entry) => {
+    const c = e.cal;
+    if (!c) {
+      if (e.screen) dispatch({ t: "screen", screen: e.screen });
+      else dispatch({ t: "section", section: e.section });
+      return;
+    }
+    if (c.key === "undated") {
+      // As in the calendar: items without a date, in the grid.
+      dispatch({ t: "section", section: { kind: "all" } });
+      dispatch({ t: "filters", filters: { ...s.filters, undated: true } });
+      return;
+    }
+    if (c.key === "cal") dispatch({ t: "section", section: { kind: "calendar" } });
+    dispatch({ t: "cal", cal: { year: c.year, month: c.month, day: c.day } });
+    if (c.expanded === false) tree.setExpanded(c.key, true);
+  };
   const onKey = (e: React.KeyboardEvent) => {
+    const c = flat[focus]?.cal;
     if (e.key === "ArrowDown") move(focus + 1);
     else if (e.key === "ArrowUp") move(focus - 1);
     else if (e.key === "Home") move(0);
     else if (e.key === "End") move(flat.length - 1);
-    else return;
+    else if (e.key === "ArrowRight" && c) {
+      if (c.expanded === false) tree.setExpanded(c.key, true);
+      else if (c.expanded) move(focus + 1);
+    } else if (e.key === "ArrowLeft" && c) {
+      if (c.expanded) tree.setExpanded(c.key, false);
+      else if (c.depth > 0) {
+        // Up to the parent node.
+        for (let i = focus - 1; i >= 0; i--) {
+          const p = flat[i].cal;
+          if (p && p.depth < c.depth) {
+            move(i);
+            break;
+          }
+        }
+      }
+    } else return;
     e.preventDefault();
   };
   let n = -1;
@@ -118,19 +182,40 @@ export function Sidebar() {
               {g.entries.map((e) => {
                 n += 1;
                 const i = n;
+                const c = e.cal;
                 return (
                   <li key={e.key}>
                     <button
                       data-entry={i}
+                      data-cal={c?.key}
                       tabIndex={i === focus ? 0 : -1}
                       aria-current={isActive(e) ? "page" : undefined}
-                      className={isActive(e) ? "active" : ""}
+                      aria-expanded={c?.expanded}
+                      className={`${isActive(e) ? "active" : ""}${c ? ` cal-node depth-${c.depth}` : ""}`}
                       onClick={() => {
                         setFocus(i);
-                        if (e.screen) dispatch({ t: "screen", screen: e.screen });
-                        else dispatch({ t: "section", section: e.section });
+                        openEntry(e);
                       }}
+                      onFocus={() => setFocus(i)}
                     >
+                      {c && (
+                        <span
+                          className="twisty"
+                          aria-hidden
+                          title={
+                            c.expanded === undefined ? undefined : c.expanded ? "Close" : "Open"
+                          }
+                          onClick={(ev) => {
+                            if (c.expanded === undefined) return;
+                            // The arrow only opens or closes; the label opens the level.
+                            ev.stopPropagation();
+                            setFocus(i);
+                            tree.setExpanded(c.key, !c.expanded);
+                          }}
+                        >
+                          {c.expanded === undefined ? "" : c.expanded ? "▾" : "▸"}
+                        </span>
+                      )}
                       {e.status && (
                         <span
                           className={`vol ${e.status}`}

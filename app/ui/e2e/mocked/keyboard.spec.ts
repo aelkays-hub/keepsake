@@ -5,11 +5,19 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const calls = (page: Page, cmd: string) =>
-  page.evaluate((c) => (window.__mock?.calls ?? []).filter((x) => x.cmd === c).map((x) => x.args), cmd);
+  page.evaluate(
+    (c) => (window.__mock?.calls ?? []).filter((x) => x.cmd === c).map((x) => x.args),
+    cmd,
+  );
 
 async function tabTo(page: Page, target: Locator, max = 60, back = false) {
   for (let i = 0; i < max; i++) {
-    if (await target.evaluate((el) => el === document.activeElement || el.contains(document.activeElement))) return;
+    if (
+      await target.evaluate(
+        (el) => el === document.activeElement || el.contains(document.activeElement),
+      )
+    )
+      return;
     await page.keyboard.press(back ? "Shift+Tab" : "Tab");
   }
   throw new Error(`could not reach ${target} with ${back ? "Shift+Tab" : "Tab"}`);
@@ -116,9 +124,11 @@ test("search, filters and the inspector", async ({ page }) => {
   await expect(page.getByTestId("count")).toHaveText("1 item");
   await tabTo(page, page.getByTestId("type"));
   await page.keyboard.press("ArrowDown"); // the next type in the list
-  await expect.poll(async () => (await calls(page, "view_open")).at(-1)).toMatchObject({
-    query: { text: "DSC00010" },
-  });
+  await expect
+    .poll(async () => (await calls(page, "view_open")).at(-1))
+    .toMatchObject({
+      query: { text: "DSC00010" },
+    });
   await tabTo(page, page.getByRole("button", { name: "Clear filters" }));
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("count")).toHaveText("2,000 items");
@@ -160,7 +170,8 @@ test("time shift with the keyboard; Tab stays in the dialog", async ({ page }) =
 test("backup and verify with the keyboard", async ({ page }) => {
   await open(page);
   await tabTo(page, page.getByTestId("sidebar").getByRole("button", { name: "All items" }));
-  for (let i = 0; i < 12; i++) {
+  // Past the calendar tree's years, then Events, Volumes and Folders.
+  for (let i = 0; i < 40; i++) {
     if ((await focused(page)).label === "Backup") break;
     await page.keyboard.press("ArrowDown");
   }
