@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
@@ -44,6 +45,32 @@
 
 ---
 
+## The sidebar tree by folder (2026-10-29)
+
+### What was built
+- **Core:**
+  - `SearchQuery.folder` narrows to a folder of `volume` and everything below it. It matches `rel_path` in the range `folder/` to `folder0`, so `2025` never matches `2025-old`.
+  - `Browse::folders(volume, parent, q)` lists a folder's sub-folders A–Z. Each has the count of matching originals in it and below, and whether it has sub-folders. Files directly in `parent` are in no sub-folder. Filters apply; empty folders drop out.
+- **App:** `folder_tree(volume, parent, query)`; `Query.folder` (optional in TypeScript).
+- **UI:**
+  - A **By date / By folder** switch under Library, remembered in the browser storage.
+  - `useFolderTree` loads a folder's sub-folders on first expand, and again when filters or the library change.
+  - The roots are the volumes, with their connected dot. The Volumes list is hidden in this mode.
+  - A folder is a new section kind (`folder`: volume + path). Its heading reads "Pictures › 2025 › May".
+  - Both trees share the keys (→ opens or goes in, ← closes or goes up) and the twisty.
+  - Pressed segmented buttons are now highlighted too (`aria-pressed`). That fixes the JPEG/RAW switch in All metadata.
+
+### Tests
+- `folder_tree_tests.rs`: counts below, nesting, filters, files at the top level, a trailing slash, the folder filter and its boundaries, no volume → error.
+- `uiModel.test.ts`.
+- `folder-tree.spec.ts`: switch, roots, open a year and a month, heading, count, query, filters, kept after reload, keyboard.
+- The axe check covers the folder tree.
+
+### Not done
+- The tree is not revealed to a folder opened from elsewhere.
+- Not measured at 300,000 items: a level scans the volume's originals' paths once.
+
+---
 ## All metadata in the inspector (2026-10-29)
 
 ### What was built

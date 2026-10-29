@@ -37,6 +37,10 @@ pub struct SearchQuery {
     /// Assets with a file on this volume.
     #[serde(default)]
     pub volume: Option<VolumeId>,
+    /// With `volume`: assets whose original is in this folder of the volume
+    /// or below it (`2025/May`, `/`-separated, as the folder tree gives it).
+    #[serde(default)]
+    pub folder: Option<String>,
     /// Assets of this import session.
     #[serde(default)]
     pub session: Option<ImportSessionId>,
@@ -142,11 +146,34 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         f.wh.push("a.event_id = ?".into());
         f.args.push(Box::new(e));
     }
-    if let Some(v) = q.volume {
-        f.wh.push(
-            "EXISTS (SELECT 1 FROM files fv WHERE fv.asset_id = a.id AND fv.volume_id = ?)".into(),
-        );
-        f.args.push(Box::new(v));
+    let folder = q
+        .folder
+        .as_deref()
+        .map(|p| p.trim_matches('/'))
+        .filter(|p| !p.is_empty());
+    match (q.volume, folder) {
+        (Some(v), Some(p)) => {
+            let (lo, hi) = folder_range(p);
+            f.wh.push(
+                "EXISTS (SELECT 1 FROM files fv WHERE fv.asset_id = a.id AND fv.volume_id = ?
+                         AND fv.role = 'original' AND fv.rel_path >= ? AND fv.rel_path < ?)"
+                    .into(),
+            );
+            f.args.push(Box::new(v));
+            f.args.push(Box::new(lo));
+            f.args.push(Box::new(hi));
+        }
+        (Some(v), None) => {
+            f.wh.push(
+                "EXISTS (SELECT 1 FROM files fv WHERE fv.asset_id = a.id AND fv.volume_id = ?)"
+                    .into(),
+            );
+            f.args.push(Box::new(v));
+        }
+        (None, Some(_)) => {
+            return Err(CatalogError::Invalid("a folder needs its volume".into()));
+        }
+        (None, None) => {}
     }
     if let Some(s) = q.session {
         f.wh.push(
@@ -160,6 +187,12 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         f.wh.push("a.capture_ts_ms IS NULL".into());
     }
     Ok(f)
+}
+
+/// The `rel_path` range of everything under folder `p` (no trailing `/`):
+/// `p/` up to, not including, `p0` (`0` sorts right after `/`).
+pub(crate) fn folder_range(p: &str) -> (String, String) {
+    (format!("{p}/"), format!("{p}0"))
 }
 
 fn valid_day(d: &str) -> bool {

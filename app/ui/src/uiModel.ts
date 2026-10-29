@@ -9,6 +9,8 @@ export type Section =
   | { kind: "calendar" }
   | { kind: "event"; id: string; title: string }
   | { kind: "volume"; id: string; title: string }
+  /** A folder of a volume and everything below it. */
+  | { kind: "folder"; id: string; path: string; title: string }
   | { kind: "import"; id: string; title: string };
 
 export type Mode = "calendar" | "grid" | "details";
@@ -121,6 +123,10 @@ export function effectiveQuery(s: UiState): Query {
       break;
     case "volume":
       q.volume = s.section.id;
+      break;
+    case "folder":
+      q.volume = s.section.id;
+      q.folder = s.section.path;
       break;
     case "import":
       q.session = s.section.id;

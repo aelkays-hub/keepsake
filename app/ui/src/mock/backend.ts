@@ -176,6 +176,11 @@ export function installMock(): void {
     thumb: THUMBS[it.i % 16],
     online: it.online,
   });
+  /** The folder an item is in, on its volume: `2024/2024-06`, or `Undated`. */
+  const folderOf = (it: Item) => {
+    const d = day(it.t);
+    return d ? `${d.slice(0, 4)}/${d.slice(0, 7)}` : "Undated";
+  };
   const matches = (q: Query) => (it: Item) => {
     const d = day(it.t);
     if (q.undated && it.t !== null) return false;
@@ -188,6 +193,8 @@ export function installMock(): void {
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
+    if (q.folder && !`${folderOf(it)}/`.startsWith(`${q.folder.replace(/^\/+|\/+$/g, "")}/`))
+      return false;
     if (q.text) {
       const words = q.text.toLowerCase().split(/\W+/).filter(Boolean);
       const hay =
@@ -310,6 +317,35 @@ export function installMock(): void {
           if (lv.level === "years" && undated)
             out.push({ key: "undated", count: undated, coverId: null, cover: null });
           return out;
+        }
+        case "folder_tree": {
+          const q = { ...(a.query as Query), volume: null, folder: undefined };
+          const parent = (a.parent as string | null) ?? "";
+          const on = a.volume !== "vOff";
+          const by = new Map<string, { count: number; deeper: boolean }>();
+          for (const it of all) {
+            if (it.online !== on || !matches(q)(it)) continue;
+            const p = folderOf(it);
+            const rest = parent
+              ? p.startsWith(`${parent}/`)
+                ? p.slice(parent.length + 1)
+                : null
+              : p;
+            if (rest === null) continue;
+            const [name, ...below] = rest.split("/");
+            const e = by.get(name) ?? { count: 0, deeper: false };
+            e.count += 1;
+            e.deeper ||= below.length > 0;
+            by.set(name, e);
+          }
+          return [...by.entries()]
+            .sort(([x], [y]) => x.localeCompare(y))
+            .map(([name, e]) => ({
+              name,
+              path: parent ? `${parent}/${name}` : name,
+              count: e.count,
+              hasChildren: e.deeper,
+            }));
         }
         case "facets":
           return {

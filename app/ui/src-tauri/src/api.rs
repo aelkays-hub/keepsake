@@ -45,9 +45,24 @@ dto! {
         pub label: Option<String>,
         pub event: Option<String>,
         pub volume: Option<String>,
+        /// With `volume`: this folder of it and below (`2025/May`).
+        #[serde(default)]
+        #[ts(optional)]
+        pub folder: Option<String>,
         pub session: Option<String>,
         #[serde(default)]
         pub undated: bool,
+    }
+
+    /// A folder in the sidebar's folder tree.
+    pub struct FolderNode {
+        /// Its own name (`May`).
+        pub name: String,
+        /// Its path on the volume (`2025/May`), for `Query.folder`.
+        pub path: String,
+        #[ts(type = "number")]
+        pub count: u64,
+        pub has_children: bool,
     }
 
     pub struct SortSpec {

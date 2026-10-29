@@ -1,8 +1,44 @@
-# Manual Test Steps — All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## The sidebar tree by folder
+
+Automated:
+```
+cargo test -p keepsake-core --test folder_tree_tests
+cd app/ui; pnpm test; pnpm exec playwright test e2e/mocked/folder-tree.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Under **Library** in the sidebar, click **By folder**.
+   **Expected:**
+   - the calendar tree is replaced by your folders (e.g. **Pictures**) with their counts and connected dot;
+   - the separate Volumes list is gone.
+2. Click **Pictures**.
+   **Expected:**
+   - the grid shows everything in it;
+   - its folders appear below (2025, 2026, Edited JPEG…), each with a count.
+3. Click **2025**, then **May**.
+   **Expected:**
+   - the heading reads "Pictures › 2025 › May";
+   - the status bar's count matches the tree;
+   - the grid holds only that folder and its sub-folders.
+4. Click only the ▸ arrow of another folder.
+   **Expected:** it opens or closes; the grid does not change.
+5. Set Type to Video.
+   **Expected:** the counts change; folders without videos disappear.
+6. Restart Keepsake.
+   **Expected:** the sidebar is still **By folder**.
+7. Click **By date**.
+   **Expected:** the calendar tree and the Volumes list are back.
+8. Keyboard: Tab to the sidebar and ↓ to Pictures.
+   - → opens it; → again goes to its first folder;
+   - ← goes back up; Enter shows it.
 
 ---
 
