@@ -24,7 +24,8 @@ use crate::api::{
 use crate::convert;
 use crate::state::{err, ui_test, AppState, CmdResult};
 
-fn exiftool() -> Option<&'static ExifTool> {
+/// The app's one ExifTool process (started on first use).
+pub(crate) fn exiftool() -> Option<&'static ExifTool> {
     static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
     ET.get_or_init(|| {
         ExifTool::start(&RenderTools::discover().exiftool, Duration::from_secs(30)).ok()

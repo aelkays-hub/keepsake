@@ -525,3 +525,44 @@ fn rebuild_with_probe_fills_catalog_and_is_stable() {
     rebuild_catalog_with(&mut cat, &lib, rec.id, &card, Some(&p)).unwrap();
     assert_eq!(cat.read(|tx| tx.snapshot()).unwrap(), before);
 }
+
+#[test]
+fn every_tag_of_a_photo_is_read_without_changing_it() {
+    let Some((t, ffmpeg)) = media::tools() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("Été 2026").join("A7404962.jpg");
+    media::jpeg(&ffmpeg, &f);
+    let et = ExifTool::start(&t.exiftool, Duration::from_secs(30)).unwrap();
+    media::set_tags(
+        &et,
+        &f,
+        &[
+            "-Make=SONY",
+            "-Model=ILCE-7M4",
+            "-ExposureTime=1/250",
+            "-FNumber=2.8",
+            "-ISO=400",
+            "-XMP-dc:Subject=Lake",
+        ],
+    );
+    let before = std::fs::read(&f).unwrap();
+    let groups = et.read_all(&f).unwrap();
+    assert_eq!(std::fs::read(&f).unwrap(), before, "only read");
+    let get = |g: &str, n: &str| {
+        groups
+            .iter()
+            .find(|x| x.group == g)
+            .and_then(|x| x.tags.iter().find(|t| t.name == n))
+            .map(|t| t.value.clone())
+    };
+    assert_eq!(groups[0].group, "IFD0", "{groups:#?}");
+    assert_eq!(get("IFD0", "Make").as_deref(), Some("SONY"));
+    assert_eq!(get("IFD0", "Model").as_deref(), Some("ILCE-7M4"));
+    assert_eq!(get("ExifIFD", "ExposureTime").as_deref(), Some("1/250"));
+    assert_eq!(get("ExifIFD", "ISO").as_deref(), Some("400"));
+    assert_eq!(get("XMP-dc", "Subject").as_deref(), Some("Lake"));
+    assert!(get("File", "ImageWidth").is_some());
+    assert_eq!(groups.last().map(|g| g.group.as_str()), Some("System"));
+}

@@ -16,6 +16,7 @@ import type { Details } from "./bindings/Details";
 import type { EditProgress } from "./bindings/EditProgress";
 import type { EditResult } from "./bindings/EditResult";
 import type { Facets } from "./bindings/Facets";
+import type { FileMetadata } from "./bindings/FileMetadata";
 import type { FolderDone } from "./bindings/FolderDone";
 import type { ImportCheck } from "./bindings/ImportCheck";
 import type { ImportProgress } from "./bindings/ImportProgress";
@@ -53,6 +54,7 @@ export type {
   Details,
   EditProgress,
   Facets,
+  FileMetadata,
   FolderDone,
   ImportCheck,
   ImportProgress,
@@ -150,6 +152,9 @@ export const api = {
   /** Open in another application: `app` from `openChoices` ("" = system default), or the default. */
   openExternal: (id: string, member: MemberDto, app: string | null = null) =>
     invoke<string>("open_external", { id, member, app }),
+  /** Every metadata tag of an item's file (ExifTool; read only). */
+  metadataAll: (id: string, member: MemberDto) =>
+    invoke<FileMetadata>("metadata_all", { id, member }),
   openChoices: (id: string, member: MemberDto) =>
     invoke<OpenChoice[]>("open_choices", { id, member }),
 

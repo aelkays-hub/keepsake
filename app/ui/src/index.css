@@ -1056,3 +1056,35 @@ pre.report {
 .sidebar .cal-node.depth-3 {
   padding-left: 50px;
 }
+
+/* ── All metadata (inspector) ─────────────────────────────────────── */
+.all-meta-tools {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+.all-meta-tools input {
+  flex: 1;
+  min-width: 0;
+}
+.all-meta-file {
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+.all-meta h3 {
+  font-size: 12px;
+  margin: 10px 0 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.all-meta .meta {
+  grid-template-columns: minmax(90px, 40%) 1fr;
+  font-size: 12px;
+}
+.all-meta .meta-row {
+  display: contents;
+}
+.all-meta dd {
+  white-space: pre-wrap;
+}

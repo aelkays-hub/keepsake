@@ -14,6 +14,6 @@ pub mod tools;
 pub use asset::{ProbeOptions, ProbeReport, ProbedAsset, Prober};
 pub use capture::{CaptureSource, Confidence, Resolved};
 pub use error::ProbeError;
-pub use exiftool::ExifTool;
+pub use exiftool::{ExifTool, MetaGroup, MetaTag};
 pub use ffprobe::{Chroma, Fps, MediaStreams, VideoStream};
 pub use tools::ToolPaths;

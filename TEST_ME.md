@@ -1,8 +1,47 @@
-# Manual Test Steps — Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## All metadata in the inspector
+
+Automated:
+```
+cargo test -p keepsake-core --lib meta_tests
+cargo test -p keepsake-core --test probe_tests every_tag
+cd app/ui; pnpm test; pnpm exec playwright test e2e/mocked/metadata.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Select an ARW photo. At the foot of the right-hand panel, click **All metadata**.
+   **Expected:**
+   - within about a second: "All metadata (300 or so)";
+   - groups in this order:
+     - Camera and image (IFD0)
+     - Exposure (EXIF)
+     - Sony maker notes
+     - Computed by ExifTool
+     - the file's inner structure (IFD1, SubIFD, SR2…)
+     - File
+     - System
+   - values match the camera, e.g. Exposure Time 1/250, ISO 1600, Lens ID Sigma 24-70mm F2.8 DG DN | A.
+2. Type `iso` in the filter.
+   **Expected:** only tags whose name or value contains "iso". Clear it.
+3. Click **Copy** and paste into Notepad (macOS: TextEdit).
+   **Expected:** the file name, then `[Group]` blocks with `Name: value` lines.
+4. Select another photo.
+   **Expected:** the section stays open and shows that photo's tags. It is still open after restarting Keepsake.
+5. Select a RAW + JPEG pair.
+   **Expected:**
+   - JPEG and RAW buttons;
+   - RAW shows the ARW's tags, with many more maker notes.
+6. Select an item on an unplugged drive.
+   **Expected:** "Connect the drive with this item to read its metadata."
+7. Check the file afterwards.
+   **Expected:** its modified time and size are unchanged.
 
 ---
 

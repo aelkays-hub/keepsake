@@ -517,6 +517,25 @@ dto! {
         pub default: bool,
     }
 
+    /// One metadata tag: ExifTool's name (`ExposureTime`) and its value as text.
+    pub struct MetaTagDto {
+        pub name: String,
+        pub value: String,
+    }
+
+    /// The tags of one group (`IFD0`, `ExifIFD`, `GPS`, `Sony`, `XMP-xmp`, `File`…).
+    pub struct MetaGroupDto {
+        pub group: String,
+        pub tags: Vec<MetaTagDto>,
+    }
+
+    /// Every metadata tag of an item's file (the inspector's "All metadata").
+    pub struct FileMetadata {
+        /// The file read: its name only.
+        pub file: String,
+        pub groups: Vec<MetaGroupDto>,
+    }
+
     /// An "Open in" application for one file type.
     pub struct OpenApp {
         /// Lower-case extension without the dot (`arw`).

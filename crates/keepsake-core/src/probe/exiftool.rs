@@ -386,6 +386,114 @@ impl ExifTool {
         }
         Ok(ordered)
     }
+
+    /// Every metadata tag in `path`, as ExifTool prints it, grouped by where
+    /// it is stored (see [`groups_from_json`]). Only reads the file.
+    pub fn read_all(&self, path: &Path) -> Result<Vec<MetaGroup>, ProbeError> {
+        // -G1: the specific group (IFD0, ExifIFD, GPS, Sony, XMP-xmp…);
+        // -a: tags with the same name in different groups all appear.
+        let args: Vec<String> = vec![
+            "-j".into(),
+            "-G1".into(),
+            "-a".into(),
+            "-q".into(),
+            "-q".into(),
+            path_arg(path)?,
+        ];
+        let out = self.execute(&args)?;
+        if out.trim().is_empty() {
+            return Err(ProbeError::Tool {
+                tool: TOOL,
+                detail: "no output (unreadable file?)".into(),
+            });
+        }
+        groups_from_json(&out)
+    }
+}
+
+/// One tag: ExifTool's name for it (`ExposureTime`) and its value as text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MetaTag {
+    pub name: String,
+    pub value: String,
+}
+
+/// The tags of one group (`IFD0`, `ExifIFD`, `GPS`, `Sony`, `XMP-xmp`, `File`…).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MetaGroup {
+    pub group: String,
+    pub tags: Vec<MetaTag>,
+}
+
+/// Where a group goes in the list: the main EXIF first, then GPS, the
+/// camera's own notes, computed values, XMP and IPTC, and facts about the
+/// file last.
+fn group_rank(g: &str) -> u8 {
+    match g {
+        "IFD0" => 0,
+        "ExifIFD" => 1,
+        "GPS" => 2,
+        "Composite" => 4,
+        _ if g.starts_with("XMP") => 5,
+        _ if g.starts_with("IPTC") => 6,
+        _ if g.starts_with("ICC") => 7,
+        // Structure inside the file: the embedded thumbnail, raw-data
+        // directories (Sony's SR2…), print settings.
+        "IFD1" | "InteropIFD" | "PrintIM" => 8,
+        _ if g.starts_with("SubIFD") || g.starts_with("SR2") => 8,
+        "File" => 9,
+        "System" => 10,
+        // The maker notes: Sony, Canon, Nikon…, and anything else.
+        _ => 3,
+    }
+}
+
+fn value_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Array(a) => a.iter().map(value_text).collect::<Vec<_>>().join(", "),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// Parse `exiftool -j -G1` output for one file into groups, in
+/// [`group_rank`] order, with tags A–Z inside each. `SourceFile` and
+/// ExifTool's own version are left out.
+pub fn groups_from_json(out: &str) -> Result<Vec<MetaGroup>, ProbeError> {
+    let v: Value = serde_json::from_str(out).map_err(|e| ProbeError::parse("exiftool JSON", e))?;
+    let Some(Value::Object(obj)) = v.as_array().and_then(|a| a.first()).cloned() else {
+        return Err(ProbeError::parse("exiftool JSON", "expected one object"));
+    };
+    let mut groups: Vec<MetaGroup> = Vec::new();
+    for (key, value) in obj {
+        let Some((group, name)) = key.split_once(':') else {
+            continue;
+        };
+        if group == "ExifTool" {
+            continue;
+        }
+        let tag = MetaTag {
+            name: name.to_owned(),
+            value: value_text(&value),
+        };
+        match groups.iter_mut().find(|g| g.group == group) {
+            Some(g) => g.tags.push(tag),
+            None => groups.push(MetaGroup {
+                group: group.to_owned(),
+                tags: vec![tag],
+            }),
+        }
+    }
+    for g in &mut groups {
+        g.tags.sort_by_key(|t| t.name.to_lowercase());
+    }
+    groups.sort_by(|a, b| {
+        group_rank(&a.group)
+            .cmp(&group_rank(&b.group))
+            .then_with(|| a.group.cmp(&b.group))
+    });
+    Ok(groups)
 }
 
 impl Drop for ExifTool {
@@ -419,4 +527,68 @@ pub(crate) fn path_arg(p: &Path) -> Result<String, ProbeError> {
         });
     }
     Ok(s)
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+
+    #[test]
+    fn groups_are_ordered_and_tags_sorted() {
+        let out = r#"[{
+            "SourceFile": "E:/Pictures/a.ARW",
+            "ExifTool:ExifToolVersion": 13.59,
+            "System:FileSize": "24 MB",
+            "File:MIMEType": "image/x-sony-arw",
+            "Sony:LensType": "Sigma 24-70mm",
+            "ExifIFD:FNumber": 2.8,
+            "ExifIFD:ExposureTime": "1/250",
+            "IFD0:Model": "ILCE-7M3",
+            "IFD0:Make": "SONY",
+            "GPS:GPSLatitude": "45 deg 30' 0.00\" N",
+            "Composite:LensID": "Sigma 24-70mm F2.8 DG DN | A",
+            "XMP-dc:Subject": ["Japan", "Tokyo"],
+            "XMP-xmp:Rating": 4,
+            "SR2DataIFD3:BlackLevel2": "512 512 512 512",
+            "IFD1:ThumbnailImage": "(Binary data 9877 bytes, use -b option to extract)"
+        }]"#;
+        let g = groups_from_json(out).unwrap();
+        let names: Vec<&str> = g.iter().map(|g| g.group.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "IFD0",
+                "ExifIFD",
+                "GPS",
+                "Sony",
+                "Composite",
+                "XMP-dc",
+                "XMP-xmp",
+                "IFD1",
+                "SR2DataIFD3",
+                "File",
+                "System"
+            ]
+        );
+        assert_eq!(
+            g[0].tags,
+            [
+                MetaTag {
+                    name: "Make".into(),
+                    value: "SONY".into()
+                },
+                MetaTag {
+                    name: "Model".into(),
+                    value: "ILCE-7M3".into()
+                }
+            ]
+        );
+        assert_eq!(g[1].tags[0].name, "ExposureTime");
+        assert_eq!(g[1].tags[1].value, "2.8");
+        assert_eq!(g[5].tags[0].value, "Japan, Tokyo");
+        assert_eq!(g[6].tags[0].value, "4");
+        assert!(g.iter().all(|x| x.group != "ExifTool"));
+        assert!(groups_from_json("[]").is_err());
+        assert!(groups_from_json("not json").is_err());
+    }
 }

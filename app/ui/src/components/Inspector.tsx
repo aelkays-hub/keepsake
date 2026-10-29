@@ -9,6 +9,7 @@ import { useEdits } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
+import { AllMetadata } from "./AllMetadata";
 import { OpenInMenu } from "./OpenInMenu";
 import { LabelPicker, Stars } from "./Stars";
 
@@ -198,6 +199,11 @@ export function Inspector() {
           ))}
         </ul>
       </details>
+      <AllMetadata
+        id={d.id}
+        online={d.online}
+        hasRaw={d.files.some((f) => f.role === "raw_pair")}
+      />
     </aside>
   );
 }
