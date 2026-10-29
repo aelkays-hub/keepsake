@@ -169,8 +169,10 @@ test("rate, label and open the item shown in the viewer", async ({ page }) => {
     .poll(() => calls(page, "edit_label"))
     .toEqual([{ selection: { ids: [`a${i}`], view: null, ranges: [] }, label: "Green" }]);
   await page.keyboard.press("Control+o");
-  await expect(page.getByTestId("viewer-note")).toHaveText("Opened with explorer");
-  expect(await calls(page, "open_external")).toEqual([{ id: `a${i}`, member: "primary" }]);
+  await expect(page.getByTestId("viewer-note")).toHaveText("Opened with the system default");
+  expect(await calls(page, "open_external")).toEqual([
+    { id: `a${i}`, member: "primary", app: null },
+  ]);
 });
 
 test("time shift: a reference photo and the correct time give the offset for all", async ({

@@ -518,9 +518,31 @@ export function installMock(): void {
             width: 160,
             height: 90,
           };
-        case "open_external":
+        case "open_choices":
+        case "open_external": {
+          const it = all[Number(String(a.id).slice(1))];
+          const ext =
+            a.member === "raw" && it.kind !== "video"
+              ? "arw"
+              : (it.name.split(".").pop() ?? "").toLowerCase();
+          const apps = [
+            ...new Set(st.settings.openApps.filter((x) => x.ext === ext).map((x) => x.app)),
+          ];
+          const name = (app: string) =>
+            (app.split(/[\\/]/).pop() ?? app).replace(/\.[^.]+$/, "") || app;
+          if (cmd === "open_choices")
+            return [
+              ...apps.map((app, i) => ({ app, name: name(app), default: i === 0 })),
+              { app: "", name: "System default", default: apps.length === 0 },
+            ];
+          const app = (a.app as string | null | undefined) ?? null;
           st.opened.push({ id: String(a.id), member: String(a.member) });
-          return "explorer";
+          if (app === null) return apps.length ? name(apps[0]) : "the system default";
+          if (app === "") return "the system default";
+          if (!apps.includes(app))
+            throw new Error(`${name(app)} is not set up in Settings for this file type`);
+          return name(app);
+        }
         case "time_shift_preview": {
           const ids = resolve(a.selection as Selection);
           const ref = all[Number(String(a.reference).slice(1))];
@@ -666,12 +688,17 @@ export function installMock(): void {
             workers: u.workers,
             proxyWorkers: u.proxyWorkers,
             pauseOnBattery: u.pauseOnBattery,
+            // One row per type and app, in order (a row may list several types).
             openApps: u.openApps
-              .map((x) => ({
-                ext: x.ext.trim().replace(/^\./, "").toLowerCase(),
-                app: x.app.trim(),
-              }))
-              .filter((x) => x.ext && x.app),
+              .flatMap((x) =>
+                x.ext.split(/[,;]/).map((e) => ({
+                  ext: e.trim().replace(/^\./, "").toLowerCase(),
+                  app: x.app.trim(),
+                })),
+              )
+              .filter((x) => x.ext && x.app)
+              .filter((x, i, all) => all.findIndex((y) => y.ext === x.ext && y.app === x.app) === i)
+              .sort((p, q) => (p.ext < q.ext ? -1 : p.ext > q.ext ? 1 : 0)),
           };
           return { settings: st.settings, oldCache: old !== st.settings.cacheDir ? old : null };
         }

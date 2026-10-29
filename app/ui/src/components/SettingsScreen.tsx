@@ -378,19 +378,26 @@ export function SettingsScreen() {
       <div className="card">
         <h2>Open in</h2>
         <p className="muted">
-          Ctrl+O opens an item in another application. Types not listed open in the system default.
+          Open in… (and Ctrl+O) opens an item in another application. Add a row per application;
+          several types can share one row (arw, jpg, dng). The first application for a type is used
+          by Ctrl+O; the others are in the Open in menu. Types not listed open in the system
+          default.
         </p>
         <table className="apps" data-testid="open-apps">
           <tbody>
             {apps.map((a, i) => (
-              <tr key={a.ext}>
+              <tr key={`${i}-${a.ext}-${a.app}`}>
                 <td>
                   <code>.{a.ext}</code>
+                  {apps.findIndex((x) => x.ext === a.ext) === i &&
+                    apps.some((x, j) => j !== i && x.ext === a.ext) && (
+                      <span className="muted"> (Ctrl+O)</span>
+                    )}
                 </td>
                 <td className="grow">{a.app}</td>
                 <td>
                   <button
-                    aria-label={`Remove .${a.ext}`}
+                    aria-label={`Remove ${a.app.split(/[\\/]/).pop()} for .${a.ext}`}
                     onClick={() => setApps(apps.filter((_, j) => j !== i))}
                   >
                     Remove
@@ -401,9 +408,9 @@ export function SettingsScreen() {
             <tr>
               <td>
                 <input
-                  placeholder="arw"
-                  aria-label="File type"
-                  size={6}
+                  placeholder="arw, jpg"
+                  aria-label="File types"
+                  size={10}
                   value={newExt}
                   onChange={(e) => setNewExt(e.target.value)}
                   data-testid="app-ext"

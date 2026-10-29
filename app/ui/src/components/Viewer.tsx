@@ -25,6 +25,7 @@ import * as fmt from "../format";
 import { LABEL_KEYS } from "../keys";
 import * as sel from "../selection";
 import { useUi } from "../state";
+import { OpenInMenu } from "./OpenInMenu";
 
 async function toggleFullscreen() {
   try {
@@ -485,13 +486,7 @@ export function Viewer() {
           </div>
         )}
         {row && <span className="stars-text">{"★".repeat(row.rating)}</span>}
-        <button
-          onClick={openElsewhere}
-          disabled={!row}
-          title="Open in another application (Ctrl+O)"
-        >
-          Open in…
-        </button>
+        <OpenInMenu id={row?.id ?? null} member={member} onOpened={setNote} />
         <button
           onClick={() => void toggleFullscreen()}
           title="Full screen (F)"
