@@ -1039,3 +1039,20 @@ pre.report {
   color: var(--muted);
   font: inherit;
 }
+
+/* The calendar tree in the sidebar */
+.sidebar .twisty {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--muted);
+}
+.sidebar .cal-node.depth-1 {
+  padding-left: 22px;
+}
+.sidebar .cal-node.depth-2 {
+  padding-left: 36px;
+}
+.sidebar .cal-node.depth-3 {
+  padding-left: 50px;
+}

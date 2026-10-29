@@ -25,6 +25,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 ### Library views
 - Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.
 - **Calendar view**: year → month → day drill-down, with item counts and cover thumbnails per cell; a day opens its grid.
+- **Calendar tree** in the sidebar: Calendar → years → months → days, with counts (respecting the filters), plus "No date". Clicking a node opens that level (a day opens its grid). The arrow only opens or closes; with the keyboard, → opens or goes in and ← closes or goes up. The tree opens to wherever the calendar view is.
 - **Grid view**: virtualized thumbnail grid (TanStack Virtual) that stays smooth at 300,000 items. Multi-select by mouse and keyboard, sort by capture time and more. Items on offline drives show their cached thumbnail with an offline badge.
 - **Details view**: virtualized table with sortable columns: name, date, camera, lens, type, size, duration, rating.
 - **Inspector**: metadata, rating (1–5), colour label, comment and keywords, written to XMP. Rating, label and keywords apply to the whole selection.

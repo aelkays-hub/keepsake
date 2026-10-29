@@ -1,8 +1,37 @@
-# Manual Test Steps — Open in menu, and Add a folder in place
+# Manual Test Steps — Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Calendar tree in the sidebar
+
+Automated: `cd app/ui; pnpm exec playwright test e2e/mocked/calendar-tree.spec.ts --project=mocked`.
+**Expected:** passes.
+
+1. Look at the sidebar under Library.
+   **Expected:** **Calendar ▾** with every year that has items, each with its count, and "No date" if some items have no date.
+2. Click a year.
+   **Expected:**
+   - the main area shows its months;
+   - the year opens in the tree, listing its months with counts;
+   - the year is highlighted.
+3. Click a month.
+   **Expected:** the main area shows its days; the tree lists the days (e.g. "Sun 15") with counts.
+4. Click a day.
+   **Expected:** the grid of that day; the heading reads Calendar › year › month › day; the count matches the tree.
+5. Click only the ▸ arrow of another year.
+   **Expected:** it opens or closes in the tree; the main area does not change.
+6. Move through the calendar view itself (Ctrl+1, then click a year, then a month).
+   **Expected:** the tree opens to the same place.
+7. Keyboard: Tab to the sidebar and ↓ to a year.
+   - → opens it; → again goes to its first month;
+   - ← goes back to the year; ← again closes it;
+   - Enter opens it in the main area.
+8. Set a filter (e.g. Type: Video).
+   **Expected:** the tree's counts change to match.
 
 ---
 
