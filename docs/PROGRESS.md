@@ -17,6 +17,7 @@
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
+| — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -39,6 +40,26 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Calendar tree in the sidebar (2026-10-29)
+
+### What was built
+- **`useCalendarTree`** (`app/ui/src/useCalendarTree.ts`) loads the calendar's levels (years; a year's months; a month's days) with the existing `calendar` command, when each is first opened. It reloads when the filters or the library change, and drops answers for an older query.
+- **Sidebar.** "Calendar" is a tree:
+  - years (and "No date"), months and days, with counts;
+  - a node opens its level in the main area and opens in the tree;
+  - the ▸/▾ arrow only opens or closes;
+  - the tree opens to the calendar view's position, and the current node is marked;
+  - keyboard: ↑/↓ as before, → opens or goes to the first child, ← closes or goes to the parent;
+  - sidebar buttons take the roving focus when focused (Tab, a click), not only through the arrows.
+- No backend change.
+
+### Tests
+- `calendar-tree.spec.ts`: years, months and days; a day's grid and count; the arrow alone; following the calendar view; keyboard; No date.
+- `keyboard.spec.ts`: the backup flow now arrows past the years.
+- The axe check covers the tree.
 
 ---
 
