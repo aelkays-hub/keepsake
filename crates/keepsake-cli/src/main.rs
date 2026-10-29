@@ -32,6 +32,9 @@ enum Commands {
     /// Import a card: copy to one or two drives, verify every byte,
     /// catalogue, and report whether the card is safe to format.
     Ingest(Box<commands::ingest::IngestArgs>),
+    /// Add a folder of photos and videos already on disk, where they are:
+    /// nothing is copied, and nothing is written into the folder.
+    AddFolder(commands::add_folder::AddFolderArgs),
     /// Re-hash catalogued files and report missing or changed ones. Read-only.
     Verify(commands::verify::VerifyArgs),
     /// Find assets by words, date range, camera and type.
@@ -95,6 +98,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Init(a) => commands::init::run(&ctx, a),
         Commands::Ingest(a) => commands::ingest::run(&ctx, *a),
+        Commands::AddFolder(a) => commands::add_folder::run(&ctx, a),
         Commands::Verify(a) => commands::verify::run(&ctx, a),
         Commands::Search(a) => commands::search::run(&ctx, a),
         Commands::ShiftTime(a) => commands::shift::run(&ctx, a),

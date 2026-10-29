@@ -43,9 +43,15 @@ export function BackupScreen() {
       setDone(d);
       load();
     });
+    // A folder scan (started on the Folders screen) shares the job slot.
+    const c = events.folderDone(() => {
+      setRunning(false);
+      setProgress(null);
+    });
     return () => {
       a.then((f) => f());
       b.then((f) => f());
+      c.then((f) => f());
     };
   }, [load]);
   const start = (path: string, name: string | null) => {
@@ -121,7 +127,13 @@ export function BackupScreen() {
         <div className="card" role="status" data-testid="backup-status">
           {running && (
             <>
-              <h2>{progress?.kind === "verify" ? "Verifying…" : "Backing up…"}</h2>
+              <h2>
+                {progress?.kind === "verify"
+                  ? "Verifying…"
+                  : progress?.kind === "folder"
+                    ? "Adding a folder…"
+                    : "Backing up…"}
+              </h2>
               <progress max={100} value={pct} aria-label="Progress" />
               <p className="muted">
                 {fmt.count(progress?.filesDone ?? 0)} files · {fmt.bytes(progress?.bytesDone ?? 0)}{" "}

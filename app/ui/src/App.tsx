@@ -8,6 +8,7 @@ import { CalendarView } from "./components/CalendarView";
 import { CrashBanner } from "./components/CrashBanner";
 import { DetailsView } from "./components/DetailsView";
 import { FirstRun } from "./components/FirstRun";
+import { FoldersScreen } from "./components/FoldersScreen";
 import { GridView } from "./components/GridView";
 import { Inspector } from "./components/Inspector";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -63,6 +64,12 @@ function Main() {
     dispatch({ t: "sel", sel: sel.has(s.sel, i) ? { ...s.sel, focus: i } : sel.only(i) });
     dispatch({ t: "viewer", open: true });
   };
+  if (s.screen === "folders")
+    return (
+      <main className="main screen-main" aria-label="Folders">
+        <FoldersScreen />
+      </main>
+    );
   if (s.screen === "backup")
     return (
       <main className="main screen-main" aria-label="Backup">

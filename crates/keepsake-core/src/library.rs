@@ -39,6 +39,36 @@ pub enum LibraryError {
     NotALibrary(String),
     #[error("invalid input: {0}")]
     Invalid(String),
+    #[error("stopped before finishing")]
+    Cancelled,
+}
+
+/// What a library keeps at its root. When a library sits inside a folder of
+/// photos (made there by mistake, say), a scan of that folder leaves these out.
+pub const LIBRARY_ENTRIES: &[&str] = &[
+    "library.json",
+    "volumes.json",
+    "catalog.db",
+    "catalog.db-wal",
+    "catalog.db-shm",
+    "catalog.db-journal",
+    "recipes",
+    "sidecars",
+    "history.json",
+    "cards.json",
+    "cards",
+    "presets.json",
+];
+
+/// Does `dir` hold a Keepsake library?
+pub fn is_library_dir(dir: &Path) -> bool {
+    dir.join("library.json").is_file()
+        && (dir.join("catalog.db").is_file() || dir.join("volumes.json").is_file())
+}
+
+/// Is `name` one of the entries a library keeps at its root?
+pub fn is_library_entry(name: &str) -> bool {
+    LIBRARY_ENTRIES.iter().any(|e| e.eq_ignore_ascii_case(name))
 }
 
 /// The durable description of a volume (everything except online state).
@@ -237,6 +267,31 @@ pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), Librar
 pub struct VolumeProbe {
     pub case: CaseSensitivity,
     pub read_only: bool,
+}
+
+/// Whether the file system at `dir` ignores case, found without writing
+/// anything: look the folder up under its name with the case swapped.
+/// A drive root, or a name with no letters, gets the platform default
+/// (Windows and macOS ignore case).
+pub fn case_of(dir: &Path) -> CaseSensitivity {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return CaseSensitivity::Insensitive;
+    };
+    let name = name.to_string_lossy();
+    let swapped: String = name
+        .chars()
+        .map(|c| {
+            if c.is_lowercase() {
+                c.to_uppercase().next().unwrap_or(c)
+            } else {
+                c.to_lowercase().next().unwrap_or(c)
+            }
+        })
+        .collect();
+    if swapped == name {
+        return CaseSensitivity::Insensitive;
+    }
+    CaseSensitivity::from_bool(!parent.join(swapped).is_dir())
 }
 
 /// Detect whether a mounted volume is writable and case-sensitive by creating

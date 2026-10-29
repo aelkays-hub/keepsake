@@ -17,7 +17,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 
@@ -28,7 +29,9 @@ use crate::catalog::{
 };
 use crate::corpus::scanner::skip_reason;
 use crate::grouping::{self, Grouping};
-use crate::library::{probe_volume, Library, LibraryError, VolumeRecord};
+use crate::library::{
+    case_of, is_library_dir, is_library_entry, probe_volume, Library, LibraryError, VolumeRecord,
+};
 use crate::probe::{ProbedAsset, Prober};
 use crate::relpath::{path_key, RelPath};
 use crate::xmp::{sidecar, AssetXmp};
@@ -50,8 +53,77 @@ pub struct RebuildReport {
     pub probed: u64,
     pub sequences: u64,
     pub hidden_skipped: u64,
+    /// Entries left out because they are Keepsake's own: a library's files,
+    /// or the thumbnail cache.
+    pub keepsake_skipped: u64,
     pub skipped: Vec<SkippedPath>,
     pub problems: Vec<String>,
+}
+
+/// What a rebuild is doing, for progress displays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildProgress<'a> {
+    /// The folder was listed: this many files and bytes to read.
+    Listed { files: u64, bytes: u64 },
+    /// One file was read and hashed.
+    File { path: &'a str, bytes: u64 },
+    /// A later step started (reading dates, saving).
+    Phase(&'static str),
+}
+
+/// How to run a rebuild.
+#[derive(Default)]
+pub struct RebuildOptions<'a> {
+    /// Read capture time, camera, lens and so on from the media.
+    pub prober: Option<&'a Prober>,
+    /// Rendition cache folders. Keepsake's own sub-folders in them
+    /// (`render::cache::CACHE_DIRS`) are left out; other files there, such as
+    /// photos in a folder that is also the cache folder, are not.
+    pub cache_dirs: Vec<PathBuf>,
+    /// Set to stop after the current file. Nothing is saved.
+    pub cancel: Option<&'a AtomicBool>,
+    pub progress: Option<&'a mut dyn FnMut(&RebuildProgress<'_>)>,
+}
+
+impl RebuildOptions<'_> {
+    fn report(&mut self, p: RebuildProgress<'_>) {
+        if let Some(f) = self.progress.as_mut() {
+            f(&p);
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.is_some_and(|c| c.load(Ordering::SeqCst))
+    }
+}
+
+/// Cache folders, whose Keepsake sub-folders a walk leaves out.
+#[derive(Default)]
+struct Skip {
+    caches: Vec<PathBuf>,
+}
+
+impl Skip {
+    fn new(dirs: &[PathBuf]) -> Self {
+        Self {
+            caches: dirs
+                .iter()
+                .filter_map(|d| std::fs::canonicalize(d).ok())
+                .collect(),
+        }
+    }
+
+    /// Is `dir` a cache folder?
+    fn cache_here(&self, dir: &Path) -> bool {
+        !self.caches.is_empty()
+            && std::fs::canonicalize(dir).is_ok_and(|c| self.caches.contains(&c))
+    }
+}
+
+fn is_cache_entry(name: &str) -> bool {
+    crate::render::cache::CACHE_DIRS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(name))
 }
 
 struct Scanned {
@@ -122,13 +194,16 @@ fn hash_file(path: &Path) -> std::io::Result<Blake3Hash> {
 }
 
 /// Recursively list regular files under `dir`, sorted, skipping hidden/system
-/// entries and symlinks.
+/// entries, symlinks, Keepsake's own files and the folders in `skip`.
 fn walk(
     root: &Path,
     dir: &Path,
+    skip: &Skip,
     out: &mut Vec<(RelPath, std::fs::Metadata)>,
     report: &mut RebuildReport,
 ) {
+    let library_here = is_library_dir(dir);
+    let cache_here = skip.cache_here(dir);
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -155,13 +230,21 @@ fn walk(
             report.hidden_skipped += 1;
             continue;
         }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if (library_here && is_library_entry(&name))
+            || (cache_here && meta.is_dir() && is_cache_entry(&name))
+        {
+            report.keepsake_skipped += 1;
+            continue;
+        }
         if meta.file_type().is_symlink() {
             report.skipped.push(SkippedPath {
                 path: path.display().to_string(),
                 reason: "symbolic link".into(),
             });
         } else if meta.is_dir() {
-            walk(root, &path, out, report);
+            walk(root, &path, skip, out, report);
         } else if meta.is_file() {
             match RelPath::from_fs(root, &path) {
                 Ok(rel) => out.push((rel, meta)),
@@ -178,7 +261,7 @@ fn walk(
 pub fn list_media_files(root: &Path) -> (Vec<RelPath>, RebuildReport) {
     let mut report = RebuildReport::default();
     let mut listing = Vec::new();
-    walk(root, root, &mut listing, &mut report);
+    walk(root, root, &Skip::default(), &mut listing, &mut report);
     let files = listing
         .into_iter()
         .map(|(r, _)| r)
@@ -230,13 +313,55 @@ pub fn rebuild_catalog_with(
     mount: &Path,
     prober: Option<&Prober>,
 ) -> Result<RebuildReport, LibraryError> {
+    rebuild_catalog_opts(
+        cat,
+        lib,
+        volume,
+        mount,
+        &mut RebuildOptions {
+            prober,
+            ..Default::default()
+        },
+    )
+}
+
+/// Rebuild one volume with progress, cancellation and folders to leave out.
+pub fn rebuild_catalog_opts(
+    cat: &mut Catalog,
+    lib: &Library,
+    volume: VolumeId,
+    mount: &Path,
+    opts: &mut RebuildOptions<'_>,
+) -> Result<RebuildReport, LibraryError> {
     let rec = lib.volume(volume)?;
+    rebuild_record(cat, lib, &rec, mount, opts)
+}
+
+/// Rebuild the volume `rec` (registered or not yet) from the files at `mount`.
+fn rebuild_record(
+    cat: &mut Catalog,
+    lib: &Library,
+    rec: &VolumeRecord,
+    mount: &Path,
+    opts: &mut RebuildOptions<'_>,
+) -> Result<RebuildReport, LibraryError> {
+    let volume = rec.id;
     let case = rec.case;
+    let prober = opts.prober;
     let mut report = RebuildReport::default();
 
     // 1. Walk the volume.
+    let skip = Skip::new(&opts.cache_dirs);
     let mut listing = Vec::new();
-    walk(mount, mount, &mut listing, &mut report);
+    walk(mount, mount, &skip, &mut listing, &mut report);
+    let (count, bytes) = listing
+        .iter()
+        .filter(|(r, _)| !sidecar::is_sidecar_name(r.file_name()))
+        .fold((0u64, 0u64), |(n, b), (_, m)| (n + 1, b + m.len()));
+    opts.report(RebuildProgress::Listed {
+        files: count,
+        bytes,
+    });
     let mut files: Vec<Scanned> = Vec::new();
     let mut beside_sidecars: Vec<RelPath> = Vec::new();
     for (rel, meta) in listing {
@@ -244,7 +369,11 @@ pub fn rebuild_catalog_with(
             beside_sidecars.push(rel);
             continue;
         }
+        if opts.cancelled() {
+            return Err(LibraryError::Cancelled);
+        }
         let full = rel.to_fs_path(mount);
+        let shown = rel.to_string();
         match hash_file(&full) {
             Ok(blake3) => files.push(Scanned {
                 key: rel.key(case),
@@ -255,10 +384,14 @@ pub fn rebuild_catalog_with(
                 mtime_ms: mtime_ms(&meta),
             }),
             Err(e) => report.skipped.push(SkippedPath {
-                path: rel.to_string(),
+                path: shown.clone(),
                 reason: format!("cannot read: {e}"),
             }),
         }
+        opts.report(RebuildProgress::File {
+            path: &shown,
+            bytes: meta.len(),
+        });
     }
     let by_key: HashMap<String, usize> = files
         .iter()
@@ -270,7 +403,13 @@ pub fn rebuild_catalog_with(
     let mirror_root = sidecar::mirror_root(&lib.sidecars_dir(), volume);
     let mut mirror_listing = Vec::new();
     if mirror_root.is_dir() {
-        walk(&mirror_root, &mirror_root, &mut mirror_listing, &mut report);
+        walk(
+            &mirror_root,
+            &mirror_root,
+            &Skip::default(),
+            &mut mirror_listing,
+            &mut report,
+        );
     }
     let candidates = beside_sidecars
         .into_iter()
@@ -414,7 +553,13 @@ pub fn rebuild_catalog_with(
             });
         }
     }
+    if prober.is_some() {
+        opts.report(RebuildProgress::Phase("Reading dates and cameras"));
+    }
     let probe_report = prober.map(|p| p.probe(mount, &rest_rels, &grouped));
+    if opts.cancelled() {
+        return Err(LibraryError::Cancelled);
+    }
     let first_new = discovered.len();
     for (gi, g) in grouped.groups.iter().enumerate() {
         let orig = rest[g.original()];
@@ -541,6 +686,7 @@ pub fn rebuild_catalog_with(
     }
 
     // 4. Replace the volume's rows.
+    opts.report(RebuildProgress::Phase("Saving"));
     let vol = rec.to_volume(Some(mount));
     let mut probed_count = 0u64;
     cat.write(|tx| -> Result<(), LibraryError> {
@@ -747,12 +893,141 @@ pub fn add_volume(
     Ok((rec, report))
 }
 
+/// A path for messages: without Windows' verbatim `\\?\` prefix.
+fn shown(p: &Path) -> String {
+    let s = p.display().to_string();
+    match s.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{rest}"),
+        None => s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s),
+    }
+}
+
+/// Add a folder of photos and videos that are already on disk, where they
+/// are: nothing is copied, moved or changed, and nothing is written into the
+/// folder. Its sidecars (ratings, labels, comments) go to the library's
+/// mirror tree, and Lightroom or digiKam `.xmp` files already there are read.
+///
+/// Adding the same folder again scans it again (new, changed and removed
+/// files) and keeps its edits. A folder that overlaps one already in the
+/// library (inside it, or holding it) is refused, so no file is catalogued
+/// twice. A library inside the folder, and the folders in `opts.skip`, are
+/// left out. If the scan is stopped or fails, the library is unchanged.
+pub fn add_folder(
+    cat: &mut Catalog,
+    lib: &Library,
+    folder: &Path,
+    opts: &mut RebuildOptions<'_>,
+) -> Result<(VolumeRecord, RebuildReport), LibraryError> {
+    let mount = std::fs::canonicalize(folder)
+        .map_err(|e| LibraryError::Invalid(format!("{}: {e}", folder.display())))?;
+    if !mount.is_dir() {
+        return Err(LibraryError::Invalid(format!(
+            "{} is not a folder",
+            shown(&mount)
+        )));
+    }
+    let lib_root = std::fs::canonicalize(lib.root())?;
+    if mount != lib_root && mount.starts_with(&lib_root) {
+        return Err(LibraryError::Invalid(format!(
+            "{} is inside the library folder; choose a folder of photos instead",
+            shown(&mount)
+        )));
+    }
+    let fs_id = mount.display().to_string();
+    let records = lib.volumes()?;
+    let mut existing: Option<VolumeRecord> = None;
+    for v in &records {
+        let at = v
+            .last_mount
+            .as_deref()
+            .map(|m| std::fs::canonicalize(m).unwrap_or_else(|_| m.to_path_buf()));
+        if v.fs_id == fs_id || at.as_deref() == Some(mount.as_path()) {
+            existing = Some(v.clone());
+            break;
+        }
+        let Some(at) = at else { continue };
+        if mount.starts_with(&at) {
+            return Err(LibraryError::Invalid(format!(
+                "{} is inside {} (\"{}\"), which is already in the library",
+                shown(&mount),
+                shown(&at),
+                v.label
+            )));
+        }
+        if at.starts_with(&mount) {
+            return Err(LibraryError::Invalid(format!(
+                "{} holds {} (\"{}\"), which is already in the library",
+                shown(&mount),
+                shown(&at),
+                v.label
+            )));
+        }
+    }
+    if existing
+        .as_ref()
+        .is_some_and(|v| v.kind == VolumeKind::Card)
+    {
+        return Err(LibraryError::Invalid(format!(
+            "{} is a camera card: import it instead",
+            shown(&mount)
+        )));
+    }
+    let rec = match existing {
+        // Scanning again keeps the folder's identity and settings.
+        Some(v) => VolumeRecord {
+            last_mount: Some(mount.clone()),
+            ..v
+        },
+        None => {
+            let name = mount
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| shown(&mount));
+            let mut label = name.clone();
+            let mut n = 2;
+            while records.iter().any(|v| v.label == label) {
+                label = format!("{name} ({n})");
+                n += 1;
+            }
+            VolumeRecord {
+                id: VolumeId::new_random(),
+                label,
+                fs_id,
+                kind: VolumeKind::External,
+                case: case_of(&mount),
+                // Keepsake never writes into a folder added in place.
+                read_only: true,
+                last_mount: Some(mount.clone()),
+            }
+        }
+    };
+    let report = rebuild_record(cat, lib, &rec, &mount, opts)?;
+    lib.register_volume(&rec)?;
+    Ok((rec, report))
+}
+
 /// Rebuild every registered volume found at its last mount point. Volumes that
 /// are not mounted are marked offline and reported as `None`.
 pub fn rebuild_library(
     cat: &mut Catalog,
     lib: &Library,
     prober: Option<&Prober>,
+) -> Result<Vec<(VolumeRecord, Option<RebuildReport>)>, LibraryError> {
+    rebuild_library_opts(
+        cat,
+        lib,
+        &mut RebuildOptions {
+            prober,
+            ..Default::default()
+        },
+    )
+}
+
+/// [`rebuild_library`] with progress, cancellation and folders to leave out.
+pub fn rebuild_library_opts(
+    cat: &mut Catalog,
+    lib: &Library,
+    opts: &mut RebuildOptions<'_>,
 ) -> Result<Vec<(VolumeRecord, Option<RebuildReport>)>, LibraryError> {
     let mut out = Vec::new();
     // Cards are import sources; their files are not library storage.
@@ -763,7 +1038,7 @@ pub fn rebuild_library(
     {
         match rec.last_mount.as_deref().filter(|m| m.is_dir()) {
             Some(m) => {
-                let report = rebuild_catalog_with(cat, lib, rec.id, m, prober)?;
+                let report = rebuild_record(cat, lib, &rec, m, opts)?;
                 out.push((rec, Some(report)));
             }
             None => {

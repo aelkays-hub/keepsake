@@ -1025,3 +1025,23 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - Dialogs keep Tab inside and return focus when they close.
 - The calendar keeps focus when moving between levels. Enter on a cell opens one level, not two.
 - Tests use the keyboard alone for every MVP flow; axe checks every screen in both themes.
+
+
+## ADR-025 — Folders already on disk are added in place, read-only
+
+**Status**: Accepted (2026-10-28). No new dependency.
+
+**Context.** A first-time user with years of photos already sorted on a drive (`E:\Pictures\2025`, about 10,000 files and 246 GB) created a library and saw nothing. A library filled only through a card import, which copies files to another drive. There was no way to add a folder without copying it.
+
+**Decision.**
+- **Add, don't copy.** `rebuild::add_folder` registers the folder as a volume and catalogues it with the rebuild path, which already reads Lightroom and digiKam `.xmp` and probes dates. The UI is a Folders screen (under Tools), plus "Add a folder…" on the empty library. The CLI has `keepsake add-folder`.
+- **Read-only, always.** A folder added in place is recorded `read_only`, so every edit's sidecar goes to the library's mirror and nothing is written into the folder. That includes the hidden writability probe file. Case sensitivity is found by looking the folder up with its name's case swapped. Users' own folders, often managed by Lightroom, stay exactly as they were.
+- **No double counting.** A folder inside, or holding, a folder already in the library is refused. A folder inside the library folder is refused. Adding the same folder again scans it again under the same volume, keeping its edits.
+- **Keepsake's own files are left out.** A library made inside the photo folder (as in the case above) has its `catalog.db`, `sidecars/`, `recipes/` and so on skipped by name (`library::LIBRARY_ENTRIES`), wherever such a library is found, but not the photos beside them. In the cache folder only Keepsake's own sub-folders (`thumbnail`, `preview`, `proxy`, `export`, `card`, `.tmp`) are left out: a cache folder set to a photo folder still has its photos added. The app, `add-folder` and `rebuild-catalog` pass the cache folder.
+- **All or nothing.** The scan reads and hashes everything first, and is stoppable between files. It saves in one transaction, and registers the volume only after that. A stopped scan leaves the library unchanged.
+- **One long job at a time.** The app runs it as the maintenance job (shared with backup and verify) and reports on `maint://progress` (kind `folder`), then `folder://done`. Thumbnails are queued afterwards.
+
+**Not done.**
+- No watching of added folders for changes; "Scan again" is manual.
+- A volume cannot be removed from the library yet.
+- A rescan hashes every file again, even when nothing changed.

@@ -11,7 +11,7 @@ It finds the function each one is in, and fails unless a row below names that fi
 
 ## Sources are never written
 
-A **source** is a camera card or folder being imported, or a library volume marked read-only (an archive disc, a locked drive). Nothing writes to a source.
+A **source** is a camera card or folder being imported, a folder added in place (Folders screen, `keepsake add-folder`), or a library volume marked read-only (an archive disc, a locked drive). Nothing writes to a source. A folder added in place is always recorded read-only, so its sidecars go to the library's mirror, and adding it never runs the writable-volume probe below.
 
 The tests ask the operating system to refuse every write to the source first: a deny ACL on Windows, `chmod a-w` elsewhere (`common::readonly::deny_writes`). An attempted write therefore fails loudly instead of being noticed afterwards. Then they compare every file's bytes, size and modification time, and the folder listing, with before.
 
@@ -19,6 +19,9 @@ The tests ask the operating system to refuse every write to the source first: a 
 |---|---|
 | `source_safety_tests.rs::a_card_is_only_read_by_everything_that_reads_a_card` | card scan for the import window, card thumbnails, the import pre-check, probing (ExifTool and ffprobe), an import to two drives, the same import again, an import stopped and resumed, card recognition |
 | `source_safety_tests.rs::a_read_only_library_volume_is_only_read` | cataloguing with probing, every thumbnail, preview and proxy, the viewer's full-size pictures (LibRaw for RAW) and video facts, rating, label, comment, keywords and time shift (their sidecars go to the library's mirror), verify, backup, catalog rebuild |
+| `add_folder_tests.rs::a_write_locked_folder_is_added_rated_and_scanned_again` | adding a folder in place, rating and commenting every item, scanning it again |
+| `add_folder_tests.rs::a_folder_is_catalogued_in_place_and_never_written_to` | adding a folder (with a Lightroom sidecar) and rating an item: the folder's files and listing are exactly as before |
+| `cli_tests.rs::add_folder_catalogues_in_place_and_writes_nothing_into_the_folder` | `keepsake add-folder`, twice |
 | `ingest_tests.rs::source_mounted_read_only_is_never_written` | an import, twice (quick-diff then a full hash) |
 | `rebuild_tests.rs::read_only_volume_is_never_written` | a catalog rebuild |
 | `render_tests.rs::card_items_get_thumbnails_without_touching_the_card` | card thumbnails |

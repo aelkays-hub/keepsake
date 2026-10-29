@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -37,6 +38,44 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Add a folder in place (2026-10-28)
+
+### Why
+A first-time user created a library inside `E:\Pictures\2025` (about 10,000 files, 246 GB, sorted by month, with Lightroom `.xmp` files) and saw nothing. A library filled only through a card import, which copies to another drive, and the app had no way to add a folder. ADR-025.
+
+### What was built
+- **Core: `rebuild::add_folder`.** Catalogues a folder where it is, as a read-only volume, so nothing is written into it (not even the writability probe). It reads Lightroom, digiKam and Keepsake sidecars, probes dates, camera and lens, and groups files as for a card.
+  - A folder that overlaps one already in the library is refused, and so is one inside the library folder. The same folder again scans it again under the same volume.
+  - It reports progress, can be stopped, and changes nothing unless it finishes.
+- **Keepsake's own files are left out of every scan.** A library's `catalog.db`, `sidecars/`, `recipes/` and so on (`library::LIBRARY_ENTRIES`), wherever such a library sits. In the cache folder, only Keepsake's own sub-folders (`thumbnail`, `preview`, `proxy`, …): photos in a folder that is also the cache folder are still added. Found when a user's cache was set to `E:\Pictures\2026`: the first version skipped that whole folder.
+- **`RebuildOptions`**: prober, cache folders, a stop flag and progress (`Listed`, `File`, `Phase`). `rebuild_catalog_with` and `rebuild_library` keep their signatures.
+- **App.**
+  - `folder_add` runs as the maintenance job (one of backup, verify or folder scan at a time). It sends `maint://progress` (kind `folder`), then `folder://done`, and queues thumbnails.
+  - A **Folders** screen (Tools): add with Browse… or by typing, progress and Stop, the outcome with "Show them", and every folder or drive in the library with "Scan again".
+  - The empty library offers "Add a folder…".
+  - The grid and sidebar refresh when a scan finishes.
+- **CLI: `keepsake add-folder <folder> [--no-probe]`**, with a progress bar and Ctrl-C.
+
+### Tests
+- `add_folder_tests.rs` (8 tests):
+  - the folder is never written, including when write-locked at the OS level;
+  - Lightroom ratings are read;
+  - a library and cache inside the folder are left out, and stay left out on a rescan;
+  - photos in a folder that is also the cache folder are added, its thumbnails are not;
+  - a rescan finds new and removed files;
+  - overlapping folders are refused;
+  - a stopped scan leaves the library unchanged;
+  - progress counts.
+- `cli_tests.rs::add_folder_catalogues_in_place_and_writes_nothing_into_the_folder`.
+- `folders.spec.ts` (empty library → add → sidebar, Scan again, Show them; a missing folder; keyboard only), and the Folders screen in the axe check (both themes).
+
+### Not done
+- Added folders are not watched for changes ("Scan again" is manual), and a folder cannot be removed from the library yet.
+- A rescan hashes every file again.
+- No real-app (WebView2) test of the Folders screen. The mocked UI tests and the core and CLI tests cover it.
 
 ---
 

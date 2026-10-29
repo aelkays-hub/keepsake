@@ -14,6 +14,7 @@ keepsake ingest <source> --dest A [--dest B] [--template T] [--event E] [--label
 keepsake ingest --resume [--session ID] [--no-probe]
 keepsake ingest --status [--session ID]
 keepsake ingest --list
+keepsake add-folder <folder> [--no-probe]
 keepsake verify [--volume X]
 keepsake search [QUERY] [--from DAY] [--to DAY] [--camera TEXT] [--type photo|video] [--limit N]
 keepsake shift-time [PATH…] --by ±H:MM[:SS] [--query Q] [--from DAY] [--to DAY] [--camera TEXT] [--type T] [--dry-run]
@@ -119,6 +120,29 @@ Options:
 
 JSON (import or resume): `session`, `report` (`assets`, `by_state`, `unselected`, `bytes_copied`, `failed`, `safe_to_format`, `not_safe`), and `cancelled` if stopped. Dry run: `dry_run`, and `plan.assets[]` (`original`, `diff`, `state`, `files[]` with `source`, `dest`, `role`, `size`) plus `plan.space[]`.
 
+### add-folder
+
+`keepsake add-folder <folder> [--no-probe]`
+
+Adds a folder of photos and videos that is already on this computer or a drive, **where it is**. Nothing is copied, moved or changed, and nothing is written into the folder: the folder becomes a read-only volume, so ratings, labels, comments, keywords and time shifts go to the library's mirrored sidecars (`sidecars/<volume>/…`).
+
+1. Lists the folder, leaving out hidden and system files, a Keepsake library inside it (its `catalog.db`, `sidecars/` and so on, but not the photos beside them), and the thumbnail cache's own sub-folders (`thumbnail`, `preview`, `proxy`, …; photos in the cache folder are still added).
+2. Reads and hashes every file, with a progress bar.
+3. Reads Lightroom, digiKam and Keepsake `.xmp` sidecars beside the files (ratings, labels, keywords, dates).
+4. Groups the files into items and reads capture dates, camera and lens (unless `--no-probe`).
+5. Catalogues everything in one step.
+
+Adding the same folder again scans it again: new, changed and removed files are picked up, and edits are kept. A folder inside one already in the library, or one that holds one, is refused, so no file is catalogued twice. So is a folder inside the library folder.
+
+Ctrl-C stops after the current file. Nothing is saved, and the library is unchanged; run the command again to start over.
+
+The volume is named after the folder (`2025`), with ` (2)` added if that name is taken.
+
+`--no-probe`
+: Don't read capture dates with ExifTool/ffprobe (sidecars only).
+
+JSON: `volume`, `label`, `folder`, `report` (`assets`, `files_indexed`, `sidecars_used`, `probed`, `sequences`, `hidden_skipped`, `keepsake_skipped`, `skipped[]`, `problems[]`), or `cancelled`.
+
 ### verify
 
 `keepsake verify [--volume X]`
@@ -185,7 +209,7 @@ JSON: `destination`, `assets`, `files_copied`, `bytes_copied`, `files_already_th
 
 `keepsake rebuild-catalog [--fresh] [--no-probe]`
 
-Rebuilds the catalog from the files and XMP sidecars on every registered, mounted volume. Card volumes are skipped, because they are import sources. `--fresh` deletes the database first. Your ratings, labels, comments, tags, time shifts and events come back from the sidecars.
+Rebuilds the catalog from the files and XMP sidecars on every registered, mounted volume. Card volumes are skipped, because they are import sources. A library or the thumbnail cache inside a volume is left out (see `add-folder`). `--fresh` deletes the database first. Your ratings, labels, comments, tags, time shifts and events come back from the sidecars.
 
 JSON: `fresh`, `assets`, `volumes[]` (`id`, `label`, `online`, `report`).
 
@@ -347,7 +371,7 @@ During `ingest`, `verify`, `backup`, `renders run` and automatic imports in `wat
 |---|---|
 | 0 | Success |
 | 1 | Error (bad arguments, missing library, refused unsafe destination, …) |
-| 2 | Finished, but with problems: `verify` found missing or changed files; `ingest` is not safe to format; `backup` had failures or unavailable assets; `rebuild-catalog` reported problems |
+| 2 | Finished, but with problems: `verify` found missing or changed files; `ingest` is not safe to format; `backup` had failures or unavailable assets; `rebuild-catalog` or `add-folder` reported problems |
 | 130 | Stopped with Ctrl-C |
 
 ## ENVIRONMENT

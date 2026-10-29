@@ -27,7 +27,8 @@ The CLI (`keepsake-cli`, manual in `docs/CLI.md`) parses arguments, picks the li
 - `catalog::Search::query` (`SearchQuery`) for `search`;
 - `select::resolve` and `MetadataService::shift_capture_time` for `shift-time`;
 - `backup::run` for `backup`;
-- `rebuild::rebuild_library` for `rebuild-catalog`;
+- `rebuild::rebuild_library_opts` for `rebuild-catalog`;
+- `rebuild::add_folder` for `add-folder` (and the app's Folders screen, `folder_add`): register a folder as a read-only volume and catalogue it in place. `RebuildOptions` carries the prober, the cache folders (only Keepsake's own sub-folders in them are left out, `render::cache::CACHE_DIRS`), a stop flag and progress. A library's own files inside a scanned folder are always left out (`library::LIBRARY_ENTRIES`). The scan reads everything before it saves, and the volume is registered only after the catalog is written, so a stopped scan changes nothing;
 - `watch::Watcher`, with `keepsake_platform::system_devices()`, for `watch`;
 - `cards` and `presets` for `card` and `preset`.
 

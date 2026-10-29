@@ -67,6 +67,7 @@ export function Sidebar() {
     {
       title: "Tools",
       entries: [
+        { key: "folders", label: "Folders", section: { kind: "all" }, screen: "folders" },
         { key: "backup", label: "Backup", section: { kind: "all" }, screen: "backup" },
         { key: "settings", label: "Settings", section: { kind: "all" }, screen: "settings" },
       ],

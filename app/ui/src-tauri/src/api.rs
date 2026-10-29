@@ -461,9 +461,9 @@ dto! {
         pub busy: bool,
     }
 
-    /// `maint://progress`: a backup or verify is running.
+    /// `maint://progress`: a backup, verify or folder scan is running.
     pub struct MaintProgress {
-        /// `backup` or `verify`.
+        /// `backup`, `verify` or `folder`.
         pub kind: String,
         #[ts(type = "number")]
         pub bytes_done: u64,
@@ -481,6 +481,29 @@ dto! {
         pub run: Option<HistoryRun>,
         /// Up to 20 problems, one line each.
         pub problems: Vec<String>,
+        pub error: Option<String>,
+    }
+
+    /// `folder://done`: adding (or scanning again) a folder in place finished.
+    pub struct FolderDone {
+        /// The folder as chosen.
+        pub folder: String,
+        /// Its volume and name in the library (absent on an error).
+        pub volume: Option<String>,
+        pub label: Option<String>,
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub files: u64,
+        /// Items that took ratings or labels from Lightroom or Keepsake sidecars.
+        #[ts(type = "number")]
+        pub with_sidecars: u64,
+        /// Files that are not photos or videos, left out.
+        #[ts(type = "number")]
+        pub other_files: u64,
+        /// Up to 20 problems, one line each.
+        pub problems: Vec<String>,
+        pub cancelled: bool,
         pub error: Option<String>,
     }
 

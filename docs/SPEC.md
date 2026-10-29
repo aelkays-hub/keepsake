@@ -16,6 +16,12 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
   - `PRIVATE/M4ROOT/SUB/*` camera-generated proxy alongside each clip.
   - AVCHD `MPL`/`CLPI` playlist files alongside `BDMV/STREAM/*.MTS` segments.
 
+### Folders already on disk
+- Add a folder of existing photos and videos (Folders screen, the empty library's "Add a folder…", `keepsake add-folder`). It is catalogued where it is: nothing is copied, moved or changed, and nothing is written into the folder. Edits go to the library's mirrored sidecars.
+- Lightroom, digiKam and Keepsake `.xmp` sidecars in the folder are read (ratings, labels, keywords, dates).
+- A Keepsake library or the thumbnail cache inside the folder is left out. A folder that overlaps one already in the library is refused.
+- Progress, Stop (nothing is saved), and "Scan again" for new, changed and removed files.
+
 ### Library views
 - Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.
 - **Calendar view**: year → month → day drill-down, with item counts and cover thumbnails per cell; a day opens its grid.

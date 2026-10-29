@@ -4,6 +4,7 @@ mod commands;
 mod convert;
 mod diagnostics;
 mod edit;
+mod folders;
 mod import;
 mod maintenance;
 mod prefs;
@@ -113,6 +114,7 @@ pub fn run() {
             maintenance::backup_run,
             maintenance::verify_run,
             maintenance::maint_cancel,
+            folders::folder_add,
             prefs::settings_get,
             prefs::settings_set,
             prefs::cache_remove_old,
