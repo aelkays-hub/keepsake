@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
@@ -43,6 +44,26 @@
 
 ---
 
+## All metadata in the inspector (2026-10-29)
+
+### What was built
+- **Core:** `ExifTool::read_all(path)` runs `exiftool -j -G1 -a` and returns every tag in groups (`probe::exiftool::MetaGroup`). Groups are ordered main EXIF (IFD0, ExifIFD), GPS, maker notes (Sony…), computed values, XMP, IPTC, then the file's inner structure (IFD1, SubIFD, Sony's SR2…), then File and System. Tags are A–Z within a group. ExifTool's own version is left out. The file is only read.
+- **App:** `metadata_all(id, member)` reads the file "Open in" would hand over (the JPEG of a pair, or the RAW when asked), with the app's one ExifTool process, on a blocking worker.
+- **UI:** an **All metadata** section at the foot of the inspector.
+  - It is collapsible, remembers whether it was open, and reads only while open.
+  - Groups get names for people ("Exposure (EXIF)", "Sony maker notes"), and tag names are split into words ("Exposure Time").
+  - It has a filter (name or value), Copy (all tags as text), and a JPEG/RAW switch for pairs.
+  - An unplugged drive gets a note instead.
+- Checked on a real ARW from the user's library: 323 tags, 0.34 s with a cold ExifTool.
+
+### Tests
+- `exiftool.rs::meta_tests` (group order, sorting, values, bad output).
+- `probe_tests.rs::every_tag_of_a_photo_is_read_without_changing_it` (real ExifTool; the file's bytes are unchanged).
+- `metaNames.test.ts`.
+- `metadata.spec.ts`: grouped, filter, Copy, stays open, RAW switch, offline.
+- The axe check now includes the open section.
+
+---
 ## Calendar tree in the sidebar (2026-10-29)
 
 ### What was built

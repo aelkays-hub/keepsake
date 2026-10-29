@@ -29,6 +29,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - **Grid view**: virtualized thumbnail grid (TanStack Virtual) that stays smooth at 300,000 items. Multi-select by mouse and keyboard, sort by capture time and more. Items on offline drives show their cached thumbnail with an offline badge.
 - **Details view**: virtualized table with sortable columns: name, date, camera, lens, type, size, duration, rating.
 - **Inspector**: metadata, rating (1–5), colour label, comment and keywords, written to XMP. Rating, label and keywords apply to the whole selection.
+- **All metadata** (inspector, collapsible): every tag ExifTool reads from the item's file (EXIF, GPS, the camera's maker notes, XMP, file facts), grouped, with a filter and Copy, and a JPEG/RAW switch for pairs. Read only when open; the file is only read.
 - **Import window**: opens when a Sony card is inserted. It shows new items grouped by day, one tile per asset with a live thumbnail, plus select all/none, a preset or destination and template, a second-destination toggle, a pre-check (space, same-disk rule, example name), progress with Stop, and the safe-to-format result.
 
 ### Metadata and search

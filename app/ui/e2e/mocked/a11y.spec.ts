@@ -42,6 +42,9 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByTestId("crash-banner")).toBeVisible();
     await page.getByTestId("tile").nth(3).click();
     await expect(page.getByTestId("inspector")).toBeVisible();
+    const meta = page.getByTestId("all-metadata");
+    if ((await meta.getAttribute("open")) === null) await meta.locator("summary").click();
+    await expect(meta).toContainText(/Camera and image|Connect the drive/);
     all.push(...(await check(page, "grid, inspector and crash notice")));
     await page.getByTestId("crash-banner").getByRole("button", { name: "Dismiss" }).click();
 

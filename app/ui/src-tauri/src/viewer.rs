@@ -14,7 +14,9 @@ use keepsake_core::render::{RenderError, RenderTools};
 use keepsake_core::settings::Settings;
 use tauri::State;
 
-use crate::api::{AssetMembers, MemberDto, OpenChoice, VideoInfo};
+use crate::api::{
+    AssetMembers, FileMetadata, MemberDto, MetaGroupDto, MetaTagDto, OpenChoice, VideoInfo,
+};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
@@ -115,6 +117,42 @@ fn file_to_open(state: &AppState, id: &str, member: MemberDto) -> CmdResult<Path
         _ if src.media_kind == MediaKind::Photo => src.still.clone(),
         _ => src.original.clone(),
     })
+}
+
+/// Every metadata tag of the item's file (the RAW when asked and there is
+/// one), read by ExifTool. Only reads the file.
+#[tauri::command]
+pub async fn metadata_all(
+    state: State<'_, AppState>,
+    id: String,
+    member: MemberDto,
+) -> CmdResult<FileMetadata> {
+    let path = file_to_open(&state, &id, member)?;
+    blocking(move || {
+        let et = crate::import::exiftool().ok_or("ExifTool is not available")?;
+        let groups = et.read_all(&path).map_err(err)?;
+        Ok(FileMetadata {
+            file: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            groups: groups
+                .into_iter()
+                .map(|g| MetaGroupDto {
+                    group: g.group,
+                    tags: g
+                        .tags
+                        .into_iter()
+                        .map(|t| MetaTagDto {
+                            name: t.name,
+                            value: t.value,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        })
+    })
+    .await
 }
 
 /// A name for people: `…\Topaz Photo.exe` → `Topaz Photo`, `Preview.app` → `Preview`.

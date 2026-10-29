@@ -374,6 +374,18 @@ export function installMock(): void {
                 size: it.size,
                 online: it.online,
               },
+              // Even RAWs have a JPEG beside them (as asset_members says).
+              ...(it.kind === "raw" && it.i % 2 === 0
+                ? [
+                    {
+                      path: `F:\\Photos\\${it.name.replace(/\.\w+$/, ".JPG")}`,
+                      volume: it.online ? "Photos A" : "Archive",
+                      role: "raw_pair",
+                      size: 8e6,
+                      online: it.online,
+                    },
+                  ]
+                : []),
             ],
             preview: THUMBS[it.i % 16],
             // A tiny synthetic WebM (Playwright's Chromium has no H.264).
@@ -518,6 +530,36 @@ export function installMock(): void {
             width: 160,
             height: 90,
           };
+        case "metadata_all": {
+          const it = all[Number(String(a.id).slice(1))];
+          if (!it.online) throw new Error("the drive with this item is not connected");
+          const raw = a.member === "raw";
+          const file = raw ? it.name.replace(/\.\w+$/, ".ARW") : it.name;
+          return {
+            file,
+            groups: [
+              {
+                group: "IFD0",
+                tags: [
+                  { name: "Make", value: "SONY" },
+                  { name: "Model", value: it.camera },
+                ],
+              },
+              {
+                group: "ExifIFD",
+                tags: [
+                  { name: "ExposureTime", value: "1/250" },
+                  { name: "FNumber", value: "2.8" },
+                  { name: "ISO", value: raw ? "400" : "200" },
+                  { name: "LensModel", value: it.lens },
+                ],
+              },
+              { group: "Sony", tags: [{ name: "SonyModelID", value: it.camera }] },
+              { group: "XMP-dc", tags: [{ name: "Subject", value: "Lake, Summer" }] },
+              { group: "File", tags: [{ name: "FileSize", value: "24 MB" }] },
+            ],
+          };
+        }
         case "open_choices":
         case "open_external": {
           const it = all[Number(String(a.id).slice(1))];
