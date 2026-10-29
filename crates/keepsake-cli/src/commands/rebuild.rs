@@ -32,7 +32,7 @@ pub fn run(ctx: &Ctx, a: RebuildArgs) -> Result<u8> {
         &lib,
         &mut RebuildOptions {
             prober: prober.as_ref(),
-            skip: super::add_folder::cache_dirs(),
+            cache_dirs: super::add_folder::cache_dirs(),
             ..Default::default()
         },
     )?;

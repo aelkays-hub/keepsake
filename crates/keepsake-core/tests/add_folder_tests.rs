@@ -109,7 +109,7 @@ fn a_library_and_the_cache_inside_the_folder_are_left_out() {
     other.open_catalog().unwrap();
 
     let mut opts = RebuildOptions {
-        skip: vec![cache.clone()],
+        cache_dirs: vec![cache.clone()],
         ..Default::default()
     };
     let (_, report) = add_folder(&mut cat, &lib, &dir, &mut opts).unwrap();
@@ -142,7 +142,7 @@ fn a_library_and_the_cache_inside_the_folder_are_left_out() {
         .set_rating(id, Rating::new(5).unwrap())
         .unwrap();
     let mut opts = RebuildOptions {
-        skip: vec![cache],
+        cache_dirs: vec![cache],
         ..Default::default()
     };
     let (_, again) = add_folder(&mut cat, &lib, &dir, &mut opts).unwrap();
@@ -284,4 +284,35 @@ fn a_write_locked_folder_is_added_rated_and_scanned_again() {
     assert_eq!(ratings(&cat), [3, 3, 3]);
     drop(guard);
     assert_eq!(common::tree_hashes(&dir), before);
+}
+
+#[test]
+fn photos_in_the_cache_folder_are_added_but_its_thumbnails_are_not() {
+    // As reported: the cache folder is set to a photo folder (2026) that
+    // also holds the library, and the parent (Pictures) is added.
+    let tmp = tempfile::tempdir().unwrap();
+    let pictures = tmp.path().join("Pictures");
+    archive(&pictures);
+    let y2026 = pictures.join("2026");
+    common::write_file(&y2026, "September/A7404962.jpg", b"a 2026 photo");
+    common::write_file(&y2026, "thumbnail/0f/0f0a-9af6.jpg", b"thumb");
+    common::write_file(&y2026, "preview/0f/0f0a-9af6.jpg", b"preview");
+    common::write_file(&y2026, "proxy/0f/0f0a-9af6.mp4", b"proxy");
+    let lib = Library::create(&y2026).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    let mut opts = RebuildOptions {
+        cache_dirs: vec![y2026.clone()],
+        ..Default::default()
+    };
+    let (_, report) = add_folder(&mut cat, &lib, &pictures, &mut opts).unwrap();
+    assert_eq!(
+        catalogued(&cat),
+        [
+            "2025/February/C0001.MP4",
+            "2025/January/DSC00001.JPG",
+            "2025/January/DSC00002.ARW",
+            "2026/September/A7404962.jpg",
+        ],
+        "{report:?}"
+    );
 }

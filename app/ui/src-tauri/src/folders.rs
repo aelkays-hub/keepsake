@@ -62,7 +62,7 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
             let mut opts = RebuildOptions {
                 prober: prober.as_ref(),
                 // The thumbnail cache is never catalogued, even inside the folder.
-                skip: vec![open.cache_root()],
+                cache_dirs: vec![open.cache_root()],
                 cancel: Some(&cancel),
                 progress: Some(&mut progress),
             };

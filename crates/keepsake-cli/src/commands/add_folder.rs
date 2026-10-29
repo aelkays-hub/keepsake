@@ -50,7 +50,7 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
     };
     let mut opts = RebuildOptions {
         prober: prober.as_ref(),
-        skip: cache_dirs(),
+        cache_dirs: cache_dirs(),
         cancel: Some(cancel_flag()),
         progress: Some(&mut progress),
     };

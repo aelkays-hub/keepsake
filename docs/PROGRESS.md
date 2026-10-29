@@ -50,8 +50,8 @@ A first-time user created a library inside `E:\Pictures\2025` (about 10,000 file
 - **Core: `rebuild::add_folder`.** Catalogues a folder where it is, as a read-only volume, so nothing is written into it (not even the writability probe). It reads Lightroom, digiKam and Keepsake sidecars, probes dates, camera and lens, and groups files as for a card.
   - A folder that overlaps one already in the library is refused, and so is one inside the library folder. The same folder again scans it again under the same volume.
   - It reports progress, can be stopped, and changes nothing unless it finishes.
-- **Keepsake's own files are left out of every scan.** A library's `catalog.db`, `sidecars/`, `recipes/` and so on (`library::LIBRARY_ENTRIES`), wherever such a library sits. The thumbnail cache too, passed by the app, `add-folder` and `rebuild-catalog`.
-- **`RebuildOptions`**: prober, folders to skip, a stop flag and progress (`Listed`, `File`, `Phase`). `rebuild_catalog_with` and `rebuild_library` keep their signatures.
+- **Keepsake's own files are left out of every scan.** A library's `catalog.db`, `sidecars/`, `recipes/` and so on (`library::LIBRARY_ENTRIES`), wherever such a library sits. In the cache folder, only Keepsake's own sub-folders (`thumbnail`, `preview`, `proxy`, …): photos in a folder that is also the cache folder are still added. Found when a user's cache was set to `E:\Pictures\2026`: the first version skipped that whole folder.
+- **`RebuildOptions`**: prober, cache folders, a stop flag and progress (`Listed`, `File`, `Phase`). `rebuild_catalog_with` and `rebuild_library` keep their signatures.
 - **App.**
   - `folder_add` runs as the maintenance job (one of backup, verify or folder scan at a time). It sends `maint://progress` (kind `folder`), then `folder://done`, and queues thumbnails.
   - A **Folders** screen (Tools): add with Browse… or by typing, progress and Stop, the outcome with "Show them", and every folder or drive in the library with "Scan again".
@@ -60,10 +60,11 @@ A first-time user created a library inside `E:\Pictures\2025` (about 10,000 file
 - **CLI: `keepsake add-folder <folder> [--no-probe]`**, with a progress bar and Ctrl-C.
 
 ### Tests
-- `add_folder_tests.rs` (7 tests):
+- `add_folder_tests.rs` (8 tests):
   - the folder is never written, including when write-locked at the OS level;
   - Lightroom ratings are read;
   - a library and cache inside the folder are left out, and stay left out on a rescan;
+  - photos in a folder that is also the cache folder are added, its thumbnails are not;
   - a rescan finds new and removed files;
   - overlapping folders are refused;
   - a stopped scan leaves the library unchanged;

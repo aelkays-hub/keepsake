@@ -71,6 +71,10 @@ fn dir_size(p: &Path) -> u64 {
     n
 }
 
+/// The sub-folders Keepsake makes in a cache folder. A cache folder may be
+/// shared with other files (a photo folder, say); only these are Keepsake's.
+pub const CACHE_DIRS: [&str; 6] = ["thumbnail", "preview", "proxy", "export", "card", ".tmp"];
+
 impl Cache {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -107,7 +111,7 @@ impl Cache {
     /// else in the folder stays. Returns the bytes freed.
     pub fn remove_files(&self) -> Result<u64, RenderError> {
         let mut freed = 0;
-        for sub in ["thumbnail", "preview", "proxy", "export", "card", ".tmp"] {
+        for sub in CACHE_DIRS {
             let d = self.root.join(sub);
             if d.is_dir() {
                 freed += dir_size(&d);

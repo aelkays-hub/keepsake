@@ -76,8 +76,10 @@ pub enum RebuildProgress<'a> {
 pub struct RebuildOptions<'a> {
     /// Read capture time, camera, lens and so on from the media.
     pub prober: Option<&'a Prober>,
-    /// Folders never to index, such as the thumbnail cache.
-    pub skip: Vec<PathBuf>,
+    /// Rendition cache folders. Keepsake's own sub-folders in them
+    /// (`render::cache::CACHE_DIRS`) are left out; other files there, such as
+    /// photos in a folder that is also the cache folder, are not.
+    pub cache_dirs: Vec<PathBuf>,
     /// Set to stop after the current file. Nothing is saved.
     pub cancel: Option<&'a AtomicBool>,
     pub progress: Option<&'a mut dyn FnMut(&RebuildProgress<'_>)>,
@@ -95,25 +97,33 @@ impl RebuildOptions<'_> {
     }
 }
 
-/// Folders a walk leaves out.
+/// Cache folders, whose Keepsake sub-folders a walk leaves out.
 #[derive(Default)]
 struct Skip {
-    dirs: Vec<PathBuf>,
+    caches: Vec<PathBuf>,
 }
 
 impl Skip {
     fn new(dirs: &[PathBuf]) -> Self {
         Self {
-            dirs: dirs
+            caches: dirs
                 .iter()
                 .filter_map(|d| std::fs::canonicalize(d).ok())
                 .collect(),
         }
     }
 
-    fn dir(&self, p: &Path) -> bool {
-        !self.dirs.is_empty() && std::fs::canonicalize(p).is_ok_and(|c| self.dirs.contains(&c))
+    /// Is `dir` a cache folder?
+    fn cache_here(&self, dir: &Path) -> bool {
+        !self.caches.is_empty()
+            && std::fs::canonicalize(dir).is_ok_and(|c| self.caches.contains(&c))
     }
+}
+
+fn is_cache_entry(name: &str) -> bool {
+    crate::render::cache::CACHE_DIRS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(name))
 }
 
 struct Scanned {
@@ -193,6 +203,7 @@ fn walk(
     report: &mut RebuildReport,
 ) {
     let library_here = is_library_dir(dir);
+    let cache_here = skip.cache_here(dir);
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -219,8 +230,10 @@ fn walk(
             report.hidden_skipped += 1;
             continue;
         }
-        if (library_here && is_library_entry(&entry.file_name().to_string_lossy()))
-            || (meta.is_dir() && skip.dir(&path))
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if (library_here && is_library_entry(&name))
+            || (cache_here && meta.is_dir() && is_cache_entry(&name))
         {
             report.keepsake_skipped += 1;
             continue;
@@ -338,7 +351,7 @@ fn rebuild_record(
     let mut report = RebuildReport::default();
 
     // 1. Walk the volume.
-    let skip = Skip::new(&opts.skip);
+    let skip = Skip::new(&opts.cache_dirs);
     let mut listing = Vec::new();
     walk(mount, mount, &skip, &mut listing, &mut report);
     let (count, bytes) = listing

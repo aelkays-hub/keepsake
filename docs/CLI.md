@@ -126,7 +126,7 @@ JSON (import or resume): `session`, `report` (`assets`, `by_state`, `unselected`
 
 Adds a folder of photos and videos that is already on this computer or a drive, **where it is**. Nothing is copied, moved or changed, and nothing is written into the folder: the folder becomes a read-only volume, so ratings, labels, comments, keywords and time shifts go to the library's mirrored sidecars (`sidecars/<volume>/…`).
 
-1. Lists the folder, leaving out hidden and system files, a Keepsake library inside it (its `catalog.db`, `sidecars/` and so on, but not the photos beside them), and the thumbnail cache.
+1. Lists the folder, leaving out hidden and system files, a Keepsake library inside it (its `catalog.db`, `sidecars/` and so on, but not the photos beside them), and the thumbnail cache's own sub-folders (`thumbnail`, `preview`, `proxy`, …; photos in the cache folder are still added).
 2. Reads and hashes every file, with a progress bar.
 3. Reads Lightroom, digiKam and Keepsake `.xmp` sidecars beside the files (ratings, labels, keywords, dates).
 4. Groups the files into items and reads capture dates, camera and lens (unless `--no-probe`).
