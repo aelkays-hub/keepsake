@@ -108,6 +108,7 @@ pub fn run() {
             viewer::asset_members,
             viewer::video_info,
             viewer::open_external,
+            viewer::open_choices,
             edit::time_shift_preview,
             edit::time_shift_apply,
             maintenance::backup_overview,
