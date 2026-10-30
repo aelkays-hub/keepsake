@@ -14,6 +14,7 @@ import {
   type ImportCheck,
   type ImportProgress,
   type ImportRequest,
+  type ImportPrefs,
   type ImportResult,
   type Preset,
 } from "../api";
@@ -22,10 +23,15 @@ import * as fmt from "../format";
 
 const DEFAULT_TEMPLATE = "{yyyy}/{yyyy}-{mm}-{dd}/{orig}";
 
-function mountFromHash(): string | null {
+function hashParam(name: string): string | null {
   const q = window.location.hash.split("?")[1] ?? "";
-  return new URLSearchParams(q).get("mount");
+  return new URLSearchParams(q).get(name);
 }
+
+const mountFromHash = () => hashParam("mount");
+
+/** Seconds a good automatic import's window stays before closing. */
+const AUTO_CLOSE_S = 5;
 
 function CardTile({
   mount,
@@ -92,19 +98,49 @@ export function ImportWindow() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [presetName, setPresetName] = useState("");
+  // Opened because a card was inserted and Settings say to import by itself.
+  const [auto, setAuto] = useState(hashParam("auto") === "1");
+  const [prefs, setPrefs] = useState<ImportPrefs | null>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  // After a good automatic import (or nothing new), the window closes by
+  // itself after a few seconds, unless asked to stay.
+  const [closeIn, setCloseIn] = useState<number | null>(null);
+  const keepOpen = useRef(false);
+  const autoStarted = useRef(false);
 
   useEffect(() => {
     const un = (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      return listen<string>("import://open", (e) => {
+      const a = await listen<string>("import://open", (e) => {
         setMount(e.payload);
+        setAuto(false);
         setResult(null);
       });
+      const b = await listen<string>("import://auto", (e) => {
+        setMount(e.payload);
+        setAuto(true);
+        setResult(null);
+      });
+      return () => {
+        a();
+        b();
+      };
     })();
     return () => {
       un.then((f) => f());
     };
   }, []);
+  useEffect(() => {
+    autoStarted.current = false;
+    keepOpen.current = false;
+    setCloseIn(null);
+    setAutoNote(null);
+    if (!auto) return;
+    api
+      .settingsGet()
+      .then((s) => setPrefs(s.import))
+      .catch((e) => setAutoNote(`Not imported automatically: ${String(e)}`));
+  }, [auto, mount]);
   useEffect(() => {
     if (!mount) return;
     setScan(null);
@@ -114,10 +150,10 @@ export function ImportWindow() {
       .then((s) => {
         setScan(s);
         setSelected(new Set(s.items.filter((i) => i.new).map((i) => i.key)));
-        if (s.preset) setPreset(s.preset);
+        if (s.preset && !auto) setPreset(s.preset);
       })
       .catch((e) => setError(String(e)));
-  }, [mount]);
+  }, [mount, auto]);
   useEffect(() => {
     api.presetsList().then((p) => {
       setPresets(p);
@@ -187,6 +223,59 @@ export function ImportWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqKey]);
 
+  // Automatic import: the destination and layout from Settings, every new
+  // item, and start as soon as the check passes. A failed check stops it.
+  const autoDest = auto && prefs?.auto ? prefs.destination : null;
+  useEffect(() => {
+    if (!autoDest || !prefs || !scan) return;
+    setPreset("");
+    setDestA(autoDest);
+    setUseB(false);
+    setTemplate(prefs.template);
+    setEventName("");
+    setSelected(new Set(scan.items.filter((i) => i.new).map((i) => i.key)));
+  }, [autoDest, prefs, scan]);
+  useEffect(() => {
+    if (!autoDest || !prefs || !scan || !check || autoStarted.current || running || result) return;
+    if (destinations.length !== 1 || destinations[0] !== autoDest) return;
+    if (template !== prefs.template) return;
+    if (selected.size === 0) {
+      setAutoNote("Nothing new on this card: everything is already in your library.");
+      autoStarted.current = true;
+      if (!keepOpen.current) setCloseIn(AUTO_CLOSE_S);
+      return;
+    }
+    if (!check.ok) {
+      setAutoNote(`Not imported automatically: ${check.problem ?? "check the destination"}.`);
+      autoStarted.current = true;
+      return;
+    }
+    autoStarted.current = true;
+    start();
+    // `start` uses the current request; `check` follows it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDest, prefs, scan, check, selected, template, reqKey, running, result]);
+
+  // A good automatic import: no error, nothing failed, not stopped.
+  const autoDone =
+    !!autoDest && !!result && !result.error && !result.cancelled && result.failed.length === 0;
+  useEffect(() => {
+    if (autoDone && !keepOpen.current) setCloseIn(AUTO_CLOSE_S);
+  }, [autoDone]);
+  useEffect(() => {
+    if (closeIn === null) return;
+    if (closeIn <= 0) {
+      window.close();
+      return;
+    }
+    const t = setTimeout(() => setCloseIn((n) => (n === null ? null : n - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [closeIn]);
+  const stayOpen = () => {
+    keepOpen.current = true;
+    setCloseIn(null);
+  };
+
   const start = () => {
     if (!request) return;
     setResult(null);
@@ -239,6 +328,20 @@ export function ImportWindow() {
         <h1>
           Import from “{scan.label}” <span className="muted">({scan.mount})</span>
         </h1>
+        {autoDest && (
+          <p className="auto-banner" role="status" data-testid="auto-banner">
+            Importing new items automatically to <strong>{autoDest}</strong>, in folders by{" "}
+            {prefs?.template === "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}"
+              ? "year, month and day"
+              : `“${prefs?.template}”`}
+            . Change this in Settings → When a card is inserted.
+          </p>
+        )}
+        {autoNote && (
+          <p className="warn" role="alert" data-testid="auto-note">
+            {autoNote}
+          </p>
+        )}
         <p data-testid="import-summary">
           {fmt.plural(newCount, "new item")}
           {scan.known ? " since last import" : ""} ({fmt.count(items.length)} on the card) ·{" "}
@@ -412,6 +515,12 @@ export function ImportWindow() {
         >
           {result.error ? (
             <p>Import failed: {result.error}</p>
+          ) : autoDone && !result.safeToFormat ? (
+            <p>
+              ✅ Copied {fmt.plural(Number(result.catalogued), "item")} to{" "}
+              <strong>{autoDest}</strong>, each checked. One copy only: the card is{" "}
+              <strong>NOT safe to format</strong>.
+            </p>
           ) : result.safeToFormat ? (
             <p>
               ✅ <strong>SAFE TO FORMAT</strong>: all {fmt.count(Number(result.catalogued))} assets
@@ -437,6 +546,14 @@ export function ImportWindow() {
             </>
           )}
         </section>
+      )}
+      {closeIn !== null && (
+        <p className="row auto-close" role="status" data-testid="auto-close">
+          Closing in {closeIn} s…
+          <button onClick={stayOpen} data-testid="keep-open">
+            Keep open
+          </button>
+        </p>
       )}
     </main>
   );

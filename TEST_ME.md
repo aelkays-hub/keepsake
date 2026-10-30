@@ -1,8 +1,52 @@
-# Manual Test Steps — Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Every card imports by itself
+
+Automated:
+```
+cargo test -p keepsake-core --test auto_import_tests
+cargo test -p keepsake-core --lib -- template settings
+cd app/ui; pnpm test; pnpm exec playwright test e2e/mocked/auto-import.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Open **Settings → When a card is inserted**.
+   **Expected:**
+   - **Copy new photos and videos automatically** is selected;
+   - **Copy to** is `E:\Pictures`;
+   - **Folders** is Year › Month › Day;
+   - the example reads "A photo taken today goes to E:\Pictures\2026\October\2026-10-30\A7400123.ARW" (today's date).
+2. Insert a camera card with a few new photos.
+   **Expected:**
+   - the Import window opens and says "Importing new items automatically to E:\Pictures, in folders by year, month and day";
+   - it starts by itself, with no clicks;
+   - only new items are copied; items already in the library are left on the card;
+   - it ends with "Copied N items to E:\Pictures" and "NOT safe to format" (one copy only);
+   - "Closing in 5 s…" counts down and the window closes by itself;
+   - **Keep open** stops the countdown;
+   - if anything failed, or you pressed Stop, it stays open.
+3. In Explorer, open `E:\Pictures\<year>\<Month>\<year-month-day>\`.
+   **Expected:**
+   - the photos are there; any missing year, month or day folders were made;
+   - no `.xmp` files appear next to them.
+4. In Keepsake, open **By folder → Pictures → <year> → <Month>**.
+   **Expected:**
+   - the new day's folder, with its count;
+   - the calendar shows that day.
+5. Remove the card and insert it again.
+   **Expected:** the window opens with nothing new to copy ("everything is already in your library"), or does not open at all.
+6. Disconnect E: (or set Copy to a missing drive, e.g. `Z:\Pictures`), then insert a card.
+   **Expected:** "Not imported automatically: destination … does not exist". Nothing is copied.
+7. Choose **Open the import window, and let me choose** and save.
+   **Expected:** the next card opens the window without starting.
+8. Check the card in Explorer afterwards.
+   **Expected:** nothing on it was changed or deleted.
 
 ---
 

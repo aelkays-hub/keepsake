@@ -87,6 +87,7 @@ Options:
 `--template T`
 : File-naming template (default `{yyyy}/{yyyy}-{mm}-{dd}/{orig}`). Tokens:
   - `{yyyy} {mm} {dd} {hh}`: capture time on the camera's clock.
+  - `{month}`: the month's name in English (`October`). `{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}` gives `2026/October/2026-10-30/A7400123.ARW`.
   - `{event}`: the `--event` value.
   - `{camera}`, `{lens}`.
   - `{seq}`: a 4-digit counter per folder, in capture order.

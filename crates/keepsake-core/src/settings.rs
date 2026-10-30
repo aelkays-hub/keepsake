@@ -140,6 +140,45 @@ impl OpenSettings {
     }
 }
 
+/// What happens when a camera card is inserted (`[import]`).
+///
+/// ```toml
+/// [import]
+/// auto = true                       # import every card by itself
+/// destination = 'E:\Pictures'
+/// template = '{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}'
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportSettings {
+    /// Import a card's new items by itself when it is inserted (the app);
+    /// otherwise the import window opens for you to choose.
+    pub auto: bool,
+    /// Where an automatic import copies to; folders the template names are
+    /// made as needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<PathBuf>,
+    /// The file-naming template (`ingest::template`).
+    pub template: String,
+}
+
+impl Default for ImportSettings {
+    fn default() -> Self {
+        Self {
+            auto: false,
+            destination: None,
+            template: crate::ingest::template::YEAR_MONTH_DAY_TEMPLATE.to_owned(),
+        }
+    }
+}
+
+impl ImportSettings {
+    /// The destination for an automatic import, when it is on and set.
+    pub fn auto_destination(&self) -> Option<&Path> {
+        self.destination.as_deref().filter(|_| self.auto)
+    }
+}
+
 /// Everything in `config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -148,6 +187,7 @@ pub struct Settings {
     pub default_library: Option<PathBuf>,
     pub render: RenderSettings,
     pub open: OpenSettings,
+    pub import: ImportSettings,
 }
 
 impl Settings {
@@ -222,6 +262,19 @@ mod tests {
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!((1..=4).contains(&default_workers()));
+    }
+
+    #[test]
+    fn import_settings_default_off_and_round_trip() {
+        let s: Settings = toml::from_str("default_library = 'D:/K'\n").unwrap();
+        assert!(!s.import.auto);
+        assert_eq!(s.import.auto_destination(), None);
+        assert_eq!(s.import.template, "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}");
+        let s: Settings =
+            toml::from_str("[import]\nauto = true\ndestination = 'E:/Pictures'\n").unwrap();
+        assert_eq!(s.import.auto_destination(), Some(Path::new("E:/Pictures")));
+        let text = toml::to_string_pretty(&s).unwrap();
+        assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
     }
 
     #[test]

@@ -1059,3 +1059,17 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - Settings keeps one row per application. Several rows for a type make its list, in order. A row may name several types (`arw, jpg, dng`).
 
 **Not done.** Reordering rows in Settings (remove and add again); a per-item "remember my choice".
+
+## ADR-027 — Every card imports by itself, into year › month › day
+
+**Status**: Accepted (2026-10-30, product owner: one destination, `E:\Pictures`; every camera card). No new dependency.
+
+**Context.** The owner keeps photos in `E:\Pictures\<year>\<Month>\<year-month-day>\` and wants an inserted card copied there with no questions, making folders as needed.
+
+**Decision.**
+- **Setting** `[import] auto, destination, template` (Settings → When a card is inserted). The default layout is `{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}`, using a new template token, `{month}` (English month name).
+- **The import window does it.** When a card with new items arrives and the setting is on, the window opens in automatic mode. It takes the destination and layout from Settings and selects every new item. It starts as soon as the usual pre-check passes (space, same-disk rule). If the check fails (the drive is not connected, say), it stops and says why. The user sees progress and the result as for any import; nothing runs unseen.
+- **Into a folder added in place.** `destination_volume` reuses the volume already in the library for that folder. It keeps its id, name and read-only flag, so the files join the same folder tree and new sidecars go to the library's mirror. The import only adds new files and folders. This changes ADR-025's "never written": a folder added in place is written to only when it is chosen as an import destination. A destination inside, or holding, a folder already in the library is refused, so nothing is catalogued twice.
+- **One copy.** With one destination the card is never reported safe to format. The owner chose this; a second destination remains possible in the import window.
+
+**Not done.** Choosing a second automatic destination in Settings; a notification outside the app window.

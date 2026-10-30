@@ -258,6 +258,11 @@ test("settings: cache, workers and Open in are saved; old cache files can be rem
         proxyWorkers: 1,
         pauseOnBattery: true,
         openApps: [{ ext: ".ARW", app: "C:\\Apps\\Raw Editor.exe" }],
+        import: {
+          auto: false,
+          destination: null,
+          template: "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}",
+        },
       },
     },
   ]);

@@ -1,6 +1,6 @@
 //! Background work for the open library: the render service, and the
 //! device watcher, which announces Sony cards (`device://card`) and opens
-//! the import window.
+//! the import window (which imports by itself when Settings say so).
 //!
 //! Tests replace the OS device backend with a script of fake events
 //! (`KEEPSAKE_FAKE_EVENTS=<file.jsonl>`, as in `keepsake watch`).
@@ -25,11 +25,21 @@ pub fn start(app: &AppHandle, state: &AppState) {
     }
 }
 
-/// Open (or focus) the import window for the card at `mount`.
-pub fn open_import_window(app: &AppHandle, mount: &str) {
-    let url = format!("index.html#/import?mount={}", urlencode(mount));
+/// Open (or focus) the import window for the card at `mount`. With `auto`
+/// it imports the card's new items by itself, as set in Settings.
+pub fn open_import_window(app: &AppHandle, mount: &str, auto: bool) {
+    let url = format!(
+        "index.html#/import?mount={}{}",
+        urlencode(mount),
+        if auto { "&auto=1" } else { "" }
+    );
     if let Some(w) = app.get_webview_window("import") {
-        let _ = w.emit("import://open", mount.to_owned());
+        let event = if auto {
+            "import://auto"
+        } else {
+            "import://open"
+        };
+        let _ = w.emit(event, mount.to_owned());
         let _ = w.set_focus();
         return;
     }
@@ -120,7 +130,12 @@ fn start_watcher(app: AppHandle) {
                             },
                         );
                         if *new_items > 0 {
-                            open_import_window(&app, &mount);
+                            // Settings are read each time: a change applies
+                            // to the next card.
+                            let auto = keepsake_core::settings::Settings::load()
+                                .map(|s| s.import.auto_destination().is_some())
+                                .unwrap_or(false);
+                            open_import_window(&app, &mount, auto);
                         }
                     }
                     WatchEvent::CardRemoved { card, label, mount } => {

@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Every card imports by itself into year › month › day (Settings → When a card is inserted) | ✅ Done (Windows; macOS via CI) |
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
@@ -45,6 +46,34 @@
 
 ---
 
+## Every card imports by itself (2026-10-30)
+
+### What was built
+- **Core:**
+  - The `{month}` template token, and `YEAR_MONTH_DAY_TEMPLATE` (`2026/October/2026-10-30/…`).
+  - `settings::ImportSettings` (`[import] auto, destination, template`).
+  - `destination_volume` reuses the library's volume for a folder already in it, keeping its name and read-only flag. It refuses a destination inside or around one.
+- **App:**
+  - When a card with new items arrives and the setting is on, the import window opens with `auto=1`. If it is already open, it gets `import://auto`.
+  - Settings carry `import` (`ImportPrefs`), and saving checks a full destination path and a valid layout.
+- **UI:**
+  - Settings → **When a card is inserted**: ask, or copy automatically; where to; the folder layout (Year › Month › Day, Year › Day, or custom) with an example ("A photo taken today goes to E:\Pictures\2026\October\2026-10-30\A7400123.ARW").
+  - In automatic mode the import window shows where items are going and starts by itself. "Nothing new" and failed checks are explained.
+  - After a good import (or nothing new) it says "Copied N items to …" and closes itself in 5 s; **Keep open** stops that. After an error, a failed file or Stop, it stays open.
+- ADR-027.
+
+### Tests
+- `auto_import_tests.rs` (real ExifTool and FFmpeg):
+  - two dated photos land in `2026/October/2026-10-30` and `2025/December/2025-12-31` of a folder added in place (folders made);
+  - no sidecar next to them, and what was there is untouched;
+  - the same volume, tree and counts;
+  - the card again → already imported;
+  - a destination inside an added folder is refused.
+- `template.rs::year_month_name_day_template`, `settings.rs::import_settings_default_off_and_round_trip`, and `prefs.rs::automatic_import_needs_a_full_destination_and_a_valid_layout`.
+- `importLayouts.test.ts`.
+- `auto-import.spec.ts`: on → starts by itself with only the new items; off → waits; a missing drive → stops with the reason; the Settings section.
+
+---
 ## The sidebar tree by folder (2026-10-29)
 
 ### What was built

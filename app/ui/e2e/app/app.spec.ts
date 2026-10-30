@@ -150,6 +150,87 @@ test("a card insert opens the import window; import ends SAFE TO FORMAT", async 
   }
 });
 
+test("a card imports by itself into year / month / day, and the app stays responsive", async () => {
+  const w = new World();
+  w.cli(["init", w.p("lib")]);
+  w.cacheHere();
+  // A folder of photos already added in place, as on the user's drive.
+  const pics = w.p("Pictures");
+  fs.mkdirSync(path.join(pics, "2025", "May", "2025-05-01"), { recursive: true });
+  // A photo unlike any on the card (the card has DSC01000–DSC01003).
+  fs.copyFileSync(
+    path.join(w.media("old", 6), "DCIM", "100MSDCF", "DSC01005.JPG"),
+    path.join(pics, "2025", "May", "2025-05-01", "OLD.JPG"),
+  );
+  w.cli(["add-folder", pics, "--no-probe"]);
+  // Replace the [import] section `init` wrote (a second one would make the
+  // file invalid).
+  const file = path.join(w.config, "config.toml");
+  const before = fs.readFileSync(file, "utf8").replace(/\[import\][^[]*/, "");
+  fs.writeFileSync(
+    file,
+    `${before.trimEnd()}\n\n[import]\nauto = true\ndestination = "${pics.replace(/\\/g, "\\\\")}"\ntemplate = "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}"\n`,
+  );
+  const card = w.media("card", 4);
+  const events = w.p("events.jsonl");
+  fs.writeFileSync(
+    events,
+    JSON.stringify({
+      event: "arrived",
+      mount: card,
+      identity: { fs_serial: "AB12-CD34", fs_type: "exFAT", label: "A7IV" },
+    }) + "\n",
+  );
+  const app = new App(w, { KEEPSAKE_FAKE_EVENTS: events });
+  try {
+    await app.connect();
+    const imp = await app.page("import");
+    await expect(imp.getByTestId("auto-banner")).toContainText("Pictures");
+    // No clicks: it starts and finishes by itself.
+    await expect(imp.getByTestId("result")).toContainText("NOT safe to format", {
+      timeout: 120_000,
+    });
+    await expect(imp.getByTestId("result")).toContainText("Copied 5 items to");
+    // A good automatic import closes its window by itself.
+    await expect(imp.getByTestId("auto-close")).toContainText("Closing in");
+    await expect.poll(() => imp.isClosed(), { timeout: 15_000 }).toBe(true);
+    // The main window still answers, and keeps answering while thumbnails are made.
+    const main = await app.page("main");
+    for (let i = 0; i < 60; i++) {
+      for (const p of [main]) {
+        const t0 = Date.now();
+        await p.evaluate(() => 1);
+        expect(Date.now() - t0, "a window stopped responding").toBeLessThan(2000);
+      }
+      await main.waitForTimeout(300);
+    }
+    await expect(main.getByTestId("count")).toHaveText("6 items");
+
+    await main.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+    await main.getByTestId("sidebar").locator("button.cal-node").first().click();
+    await expect(main.locator("button[data-folder]").first()).toBeVisible();
+    // The photos are in year / month / day folders of Pictures.
+    const files = fs.readdirSync(pics, { recursive: true }).map(String);
+    expect(files.filter((f) => /\.(JPG|MP4)$/i.test(f) && !f.includes("OLD")).length).toBe(5);
+    // The test photos carry no capture date: the undated branch of the
+    // layout (dated photos are checked in auto_import_tests.rs).
+    expect(
+      files.some((f) =>
+        /^(\d{4}|0000-undated)[\\/]([A-Z][a-z]+)[\\/]\d{4}-\d\d-\d\d[\\/]DSC0100\d\.JPG$/.test(f),
+      ),
+    ).toBe(true);
+  } catch (e) {
+    // The app's own log helps when this fails on CI.
+    const logs = w.p("logs");
+    for (const f of fs.existsSync(logs) ? fs.readdirSync(logs) : [])
+      console.log(`--- ${f}\n${fs.readFileSync(path.join(logs, f), "utf8")}`);
+    throw e;
+  } finally {
+    await app.close();
+    w.cleanup();
+  }
+});
+
 test("300,000 items stay virtualized in the real app", async () => {
   // Seeding 300,000 items is setup, not what is measured: on a slow CI
   // runner it alone took over four minutes (the timings below have their
