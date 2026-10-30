@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Every card imports by itself into year › month › day (Settings → When a card is inserted) | ✅ Done (Windows; macOS via CI) |
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
@@ -43,6 +44,26 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Thumbnail sizes and the viewer's zoom slider (2026-10-30)
+
+### What was built
+- **Grid:**
+  - Small (120 px), Medium (176 px) and Large (280 px) tiles. A switch in the toolbar (Grid view only), or + and − in the grid. Remembered on this computer (`localStorage` key `keepsake.thumbSize`).
+  - Large tiles, and tiles a high-DPI screen draws with more than 300 pixels, use the 1024 px thumbnail (`Row.thumbLarge`), falling back to the 256 px one until it is made.
+  - The focused item stays in view when the size changes.
+- **Viewer (photos):**
+  - A zoom bar under the picture: Fit, −, a slider from Fit to 400% (a log scale, so each part of it feels the same), +, 100%, and the level ("Fit (23%)", "152%").
+  - + and − step by 25%; the wheel zooms around the pointer; Z and a click still switch between Fit and 100%.
+  - Zoom keeps the point under the pointer (or the centre) in place. The picture is centred while smaller than the window, and never cut off at the top or left when larger.
+  - Once the full size is made it is also shown at Fit (sharper on large screens). With the drive unplugged, the preview is zoomed.
+  - Arrow keys on a slider (zoom or video position) move the slider, not to another item.
+
+### Tests
+- Mocked browser: `thumb-size.spec.ts` (switch, sizes, 1024 px thumbnail for Large, remembered after a reload, + and −, focused item kept in view, only in Grid view); `viewer.spec.ts` (slider to 400%, − and + steps, 100% is one picture pixel per screen pixel, Fit fits, slider middle, arrows on the slider, wheel zoom around the middle and back to Fit).
+- Real app: Large loads the 1024 px thumbnail from the cache and Medium the 256 px one; the existing viewer test (Z to 100% on a real JPEG) still passes.
 
 ---
 

@@ -1,8 +1,72 @@
-# Manual Test Steps — Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Thumbnail sizes in the grid
+
+Automated:
+```
+cd app/ui; pnpm exec playwright test e2e/mocked/thumb-size.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Open Grid view (Ctrl+2). At the right of the toolbar, next to Calendar | Grid | Details, are three square buttons: small, medium and large.
+   **Expected:** the middle (Medium) is highlighted.
+2. Click the large one.
+   **Expected:**
+   - fewer, bigger tiles (about 280 px);
+   - the pictures are sharp, not blurry (they use the 1024 px thumbnails; tiles whose 1024 px thumbnail is not made yet show the small one until it is).
+3. Click the small one.
+   **Expected:** many small tiles (about 120 px).
+4. Click a tile, press **+** twice, then **−** twice.
+   **Expected:**
+   - the size goes up to Large and back down to Small;
+   - the selected tile stays on screen;
+   - nothing is rated.
+5. Restart Keepsake.
+   **Expected:** the grid keeps the last size.
+6. Switch to Details (Ctrl+3) or Calendar (Ctrl+1).
+   **Expected:** the size switch is not shown.
+
+---
+
+## The zoom slider in the viewer
+
+Automated:
+```
+cd app/ui; pnpm exec playwright test e2e/mocked/viewer.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Open a photo in the viewer (Enter or double-click).
+   **Expected:** under the picture, a bar with **Fit**, **−**, a slider, **+**, **100%**, and "Fit".
+2. Drag the slider to the right.
+   **Expected:**
+   - the picture grows from the middle of the window;
+   - "Loading full size…" shows briefly the first time (a RAW: "Decoding the RAW…");
+   - the level reads a percentage, up to 400% at the end.
+3. Drag the picture, or use the arrow keys.
+   **Expected:** it pans; you stay on the same photo.
+4. Click **100%**.
+   **Expected:** one picture pixel per screen pixel (fine detail is crisp).
+5. Click **Fit**.
+   **Expected:**
+   - the whole picture fits the window;
+   - the level reads e.g. "Fit (23%)".
+6. Press **+** a few times, then **−**.
+   **Expected:** it zooms in and out in steps.
+7. Point at a detail and turn the mouse wheel up.
+   **Expected:** it zooms in on that detail, which stays under the pointer. Wheel down goes back to Fit.
+8. Press **Z**, then Z again.
+   **Expected:** 100%, then Fit. A click on the picture does the same.
+9. Tab to the slider and press → and ←.
+   **Expected:** the zoom changes; it does not move to another photo.
+10. Open a video.
+    **Expected:** no zoom bar; the playback controls are as before.
 
 ---
 

@@ -14,13 +14,15 @@ import { labelColor } from "../labels";
 import { Stars } from "./Stars";
 import { markReady } from "../diagnostics";
 import { describeRow, useRovingFocus } from "../a11y";
+import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
 
-const TILE = 176;
 const GAP = 8;
 
 function Tile({
   row,
   index,
+  px,
+  large,
   selected,
   focused,
   onPick,
@@ -28,12 +30,15 @@ function Tile({
 }: {
   row: Row | undefined;
   index: number;
+  px: number;
+  /** Use the 1024 px thumbnail when it is made. */
+  large: boolean;
   selected: boolean;
   focused: boolean;
   onPick: (i: number, e: React.MouseEvent) => void;
   onOpen: (i: number) => void;
 }) {
-  const src = fileUrl(row?.thumb);
+  const src = fileUrl((large ? row?.thumbLarge : null) ?? row?.thumb);
   return (
     <div
       role="gridcell"
@@ -44,7 +49,7 @@ function Tile({
       tabIndex={focused ? 0 : -1}
       aria-label={describeRow(row, index)}
       className={`tile${selected ? " selected" : ""}${focused ? " focused" : ""}${row && !row.online ? " offline" : ""}`}
-      style={{ width: TILE, height: TILE }}
+      style={{ width: px, height: px }}
       onMouseDown={(e) => onPick(index, e)}
       onDoubleClick={() => onOpen(index)}
       title={row?.name ?? ""}
@@ -84,6 +89,9 @@ function Tile({
 export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   const { s, dispatch, view } = useUi();
   const rows = useRows(view, s.revision);
+  const size = useThumbSize();
+  const TILE = tilePx(size);
+  const large = wantsLarge(size, window.devicePixelRatio || 1);
   const parent = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
   useLayoutEffect(() => {
@@ -102,6 +110,10 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     estimateSize: () => TILE + GAP,
     overscan: 3,
   });
+  // A new size: measure the rows again, and keep the focused item in view.
+  useEffect(() => {
+    v.measure();
+  }, [TILE, v]);
   const items = v.getVirtualItems();
   const first = items[0]?.index ?? 0;
   const last = items[items.length - 1]?.index ?? 0;
@@ -114,7 +126,21 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   }, [s.sel.focus, cols, v]);
   useRovingFocus(parent, s.sel.focus, [first, last, cols]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
-  const onKey = useListKeys(rows.count, cols, pageRows, onOpen);
+  const listKeys = useListKeys(rows.count, cols, pageRows, onOpen);
+  const onKey = (e: React.KeyboardEvent) => {
+    // + and − change the thumbnail size.
+    if (
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      (e.key === "+" || e.key === "=" || e.key === "-")
+    ) {
+      stepThumbSize(e.key === "-" ? -1 : 1);
+      e.preventDefault();
+      return;
+    }
+    listKeys(e);
+  };
   const pick = (i: number, e: React.MouseEvent) => {
     parent.current?.focus();
     if (e.shiftKey) dispatch({ t: "sel", sel: sel.extend(s.sel, i) });
@@ -153,6 +179,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
       aria-multiselectable
       data-testid="grid"
       data-count={rows.count}
+      data-size={size}
       onKeyDown={onKey}
     >
       <div style={{ height: v.getTotalSize(), position: "relative" }}>
@@ -171,6 +198,8 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
                   key={i}
                   index={i}
                   row={rows.get(i)}
+                  px={TILE}
+                  large={large}
                   selected={sel.has(s.sel, i)}
                   focused={s.sel.focus === i}
                   onPick={pick}

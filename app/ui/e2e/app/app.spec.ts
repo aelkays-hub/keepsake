@@ -62,6 +62,18 @@ test("library: thumbnails, rating writes XMP, calendar, search, details, offline
       .toBeGreaterThan(0);
     expect(await img.getAttribute("src")).toMatch(/asset\.localhost|asset:/);
 
+    // Large tiles show the 1024 px thumbnail; Medium the 256 px one.
+    const widest = () =>
+      page
+        .getByTestId("tile")
+        .locator("img")
+        .evaluateAll((all) => Math.max(...all.map((i) => (i as HTMLImageElement).naturalWidth)));
+    expect(await widest()).toBeLessThanOrEqual(256);
+    await page.getByTestId("thumb-large").click();
+    await expect.poll(widest).toBeGreaterThan(256);
+    await page.getByTestId("thumb-medium").click();
+    await expect.poll(widest).toBeLessThanOrEqual(256);
+
     // Rate with the keyboard: the XMP sidecar beside the original changes.
     await page.getByTestId("search").fill("DSC01002");
     await expect(page.getByTestId("count")).toHaveText("1 item");

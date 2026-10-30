@@ -8,6 +8,7 @@ import type { KindFilter } from "../bindings/KindFilter";
 import type { SortKey } from "../bindings/SortKey";
 import * as fmt from "../format";
 import { useUi, type Mode } from "../state";
+import { setThumbSize, THUMB_SIZES, useThumbSize } from "../thumbSize";
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "date", label: "Date" },
@@ -22,6 +23,7 @@ const SORTS: { key: SortKey; label: string }[] = [
 
 export function Toolbar() {
   const { s, dispatch, refreshes } = useUi();
+  const thumbSize = useThumbSize();
   const [text, setText] = useState(s.filters.text ?? "");
   const [facets, setFacets] = useState<Facets>({ cameras: [], lenses: [] });
   // Cameras and lenses of the whole library: they change only with imports
@@ -147,6 +149,27 @@ export function Toolbar() {
         </button>
       )}
       <span className="spacer" />
+      {s.mode === "grid" && (
+        <div
+          className="segmented thumb-size"
+          role="group"
+          aria-label="Thumbnail size"
+          data-testid="thumb-size"
+        >
+          {THUMB_SIZES.map((t) => (
+            <button
+              key={t.size}
+              aria-pressed={thumbSize === t.size}
+              onClick={() => setThumbSize(t.size)}
+              title={`${t.label} thumbnails (+ and − in the grid)`}
+              aria-label={`${t.label} thumbnails`}
+              data-testid={`thumb-${t.size}`}
+            >
+              <span aria-hidden="true" className={`thumb-icon ${t.size}`} />
+            </button>
+          ))}
+        </div>
+      )}
       <div className="segmented" role="tablist" aria-label="View">
         {modes.map((m) => (
           <button

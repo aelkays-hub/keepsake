@@ -254,6 +254,30 @@ textarea {
   overflow: auto;
   min-height: 0;
 }
+.thumb-size button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+}
+/* A square that grows with the size it stands for. */
+.thumb-icon {
+  display: block;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+}
+.thumb-icon.small {
+  width: 6px;
+  height: 6px;
+}
+.thumb-icon.medium {
+  width: 10px;
+  height: 10px;
+}
+.thumb-icon.large {
+  width: 14px;
+  height: 14px;
+}
 .grid-row {
   position: absolute;
   top: 0;
@@ -710,6 +734,7 @@ textarea {
   z-index: 50;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   background: #0d0d0f;
   color: #ececf1;
   outline: none;
@@ -750,16 +775,40 @@ textarea {
   max-height: 100%;
   object-fit: contain;
 }
+/* Zoomed: the picture scrolls; auto margins centre it while smaller than the
+   window without cutting off its top or left when larger. */
 .viewer-stage.zoomed {
   overflow: auto;
-  display: block;
+  align-items: flex-start;
+  justify-content: flex-start;
   cursor: grab;
 }
 .viewer-stage.zoomed > img {
   max-width: none;
   max-height: none;
+  flex: none;
   display: block;
   margin: auto;
+}
+.viewer-photo {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+.viewer-zoom {
+  justify-content: center;
+}
+.viewer-zoom .zoom-slider {
+  width: min(320px, 40vw);
+}
+.viewer-zoom button[aria-pressed="true"] {
+  background: #3a3a48;
+}
+.zoom-level {
+  min-width: 7em;
+  font-variant-numeric: tabular-nums;
 }
 .viewer-note {
   position: absolute;

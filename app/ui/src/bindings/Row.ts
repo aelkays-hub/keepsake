@@ -14,6 +14,10 @@ captured: string | null, camera: string | null, lens: string | null, kind: ItemK
  */
 thumb: string | null, 
 /**
+ * Path of the 1024 px thumbnail, if made: for large grid tiles.
+ */
+thumbLarge: string | null, 
+/**
  * A volume holding the original is mounted.
  */
 online: boolean, };
