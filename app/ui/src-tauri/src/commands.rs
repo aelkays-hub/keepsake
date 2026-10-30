@@ -3,15 +3,15 @@
 
 use std::path::PathBuf;
 
-use keepsake_core::catalog::{FacetColumn, FileRole, TagSource};
+use keepsake_core::catalog::{FacetColumn, FileRole, TagSource, VolumeId};
 use keepsake_core::library::Library;
 use keepsake_core::render::Variant;
 use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Manager, State};
 
 use crate::api::{
-    AppInfo, Bucket, CalendarLevelDto, Details, EventItem, FacetItem, Facets, FileItem, GpsItem,
-    ImportItem, Query, Row, Sidebar, SortSpec, ViewInfo, VolumeItem,
+    AppInfo, Bucket, CalendarLevelDto, Details, EventItem, FacetItem, Facets, FileItem, FolderNode,
+    GpsItem, ImportItem, Query, Row, Sidebar, SortSpec, ViewInfo, VolumeItem,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult, View};
@@ -155,6 +155,33 @@ pub fn calendar(
             cover_id: b.cover.map(|c| c.to_string()),
             key: b.key,
             count: b.count,
+        })
+        .collect())
+}
+
+/// The sub-folders of `parent` (none: the top) on `volume`, with the
+/// number of items in each that match `query`'s filters.
+#[tauri::command(async)]
+pub fn folder_tree(
+    state: State<'_, AppState>,
+    volume: String,
+    parent: Option<String>,
+    query: Query,
+) -> CmdResult<Vec<FolderNode>> {
+    let open = state.open()?;
+    let v: VolumeId = convert::id(&volume, "volume")?;
+    let q = convert::query(&query)?;
+    let rows = open
+        .cat()?
+        .read(|tx| tx.browse().folders(v, parent.as_deref(), &q))
+        .map_err(err)?;
+    Ok(rows
+        .into_iter()
+        .map(|b| FolderNode {
+            name: b.name,
+            path: b.path,
+            count: b.count,
+            has_children: b.has_children,
         })
         .collect())
 }

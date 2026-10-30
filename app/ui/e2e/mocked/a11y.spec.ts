@@ -48,6 +48,14 @@ for (const scheme of ["light", "dark"] as const) {
     all.push(...(await check(page, "grid, inspector and crash notice")));
     await page.getByTestId("crash-banner").getByRole("button", { name: "Dismiss" }).click();
 
+    // The sidebar tree by folder.
+    await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+    await page.getByTestId("sidebar").locator("button.cal-node").first().click();
+    await expect(page.locator("button[data-folder]").first()).toBeVisible();
+    all.push(...(await check(page, "folder tree")));
+    await page.getByTestId("tree-mode").getByRole("button", { name: "By date" }).click();
+    await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+
     await page.keyboard.press("Control+3");
     await expect(page.getByTestId("drow").first()).toBeVisible();
     all.push(...(await check(page, "details")));

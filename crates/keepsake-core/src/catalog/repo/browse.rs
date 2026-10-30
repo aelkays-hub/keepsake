@@ -62,6 +62,19 @@ pub struct BrowseRow {
     pub volumes: Vec<VolumeId>,
 }
 
+/// A folder in the folder tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FolderBucket {
+    /// The folder's own name (`May`).
+    pub name: String,
+    /// Its path on the volume (`2025/May`).
+    pub path: String,
+    /// Assets in it or below it.
+    pub count: u64,
+    /// It has sub-folders with assets.
+    pub has_children: bool,
+}
+
 /// A calendar cell: a year (`2024`), month (`2024-06`) or day
 /// (`2024-06-15`), or `undated`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -469,6 +482,81 @@ impl<M> Browse<'_, M> {
                 cover_hash: None,
             });
         }
+        Ok(out)
+    }
+
+    /// The sub-folders of `parent` (`None`: the volume's top) on `volume`,
+    /// A–Z, each with the number of assets in it or below it that match
+    /// `q`'s filters (originals only; `q`'s own volume and folder are not
+    /// used). Folders with no matching asset are left out.
+    pub fn folders(
+        &self,
+        volume: VolumeId,
+        parent: Option<&str>,
+        q: &SearchQuery,
+    ) -> Result<Vec<FolderBucket>, CatalogError> {
+        let q = SearchQuery {
+            volume: None,
+            folder: None,
+            ..q.clone()
+        };
+        let f = filter_sql_in(&q)?;
+        if f.empty {
+            return Ok(Vec::new());
+        }
+        let parent = parent
+            .map(|p| p.trim_matches('/'))
+            .filter(|p| !p.is_empty());
+        let mut wh = f.wh.clone();
+        wh.push("fo.role = 'original' AND fo.volume_id = ?".into());
+        let range = parent.map(super::search::folder_range);
+        if range.is_some() {
+            wh.push("fo.rel_path >= ? AND fo.rel_path < ?".into());
+        }
+        let sql = format!(
+            "SELECT fo.rel_path FROM files fo JOIN assets a ON a.id = fo.asset_id{}
+              WHERE {}",
+            f.joins,
+            wh.join(" AND ")
+        );
+        let mut args: Vec<&dyn rusqlite::ToSql> = f.args.iter().map(|b| b.as_ref()).collect();
+        args.push(&volume);
+        if let Some((lo, hi)) = &range {
+            args.push(lo);
+            args.push(hi);
+        }
+        let skip = parent.map_or(0, |p| p.len() + 1);
+        // name → (count, has sub-folders)
+        let mut by: std::collections::BTreeMap<String, (u64, bool)> =
+            std::collections::BTreeMap::new();
+        let mut st = self.conn.prepare(&sql)?;
+        let mut rows = st.query(args.as_slice())?;
+        while let Some(r) = rows.next()? {
+            let path: String = r.get(0)?;
+            let Some(rest) = path.get(skip..) else {
+                continue;
+            };
+            // A file directly in `parent` is not in a sub-folder.
+            let Some((name, below)) = rest.split_once('/') else {
+                continue;
+            };
+            let e = by.entry(name.to_owned()).or_insert((0, false));
+            e.0 += 1;
+            e.1 |= below.contains('/');
+        }
+        let mut out: Vec<FolderBucket> = by
+            .into_iter()
+            .map(|(name, (count, has_children))| FolderBucket {
+                path: match parent {
+                    Some(p) => format!("{p}/{name}"),
+                    None => name.clone(),
+                },
+                name,
+                count,
+                has_children,
+            })
+            .collect();
+        out.sort_by_key(|b| b.name.to_lowercase());
         Ok(out)
     }
 

@@ -47,6 +47,7 @@ pub fn query(q: &Query) -> Result<SearchQuery, String> {
             .as_deref()
             .map(|v| id::<VolumeId>(v, "volume"))
             .transpose()?,
+        folder: q.folder.clone().filter(|f| !f.trim_matches('/').is_empty()),
         session: q
             .session
             .as_deref()

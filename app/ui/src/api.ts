@@ -18,6 +18,7 @@ import type { EditResult } from "./bindings/EditResult";
 import type { Facets } from "./bindings/Facets";
 import type { FileMetadata } from "./bindings/FileMetadata";
 import type { FolderDone } from "./bindings/FolderDone";
+import type { FolderNode } from "./bindings/FolderNode";
 import type { ImportCheck } from "./bindings/ImportCheck";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
@@ -56,6 +57,7 @@ export type {
   Facets,
   FileMetadata,
   FolderDone,
+  FolderNode,
   ImportCheck,
   ImportProgress,
   ImportRequest,
@@ -114,6 +116,8 @@ export const api = {
   viewIndexOf: (view: number, id: string) => invoke<number | null>("view_index_of", { view, id }),
   calendar: (query: Query, level: CalendarLevelDto) =>
     invoke<Bucket[]>("calendar", { query, level }),
+  folderTree: (volume: string, parent: string | null, query: Query) =>
+    invoke<FolderNode[]>("folder_tree", { volume, parent, query }),
   facets: () => invoke<Facets>("facets"),
   sidebar: () => invoke<Sidebar>("sidebar"),
   details: (id: string) => invoke<Details>("details", { id }),

@@ -85,6 +85,7 @@ pub fn run() {
             commands::view_rows,
             commands::view_index_of,
             commands::calendar,
+            commands::folder_tree,
             commands::facets,
             commands::sidebar,
             commands::details,

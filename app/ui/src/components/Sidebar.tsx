@@ -1,7 +1,7 @@
-// Sidebar: Library (with the calendar as a tree of years, months and days),
-// Events, Volumes, Tools, Imports. Arrow keys move between entries (a
-// single tab stop), Enter or click opens one; Right and Left open and close
-// a calendar node, or go to its first child or its parent.
+// Sidebar: Library (with a tree: the calendar's years, months and days, or
+// the folders on disk), Events, Volumes, Tools, Imports. Arrow keys move
+// between entries (a single tab stop), Enter or click opens one; Right and
+// Left open and close a tree node, or go to its first child or its parent.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -10,6 +10,27 @@ import * as fmt from "../format";
 import { useUi, type Section } from "../state";
 import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
+import { useFolderTree, type FolderTreeNode } from "../useFolderTree";
+
+/** How the Library tree is shown. */
+export type TreeMode = "date" | "folder";
+const MODE_KEY = "keepsake.sidebarTree";
+
+function rememberedMode(): TreeMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "folder" ? "folder" : "date";
+  } catch {
+    return "date";
+  }
+}
+
+/** A node of either tree, for keyboard moves and the twisty. */
+interface TreeNode {
+  key: string;
+  depth: number;
+  /** `undefined`: a leaf. */
+  expanded?: boolean;
+}
 
 interface Entry {
   key: string;
@@ -21,9 +42,15 @@ interface Entry {
   status?: "online" | "offline";
   /** A calendar tree node. */
   cal?: CalNode;
+  /** A folder tree node. */
+  fold?: FolderTreeNode;
 }
 
+const nodeOf = (e: Entry | undefined): TreeNode | undefined => e?.cal ?? e?.fold;
+
 function same(a: Section, b: Section): boolean {
+  if (a.kind === "folder" || b.kind === "folder")
+    return a.kind === "folder" && b.kind === "folder" && a.id === b.id && a.path === b.path;
   return a.kind === b.kind && ("id" in a ? a.id : "") === ("id" in b ? b.id : "");
 }
 
@@ -31,6 +58,15 @@ export function Sidebar() {
   const { s, dispatch, refreshes } = useUi();
   const [data, setData] = useState<SidebarData | null>(null);
   const [tick, setTick] = useState(0);
+  const [mode, setModeState] = useState<TreeMode>(rememberedMode);
+  const setMode = (m: TreeMode) => {
+    setModeState(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // Not kept: fine.
+    }
+  };
   useEffect(() => {
     api.sidebar().then(setData).catch(console.error);
   }, [refreshes, tick, s.revision]);
@@ -42,25 +78,48 @@ export function Sidebar() {
       un.then((f) => f());
     };
   }, []);
-  const tree = useCalendarTree(s.filters, [refreshes, s.revision]);
-  // The tree follows the calendar view down to where it is.
-  const { reveal } = tree;
+  const cal = useCalendarTree(s.filters, [refreshes, s.revision]);
+  const folders = useFolderTree(
+    data?.volumes ?? [],
+    s.filters,
+    [refreshes, s.revision],
+    mode === "folder",
+  );
+  // The calendar tree follows the calendar view down to where it is.
+  const { reveal } = cal;
   useEffect(() => {
     if (s.section.kind === "calendar") reveal(s.cal.year, s.cal.month);
   }, [reveal, s.section.kind, s.cal.year, s.cal.month]);
-  const groups: { title: string; entries: Entry[] }[] = [
-    {
-      title: "Library",
-      entries: [
-        { key: "all", label: "All items", section: { kind: "all" } },
-        ...tree.nodes.map((c) => ({
+  const treeEntries: Entry[] =
+    mode === "date"
+      ? cal.nodes.map((c) => ({
           key: `c${c.key}`,
           label: c.label,
           count: c.count,
           section: { kind: "calendar" } as Section,
           cal: c,
-        })),
-      ],
+        }))
+      : folders.nodes.map((f) => ({
+          key: f.key,
+          label: f.label,
+          count: f.count,
+          status: f.online === undefined ? undefined : f.online ? "online" : "offline",
+          section:
+            f.path === null
+              ? ({ kind: "volume", id: f.volume, title: f.label } as Section)
+              : ({
+                  kind: "folder",
+                  id: f.volume,
+                  path: f.path,
+                  title: folderTitle(data?.volumes ?? [], f.volume, f.path),
+                } as Section),
+          fold: f,
+        }));
+  const groups: { title: string; entries: Entry[]; switcher?: boolean }[] = [
+    {
+      title: "Library",
+      switcher: true,
+      entries: [{ key: "all", label: "All items", section: { kind: "all" } }, ...treeEntries],
     },
     {
       title: "Events",
@@ -72,14 +131,18 @@ export function Sidebar() {
       })),
     },
     {
+      // In the folder tree the volumes are its roots already.
       title: "Volumes",
-      entries: (data?.volumes ?? []).map((v) => ({
-        key: `v${v.id}`,
-        label: v.label,
-        count: v.count,
-        status: v.online ? "online" : "offline",
-        section: { kind: "volume", id: v.id, title: v.label },
-      })),
+      entries:
+        mode === "folder"
+          ? []
+          : (data?.volumes ?? []).map((v) => ({
+              key: `v${v.id}`,
+              label: v.label,
+              count: v.count,
+              status: v.online ? "online" : "offline",
+              section: { kind: "volume", id: v.id, title: v.label },
+            })),
     },
     {
       title: "Tools",
@@ -130,8 +193,17 @@ export function Sidebar() {
     setFocus(i);
     nav.current?.querySelector<HTMLButtonElement>(`[data-entry="${i}"]`)?.focus();
   };
+  const setExpanded = (e: Entry, on: boolean) => {
+    if (e.cal) cal.setExpanded(e.cal.key, on);
+    else if (e.fold) folders.setExpanded(e.fold.key, on);
+  };
   const openEntry = (e: Entry) => {
     const c = e.cal;
+    if (e.fold) {
+      dispatch({ t: "section", section: e.section });
+      if (e.fold.expanded === false) folders.setExpanded(e.fold.key, true);
+      return;
+    }
     if (!c) {
       if (e.screen) dispatch({ t: "screen", screen: e.screen });
       else dispatch({ t: "section", section: e.section });
@@ -145,23 +217,24 @@ export function Sidebar() {
     }
     if (c.key === "cal") dispatch({ t: "section", section: { kind: "calendar" } });
     dispatch({ t: "cal", cal: { year: c.year, month: c.month, day: c.day } });
-    if (c.expanded === false) tree.setExpanded(c.key, true);
+    if (c.expanded === false) cal.setExpanded(c.key, true);
   };
   const onKey = (e: React.KeyboardEvent) => {
-    const c = flat[focus]?.cal;
+    const entry = flat[focus];
+    const c = nodeOf(entry);
     if (e.key === "ArrowDown") move(focus + 1);
     else if (e.key === "ArrowUp") move(focus - 1);
     else if (e.key === "Home") move(0);
     else if (e.key === "End") move(flat.length - 1);
     else if (e.key === "ArrowRight" && c) {
-      if (c.expanded === false) tree.setExpanded(c.key, true);
+      if (c.expanded === false) setExpanded(entry, true);
       else if (c.expanded) move(focus + 1);
     } else if (e.key === "ArrowLeft" && c) {
-      if (c.expanded) tree.setExpanded(c.key, false);
+      if (c.expanded) setExpanded(entry, false);
       else if (c.depth > 0) {
         // Up to the parent node.
         for (let i = focus - 1; i >= 0; i--) {
-          const p = flat[i].cal;
+          const p = nodeOf(flat[i]);
           if (p && p.depth < c.depth) {
             move(i);
             break;
@@ -178,16 +251,41 @@ export function Sidebar() {
         g.entries.length === 0 ? null : (
           <section key={g.title}>
             <h3>{g.title}</h3>
+            {g.switcher && (
+              <div
+                className="segmented tree-mode"
+                role="group"
+                aria-label="Show the library"
+                data-testid="tree-mode"
+              >
+                {(
+                  [
+                    ["date", "By date"],
+                    ["folder", "By folder"],
+                  ] as const
+                ).map(([m, label]) => (
+                  <button
+                    key={m}
+                    aria-pressed={mode === m}
+                    onClick={() => setMode(m)}
+                    onKeyDown={(ev) => ev.stopPropagation()}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <ul>
               {g.entries.map((e) => {
                 n += 1;
                 const i = n;
-                const c = e.cal;
+                const c = nodeOf(e);
                 return (
                   <li key={e.key}>
                     <button
                       data-entry={i}
-                      data-cal={c?.key}
+                      data-cal={e.cal?.key}
+                      data-folder={e.fold?.path ?? undefined}
                       tabIndex={i === focus ? 0 : -1}
                       aria-current={isActive(e) ? "page" : undefined}
                       aria-expanded={c?.expanded}
@@ -210,7 +308,7 @@ export function Sidebar() {
                             // The arrow only opens or closes; the label opens the level.
                             ev.stopPropagation();
                             setFocus(i);
-                            tree.setExpanded(c.key, !c.expanded);
+                            setExpanded(e, !c.expanded);
                           }}
                         >
                           {c.expanded === undefined ? "" : c.expanded ? "▾" : "▸"}
@@ -235,4 +333,10 @@ export function Sidebar() {
       )}
     </nav>
   );
+}
+
+/** "Pictures › 2025 › May" for the heading. */
+function folderTitle(volumes: SidebarData["volumes"], volume: string, path: string): string {
+  const label = volumes.find((v) => v.id === volume)?.label ?? "";
+  return [label, ...path.split("/")].filter(Boolean).join(" › ");
 }

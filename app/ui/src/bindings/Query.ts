@@ -8,4 +8,8 @@ export type Query = { text: string | null,
 /**
  * First local capture day, `YYYY-MM-DD`.
  */
-from: string | null, to: string | null, camera: string | null, lens: string | null, kind: KindFilter | null, minRating: number | null, label: string | null, event: string | null, volume: string | null, session: string | null, undated: boolean, };
+from: string | null, to: string | null, camera: string | null, lens: string | null, kind: KindFilter | null, minRating: number | null, label: string | null, event: string | null, volume: string | null, 
+/**
+ * With `volume`: this folder of it and below (`2025/May`).
+ */
+folder?: string, session: string | null, undated: boolean, };
