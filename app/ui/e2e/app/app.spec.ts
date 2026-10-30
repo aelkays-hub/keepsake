@@ -151,6 +151,10 @@ test("a card insert opens the import window; import ends SAFE TO FORMAT", async 
 });
 
 test("300,000 items stay virtualized in the real app", async () => {
+  // Seeding 300,000 items is setup, not what is measured: on a slow CI
+  // runner it alone took over four minutes (the timings below have their
+  // own limits).
+  test.setTimeout(600_000);
   const n = Number(process.env.KEEPSAKE_UI_SEED ?? 300000);
   test.skip(
     !fs.existsSync(exe("keepsake", "release")) && n > 50000,
