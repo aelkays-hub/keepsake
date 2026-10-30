@@ -1,15 +1,17 @@
 // The full-screen viewer for the focused item.
 //
-// Photos: the preview fits the window; Z, a click or the mouse wheel zooms
-// to 100% from a full-size picture made on demand (a RAW is decoded by
-// LibRaw). Drag or arrows pan while zoomed. R toggles JPEG | RAW for pairs.
+// Photos: the preview fits the window. The zoom bar (Fit, -, a slider up to
+// 400%, +, 100%), the + and - keys and the mouse wheel zoom; Z or a click
+// switch between Fit and 100%. Zoom shows a full-size picture made on demand
+// (a RAW is decoded by LibRaw). Drag or arrows pan while zoomed. R toggles
+// JPEG | RAW for pairs.
 // Video: the proxy with a scrub bar, Space play/pause, , and . step one
 // frame, J and L jump a second, and the timecode of the frame on screen.
 // Arrows (when not zoomed) move through the selection, or the whole view
 // when one item is selected. F: full screen. Esc: close. 0–5 and 6–9 rate
 // and label the item shown; Ctrl+O opens it in another application.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   api,
@@ -182,6 +184,22 @@ function VideoStage({ d, onKeyRef }: { d: Details; onKeyRef: React.MutableRefObj
 
 type KeyFn = (e: KeyboardEvent) => boolean;
 
+/** The highest zoom, in percent of the picture's own pixels. */
+const MAX_ZOOM = 400;
+/** One step of + and −. */
+const STEP = 1.25;
+/** Slider positions: 0 is Fit, the end is the highest zoom (a log scale). */
+const SLIDER = 1000;
+
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+
+/** The full size guessed from a preview (fitted to 2560 px, never enlarged). */
+function guessFull(w: number, h: number): [number, number] {
+  const long = Math.max(w, h);
+  const f = long >= 2500 ? 6000 / long : 1;
+  return [w * f, h * f];
+}
+
 function PhotoStage({
   d,
   members,
@@ -193,17 +211,31 @@ function PhotoStage({
   member: MemberDto;
   onKeyRef: React.MutableRefObject<KeyFn>;
 }) {
-  const [zoom, setZoom] = useState(false);
+  /** "fit", or a percentage of the picture's own pixels (100: one per screen pixel). */
+  const [zoom, setZoomState] = useState<"fit" | number>("fit");
   const [full, setFull] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Natural size of the picture on screen (for the `src` it was read from). */
+  const [nat, setNat] = useState<{ w: number; h: number; src: string } | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
   const stage = useRef<HTMLDivElement>(null);
-  const focal = useRef<[number, number]>([0.5, 0.5]);
+  /** The picture point to keep in place across a zoom change. */
+  const anchor = useRef<{ fx: number; fy: number; px: number; py: number } | null>(null);
   const drag = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean } | null>(
     null,
   );
+  useLayoutEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, []);
   // A RAW member has no preview of its own: it is always the full decode.
-  const needFull = zoom || member === "raw" || (members?.rawOnly ?? false);
+  const needFull = zoom !== "fit" || member === "raw" || (members?.rawOnly ?? false);
   const key = `${d.id}:${member}`;
   useEffect(() => {
     if (!needFull || full[key] || !d.online) return;
@@ -219,30 +251,79 @@ function PhotoStage({
       live = false;
     };
   }, [needFull, key, d.id, d.online, member, full]);
-  const shown = needFull && full[key] ? fileUrl(full[key]) : fileUrl(d.preview);
-  const zoomed = zoom && !!full[key];
-  const zoomAt = (clientX: number, clientY: number, on: boolean) => {
-    const img = stage.current?.querySelector("img");
-    if (on && img) {
-      const r = img.getBoundingClientRect();
-      focal.current = [
-        Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
-        Math.max(0, Math.min(1, (clientY - r.top) / r.height)),
-      ];
-    }
-    setZoom(on);
-  };
-  const recentre = () => {
+  const haveFull = !!full[key];
+  // Once made, the full size is shown at Fit too (sharper on big screens).
+  const shown = haveFull ? fileUrl(full[key]) : fileUrl(d.preview);
+  const size = nat && nat.src === shown ? nat : null;
+  const dpr = window.devicePixelRatio || 1;
+  // The picture zoom works on: the full size, or the preview when its drive is away.
+  const fitKnown = size !== null && (haveFull || !d.online);
+  // Fit never enlarges: at most 100%. Until the full size is here, a guess
+  // from the preview (made at most 2560 px; a camera picture is about 6000).
+  const fitOf = (w: number, h: number) =>
+    box.w > 0 && box.h > 0 ? Math.min(100, Math.min(box.w / w, box.h / h) * dpr * 100) : 100;
+  const fitPct = !size
+    ? 100
+    : fitKnown
+      ? fitOf(size.w, size.h)
+      : fitOf(...guessFull(size.w, size.h));
+  const hi = Math.max(MAX_ZOOM, fitPct * 2);
+  const zoomed = zoom !== "fit" && fitKnown;
+  const setZoom = (z: "fit" | number, at?: { x: number; y: number }) => {
     const s = stage.current;
-    if (!s || !zoomed) return;
-    s.scrollLeft = focal.current[0] * s.scrollWidth - s.clientWidth / 2;
-    s.scrollTop = focal.current[1] * s.scrollHeight - s.clientHeight / 2;
+    const img = s?.querySelector("img");
+    if (s && img) {
+      const sr = s.getBoundingClientRect();
+      const r = img.getBoundingClientRect();
+      const x = at?.x ?? sr.left + sr.width / 2;
+      const y = at?.y ?? sr.top + sr.height / 2;
+      anchor.current = {
+        fx: clamp01((x - r.left) / r.width),
+        fy: clamp01((y - r.top) / r.height),
+        px: x - sr.left,
+        py: y - sr.top,
+      };
+    }
+    // At or below Fit is Fit (only once Fit is known: not on a guess).
+    setZoomState(z === "fit" || (fitKnown && z <= fitPct * 1.001) ? "fit" : Math.min(hi, z));
   };
+  const current = zoom === "fit" ? fitPct : zoom;
+  const zoomBy = (f: number, at?: { x: number; y: number }) => setZoom(current * f, at);
+  // After a zoom, put the anchored picture point back under the pointer (or centre).
+  useLayoutEffect(() => {
+    const s = stage.current;
+    const a = anchor.current;
+    const img = s?.querySelector("img");
+    if (!s || !a || !img || !zoomed) return;
+    s.scrollLeft = img.offsetLeft + a.fx * img.offsetWidth - a.px;
+    s.scrollTop = img.offsetTop + a.fy * img.offsetHeight - a.py;
+    anchor.current = null;
+  }, [zoomed, zoom, size]);
+  // The wheel zooms around the pointer (a native listener, to stop the page scrolling).
+  const wheel = useRef<(e: WheelEvent) => void>(() => undefined);
+  wheel.current = (e) => {
+    e.preventDefault();
+    zoomBy(Math.exp(-e.deltaY * 0.0015), { x: e.clientX, y: e.clientY });
+  };
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const on = (e: WheelEvent) => wheel.current(e);
+    el.addEventListener("wheel", on, { passive: false });
+    return () => el.removeEventListener("wheel", on);
+  }, []);
   onKeyRef.current = (e) => {
     const s = stage.current;
     if (e.key === "z" || e.key === "Z") {
-      focal.current = [0.5, 0.5];
-      setZoom((z) => !z);
+      setZoom(zoom === "fit" ? 100 : "fit");
+      return true;
+    }
+    if (e.key === "+" || e.key === "=") {
+      zoomBy(STEP);
+      return true;
+    }
+    if (e.key === "-") {
+      zoomBy(1 / STEP);
       return true;
     }
     if (zoomed && s) {
@@ -261,73 +342,127 @@ function PhotoStage({
     }
     return false;
   };
+  const span = Math.log(hi / fitPct);
+  const pos = zoom === "fit" ? 0 : Math.round((SLIDER * Math.log(zoom / fitPct)) / span);
+  const fromPos = (p: number) => (p <= 0 ? "fit" : fitPct * Math.exp((p / SLIDER) * span));
+  const level =
+    zoom === "fit" ? (fitKnown ? `Fit (${Math.round(fitPct)}%)` : "Fit") : `${Math.round(zoom)}%`;
+  const imgStyle =
+    zoomed && size
+      ? { width: (size.w * zoom) / 100 / dpr, height: (size.h * zoom) / 100 / dpr }
+      : undefined;
   return (
-    <div
-      ref={stage}
-      className={`viewer-stage${zoomed ? " zoomed" : ""}`}
-      data-testid="viewer-stage"
-      data-zoom={zoomed ? "100" : "fit"}
-      onWheel={(e) => {
-        if (e.deltaY < 0 && !zoom) zoomAt(e.clientX, e.clientY, true);
-        else if (e.deltaY > 0 && zoom) setZoom(false);
-      }}
-      onMouseDown={(e) => {
-        const s = stage.current;
-        if (!s || e.button !== 0) return;
-        drag.current = {
-          x: e.clientX,
-          y: e.clientY,
-          sx: s.scrollLeft,
-          sy: s.scrollTop,
-          moved: false,
-        };
-      }}
-      onMouseMove={(e) => {
-        const g = drag.current;
-        const s = stage.current;
-        if (!g || !s) return;
-        if (Math.abs(e.clientX - g.x) + Math.abs(e.clientY - g.y) > 4) g.moved = true;
-        if (zoomed && g.moved) {
-          s.scrollLeft = g.sx - (e.clientX - g.x);
-          s.scrollTop = g.sy - (e.clientY - g.y);
-        }
-      }}
-      onMouseUp={(e) => {
-        const g = drag.current;
-        drag.current = null;
-        if (g && !g.moved) zoomAt(e.clientX, e.clientY, !zoom);
-      }}
-    >
-      {shown && (
-        <img
-          src={shown}
-          alt={d.name ?? ""}
-          data-testid="viewer-image"
-          data-member={member}
-          data-full={needFull && full[key] ? "1" : "0"}
-          draggable={false}
-          onLoad={(e) => {
-            const img = e.currentTarget;
-            if (zoomed) {
-              // 100%: one picture pixel per screen pixel.
-              img.style.width = `${img.naturalWidth / window.devicePixelRatio}px`;
-              requestAnimationFrame(recentre);
-            } else img.style.width = "";
-          }}
-          style={zoomed ? undefined : { width: "" }}
+    <div className="viewer-photo">
+      <div
+        ref={stage}
+        className={`viewer-stage${zoomed ? " zoomed" : ""}`}
+        data-testid="viewer-stage"
+        data-zoom={zoomed ? String(Math.round(zoom)) : "fit"}
+        onMouseDown={(e) => {
+          const s = stage.current;
+          if (!s || e.button !== 0) return;
+          drag.current = {
+            x: e.clientX,
+            y: e.clientY,
+            sx: s.scrollLeft,
+            sy: s.scrollTop,
+            moved: false,
+          };
+        }}
+        onMouseMove={(e) => {
+          const g = drag.current;
+          const s = stage.current;
+          if (!g || !s) return;
+          if (Math.abs(e.clientX - g.x) + Math.abs(e.clientY - g.y) > 4) g.moved = true;
+          if (zoomed && g.moved) {
+            s.scrollLeft = g.sx - (e.clientX - g.x);
+            s.scrollTop = g.sy - (e.clientY - g.y);
+          }
+        }}
+        onMouseUp={(e) => {
+          const g = drag.current;
+          drag.current = null;
+          if (g && !g.moved) setZoom(zoom === "fit" ? 100 : "fit", { x: e.clientX, y: e.clientY });
+        }}
+      >
+        {shown && (
+          <img
+            src={shown}
+            alt={d.name ?? ""}
+            data-testid="viewer-image"
+            data-member={member}
+            data-full={haveFull ? "1" : "0"}
+            draggable={false}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              setNat({ w: img.naturalWidth, h: img.naturalHeight, src: img.src });
+            }}
+            style={imgStyle}
+          />
+        )}
+        {(loading || error || !d.online) && (
+          <p className="viewer-note" role="status">
+            {error
+              ? error
+              : !d.online
+                ? "The drive with this photo is not connected: showing the preview."
+                : member === "raw" || members?.rawOnly
+                  ? "Decoding the RAW…"
+                  : "Loading full size…"}
+          </p>
+        )}
+      </div>
+      <div className="viewer-controls viewer-zoom" role="group" aria-label="Zoom">
+        <button
+          onClick={() => setZoom("fit")}
+          aria-pressed={zoom === "fit"}
+          title="Fit the window (Z)"
+          data-testid="zoom-fit"
+        >
+          Fit
+        </button>
+        <button
+          onClick={() => zoomBy(1 / STEP)}
+          disabled={zoom === "fit"}
+          aria-label="Zoom out"
+          title="Zoom out (−)"
+          data-testid="zoom-out"
+        >
+          −
+        </button>
+        <input
+          type="range"
+          className="zoom-slider"
+          aria-label="Zoom"
+          aria-valuetext={level}
+          min={0}
+          max={SLIDER}
+          step={1}
+          value={Math.max(0, Math.min(SLIDER, pos))}
+          onChange={(e) => setZoom(fromPos(Number(e.target.value)))}
+          data-testid="zoom-slider"
         />
-      )}
-      {(loading || error || !d.online) && (
-        <p className="viewer-note" role="status">
-          {error
-            ? error
-            : !d.online
-              ? "The drive with this photo is not connected: showing the preview."
-              : member === "raw" || members?.rawOnly
-                ? "Decoding the RAW…"
-                : "Loading full size…"}
-        </p>
-      )}
+        <button
+          onClick={() => zoomBy(STEP)}
+          disabled={zoom !== "fit" && zoom >= hi}
+          aria-label="Zoom in"
+          title="Zoom in (+)"
+          data-testid="zoom-in"
+        >
+          +
+        </button>
+        <button
+          onClick={() => setZoom(100)}
+          aria-pressed={zoom === 100}
+          title="Actual pixels: one picture pixel per screen pixel (Z)"
+          data-testid="zoom-100"
+        >
+          100%
+        </button>
+        <span className="muted zoom-level" data-testid="zoom-level" aria-live="polite">
+          {level}
+        </span>
+      </div>
     </div>
   );
 }
@@ -408,6 +543,14 @@ export function Viewer() {
 
   const onKey = (e: React.KeyboardEvent) => {
     const k = e.nativeEvent;
+    // A slider (zoom, video position) takes its own arrow keys.
+    const t = e.target as HTMLElement;
+    if (
+      t instanceof HTMLInputElement &&
+      t.type === "range" &&
+      /^(Arrow|Home$|End$|Page)/.test(e.key)
+    )
+      return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
       openElsewhere();
     } else if (e.ctrlKey || e.metaKey || e.altKey) {
@@ -509,7 +652,8 @@ export function Viewer() {
           ‹
         </button>
         <span className="muted">
-          ← → move · Z zoom · {d?.kind === "video" ? "Space play · , . frame · J L second · " : ""}
+          ← → move · {d?.kind === "video" ? "" : "Z fit/100% · + − zoom · "}
+          {d?.kind === "video" ? "Space play · , . frame · J L second · " : ""}
           {members?.hasPair ? "R JPEG/RAW · " : ""}F full screen · Esc close
         </span>
         {note && (

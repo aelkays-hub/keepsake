@@ -94,6 +94,8 @@ dto! {
         pub label: Option<String>,
         /// Path of the 256 px thumbnail, if made (use `convertFileSrc`).
         pub thumb: Option<String>,
+        /// Path of the 1024 px thumbnail, if made: for large grid tiles.
+        pub thumb_large: Option<String>,
         /// A volume holding the original is mounted.
         pub online: bool,
     }

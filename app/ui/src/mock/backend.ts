@@ -39,6 +39,8 @@ const svg = (h: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="171"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h},60%,55%)"/><stop offset="1" stop-color="hsl(${(h + 60) % 360},60%,35%)"/></linearGradient></defs><rect width="256" height="171" fill="url(#g)"/></svg>`,
   );
 const THUMBS = Array.from({ length: 16 }, (_, i) => svg(i * 22));
+/** The 1024 px thumbnails: the same picture, marked so tests can tell. */
+const BIG_THUMBS = THUMBS.map((t) => `${t}#large`);
 
 /** A 4000 × 3000 "full-size" picture with a grid, to see zoom and pan. */
 const fullSvg = (h: number, raw: boolean) =>
@@ -182,6 +184,7 @@ export function installMock(): void {
     rating: rating(it),
     label: label(it),
     thumb: THUMBS[it.i % 16],
+    thumbLarge: BIG_THUMBS[it.i % 16],
     online: it.online,
   });
   /** The folder an item is in, on its volume: `2024/2024-06`, or `Undated`. */

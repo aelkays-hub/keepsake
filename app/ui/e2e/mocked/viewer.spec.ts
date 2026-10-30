@@ -102,6 +102,94 @@ test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) =
   expect(await calls(page, "full_image")).toHaveLength(1);
 });
 
+test("the zoom slider, + and −, Fit and 100%", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  const level = page.getByTestId("zoom-level");
+  const slider = page.getByTestId("zoom-slider");
+  /** Picture pixels per screen pixel × 100. */
+  const shownPct = () =>
+    img.evaluate((e: HTMLImageElement) =>
+      Math.round((e.getBoundingClientRect().width * devicePixelRatio * 100) / 4000),
+    );
+  await expect(level).toHaveText("Fit");
+  await expect(slider).toHaveValue("0");
+
+  // The slider's end: 400%, from the full-size picture.
+  await slider.fill("1000");
+  await expect(stage).toHaveAttribute("data-zoom", "400");
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(level).toHaveText("400%");
+  await expect.poll(shownPct).toBe(400);
+  expect(await calls(page, "full_image")).toHaveLength(1);
+
+  // − steps down; + steps up.
+  await page.getByTestId("zoom-out").click();
+  await expect(stage).toHaveAttribute("data-zoom", "320");
+  await page.keyboard.press("-");
+  await expect(stage).toHaveAttribute("data-zoom", "256");
+  await page.keyboard.press("+");
+  await expect(stage).toHaveAttribute("data-zoom", "320");
+  await expect.poll(shownPct).toBe(320);
+
+  // 100%: one picture pixel per screen pixel.
+  await page.getByTestId("zoom-100").click();
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  await expect.poll(shownPct).toBe(100);
+
+  // Fit: the whole picture in the window, with its percentage.
+  await page.getByTestId("zoom-fit").click();
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  await expect(slider).toHaveValue("0");
+  await expect(level).toHaveText(/^Fit \(\d+%\)$/);
+  const box = await stage.boundingBox();
+  const r = await img.boundingBox();
+  expect(r!.width).toBeLessThanOrEqual(box!.width + 1);
+  expect(r!.height).toBeLessThanOrEqual(box!.height + 1);
+
+  // The middle of the slider is between Fit and 400%.
+  const fit = Number((await level.textContent())?.match(/\d+/)?.[0]);
+  expect(fit).toBeLessThan(100);
+  await slider.fill("500");
+  const mid = Number(await stage.getAttribute("data-zoom"));
+  expect(mid).toBeGreaterThan(fit);
+  expect(mid).toBeLessThan(400);
+
+  // On the slider, arrows move the slider, not to another item or the picture.
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(slider).toHaveValue("501");
+  await expect(page.getByTestId("viewer")).toBeVisible();
+  // The full size was fetched once.
+  expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("the wheel zooms in and out around the pointer", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const box = (await stage.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let n = 0; n < 6; n++) await page.mouse.wheel(0, -200);
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "1");
+  await expect.poll(async () => Number(await stage.getAttribute("data-zoom"))).toBeGreaterThan(0);
+  const z = Number(await stage.getAttribute("data-zoom"));
+  // Zoomed on the middle: the picture is scrolled to its middle.
+  const mid = await stage.evaluate((e) => (e.scrollLeft + e.clientWidth / 2) / e.scrollWidth);
+  expect(mid).toBeGreaterThan(0.4);
+  expect(mid).toBeLessThan(0.6);
+  for (let n = 0; n < 2; n++) await page.mouse.wheel(0, 200);
+  await expect.poll(async () => Number(await stage.getAttribute("data-zoom"))).toBeLessThan(z);
+  for (let n = 0; n < 30; n++) await page.mouse.wheel(0, 200);
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  // Still the same item.
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 1");
+});
+
 test("a RAW + JPEG pair is one item with a JPEG | RAW toggle", async ({ page }) => {
   const i = find((x) => kindOf(x) === "raw" && x % 2 === 0 && online(x));
   await openLibrary(page);

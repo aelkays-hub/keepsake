@@ -15,6 +15,7 @@ const row: Row = {
   rating: 4,
   label: "Red",
   thumb: null,
+  thumbLarge: null,
   online: false,
 };
 

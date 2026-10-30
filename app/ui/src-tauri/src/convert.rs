@@ -128,6 +128,7 @@ pub fn row(r: &BrowseRow, cache: &Cache, online: &HashSet<VolumeId>) -> Row {
         rating: r.rating,
         label: r.label.clone(),
         thumb: cached(cache, r.source_hash.as_ref(), Variant::Thumb256),
+        thumb_large: cached(cache, r.source_hash.as_ref(), Variant::Thumb1024),
         online: r.volumes.iter().any(|v| online.contains(v)),
     }
 }
