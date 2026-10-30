@@ -30,6 +30,9 @@ function hashParam(name: string): string | null {
 
 const mountFromHash = () => hashParam("mount");
 
+/** Seconds a good automatic import's window stays before closing. */
+const AUTO_CLOSE_S = 5;
+
 function CardTile({
   mount,
   item,
@@ -99,6 +102,10 @@ export function ImportWindow() {
   const [auto, setAuto] = useState(hashParam("auto") === "1");
   const [prefs, setPrefs] = useState<ImportPrefs | null>(null);
   const [autoNote, setAutoNote] = useState<string | null>(null);
+  // After a good automatic import (or nothing new), the window closes by
+  // itself after a few seconds, unless asked to stay.
+  const [closeIn, setCloseIn] = useState<number | null>(null);
+  const keepOpen = useRef(false);
   const autoStarted = useRef(false);
 
   useEffect(() => {
@@ -125,6 +132,8 @@ export function ImportWindow() {
   }, []);
   useEffect(() => {
     autoStarted.current = false;
+    keepOpen.current = false;
+    setCloseIn(null);
     setAutoNote(null);
     if (!auto) return;
     api
@@ -233,6 +242,7 @@ export function ImportWindow() {
     if (selected.size === 0) {
       setAutoNote("Nothing new on this card: everything is already in your library.");
       autoStarted.current = true;
+      if (!keepOpen.current) setCloseIn(AUTO_CLOSE_S);
       return;
     }
     if (!check.ok) {
@@ -245,6 +255,26 @@ export function ImportWindow() {
     // `start` uses the current request; `check` follows it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDest, prefs, scan, check, selected, template, reqKey, running, result]);
+
+  // A good automatic import: no error, nothing failed, not stopped.
+  const autoDone =
+    !!autoDest && !!result && !result.error && !result.cancelled && result.failed.length === 0;
+  useEffect(() => {
+    if (autoDone && !keepOpen.current) setCloseIn(AUTO_CLOSE_S);
+  }, [autoDone]);
+  useEffect(() => {
+    if (closeIn === null) return;
+    if (closeIn <= 0) {
+      window.close();
+      return;
+    }
+    const t = setTimeout(() => setCloseIn((n) => (n === null ? null : n - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [closeIn]);
+  const stayOpen = () => {
+    keepOpen.current = true;
+    setCloseIn(null);
+  };
 
   const start = () => {
     if (!request) return;
@@ -485,6 +515,12 @@ export function ImportWindow() {
         >
           {result.error ? (
             <p>Import failed: {result.error}</p>
+          ) : autoDone && !result.safeToFormat ? (
+            <p>
+              ✅ Copied {fmt.plural(Number(result.catalogued), "item")} to{" "}
+              <strong>{autoDest}</strong>, each checked. One copy only: the card is{" "}
+              <strong>NOT safe to format</strong>.
+            </p>
           ) : result.safeToFormat ? (
             <p>
               ✅ <strong>SAFE TO FORMAT</strong>: all {fmt.count(Number(result.catalogued))} assets
@@ -510,6 +546,14 @@ export function ImportWindow() {
             </>
           )}
         </section>
+      )}
+      {closeIn !== null && (
+        <p className="row auto-close" role="status" data-testid="auto-close">
+          Closing in {closeIn} s…
+          <button onClick={stayOpen} data-testid="keep-open">
+            Keep open
+          </button>
+        </p>
       )}
     </main>
   );

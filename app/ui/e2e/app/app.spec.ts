@@ -190,10 +190,14 @@ test("a card imports by itself into year / month / day, and the app stays respon
     await expect(imp.getByTestId("result")).toContainText("NOT safe to format", {
       timeout: 120_000,
     });
-    // Both windows still answer, and keep answering while thumbnails are made.
+    await expect(imp.getByTestId("result")).toContainText("Copied 5 items to");
+    // A good automatic import closes its window by itself.
+    await expect(imp.getByTestId("auto-close")).toContainText("Closing in");
+    await expect.poll(() => imp.isClosed(), { timeout: 15_000 }).toBe(true);
+    // The main window still answers, and keeps answering while thumbnails are made.
     const main = await app.page("main");
     for (let i = 0; i < 60; i++) {
-      for (const p of [imp, main]) {
+      for (const p of [main]) {
         const t0 = Date.now();
         await p.evaluate(() => 1);
         expect(Date.now() - t0, "a window stopped responding").toBeLessThan(2000);
@@ -201,9 +205,7 @@ test("a card imports by itself into year / month / day, and the app stays respon
       await main.waitForTimeout(300);
     }
     await expect(main.getByTestId("count")).toHaveText("6 items");
-    // Close shuts the import window.
-    await imp.getByRole("button", { name: "Close", exact: true }).click();
-    await expect.poll(() => imp.isClosed(), { timeout: 10_000 }).toBe(true);
+
     await main.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
     await main.getByTestId("sidebar").locator("button.cal-node").first().click();
     await expect(main.locator("button[data-folder]").first()).toBeVisible();
