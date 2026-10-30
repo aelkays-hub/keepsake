@@ -27,7 +27,10 @@ cd app/ui; pnpm test; pnpm exec playwright test e2e/mocked/auto-import.spec.ts -
    - the Import window opens and says "Importing new items automatically to E:\Pictures, in folders by year, month and day";
    - it starts by itself, with no clicks;
    - only new items are copied; items already in the library are left on the card;
-   - it ends with "NOT safe to format" (one copy only).
+   - it ends with "Copied N items to E:\Pictures" and "NOT safe to format" (one copy only);
+   - "Closing in 5 s…" counts down and the window closes by itself;
+   - **Keep open** stops the countdown;
+   - if anything failed, or you pressed Stop, it stays open.
 3. In Explorer, open `E:\Pictures\<year>\<Month>\<year-month-day>\`.
    **Expected:**
    - the photos are there; any missing year, month or day folders were made;

@@ -59,6 +59,7 @@
 - **UI:**
   - Settings → **When a card is inserted**: ask, or copy automatically; where to; the folder layout (Year › Month › Day, Year › Day, or custom) with an example ("A photo taken today goes to E:\Pictures\2026\October\2026-10-30\A7400123.ARW").
   - In automatic mode the import window shows where items are going and starts by itself. "Nothing new" and failed checks are explained.
+  - After a good import (or nothing new) it says "Copied N items to …" and closes itself in 5 s; **Keep open** stops that. After an error, a failed file or Stop, it stays open.
 - ADR-027.
 
 ### Tests
