@@ -98,4 +98,15 @@ Also:
 
 In the real app, keystroke-to-results went from 418–581 ms to 109–233 ms. The calendar years went from 388 ms to 137 ms.
 
+## Viewer zoom (2026-10-30)
+
+A 6000 × 4000 JPEG (24 MP, upright), debug app, the same PC (`app/ui/e2e/app/zoom-perf.spec.ts`):
+
+| Measure | Result | Limit |
+|---|---:|---:|
+| Photo opened to its full size on screen, no zoom asked for (background, after the 500 ms wait) | 0.86 s | 3 s |
+| Zoom slider step to the frame that shows it (90th percentile; two frames at 60 Hz is the floor of the measure) | 34 ms | 50 ms |
+
+Before: the full size was made only when zoom was asked for, by decoding and re-encoding the JPEG (seconds for 24 MP), and the zoomed picture was a scrolled, re-laid-out `<img>`. Now an upright JPEG is copied, it is made in the background, decoded off the main thread before it is shown, and zoom is a CSS transform.
+
 CI runs the core scale test on every push with the limits doubled (`KEEPSAKE_SCALE_SLACK=2`).

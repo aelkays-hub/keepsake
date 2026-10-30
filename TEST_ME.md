@@ -1,8 +1,38 @@
-# Manual Test Steps — Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faster zoom in the viewer
+
+Automated:
+```
+cd app/ui; pnpm exec playwright test e2e/mocked/viewer.spec.ts --project=mocked
+cd app/ui; pnpm exec playwright test e2e/app/zoom-perf.spec.ts --project=app
+```
+**Expected:** all pass (the second is Windows-only and needs the debug app built; it prints a timing table).
+
+Use a large camera JPEG (20 MP or more) on a plugged-in drive.
+
+1. Open the photo in the viewer and wait one second without touching anything.
+   **Expected:** no "Loading full size…" note appears; the picture may get slightly sharper as the full size replaces the preview.
+2. Press **Z**.
+   **Expected:** 100% at once, with no wait and no note.
+3. Turn the mouse wheel quickly up and down over a detail.
+   **Expected:** the zoom keeps up smoothly; the detail stays under the pointer; no stutter or white flash.
+4. Drag the zoom slider end to end quickly.
+   **Expected:** the picture follows the slider smoothly.
+5. Zoom in and drag the picture to a corner, then further.
+   **Expected:** it stops at the picture's edge; no empty gap opens beside it. Zoomed out below the window size, it sits centred.
+6. Open a photo shot in portrait (camera turned).
+   **Expected:** upright at Fit and at 100%.
+7. Open a photo on an unplugged drive.
+   **Expected:** the preview shows with the offline note; zoom enlarges the preview; nothing hangs.
+8. Check the original files' modified time in Explorer / Finder before and after.
+   **Expected:** unchanged.
 
 ---
 
@@ -14,8 +44,8 @@ cd app/ui; pnpm exec playwright test e2e/mocked/thumb-size.spec.ts --project=moc
 ```
 **Expected:** all pass.
 
-1. Open Grid view (Ctrl+2). At the right of the toolbar, next to Calendar | Grid | Details, are three square buttons: small, medium and large.
-   **Expected:** the middle (Medium) is highlighted.
+1. Open Grid view (Ctrl+2). At the right of the toolbar, next to Calendar | Grid | Details, is "Thumbnails" with three buttons: **Small**, **Medium** and **Large**, each with a square icon.
+   **Expected:** Medium is highlighted.
 2. Click the large one.
    **Expected:**
    - fewer, bigger tiles (about 280 px);
@@ -47,7 +77,7 @@ cd app/ui; pnpm exec playwright test e2e/mocked/viewer.spec.ts --project=mocked
 2. Drag the slider to the right.
    **Expected:**
    - the picture grows from the middle of the window;
-   - "Loading full size…" shows briefly the first time (a RAW: "Decoding the RAW…");
+   - if you drag within half a second of opening, "Loading full size…" may show briefly (a RAW: "Decoding the RAW…"); after that, no note;
    - the level reads a percentage, up to 400% at the end.
 3. Drag the picture, or use the arrow keys.
    **Expected:** it pans; you stay on the same photo.

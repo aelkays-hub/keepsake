@@ -50,6 +50,21 @@ pub fn decode(bytes: &[u8], orientation: Option<Orientation>) -> Result<DynamicI
     Ok(img)
 }
 
+/// A JPEG that needs no turning: no EXIF orientation, or "upright". Reads
+/// the headers only. Anything else (another format, a broken file) is `false`.
+pub fn is_upright_jpeg(bytes: &[u8]) -> bool {
+    let Ok(reader) = ImageReader::new(Cursor::new(bytes)).with_guessed_format() else {
+        return false;
+    };
+    if reader.format() != Some(image::ImageFormat::Jpeg) {
+        return false;
+    }
+    match reader.into_decoder() {
+        Ok(mut d) => matches!(d.orientation(), Ok(Orientation::NoTransforms)),
+        Err(_) => false,
+    }
+}
+
 /// Fit within `long_edge` pixels (never enlarging), as 8-bit RGB.
 pub fn fit(img: &DynamicImage, long_edge: u32) -> Result<DynamicImage, RenderError> {
     let rgb = match img {
@@ -349,5 +364,17 @@ mod tests {
         assert_eq!((turned.width(), turned.height()), (2, 4));
         let same = decode(&jpeg, None).unwrap();
         assert_eq!((same.width(), same.height()), (4, 2));
+    }
+
+    #[test]
+    fn upright_jpegs_are_told_apart() {
+        let jpeg = encode_jpeg(&DynamicImage::ImageRgb8(RgbImage::new(4, 2))).unwrap();
+        assert!(is_upright_jpeg(&jpeg));
+        let mut png = Vec::new();
+        DynamicImage::ImageRgb8(RgbImage::new(4, 2))
+            .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        assert!(!is_upright_jpeg(&png));
+        assert!(!is_upright_jpeg(b"not a picture"));
     }
 }

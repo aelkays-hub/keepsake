@@ -1086,6 +1086,9 @@ fn full_size_is_the_whole_picture_upright_and_made_once() {
         assert_eq!(again, p);
         assert_eq!(std::fs::metadata(&again).unwrap().modified().unwrap(), made);
         assert!(p.starts_with(w.cache.root()));
+        // An upright JPEG is copied as it is (quick); a turned one is redrawn upright.
+        let same = std::fs::read(&p).unwrap() == std::fs::read(w.media.join(file)).unwrap();
+        assert_eq!(same, file == "wide.jpg", "{file}");
     }
     assert_eq!(tree(&w.media), before, "originals untouched");
 }

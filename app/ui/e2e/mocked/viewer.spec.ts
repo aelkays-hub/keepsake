@@ -76,7 +76,8 @@ test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) =
   const stage = page.getByTestId("viewer-stage");
   const img = page.getByTestId("viewer-image");
   await expect(stage).toHaveAttribute("data-zoom", "fit");
-  await expect(img).toHaveAttribute("data-full", "0");
+  // The preview first (the full size follows in the background).
+  await expect(img).toHaveAttribute("src", /width%3D%22256%22/);
   await page.keyboard.press("z");
   await expect(stage).toHaveAttribute("data-zoom", "100");
   await expect(img).toHaveAttribute("data-full", "1");
@@ -89,9 +90,12 @@ test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) =
       ),
     )
     .toBe(4000);
-  const left = await stage.evaluate((e) => e.scrollLeft);
+  const left = await img.evaluate((e) => e.getBoundingClientRect().left);
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => stage.evaluate((e) => e.scrollLeft)).toBeGreaterThan(left);
+  // → shows more to the right: the picture moves left.
+  await expect
+    .poll(() => img.evaluate((e) => e.getBoundingClientRect().left))
+    .toBeLessThan(left - 50);
   // Arrows pan while zoomed: still the same item.
   await expect(page.getByTestId("viewer-position")).toHaveText("1 of 1");
   await page.keyboard.press("z");
@@ -100,6 +104,35 @@ test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) =
   await img.click();
   await expect(stage).toHaveAttribute("data-zoom", "100");
   expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("a moment on a photo makes its full size in the background, without a note", async ({
+  page,
+}) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  // Still at Fit, the full size replaces the preview by itself.
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  expect(await calls(page, "full_image")).toEqual([{ id: `a${i}`, member: "primary" }]);
+  // No "making the full size" note for work nobody asked for.
+  await expect(page.locator(".viewer-note")).toHaveCount(0);
+  // Zooming now needs no second fetch.
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("an item on an unplugged drive is not fetched in the background", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && !online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  await page.waitForTimeout(1200);
+  expect(await calls(page, "full_image")).toEqual([]);
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "0");
 });
 
 test("the zoom slider, + and −, Fit and 100%", async ({ page }) => {
@@ -178,8 +211,9 @@ test("the wheel zooms in and out around the pointer", async ({ page }) => {
   await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "1");
   await expect.poll(async () => Number(await stage.getAttribute("data-zoom"))).toBeGreaterThan(0);
   const z = Number(await stage.getAttribute("data-zoom"));
-  // Zoomed on the middle: the picture is scrolled to its middle.
-  const mid = await stage.evaluate((e) => (e.scrollLeft + e.clientWidth / 2) / e.scrollWidth);
+  // Zoomed on the middle: the middle of the picture is still in the middle.
+  const r = (await page.getByTestId("viewer-image").boundingBox())!;
+  const mid = (box.x + box.width / 2 - r.x) / r.width;
   expect(mid).toBeGreaterThan(0.4);
   expect(mid).toBeLessThan(0.6);
   for (let n = 0; n < 2; n++) await page.mouse.wheel(0, 200);

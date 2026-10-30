@@ -257,8 +257,7 @@ textarea {
 .thumb-size button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
+  gap: 5px;
 }
 /* A square that grows with the size it stands for. */
 .thumb-icon {
@@ -775,20 +774,14 @@ textarea {
   max-height: 100%;
   object-fit: contain;
 }
-/* Zoomed: the picture scrolls; auto margins centre it while smaller than the
-   window without cutting off its top or left when larger. */
+/* Zoomed: the picture is placed and scaled with a transform (no layout per
+   step); it is dragged, not scrolled. */
 .viewer-stage.zoomed {
-  overflow: auto;
-  align-items: flex-start;
-  justify-content: flex-start;
   cursor: grab;
 }
-.viewer-stage.zoomed > img {
-  max-width: none;
-  max-height: none;
-  flex: none;
-  display: block;
-  margin: auto;
+/* On its own GPU layer while it moves; drawn sharp again when it stops. */
+.viewer-stage > img.moving {
+  will-change: transform;
 }
 .viewer-photo {
   display: grid;

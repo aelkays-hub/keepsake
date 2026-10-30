@@ -22,7 +22,9 @@ test("the switch sets Small, Medium and Large, and it is remembered", async ({ p
   await openLibrary(page);
   const grid = page.getByTestId("grid");
   const sizes = page.getByTestId("thumb-size");
-  // Medium to begin with.
+  // A labelled group of three named buttons; Medium to begin with.
+  await expect(page.getByRole("group", { name: "Thumbnails" })).toBeVisible();
+  await expect(sizes.getByRole("button")).toHaveText(["Small", "Medium", "Large"]);
   await expect(grid).toHaveAttribute("data-size", "medium");
   await expect(sizes.getByRole("button", { name: "Medium thumbnails" })).toHaveAttribute(
     "aria-pressed",

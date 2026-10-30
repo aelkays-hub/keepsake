@@ -150,24 +150,28 @@ export function Toolbar() {
       )}
       <span className="spacer" />
       {s.mode === "grid" && (
-        <div
-          className="segmented thumb-size"
-          role="group"
-          aria-label="Thumbnail size"
-          data-testid="thumb-size"
-        >
-          {THUMB_SIZES.map((t) => (
-            <button
-              key={t.size}
-              aria-pressed={thumbSize === t.size}
-              onClick={() => setThumbSize(t.size)}
-              title={`${t.label} thumbnails (+ and − in the grid)`}
-              aria-label={`${t.label} thumbnails`}
-              data-testid={`thumb-${t.size}`}
-            >
-              <span aria-hidden="true" className={`thumb-icon ${t.size}`} />
-            </button>
-          ))}
+        <div className="filter thumb-size-box">
+          <span id="thumb-size-label">Thumbnails</span>
+          <div
+            className="segmented thumb-size"
+            role="group"
+            aria-labelledby="thumb-size-label"
+            data-testid="thumb-size"
+          >
+            {THUMB_SIZES.map((t) => (
+              <button
+                key={t.size}
+                aria-pressed={thumbSize === t.size}
+                onClick={() => setThumbSize(t.size)}
+                title={`${t.label} thumbnails (+ and − in the grid)`}
+                aria-label={`${t.label} thumbnails`}
+                data-testid={`thumb-${t.size}`}
+              >
+                <span aria-hidden="true" className={`thumb-icon ${t.size}`} />
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       <div className="segmented" role="tablist" aria-label="View">

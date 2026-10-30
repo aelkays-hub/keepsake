@@ -381,7 +381,7 @@ The viewer is a full-window overlay over the library (`components/Viewer.tsx`). 
 | Shows | Comes from |
 |---|---|
 | Photo, fitted | The 2560 px preview rendition |
-| Photo at 100% | `full_image`: a full-size JPEG rendition made on demand (`render::full`), decoded in-process, by FFmpeg (HEIF) or by LibRaw `dcraw_emu` (RAW) |
+| Photo at 100% | `full_image`: a full-size rendition made on demand (`render::full`), and asked for by the viewer 500 ms after a photo opens. An upright JPEG is copied into the cache as it is; others are decoded in-process, by FFmpeg (HEIF) or by LibRaw `dcraw_emu` (RAW). The viewer places and scales it with a CSS transform (no scrolling, no layout per zoom step) |
 | RAW of a RAW + JPEG pair | `full_image` with `member: raw` (key R toggles) |
 | Video | The proxy (the camera's H.264 SUB proxy, or Keepsake's 720p), with `video_info` for frame rate and start timecode |
 

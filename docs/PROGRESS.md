@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
+| — | Faster viewer zoom: full size made in the background, upright JPEGs copied, transform-based zoom; labelled thumbnail sizes | ✅ Done (Windows; macOS via CI) |
 | — | Every card imports by itself into year › month › day (Settings → When a card is inserted) | ✅ Done (Windows; macOS via CI) |
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
@@ -44,6 +45,21 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Faster viewer zoom, labelled thumbnail sizes (2026-10-30)
+
+### What was built
+- **Full size in the background:** 500 ms after a photo opens (drive online), the viewer asks for its full size, so Z, the slider and the wheel are quick. No "Loading full size…" note for this unasked work; the note shows only when zoom is waiting for it. The picture is decoded off the main thread (`Image.decode()`) before it replaces the preview.
+- **Upright JPEGs are copied:** `render::full` copies a JPEG with no EXIF orientation (or "upright") into the cache instead of decoding and re-encoding it (`still::is_upright_jpeg`, headers only). Turned JPEGs, PNG, TIFF, HEIF and RAW are unchanged. Originals are only read.
+- **Transform-based zoom:** the picture is placed and scaled with a CSS transform from a view of (zoom, picture point at the window's centre), instead of a scrolled, resized `<img>`. Wheel steps are merged to one per frame; the point under the pointer stays put; the picture is centred while smaller than the window and never leaves a gap when larger. The view survives the preview → full-size swap.
+- **Thumbnail sizes:** the toolbar switch is labelled "Thumbnails" and its buttons read Small, Medium and Large.
+
+### Tests
+- Rust: `still::upright_jpegs_are_told_apart`; `full_size_is_the_whole_picture_upright_and_made_once` now checks that the upright JPEG is a byte-for-byte copy and the turned one is redrawn.
+- Mocked browser: `viewer.spec.ts`: the full size arrives by itself at Fit with no note, and zooming then does not fetch again; an offline item is not fetched; panning and wheel zoom measured from the picture's position. `thumb-size.spec.ts`: the labelled group and button names.
+- Real app: new `zoom-perf.spec.ts` (24 MP JPEG: full size ready in 0.86 s, slider step 90th percentile 34 ms; limits 3 s and 50 ms, doubled in debug); `tools.spec.ts` viewer test still passes.
 
 ---
 

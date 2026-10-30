@@ -1,6 +1,8 @@
 //! Full-size pictures for the viewer's 100% zoom, made on demand.
 //!
-//! - JPEG, PNG, TIFF: decoded in-process (orientation applied);
+//! - JPEG: an upright one is copied as it is (the webview shows it); a
+//!   turned one is decoded and turned upright, like PNG and TIFF;
+//! - PNG, TIFF: decoded in-process (orientation applied);
 //! - HEIF: decoded by the FFmpeg sidecar at full resolution;
 //! - RAW: decoded by LibRaw's `dcraw_emu` sidecar (ADR-023), camera white
 //!   balance, sRGB, AHD demosaic; LibRaw applies the camera orientation.
@@ -116,7 +118,13 @@ pub fn full_image(
             None,
         )?)
     } else {
-        still::decode(&std::fs::read(&path)?, None)?
+        let bytes = std::fs::read(&path)?;
+        // An upright JPEG is shown as it is: a copy takes milliseconds,
+        // where decoding and encoding 24 megapixels takes seconds.
+        if still::is_upright_jpeg(&bytes) {
+            return cache.put_bytes(cat, &src.hash, variant, &bytes);
+        }
+        still::decode(&bytes, None)?
     };
     let bytes = encode(&img)?;
     cache.put_bytes(cat, &src.hash, variant, &bytes)

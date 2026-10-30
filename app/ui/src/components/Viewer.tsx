@@ -190,6 +190,8 @@ const MAX_ZOOM = 400;
 const STEP = 1.25;
 /** Slider positions: 0 is Fit, the end is the highest zoom (a log scale). */
 const SLIDER = 1000;
+/** Time on a photo before its full size is made, ready for zooming. */
+const PREFETCH_MS = 500;
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
@@ -199,6 +201,19 @@ function guessFull(w: number, h: number): [number, number] {
   const f = long >= 2500 ? 6000 / long : 1;
   return [w * f, h * f];
 }
+
+/** Where a picture of `size` CSS px sits along a window of `box`: centred while
+ * smaller, otherwise never leaving a gap at either side. */
+const place = (t: number, size: number, box: number) =>
+  size <= box ? (box - size) / 2 : Math.min(0, Math.max(box - size, t));
+
+/** The zoom ("fit" or a percentage) and the picture point (0–1) at the window's centre. */
+interface View {
+  pct: number | null;
+  fx: number;
+  fy: number;
+}
+const FIT: View = { pct: null, fx: 0.5, fy: 0.5 };
 
 function PhotoStage({
   d,
@@ -211,18 +226,18 @@ function PhotoStage({
   member: MemberDto;
   onKeyRef: React.MutableRefObject<KeyFn>;
 }) {
-  /** "fit", or a percentage of the picture's own pixels (100: one per screen pixel). */
-  const [zoom, setZoomState] = useState<"fit" | number>("fit");
-  const [full, setFull] = useState<Record<string, string>>({});
+  const [view, setView] = useState<View>(FIT);
+  /** Full-size pictures, decoded and ready: path and natural size. */
+  const [full, setFull] = useState<Record<string, { path: string; w: number; h: number }>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** Natural size of the picture on screen (for the `src` it was read from). */
-  const [nat, setNat] = useState<{ w: number; h: number; src: string } | null>(null);
+  const [prefetch, setPrefetch] = useState(false);
+  /** Natural size of the preview. */
+  const [pre, setPre] = useState<{ w: number; h: number } | null>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const stage = useRef<HTMLDivElement>(null);
-  /** The picture point to keep in place across a zoom change. */
-  const anchor = useRef<{ fx: number; fy: number; px: number; py: number } | null>(null);
-  const drag = useRef<{ x: number; y: number; sx: number; sy: number; moved: boolean } | null>(
+  const imgRef = useRef<HTMLImageElement>(null);
+  const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(
     null,
   );
   useLayoutEffect(() => {
@@ -234,8 +249,14 @@ function PhotoStage({
     measure();
     return () => ro.disconnect();
   }, []);
-  // A RAW member has no preview of its own: it is always the full decode.
-  const needFull = zoom !== "fit" || member === "raw" || (members?.rawOnly ?? false);
+  // A while on a photo: make its full size in the background, so zoom is quick.
+  useEffect(() => {
+    if (!d.online) return;
+    const t = setTimeout(() => setPrefetch(true), PREFETCH_MS);
+    return () => clearTimeout(t);
+  }, [d.online]);
+  const asked = view.pct !== null || member === "raw" || (members?.rawOnly ?? false);
+  const needFull = asked || prefetch;
   const key = `${d.id}:${member}`;
   useEffect(() => {
     if (!needFull || full[key] || !d.online) return;
@@ -244,78 +265,124 @@ function PhotoStage({
     setError(null);
     api
       .fullImage(d.id, member)
-      .then((p) => live && setFull((f) => ({ ...f, [key]: p })))
+      .then(async (p) => {
+        // Decoded off the main thread before it is shown: no stall.
+        const im = new Image();
+        im.src = fileUrl(p) ?? "";
+        await im.decode().catch(() => undefined);
+        if (live)
+          setFull((f) => ({ ...f, [key]: { path: p, w: im.naturalWidth, h: im.naturalHeight } }));
+      })
       .catch((e) => live && setError(String(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
   }, [needFull, key, d.id, d.online, member, full]);
-  const haveFull = !!full[key];
+  const made = full[key];
   // Once made, the full size is shown at Fit too (sharper on big screens).
-  const shown = haveFull ? fileUrl(full[key]) : fileUrl(d.preview);
-  const size = nat && nat.src === shown ? nat : null;
+  const shown = made ? fileUrl(made.path) : fileUrl(d.preview);
   const dpr = window.devicePixelRatio || 1;
-  // The picture zoom works on: the full size, or the preview when its drive is away.
-  const fitKnown = size !== null && (haveFull || !d.online);
-  // Fit never enlarges: at most 100%. Until the full size is here, a guess
-  // from the preview (made at most 2560 px; a camera picture is about 6000).
-  const fitOf = (w: number, h: number) =>
-    box.w > 0 && box.h > 0 ? Math.min(100, Math.min(box.w / w, box.h / h) * dpr * 100) : 100;
-  const fitPct = !size
-    ? 100
-    : fitKnown
-      ? fitOf(size.w, size.h)
-      : fitOf(...guessFull(size.w, size.h));
+  // The picture zoom percentages are of: the full size; the preview when its
+  // drive is away; until the full size is here, a guess from the preview.
+  const fitKnown = !!made || (!d.online && pre !== null);
+  const base: [number, number] | null = made
+    ? [made.w, made.h]
+    : pre
+      ? d.online
+        ? guessFull(pre.w, pre.h)
+        : [pre.w, pre.h]
+      : null;
+  // Fit never enlarges: at most 100%.
+  const fitPct =
+    base && box.w > 0 && box.h > 0
+      ? Math.min(100, Math.min(box.w / base[0], box.h / base[1]) * dpr * 100)
+      : 100;
   const hi = Math.max(MAX_ZOOM, fitPct * 2);
-  const zoomed = zoom !== "fit" && fitKnown;
-  const setZoom = (z: "fit" | number, at?: { x: number; y: number }) => {
-    const s = stage.current;
-    const img = s?.querySelector("img");
-    if (s && img) {
-      const sr = s.getBoundingClientRect();
-      const r = img.getBoundingClientRect();
-      const x = at?.x ?? sr.left + sr.width / 2;
-      const y = at?.y ?? sr.top + sr.height / 2;
-      anchor.current = {
-        fx: clamp01((x - r.left) / r.width),
-        fy: clamp01((y - r.top) / r.height),
-        px: x - sr.left,
-        py: y - sr.top,
-      };
+  const pct = view.pct ?? fitPct;
+  // On screen: the picture's size and place, in CSS px.
+  const sw = base ? ((base[0] / dpr) * pct) / 100 : 0;
+  const sh = base ? ((base[1] / dpr) * pct) / 100 : 0;
+  const tx = place(box.w / 2 - view.fx * sw, sw, box.w);
+  const ty = place(box.h / 2 - view.fy * sh, sh, box.h);
+  const geom = { base, sw, sh, tx, ty, box, fitPct, hi, pct, dpr, fitKnown };
+  const g = useRef(geom);
+  g.current = geom;
+
+  /** Zoom to `to`, keeping the picture point at `at` (in the window; default its centre) in place. */
+  const zoomTo = useCallback((to: "fit" | number, at?: { x: number; y: number }) => {
+    const c = g.current;
+    if (to === "fit" || (c.fitKnown && to <= c.fitPct * 1.001) || !c.base) {
+      setView(to === "fit" || c.base ? FIT : { ...FIT, pct: to });
+      return;
     }
-    // At or below Fit is Fit (only once Fit is known: not on a guess).
-    setZoomState(z === "fit" || (fitKnown && z <= fitPct * 1.001) ? "fit" : Math.min(hi, z));
-  };
-  const current = zoom === "fit" ? fitPct : zoom;
-  const zoomBy = (f: number, at?: { x: number; y: number }) => setZoom(current * f, at);
-  // After a zoom, put the anchored picture point back under the pointer (or centre).
-  useLayoutEffect(() => {
-    const s = stage.current;
-    const a = anchor.current;
-    const img = s?.querySelector("img");
-    if (!s || !a || !img || !zoomed) return;
-    s.scrollLeft = img.offsetLeft + a.fx * img.offsetWidth - a.px;
-    s.scrollTop = img.offsetTop + a.fy * img.offsetHeight - a.py;
-    anchor.current = null;
-  }, [zoomed, zoom, size]);
-  // The wheel zooms around the pointer (a native listener, to stop the page scrolling).
-  const wheel = useRef<(e: WheelEvent) => void>(() => undefined);
-  wheel.current = (e) => {
-    e.preventDefault();
-    zoomBy(Math.exp(-e.deltaY * 0.0015), { x: e.clientX, y: e.clientY });
-  };
+    const np = Math.min(c.hi, to);
+    const p = at ?? { x: c.box.w / 2, y: c.box.h / 2 };
+    const ux = c.sw ? clamp01((p.x - c.tx) / c.sw) : 0.5;
+    const uy = c.sh ? clamp01((p.y - c.ty) / c.sh) : 0.5;
+    const nsw = ((c.base[0] / c.dpr) * np) / 100;
+    const nsh = ((c.base[1] / c.dpr) * np) / 100;
+    const ntx = place(p.x - ux * nsw, nsw, c.box.w);
+    const nty = place(p.y - uy * nsh, nsh, c.box.h);
+    setView({ pct: np, fx: (c.box.w / 2 - ntx) / nsw, fy: (c.box.h / 2 - nty) / nsh });
+  }, []);
+  const zoomBy = useCallback(
+    (f: number, at?: { x: number; y: number }) => zoomTo(g.current.pct * f, at),
+    [zoomTo],
+  );
+  /** Move the picture to (x, y) in the window. */
+  const moveTo = useCallback((x: number, y: number) => {
+    const c = g.current;
+    if (!c.sw || !c.sh) return;
+    const nx = place(x, c.sw, c.box.w);
+    const ny = place(y, c.sh, c.box.h);
+    setView((v) =>
+      v.pct === null ? v : { ...v, fx: (c.box.w / 2 - nx) / c.sw, fy: (c.box.h / 2 - ny) / c.sh },
+    );
+  }, []);
+
+  // While zooming or panning the picture is kept on its own GPU layer, and
+  // drawn sharp again once it stops.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    img.classList.add("moving");
+    const t = setTimeout(() => img.classList.remove("moving"), 200);
+    return () => clearTimeout(t);
+  }, [view]);
+
+  // The wheel zooms around the pointer, one step per frame however fast it
+  // turns (a native listener, to stop the page scrolling).
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
-    const on = (e: WheelEvent) => wheel.current(e);
+    let acc = 0;
+    let at = { x: 0, y: 0 };
+    let frame = 0;
+    const on = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      acc += e.deltaY;
+      at = { x: e.clientX - r.left, y: e.clientY - r.top };
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          const f = Math.exp(-acc * 0.0015);
+          acc = 0;
+          zoomBy(f, at);
+        });
+    };
     el.addEventListener("wheel", on, { passive: false });
-    return () => el.removeEventListener("wheel", on);
-  }, []);
+    return () => {
+      el.removeEventListener("wheel", on);
+      cancelAnimationFrame(frame);
+    };
+  }, [zoomBy]);
+
+  const zoomed = view.pct !== null;
   onKeyRef.current = (e) => {
-    const s = stage.current;
     if (e.key === "z" || e.key === "Z") {
-      setZoom(zoom === "fit" ? 100 : "fit");
+      zoomTo(zoomed ? "fit" : 100);
       return true;
     }
     if (e.key === "+" || e.key === "=") {
@@ -326,81 +393,90 @@ function PhotoStage({
       zoomBy(1 / STEP);
       return true;
     }
-    if (zoomed && s) {
+    if (zoomed) {
       const by = e.shiftKey ? 400 : 100;
       const pan: Record<string, [number, number]> = {
-        ArrowLeft: [-by, 0],
-        ArrowRight: [by, 0],
-        ArrowUp: [0, -by],
-        ArrowDown: [0, by],
+        ArrowLeft: [by, 0],
+        ArrowRight: [-by, 0],
+        ArrowUp: [0, by],
+        ArrowDown: [0, -by],
       };
       const p = pan[e.key];
       if (p) {
-        s.scrollBy(p[0], p[1]);
+        moveTo(tx + p[0], ty + p[1]);
         return true;
       }
     }
     return false;
   };
   const span = Math.log(hi / fitPct);
-  const pos = zoom === "fit" ? 0 : Math.round((SLIDER * Math.log(zoom / fitPct)) / span);
+  const pos = !zoomed ? 0 : Math.round((SLIDER * Math.log(pct / fitPct)) / span);
   const fromPos = (p: number) => (p <= 0 ? "fit" : fitPct * Math.exp((p / SLIDER) * span));
-  const level =
-    zoom === "fit" ? (fitKnown ? `Fit (${Math.round(fitPct)}%)` : "Fit") : `${Math.round(zoom)}%`;
-  const imgStyle =
-    zoomed && size
-      ? { width: (size.w * zoom) / 100 / dpr, height: (size.h * zoom) / 100 / dpr }
-      : undefined;
+  const level = !zoomed
+    ? fitKnown
+      ? `Fit (${Math.round(fitPct)}%)`
+      : "Fit"
+    : `${Math.round(pct)}%`;
+  const imgStyle: React.CSSProperties | undefined = base
+    ? {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        maxWidth: "none",
+        maxHeight: "none",
+        width: base[0] / dpr,
+        height: base[1] / dpr,
+        transformOrigin: "0 0",
+        transform: `translate(${tx}px, ${ty}px) scale(${pct / 100})`,
+      }
+    : undefined;
   return (
     <div className="viewer-photo">
       <div
         ref={stage}
         className={`viewer-stage${zoomed ? " zoomed" : ""}`}
         data-testid="viewer-stage"
-        data-zoom={zoomed ? String(Math.round(zoom)) : "fit"}
+        data-zoom={zoomed ? String(Math.round(pct)) : "fit"}
         onMouseDown={(e) => {
-          const s = stage.current;
-          if (!s || e.button !== 0) return;
-          drag.current = {
-            x: e.clientX,
-            y: e.clientY,
-            sx: s.scrollLeft,
-            sy: s.scrollTop,
-            moved: false,
-          };
+          if (e.button !== 0) return;
+          drag.current = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
         }}
         onMouseMove={(e) => {
-          const g = drag.current;
-          const s = stage.current;
-          if (!g || !s) return;
-          if (Math.abs(e.clientX - g.x) + Math.abs(e.clientY - g.y) > 4) g.moved = true;
-          if (zoomed && g.moved) {
-            s.scrollLeft = g.sx - (e.clientX - g.x);
-            s.scrollTop = g.sy - (e.clientY - g.y);
-          }
+          const m = drag.current;
+          if (!m) return;
+          if (Math.abs(e.clientX - m.x) + Math.abs(e.clientY - m.y) > 4) m.moved = true;
+          if (zoomed && m.moved) moveTo(m.tx + e.clientX - m.x, m.ty + e.clientY - m.y);
         }}
         onMouseUp={(e) => {
-          const g = drag.current;
+          const m = drag.current;
           drag.current = null;
-          if (g && !g.moved) setZoom(zoom === "fit" ? 100 : "fit", { x: e.clientX, y: e.clientY });
+          if (m && !m.moved) {
+            const r = e.currentTarget.getBoundingClientRect();
+            zoomTo(zoomed ? "fit" : 100, { x: e.clientX - r.left, y: e.clientY - r.top });
+          }
         }}
+        onMouseLeave={() => (drag.current = null)}
       >
         {shown && (
           <img
+            ref={imgRef}
             src={shown}
             alt={d.name ?? ""}
             data-testid="viewer-image"
             data-member={member}
-            data-full={haveFull ? "1" : "0"}
+            data-full={made ? "1" : "0"}
             draggable={false}
+            decoding="async"
             onLoad={(e) => {
-              const img = e.currentTarget;
-              setNat({ w: img.naturalWidth, h: img.naturalHeight, src: img.src });
+              if (!made) {
+                const img = e.currentTarget;
+                setPre({ w: img.naturalWidth, h: img.naturalHeight });
+              }
             }}
             style={imgStyle}
           />
         )}
-        {(loading || error || !d.online) && (
+        {((loading && asked) || error || !d.online) && (
           <p className="viewer-note" role="status">
             {error
               ? error
@@ -414,8 +490,8 @@ function PhotoStage({
       </div>
       <div className="viewer-controls viewer-zoom" role="group" aria-label="Zoom">
         <button
-          onClick={() => setZoom("fit")}
-          aria-pressed={zoom === "fit"}
+          onClick={() => zoomTo("fit")}
+          aria-pressed={!zoomed}
           title="Fit the window (Z)"
           data-testid="zoom-fit"
         >
@@ -423,7 +499,7 @@ function PhotoStage({
         </button>
         <button
           onClick={() => zoomBy(1 / STEP)}
-          disabled={zoom === "fit"}
+          disabled={!zoomed}
           aria-label="Zoom out"
           title="Zoom out (−)"
           data-testid="zoom-out"
@@ -439,12 +515,12 @@ function PhotoStage({
           max={SLIDER}
           step={1}
           value={Math.max(0, Math.min(SLIDER, pos))}
-          onChange={(e) => setZoom(fromPos(Number(e.target.value)))}
+          onChange={(e) => zoomTo(fromPos(Number(e.target.value)))}
           data-testid="zoom-slider"
         />
         <button
           onClick={() => zoomBy(STEP)}
-          disabled={zoom !== "fit" && zoom >= hi}
+          disabled={zoomed && pct >= hi}
           aria-label="Zoom in"
           title="Zoom in (+)"
           data-testid="zoom-in"
@@ -452,8 +528,8 @@ function PhotoStage({
           +
         </button>
         <button
-          onClick={() => setZoom(100)}
-          aria-pressed={zoom === 100}
+          onClick={() => zoomTo(100)}
+          aria-pressed={zoomed && Math.round(pct) === 100}
           title="Actual pixels: one picture pixel per screen pixel (Z)"
           data-testid="zoom-100"
         >
