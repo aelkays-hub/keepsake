@@ -1,6 +1,7 @@
 //! File-naming templates.
 //!
 //! Tokens: `{yyyy} {mm} {dd} {hh}` (capture time in the camera's local zone),
+//! `{month}` (the month's name in English: `October`),
 //! `{event} {camera} {lens} {seq} {orig}`. `/` separates folders. The original
 //! extension is always appended by the caller. Every rendered folder and file
 //! name is made safe for Windows and macOS.
@@ -14,6 +15,24 @@ use crate::relpath::{nfc, RelPath};
 
 /// The default: one folder per year, one per day, camera file names kept.
 pub const DEFAULT_TEMPLATE: &str = "{yyyy}/{yyyy}-{mm}-{dd}/{orig}";
+
+/// Year, month name, day: `2026/October/2026-10-30/A7400123`.
+pub const YEAR_MONTH_DAY_TEMPLATE: &str = "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}";
+
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
 
 /// Longest folder or base name produced (bytes), leaving room for a
 /// collision suffix, a Sony suffix and an extension within 255.
@@ -35,6 +54,7 @@ pub enum TemplateError {
 enum Token {
     Year,
     Month,
+    MonthName,
     Day,
     Hour,
     Event,
@@ -105,6 +125,7 @@ impl Template {
                     let tok = match name.as_str() {
                         "yyyy" => Token::Year,
                         "mm" => Token::Month,
+                        "month" => Token::MonthName,
                         "dd" => Token::Day,
                         "hh" => Token::Hour,
                         "event" => Token::Event,
@@ -168,6 +189,9 @@ impl Template {
                 Part::Token(Token::Month) => {
                     date.map_or("00".into(), |d| format!("{:02}", d.month()))
                 }
+                Part::Token(Token::MonthName) => date.map_or("Undated".into(), |d| {
+                    MONTHS[d.month0() as usize % 12].to_owned()
+                }),
                 Part::Token(Token::Day) => date.map_or("00".into(), |d| format!("{:02}", d.day())),
                 Part::Token(Token::Hour) => {
                     date.map_or("00".into(), |d| format!("{:02}", d.hour()))
@@ -274,6 +298,33 @@ mod tests {
             lens: Some("FE 24-70mm F2.8 GM II".into()),
             orig: "C0001".into(),
         }
+    }
+
+    #[test]
+    fn year_month_name_day_template() {
+        let t = Template::parse(YEAR_MONTH_DAY_TEMPLATE).unwrap();
+        assert_eq!(
+            t.render(&input(), None).unwrap().as_str(),
+            "2024/June/2024-06-15/C0001"
+        );
+        let jan = TemplateInput {
+            local_time: NaiveDate::from_ymd_opt(2026, 1, 3)
+                .unwrap()
+                .and_hms_opt(8, 0, 0),
+            ..input()
+        };
+        assert_eq!(
+            t.render(&jan, None).unwrap().as_str(),
+            "2026/January/2026-01-03/C0001"
+        );
+        let undated = TemplateInput {
+            local_time: None,
+            ..input()
+        };
+        assert_eq!(
+            t.render(&undated, None).unwrap().as_str(),
+            "0000-undated/Undated/0000-00-00/C0001"
+        );
     }
 
     #[test]

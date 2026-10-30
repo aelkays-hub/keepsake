@@ -140,6 +140,14 @@ export function installMock(): void {
       proxyWorkers: 1,
       pauseOnBattery: true,
       openApps: [],
+      import: {
+        // `?autoImport=1`: on, to E:\Pictures; `=Z`: on, to a drive not connected.
+        auto: params.has("autoImport"),
+        destination: params.has("autoImport")
+          ? `${params.get("autoImport") === "Z" ? "Z" : "E"}:\\Pictures`
+          : null,
+        template: "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}",
+      },
       configFile: "C:\\Users\\me\\AppData\\Roaming\\keepsake\\config.toml",
     },
     opened: [],
@@ -489,6 +497,14 @@ export function installMock(): void {
           const needed = (a.sizes as number[]).reduce((x, y) => x + y, 0);
           if (r.destinations.length === 0)
             return { ok: false, problem: "choose a destination", space: [], example: null };
+          const gone = r.destinations.find((d) => d.startsWith("Z:"));
+          if (gone)
+            return {
+              ok: false,
+              problem: `destination ${gone} does not exist (is the drive connected?)`,
+              space: [],
+              example: null,
+            };
           if (r.destinations.length === 2 && r.destinations[0][0] === r.destinations[1][0])
             return {
               ok: false,
@@ -757,6 +773,13 @@ export function installMock(): void {
           const u = a.update as SettingsUpdate;
           if (u.cacheMaxBytes < 256 * 1024 ** 2)
             throw new Error("the cache limit must be at least 256 MB");
+          const dest = u.import.destination?.trim() || null;
+          if (u.import.auto && !dest)
+            throw new Error("choose where cards are copied to import them automatically");
+          if (
+            /\{(?!yyyy|mm|dd|hh|month|event|camera|lens|seq|orig\})[^}]*\}/.test(u.import.template)
+          )
+            throw new Error("folder layout: unknown template token");
           const old = st.settings.cacheDir;
           st.settings = {
             ...st.settings,
@@ -777,6 +800,7 @@ export function installMock(): void {
               .filter((x) => x.ext && x.app)
               .filter((x, i, all) => all.findIndex((y) => y.ext === x.ext && y.app === x.app) === i)
               .sort((p, q) => (p.ext < q.ext ? -1 : p.ext > q.ext ? 1 : 0)),
+            import: { auto: u.import.auto, destination: dest, template: u.import.template.trim() },
           };
           return { settings: st.settings, oldCache: old !== st.settings.cacheDir ? old : null };
         }

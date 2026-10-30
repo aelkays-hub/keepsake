@@ -176,15 +176,49 @@ pub fn destination_volume(
         )));
     }
     let fs_id = mount.display().to_string();
-    let existing = lib.volumes()?.into_iter().find(|v| v.fs_id == fs_id);
-    let volume = VolumeRecord {
-        id: existing.map(|v| v.id).unwrap_or_else(VolumeId::new_random),
-        label: label.to_owned(),
-        fs_id,
-        kind,
-        case: probe.case,
-        read_only: false,
-        last_mount: Some(mount.clone()),
+    let records = lib.volumes()?;
+    let at = |v: &VolumeRecord| {
+        v.last_mount
+            .as_deref()
+            .map(|m| std::fs::canonicalize(m).unwrap_or_else(|_| m.to_path_buf()))
+    };
+    let existing = records
+        .iter()
+        .find(|v| v.fs_id == fs_id || at(v).as_deref() == Some(mount.as_path()))
+        .cloned();
+    // A folder inside (or holding) one already in the library would be
+    // catalogued twice: import into that folder itself instead.
+    if existing.is_none() {
+        for v in records.iter().filter(|v| v.kind != VolumeKind::Card) {
+            let Some(m) = at(v) else { continue };
+            if mount.starts_with(&m) || m.starts_with(&mount) {
+                return Err(IngestError::Unsafe(format!(
+                    "destination {} overlaps {} (\"{}\"), already in the library: choose that folder itself",
+                    mount.display(),
+                    m.display(),
+                    v.label
+                )));
+            }
+        }
+    }
+    let volume = match existing {
+        // Already in the library (an earlier destination, or a folder added
+        // in place): keep its identity and settings. A folder added in place
+        // stays read-only for sidecars, which go to the library's mirror;
+        // the import only adds new files to it.
+        Some(v) => VolumeRecord {
+            last_mount: Some(mount.clone()),
+            ..v
+        },
+        None => VolumeRecord {
+            id: VolumeId::new_random(),
+            label: label.to_owned(),
+            fs_id,
+            kind,
+            case: probe.case,
+            read_only: false,
+            last_mount: Some(mount.clone()),
+        },
     };
     lib.register_volume(&volume)?;
     Ok(Destination { volume, mount })

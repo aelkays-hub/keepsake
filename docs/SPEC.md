@@ -7,6 +7,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 ### Ingest
 - Detect Sony camera cards (SD, CFexpress, and cameras that show their card over USB) on insert, recognise each card again by its file-system serial in any reader or slot, and show "N new items since last import". Cameras that only speak MTP are v1 (ADR-002).
 - Optionally import cards marked as trusted automatically, with a saved preset (destinations, template, event).
+- Or import **every** card by itself (Settings → When a card is inserted): new items go to one folder (e.g. a folder added in place, `E:\Pictures`) in a folder layout (default year › month name › day, `2026\October\2026-10-30\`), with missing folders made. The import window opens, shows where they are going, and starts on its own. A missing drive or a failed check stops it, with the reason.
 - Preview new items (items not yet in the catalog) before importing; do not auto-import.
 - Hash-verified copy to one or two user-chosen destinations using streaming BLAKE3.
 - Re-read and verify every byte after copy; report card safe to format only after two verified destinations.

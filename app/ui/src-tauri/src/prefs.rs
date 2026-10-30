@@ -4,12 +4,13 @@
 
 use std::path::{Path, PathBuf};
 
+use keepsake_core::ingest::template::Template;
 use keepsake_core::presets;
 use keepsake_core::render::Cache;
 use keepsake_core::settings::{OpenApps, Settings};
 use tauri::{AppHandle, Manager, State};
 
-use crate::api::{OpenApp, SettingsInfo, SettingsSaved, SettingsUpdate};
+use crate::api::{ImportPrefs, OpenApp, SettingsInfo, SettingsSaved, SettingsUpdate};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
@@ -45,6 +46,11 @@ fn info(state: &AppState, s: &Settings) -> CmdResult<SettingsInfo> {
                 })
             })
             .collect(),
+        import: ImportPrefs {
+            auto: s.import.auto,
+            destination: s.import.destination.as_deref().map(convert::path_text),
+            template: s.import.template.clone(),
+        },
         config_file: convert::path_text(&Settings::path().map_err(err)?),
     })
 }
@@ -111,6 +117,27 @@ pub fn apply_update(s: &mut Settings, u: &SettingsUpdate) -> CmdResult<()> {
         .into_iter()
         .map(|(ext, apps)| (ext, OpenApps::from_list(apps)))
         .collect();
+    // When a card is inserted.
+    let template = u.import.template.trim();
+    Template::parse(template).map_err(|e| format!("folder layout: {e}"))?;
+    let dest = u
+        .import
+        .destination
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from);
+    if let Some(d) = &dest {
+        if !d.is_absolute() {
+            return Err("choose a full path for where cards are copied".into());
+        }
+    }
+    if u.import.auto && dest.is_none() {
+        return Err("choose where cards are copied to import them automatically".into());
+    }
+    s.import.auto = u.import.auto;
+    s.import.destination = dest;
+    s.import.template = template.to_owned();
     Ok(())
 }
 
@@ -189,7 +216,40 @@ mod tests {
                     app: "  ".into(),
                 },
             ],
+            import: ImportPrefs {
+                auto: false,
+                destination: None,
+                template: "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}".into(),
+            },
         }
+    }
+
+    #[test]
+    fn automatic_import_needs_a_full_destination_and_a_valid_layout() {
+        let mut s = Settings::default();
+        let dest = if cfg!(windows) {
+            r"E:\Pictures"
+        } else {
+            "/Volumes/E/Pictures"
+        };
+        let mut u = update();
+        u.import.auto = true;
+        assert!(apply_update(&mut s, &u).is_err(), "no destination");
+        u.import.destination = Some("Pictures".into());
+        assert!(apply_update(&mut s, &u).is_err(), "not a full path");
+        u.import.destination = Some(format!(" {dest} "));
+        apply_update(&mut s, &u).unwrap();
+        assert!(s.import.auto);
+        assert_eq!(s.import.auto_destination(), Some(Path::new(dest)));
+        u.import.template = "{yyyy}/{nonsense}".into();
+        assert!(apply_update(&mut s, &u).is_err(), "bad layout");
+        // Off: the destination is kept for next time.
+        let mut u = update();
+        u.import.destination = Some(dest.into());
+        apply_update(&mut s, &u).unwrap();
+        assert!(!s.import.auto);
+        assert_eq!(s.import.auto_destination(), None);
+        assert_eq!(s.import.destination.as_deref(), Some(Path::new(dest)));
     }
 
     #[test]

@@ -575,8 +575,20 @@ dto! {
         pub proxy_workers: u32,
         pub pause_on_battery: bool,
         pub open_apps: Vec<OpenApp>,
+        /// When a card is inserted: import it by itself.
+        pub import: ImportPrefs,
         /// Where `config.toml` is.
         pub config_file: String,
+    }
+
+    /// What happens when a camera card is inserted.
+    pub struct ImportPrefs {
+        /// Import new items by itself (else the import window asks).
+        pub auto: bool,
+        /// Where they are copied.
+        pub destination: Option<String>,
+        /// Folder layout (`{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}`).
+        pub template: String,
     }
 
     /// Changes from the settings screen (every field is the new value).
@@ -589,6 +601,7 @@ dto! {
         pub proxy_workers: u32,
         pub pause_on_battery: bool,
         pub open_apps: Vec<OpenApp>,
+        pub import: ImportPrefs,
     }
 
     pub struct SettingsSaved {

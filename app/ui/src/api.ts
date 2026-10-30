@@ -20,6 +20,7 @@ import type { FileMetadata } from "./bindings/FileMetadata";
 import type { FolderDone } from "./bindings/FolderDone";
 import type { FolderNode } from "./bindings/FolderNode";
 import type { ImportCheck } from "./bindings/ImportCheck";
+import type { ImportPrefs } from "./bindings/ImportPrefs";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
 import type { ImportResult } from "./bindings/ImportResult";
@@ -59,6 +60,7 @@ export type {
   FolderDone,
   FolderNode,
   ImportCheck,
+  ImportPrefs,
   ImportProgress,
   ImportRequest,
   ImportResult,

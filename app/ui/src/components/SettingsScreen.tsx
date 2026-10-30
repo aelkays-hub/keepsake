@@ -4,11 +4,109 @@
 
 import { useEffect, useState } from "react";
 
-import { api, pickFile, pickFolder, type OpenApp, type Preset, type SettingsInfo } from "../api";
+import {
+  api,
+  pickFile,
+  pickFolder,
+  type ImportPrefs,
+  type OpenApp,
+  type Preset,
+  type SettingsInfo,
+} from "../api";
 import { copyDiagnosticReport } from "../diagnostics";
+import { LAYOUTS, layoutExample } from "../importLayouts";
 import * as fmt from "../format";
 
 const GB = 1024 ** 3;
+
+function CardImport({
+  value,
+  onChange,
+}: {
+  value: ImportPrefs;
+  onChange: (v: ImportPrefs) => void;
+}) {
+  const preset = LAYOUTS.find((l) => l.template === value.template);
+  return (
+    <div className="card" data-testid="card-import">
+      <h2>When a card is inserted</h2>
+      <label className="check">
+        <input
+          type="radio"
+          name="card-import"
+          checked={!value.auto}
+          onChange={() => onChange({ ...value, auto: false })}
+        />
+        Open the import window, and let me choose
+      </label>
+      <label className="check">
+        <input
+          type="radio"
+          name="card-import"
+          checked={value.auto}
+          onChange={() => onChange({ ...value, auto: true })}
+          data-testid="import-auto"
+        />
+        Copy new photos and videos automatically
+      </label>
+      <label className="block">
+        Copy to
+        <div className="row">
+          <input
+            className="grow"
+            value={value.destination ?? ""}
+            placeholder="e.g. E:\Pictures"
+            onChange={(e) => onChange({ ...value, destination: e.target.value || null })}
+            data-testid="import-dest"
+          />
+          <button
+            onClick={() =>
+              pickFolder("Where cards are copied")
+                .then((p) => p && onChange({ ...value, destination: p }))
+                .catch(() => undefined)
+            }
+          >
+            Browse…
+          </button>
+        </div>
+      </label>
+      <div className="row">
+        <label>
+          Folders
+          <select
+            value={preset ? preset.template : "custom"}
+            onChange={(e) =>
+              e.target.value !== "custom" && onChange({ ...value, template: e.target.value })
+            }
+            data-testid="import-layout"
+          >
+            {LAYOUTS.map((l) => (
+              <option key={l.template} value={l.template}>
+                {l.name}
+              </option>
+            ))}
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label className="grow">
+          Layout
+          <input
+            value={value.template}
+            onChange={(e) => onChange({ ...value, template: e.target.value })}
+            aria-label="Folder layout"
+            data-testid="import-template"
+          />
+        </label>
+      </div>
+      <p className="muted" data-testid="import-example">
+        A photo taken today goes to {value.destination ? `${value.destination}\\` : ""}
+        {layoutExample(value.template, new Date())}. Missing folders are made. Only items not
+        already in your library are copied, every copy is checked, and nothing on the card is
+        changed or deleted. With one place to copy to, the card is never reported safe to format.
+      </p>
+    </div>
+  );
+}
 
 function Library({ info }: { info: SettingsInfo }) {
   const [problem, setProblem] = useState<string | null>(null);
@@ -226,6 +324,11 @@ export function SettingsScreen() {
   const [proxy, setProxy] = useState(1);
   const [battery, setBattery] = useState(true);
   const [apps, setApps] = useState<OpenApp[]>([]);
+  const [imp, setImp] = useState<ImportPrefs>({
+    auto: false,
+    destination: null,
+    template: LAYOUTS[0].template,
+  });
   const [newExt, setNewExt] = useState("");
   const [newApp, setNewApp] = useState("");
   const [saved, setSaved] = useState<string | null>(null);
@@ -239,6 +342,7 @@ export function SettingsScreen() {
     setProxy(s.proxyWorkers);
     setBattery(s.pauseOnBattery);
     setApps(s.openApps);
+    setImp(s.import);
   };
   useEffect(() => {
     api
@@ -261,6 +365,7 @@ export function SettingsScreen() {
         proxyWorkers: proxy,
         pauseOnBattery: battery,
         openApps: withNew,
+        import: imp,
       })
       .then((r) => {
         take(r.settings);
@@ -275,6 +380,7 @@ export function SettingsScreen() {
     <section className="screen" aria-label="Settings" data-testid="settings-screen">
       <h1 className="heading">Settings</h1>
       <Library info={info} />
+      <CardImport value={imp} onChange={setImp} />
 
       <div className="card">
         <h2>Previews and thumbnails</h2>
