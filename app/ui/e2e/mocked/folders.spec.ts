@@ -69,3 +69,32 @@ test("with the keyboard: type the folder and press Enter", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("folder-outcome")).toContainText("Added Photos");
 });
+
+test("a folder is listed at once and fills in as it is read; after a failure it carries on", async ({
+  page,
+}) => {
+  // The first scan fails after two batches (a network drive that drops).
+  await page.goto("/?items=200&folderStall=2");
+  await expect(page.getByTestId("count")).toHaveText("200 items");
+  await page.getByTestId("sidebar").getByRole("button", { name: "Folders" }).click();
+  const screen = page.getByTestId("folders-screen");
+  await screen.getByTestId("folder-path").fill("\\\\MYCLOUD\\Photos\\2010");
+  await screen.getByTestId("folder-add").click();
+  // In the library and the sidebar before the scan ends, its count growing.
+  const all = screen.getByTestId("folder-list").locator("li");
+  const list = all.filter({ hasText: "2010" });
+  await expect(list).toHaveCount(1);
+  await expect(page.getByTestId("sidebar").getByRole("button", { name: /\b2010\b/ })).toBeVisible();
+  await expect(list.first()).toContainText("20 items");
+  // It fails: the error is shown, and what was saved stays.
+  await expect(screen.getByTestId("folder-status")).toContainText(
+    "the network drive stopped answering",
+  );
+  await expect(list.first()).toContainText("20 items");
+
+  // Again: it starts from the 20 saved and finishes.
+  await screen.getByTestId("folder-add").click();
+  await expect(screen.getByTestId("folder-outcome")).toContainText("Added 2010: 38 items");
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText("38 items");
+});

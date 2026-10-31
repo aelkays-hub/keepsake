@@ -1,15 +1,17 @@
 //! Folders added in place: photos and videos already on disk, catalogued
 //! where they are (`keepsake_core::rebuild::add_folder`). Runs as the one
-//! maintenance job, reports with `maint://progress` (kind `folder`) and
-//! finishes with `folder://done`.
+//! maintenance job, reports with `maint://progress` (kind `folder`), sends
+//! `folder://saved` each time a batch of its items is in the library, and
+//! finishes with `folder://done`. Items are saved as they are read, so a scan
+//! that stops keeps them, and the next scan carries on from there.
 
 use std::path::PathBuf;
 
 use keepsake_core::library::LibraryError;
-use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress};
+use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress, BATCH_FILES};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::api::FolderDone;
+use crate::api::{FolderDone, FolderSaved};
 use crate::convert;
 use crate::maintenance::{finish, spawn, Reporter};
 use crate::state::{err, AppState, CmdResult};
@@ -28,6 +30,7 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
     }
     spawn(&state, "add-folder", move |cancel| {
         let mut rep = Reporter::new(&app, "folder");
+        let shown = convert::path_text(&folder);
         let mut done = FolderDone {
             folder: convert::path_text(&folder),
             volume: None,
@@ -56,6 +59,16 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
                         rep.p.current = Some((*path).to_owned());
                     }
                     RebuildProgress::Phase(name) => rep.p.current = Some((*name).to_owned()),
+                    RebuildProgress::Saved { assets, files } => {
+                        let _ = app.emit(
+                            "folder://saved",
+                            FolderSaved {
+                                folder: shown.clone(),
+                                items: *assets,
+                                files: *files,
+                            },
+                        );
+                    }
                 }
                 rep.send(matches!(p, RebuildProgress::Phase(_)));
             };
@@ -65,6 +78,7 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
                 cache_dirs: vec![open.cache_root()],
                 cancel: Some(&cancel),
                 progress: Some(&mut progress),
+                batch_files: Some(BATCH_FILES),
             };
             match add_folder(&mut cat, &open.lib, &folder, &mut opts) {
                 Ok((rec, r)) => {

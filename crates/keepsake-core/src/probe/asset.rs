@@ -64,6 +64,10 @@ pub struct ProbeReport {
     pub assets: Vec<ProbedAsset>,
     /// Members are group indices.
     pub sequences: Vec<Sequence>,
+    /// What sequences were found from (`id`: group index), so a caller
+    /// probing a folder in parts can find sequences across the parts.
+    #[serde(skip)]
+    pub frames: Vec<Frame>,
 }
 
 /// Owns the ExifTool process and knows where ffprobe is.
@@ -362,6 +366,7 @@ impl Prober {
         ProbeReport {
             assets,
             sequences: sequences::detect(&frames),
+            frames,
         }
     }
 }

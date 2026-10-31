@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
+| — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
 | — | Information panel in the viewer: key facts and every metadata tag (Info button, I) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar view shows only the months and days that have pictures | ✅ Done (Windows; macOS via CI) |
 | — | Faster viewer zoom: full size made in the background, upright JPEGs copied, transform-based zoom; labelled thumbnail sizes | ✅ Done (Windows; macOS via CI) |
@@ -47,6 +48,23 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Adding a folder saves as it goes and resumes (2026-10-31)
+
+### What was wrong
+- Adding `2010` from the network drive (about 10,600 files) never showed up. The scan read and probed every file, then saved everything in one transaction at the very end. When it did not get there, nothing was kept, and each try began again at the first file. The catalog had no trace of it, so the tree was right not to show it.
+
+### What was built
+- `add_folder` with `RebuildOptions::batch_files` (ADR-028). The folder is registered before any file is read. Items are then hashed, probed and saved 20 files at a time, each batch in its own transaction, never splitting an item's files.
+- Resume: files saved by an earlier scan with the same size, modification time and sidecar are not read again, so adding the folder again carries on where it stopped. Removed files are dropped at the end. Sequences are found once across the whole folder (`ProbeReport::frames`).
+- The app sends `folder://saved` on registration and after every batch. The sidebar, tree and Folders screen refresh on each. The grid re-opens at most every 3 s, and waits while something is selected or the viewer is open. The Folders screen shows "N items in the library so far", and a stopped scan says what was kept.
+- `keepsake add-folder` uses the same batches and says how to carry on when stopped. `rebuild-catalog` still reads everything and saves once.
+
+### Tests
+- Rust (`add_folder_batch_tests.rs`): saves at 0, 20, 40, 50 items, registered before the first save, progress counts every file; stopping keeps the saved batches and the next scan resumes them without reading; scanning again reads only changed files, drops removed ones, adds new ones; stopping before any save still lists the folder. Existing add-folder, rebuild and auto-import tests still pass.
+- Mocked browser (`folders.spec.ts`): a folder is listed in the Folders screen and the sidebar before the scan ends, with its count growing; after a failure the 20 saved items stay, and adding it again finishes at 38.
 
 ---
 

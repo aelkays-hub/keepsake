@@ -1,8 +1,39 @@
-# Manual Test Steps — Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Adding a large folder: saved as it goes, carries on after a stop
+
+Automated:
+```
+cargo test -p keepsake-core --test add_folder_batch_tests
+cd app/ui; pnpm exec playwright test e2e/mocked/folders.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+Use a big folder (thousands of photos). A network drive is the best test, e.g. `2010` on the MyCloud drive; on macOS a folder on a NAS share or an external disk.
+
+1. Open **Folders**, type or pick the folder, and click **Add**.
+   **Expected:**
+   - within a few seconds the folder appears under "In the library" and in the sidebar's folder tree (By folder), even though the progress bar has only just started;
+   - the line "N items in the library so far" grows by about 20 at a time;
+   - the sidebar count for the folder grows as well; the grid shows the new photos every few seconds when nothing is selected.
+2. Select a photo in the grid while the scan runs.
+   **Expected:** the selection stays put (the grid does not jump); when the scan finishes, the grid shows everything.
+3. Click **Stop** part way through.
+   **Expected:** the screen says what was read so far is in the library; the folder and its items stay in the tree.
+4. Click **Add** again for the same folder (or **Scan again** in its row).
+   **Expected:** the count starts from where it stopped, the progress moves quickly over the files already saved, and it finishes with the full number of items. No item is listed twice.
+5. Quit Keepsake while a scan runs, start it again, and add the folder again.
+   **Expected:** the same as step 4: it carries on.
+6. In the folder (outside Keepsake), delete one photo and add a new one, then **Scan again**.
+   **Expected:** the deleted photo is gone from the library, the new one is there, and the scan is quick.
+7. From a terminal: `keepsake add-folder <folder>`, press Ctrl+C part way, then run it again.
+   **Expected:** the first run says what was read is in the library; the second finishes and its report counts the items not read again.
 
 ---
 

@@ -243,6 +243,7 @@ fn progress_counts_every_file_read() {
             bytes += b;
         }
         RebuildProgress::Phase(name) => phases.push(name),
+        RebuildProgress::Saved { .. } => {}
     };
     add_folder(
         &mut cat,

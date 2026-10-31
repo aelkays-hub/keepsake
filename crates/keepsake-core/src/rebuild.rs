@@ -11,6 +11,13 @@
 //!    burst/bracket/interval sequences;
 //! 5. replaces the volume's rows in one transaction.
 //!
+//! With [`RebuildOptions::batch_files`] (adding a folder), steps 1, 4 and 5
+//! run as it goes instead: files are hashed and probed a batch at a time and
+//! each batch is saved in its own short transaction, so the library shows
+//! the folder at once and fills in as it is read. Files already saved and
+//! unchanged (same size and modification time) are not read again, so a
+//! scan that stopped carries on from where it was.
+//!
 //! Values from a Keepsake sidecar win over probed ones (they include the
 //! user's corrections). When an asset already exists from another volume, the
 //! sidecar wins only if its metadata is newer than the catalog's.
@@ -24,16 +31,17 @@ use serde::Serialize;
 
 use crate::catalog::{
     Asset, AssetId, AssetTag, Blake3Hash, CaptureSource, Catalog, Confidence, EditRecipe, Event,
-    EventId, FileRole, MediaKind, NewFile, Rating, SequenceId, SequenceKind, SidecarLocation,
-    SidecarRecord, StillSequence, TagSource, VolumeId, VolumeKind,
+    EventId, File, FileId, FileRole, MediaKind, NewFile, SequenceId, SequenceKind, SidecarLocation,
+    SidecarRecord, StillSequence, TagSource, VolumeId, VolumeKind, WriteTx,
 };
 use crate::corpus::scanner::skip_reason;
+use crate::grouping::sequences::{self, Frame};
 use crate::grouping::{self, Grouping};
 use crate::library::{
     case_of, is_library_dir, is_library_entry, probe_volume, Library, LibraryError, VolumeRecord,
 };
 use crate::probe::{ProbedAsset, Prober};
-use crate::relpath::{path_key, RelPath};
+use crate::relpath::{path_key, CaseSensitivity, RelPath};
 use crate::xmp::{sidecar, AssetXmp};
 
 /// A path that rebuild could not index.
@@ -56,6 +64,9 @@ pub struct RebuildReport {
     /// Entries left out because they are Keepsake's own: a library's files,
     /// or the thumbnail cache.
     pub keepsake_skipped: u64,
+    /// Assets already saved by an earlier scan and unchanged, so not read
+    /// again (batched scans only).
+    pub resumed: u64,
     pub skipped: Vec<SkippedPath>,
     pub problems: Vec<String>,
 }
@@ -69,7 +80,14 @@ pub enum RebuildProgress<'a> {
     File { path: &'a str, bytes: u64 },
     /// A later step started (reading dates, saving).
     Phase(&'static str),
+    /// Batched scans: the catalog now holds this many of the folder's
+    /// assets and files (first sent, with what an earlier scan saved, when
+    /// the folder is registered; then after every saved batch).
+    Saved { assets: u64, files: u64 },
 }
+
+/// Files per saved batch when adding a folder.
+pub const BATCH_FILES: usize = 20;
 
 /// How to run a rebuild.
 #[derive(Default)]
@@ -80,8 +98,13 @@ pub struct RebuildOptions<'a> {
     /// (`render::cache::CACHE_DIRS`) are left out; other files there, such as
     /// photos in a folder that is also the cache folder, are not.
     pub cache_dirs: Vec<PathBuf>,
-    /// Set to stop after the current file. Nothing is saved.
+    /// Set to stop after the current file. Nothing is saved (batched scans
+    /// keep the batches already saved).
     pub cancel: Option<&'a AtomicBool>,
+    /// Save as it goes, about this many files per transaction, and skip
+    /// files an earlier scan saved unchanged. `None`: one transaction at
+    /// the end, every file read again (rebuilding the catalog).
+    pub batch_files: Option<usize>,
     pub progress: Option<&'a mut dyn FnMut(&RebuildProgress<'_>)>,
 }
 
@@ -130,7 +153,8 @@ struct Scanned {
     rel: RelPath,
     key: String,
     size: u64,
-    blake3: Blake3Hash,
+    /// Read up front, or (batched scans) when the file's batch comes.
+    blake3: Option<Blake3Hash>,
     quick: Option<u64>,
     mtime_ms: Option<i64>,
 }
@@ -151,6 +175,9 @@ struct Discovered {
     members: Vec<(usize, FileRole, Option<u32>)>,
     media_kind: Option<MediaKind>,
     probed: Option<ProbedAsset>,
+    /// Its group in the grouping of the remaining files (3b), for probing
+    /// a batch.
+    group: Option<usize>,
 }
 
 const VIDEO_EXT: &[&str] = &["mp4", "mts", "m2ts", "mov", "avi", "mkv"];
@@ -348,6 +375,7 @@ fn rebuild_record(
     let volume = rec.id;
     let case = rec.case;
     let prober = opts.prober;
+    let batched = opts.batch_files.is_some();
     let mut report = RebuildReport::default();
 
     // 1. Walk the volume.
@@ -372,6 +400,18 @@ fn rebuild_record(
         if opts.cancelled() {
             return Err(LibraryError::Cancelled);
         }
+        if batched {
+            // Read when its batch comes (or not at all if already saved).
+            files.push(Scanned {
+                key: rel.key(case),
+                quick: None,
+                rel,
+                size: meta.len(),
+                blake3: None,
+                mtime_ms: mtime_ms(&meta),
+            });
+            continue;
+        }
         let full = rel.to_fs_path(mount);
         let shown = rel.to_string();
         match hash_file(&full) {
@@ -380,7 +420,7 @@ fn rebuild_record(
                 quick: crate::ingest::source::quick_hash(&full).ok(),
                 rel,
                 size: meta.len(),
-                blake3,
+                blake3: Some(blake3),
                 mtime_ms: mtime_ms(&meta),
             }),
             Err(e) => report.skipped.push(SkippedPath {
@@ -531,6 +571,7 @@ fn rebuild_record(
             members,
             media_kind: None,
             probed: None,
+            group: None,
         });
     }
 
@@ -553,10 +594,13 @@ fn rebuild_record(
             });
         }
     }
-    if prober.is_some() {
+    // Batched scans probe each batch as it is saved.
+    if prober.is_some() && !batched {
         opts.report(RebuildProgress::Phase("Reading dates and cameras"));
     }
-    let probe_report = prober.map(|p| p.probe(mount, &rest_rels, &grouped));
+    let probe_report = prober
+        .filter(|_| !batched)
+        .map(|p| p.probe(mount, &rest_rels, &grouped));
     if opts.cancelled() {
         return Err(LibraryError::Cancelled);
     }
@@ -593,6 +637,7 @@ fn rebuild_record(
             probed: probe_report
                 .as_ref()
                 .and_then(|r| r.assets.get(gi).cloned()),
+            group: Some(gi),
         });
     }
 
@@ -685,6 +730,35 @@ fn rebuild_record(
         }
     }
 
+    if let Some(batch) = opts.batch_files {
+        let mut b = Batcher {
+            volume,
+            case,
+            mount,
+            prober,
+            rest_rels: &rest_rels,
+            grouped: &grouped,
+            found: &found,
+            recipes: &recipes,
+            before_by_key: HashMap::new(),
+            before_by_asset: HashMap::new(),
+            frames: Vec::new(),
+            probed: 0,
+        };
+        b.run(
+            cat,
+            rec,
+            opts,
+            batch.max(1),
+            &mut files,
+            &mut discovered,
+            sequences,
+            &events,
+            &mut report,
+        )?;
+        return Ok(report);
+    }
+
     // 4. Replace the volume's rows.
     opts.report(RebuildProgress::Phase("Saving"));
     let vol = rec.to_volume(Some(mount));
@@ -698,132 +772,19 @@ fn rebuild_record(
         for (_, e) in events.values() {
             tx.events().upsert(e)?;
         }
-
         for d in &discovered {
-            let orig = d
-                .members
-                .iter()
-                .find(|(_, r, _)| *r == FileRole::Original)
-                .map(|(i, _, _)| &files[*i])
-                .ok_or_else(|| LibraryError::Invalid("asset without original".into()))?;
-            let x = d.xmp.clone().unwrap_or_default();
-            let own_sidecar = x.asset_id.is_some();
-            let mut asset = Asset {
-                id: d.asset_id,
-                media_kind: x
-                    .media_kind
-                    .or(d.media_kind)
-                    .unwrap_or_else(|| media_kind_for(orig.rel.file_name())),
-                capture: x.capture,
-                capture_shift_s: x.capture_shift_s,
-                duration_ms: x.duration_ms,
-                camera_make: x.camera_make.clone(),
-                camera_model: x.camera_model.clone(),
-                lens_model: x.lens_model.clone(),
-                event_id: x.event.as_ref().map(|e| e.id),
-                rating: x.rating.unwrap_or(Rating::default()),
-                label: x.label.clone(),
-                comment: x.comment.clone(),
-                created_ms: x.added_ms.or(orig.mtime_ms).unwrap_or(0),
-                metadata_ms: x.metadata_ms.unwrap_or(0),
-                capture_source: x.capture_source,
-                capture_confidence: x.capture_confidence,
-                gps: x.gps,
-            };
-            if !own_sidecar {
-                // A foreign (Lightroom/digiKam) date is a fallback only.
-                if asset.capture.is_some() && asset.capture_source.is_none() {
-                    asset.capture_source = Some(CaptureSource::Sidecar);
-                    asset.capture_confidence = Some(
-                        if asset.capture.is_some_and(|c| c.utc_offset_min.is_some()) {
-                            Confidence::High
-                        } else {
-                            Confidence::Low
-                        },
-                    );
-                }
-                if let Some(p) = &d.probed {
-                    probed_count += 1;
-                    if let Some(c) = &p.capture {
-                        asset.capture = Some(c.time);
-                        asset.capture_source = Some(c.source);
-                        asset.capture_confidence = Some(c.confidence);
-                    }
-                    asset.camera_make = p.make.clone().or(asset.camera_make);
-                    asset.camera_model = p.model.clone().or(asset.camera_model);
-                    asset.lens_model = p.lens.clone().or(asset.lens_model);
-                    asset.duration_ms = p.duration_ms.or(asset.duration_ms);
-                    asset.gps = p.gps.or(asset.gps);
-                    for prob in &p.problems {
-                        report.problems.push(format!("{}: {prob}", orig.rel));
-                    }
-                }
-            }
-            let apply = match tx.assets().get(d.asset_id)? {
-                None => {
-                    tx.assets().insert(&asset)?;
-                    true
-                }
-                Some(existing) if asset.metadata_ms > existing.metadata_ms => {
-                    tx.assets().update(&asset)?;
-                    true
-                }
-                Some(_) => false,
-            };
-            if apply {
-                let user: Vec<AssetTag> = x.user_tags.iter().cloned().map(AssetTag::user).collect();
-                let ai: Vec<AssetTag> = x
-                    .ai_tags
-                    .iter()
-                    .map(|(p, c)| AssetTag::ai(p.clone(), *c))
-                    .collect();
-                tx.tags()
-                    .set_for_asset(d.asset_id, TagSource::User, &user)?;
-                tx.tags().set_for_asset(d.asset_id, TagSource::Ai, &ai)?;
-                for old in tx.recipes().for_asset(d.asset_id)? {
-                    tx.recipes().delete(old.id)?;
-                }
-                for r in recipes.get(&d.asset_id).into_iter().flatten() {
-                    tx.recipes().upsert(r)?;
-                }
-            }
-            for (i, role, seg) in &d.members {
-                let f = &files[*i];
-                tx.files().insert(
-                    d.asset_id,
-                    &NewFile {
-                        volume_id: volume,
-                        rel_path: f.rel.clone(),
-                        role: *role,
-                        size_bytes: f.size,
-                        blake3: f.blake3,
-                        xxh3: f.quick,
-                        mtime_ms: f.mtime_ms,
-                        segment_index: *seg,
-                    },
-                )?;
-            }
-            if let Some(si) = d.sidecar {
-                let s = &found[si];
-                tx.sidecars().upsert(&SidecarRecord {
-                    asset_id: d.asset_id,
-                    volume_id: volume,
-                    location: s.location,
-                    rel_path: s.rel.clone(),
-                    blake3: s.blake3,
-                    mtime_ms: s.mtime_ms,
-                })?;
-            }
+            save_asset(
+                tx,
+                volume,
+                d,
+                &files,
+                &found,
+                &recipes,
+                &mut report.problems,
+                &mut probed_count,
+            )?;
         }
-        for (id, (kind, mut members)) in std::mem::take(&mut sequences) {
-            members.sort();
-            tx.sequences().upsert(&StillSequence {
-                id,
-                volume_id: volume,
-                kind,
-                members: members.into_iter().map(|(_, a)| a).collect(),
-            })?;
-        }
+        save_sequences(tx, volume, std::mem::take(&mut sequences))?;
         tx.sequences().delete_small()?;
         tx.events().delete_empty()?;
         tx.tags().prune_unused()?;
@@ -849,6 +810,506 @@ fn rebuild_record(
         "rebuilt volume"
     );
     Ok(report)
+}
+
+type Sequences = BTreeMap<SequenceId, (SequenceKind, Vec<(u32, AssetId)>)>;
+
+/// Write one asset's rows: the asset (unless the catalog's is newer), its
+/// tags and recipes, its files and its sidecar.
+#[allow(clippy::too_many_arguments)]
+fn save_asset(
+    tx: &WriteTx<'_>,
+    volume: VolumeId,
+    d: &Discovered,
+    files: &[Scanned],
+    found: &[FoundSidecar],
+    recipes: &HashMap<AssetId, Vec<EditRecipe>>,
+    problems: &mut Vec<String>,
+    probed_count: &mut u64,
+) -> Result<(), LibraryError> {
+    let orig = d
+        .members
+        .iter()
+        .find(|(_, r, _)| *r == FileRole::Original)
+        .map(|(i, _, _)| &files[*i])
+        .ok_or_else(|| LibraryError::Invalid("asset without original".into()))?;
+    let x = d.xmp.clone().unwrap_or_default();
+    let own_sidecar = x.asset_id.is_some();
+    let mut asset = Asset {
+        id: d.asset_id,
+        media_kind: x
+            .media_kind
+            .or(d.media_kind)
+            .unwrap_or_else(|| media_kind_for(orig.rel.file_name())),
+        capture: x.capture,
+        capture_shift_s: x.capture_shift_s,
+        duration_ms: x.duration_ms,
+        camera_make: x.camera_make.clone(),
+        camera_model: x.camera_model.clone(),
+        lens_model: x.lens_model.clone(),
+        event_id: x.event.as_ref().map(|e| e.id),
+        rating: x.rating.unwrap_or_default(),
+        label: x.label.clone(),
+        comment: x.comment.clone(),
+        created_ms: x.added_ms.or(orig.mtime_ms).unwrap_or(0),
+        metadata_ms: x.metadata_ms.unwrap_or(0),
+        capture_source: x.capture_source,
+        capture_confidence: x.capture_confidence,
+        gps: x.gps,
+    };
+    if !own_sidecar {
+        // A foreign (Lightroom/digiKam) date is a fallback only.
+        if asset.capture.is_some() && asset.capture_source.is_none() {
+            asset.capture_source = Some(CaptureSource::Sidecar);
+            asset.capture_confidence = Some(
+                if asset.capture.is_some_and(|c| c.utc_offset_min.is_some()) {
+                    Confidence::High
+                } else {
+                    Confidence::Low
+                },
+            );
+        }
+        if let Some(p) = &d.probed {
+            *probed_count += 1;
+            if let Some(c) = &p.capture {
+                asset.capture = Some(c.time);
+                asset.capture_source = Some(c.source);
+                asset.capture_confidence = Some(c.confidence);
+            }
+            asset.camera_make = p.make.clone().or(asset.camera_make);
+            asset.camera_model = p.model.clone().or(asset.camera_model);
+            asset.lens_model = p.lens.clone().or(asset.lens_model);
+            asset.duration_ms = p.duration_ms.or(asset.duration_ms);
+            asset.gps = p.gps.or(asset.gps);
+            for prob in &p.problems {
+                problems.push(format!("{}: {prob}", orig.rel));
+            }
+        }
+    }
+    let apply = match tx.assets().get(d.asset_id)? {
+        None => {
+            tx.assets().insert(&asset)?;
+            true
+        }
+        Some(existing) if asset.metadata_ms > existing.metadata_ms => {
+            tx.assets().update(&asset)?;
+            true
+        }
+        Some(_) => false,
+    };
+    if apply {
+        let user: Vec<AssetTag> = x.user_tags.iter().cloned().map(AssetTag::user).collect();
+        let ai: Vec<AssetTag> = x
+            .ai_tags
+            .iter()
+            .map(|(p, c)| AssetTag::ai(p.clone(), *c))
+            .collect();
+        tx.tags()
+            .set_for_asset(d.asset_id, TagSource::User, &user)?;
+        tx.tags().set_for_asset(d.asset_id, TagSource::Ai, &ai)?;
+        for old in tx.recipes().for_asset(d.asset_id)? {
+            tx.recipes().delete(old.id)?;
+        }
+        for r in recipes.get(&d.asset_id).into_iter().flatten() {
+            tx.recipes().upsert(r)?;
+        }
+    }
+    for (i, role, seg) in &d.members {
+        let f = &files[*i];
+        let blake3 = f
+            .blake3
+            .ok_or_else(|| LibraryError::Invalid(format!("{} was not read", f.rel)))?;
+        tx.files().insert(
+            d.asset_id,
+            &NewFile {
+                volume_id: volume,
+                rel_path: f.rel.clone(),
+                role: *role,
+                size_bytes: f.size,
+                blake3,
+                xxh3: f.quick,
+                mtime_ms: f.mtime_ms,
+                segment_index: *seg,
+            },
+        )?;
+    }
+    if let Some(si) = d.sidecar {
+        let s = &found[si];
+        tx.sidecars().upsert(&SidecarRecord {
+            asset_id: d.asset_id,
+            volume_id: volume,
+            location: s.location,
+            rel_path: s.rel.clone(),
+            blake3: s.blake3,
+            mtime_ms: s.mtime_ms,
+        })?;
+    }
+    Ok(())
+}
+
+fn save_sequences(
+    tx: &WriteTx<'_>,
+    volume: VolumeId,
+    sequences: Sequences,
+) -> Result<(), LibraryError> {
+    for (id, (kind, mut members)) in sequences {
+        members.sort();
+        tx.sequences().upsert(&StillSequence {
+            id,
+            volume_id: volume,
+            kind,
+            members: members.into_iter().map(|(_, a)| a).collect(),
+        })?;
+    }
+    Ok(())
+}
+
+/// Saving a folder as it is read, a batch at a time (see
+/// [`RebuildOptions::batch_files`]).
+struct Batcher<'a> {
+    volume: VolumeId,
+    case: CaseSensitivity,
+    mount: &'a Path,
+    prober: Option<&'a Prober>,
+    rest_rels: &'a [RelPath],
+    grouped: &'a Grouping,
+    found: &'a [FoundSidecar],
+    recipes: &'a HashMap<AssetId, Vec<EditRecipe>>,
+    /// Rows an earlier scan saved: file key to row, and asset to its rows.
+    before_by_key: HashMap<String, File>,
+    before_by_asset: HashMap<AssetId, Vec<FileId>>,
+    /// Stills probed in this scan, for sequences (`id`: index in `discovered`).
+    frames: Vec<Frame>,
+    probed: u64,
+}
+
+impl Batcher<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn run(
+        &mut self,
+        cat: &mut Catalog,
+        rec: &VolumeRecord,
+        opts: &mut RebuildOptions<'_>,
+        batch: usize,
+        files: &mut [Scanned],
+        discovered: &mut [Discovered],
+        mut sequences: Sequences,
+        events: &BTreeMap<EventId, (i64, Event)>,
+        report: &mut RebuildReport,
+    ) -> Result<(), LibraryError> {
+        let volume = self.volume;
+        let vol = rec.to_volume(Some(self.mount));
+        // The folder is in the library from now on, with what an earlier
+        // scan saved.
+        let (before, sidecars) = cat.write(|tx| -> Result<_, LibraryError> {
+            tx.volumes().upsert(&vol)?;
+            for (_, e) in events.values() {
+                tx.events().upsert(e)?;
+            }
+            let before = tx.files().for_volume(volume)?;
+            let mut sidecars: HashMap<AssetId, Blake3Hash> = HashMap::new();
+            for a in before.iter().map(|f| f.asset_id).collect::<HashSet<_>>() {
+                if let Some(s) = tx
+                    .sidecars()
+                    .for_asset(a)?
+                    .into_iter()
+                    .find(|s| s.volume_id == volume)
+                {
+                    sidecars.insert(a, s.blake3);
+                }
+            }
+            Ok((before, sidecars))
+        })?;
+        for f in before {
+            self.before_by_asset
+                .entry(f.asset_id)
+                .or_default()
+                .push(f.id);
+            self.before_by_key.insert(f.rel_path.key(self.case), f);
+        }
+        let mut saved_assets = self.before_by_asset.len() as u64;
+        let mut saved_files = self.before_by_key.len() as u64;
+        opts.report(RebuildProgress::Saved {
+            assets: saved_assets,
+            files: saved_files,
+        });
+
+        // Keys of the files the folder still has, and the assets kept.
+        let mut keep: HashSet<String> = HashSet::new();
+        let mut kept: Vec<usize> = Vec::new();
+        let mut pending: Vec<usize> = Vec::new();
+        let mut pending_files = 0usize;
+        for di in 0..discovered.len() {
+            if opts.cancelled() {
+                break;
+            }
+            if self.unchanged(&discovered[di], files, &sidecars) {
+                report.resumed += 1;
+                for (i, _, _) in &discovered[di].members {
+                    keep.insert(files[*i].key.clone());
+                    let shown = files[*i].rel.to_string();
+                    opts.report(RebuildProgress::File {
+                        path: &shown,
+                        bytes: files[*i].size,
+                    });
+                }
+                kept.push(di);
+                continue;
+            }
+            // Read its files; one that cannot be read is left out.
+            let mut readable = Vec::new();
+            for &(i, role, seg) in &discovered[di].members {
+                let f = &mut files[i];
+                let full = f.rel.to_fs_path(self.mount);
+                let shown = f.rel.to_string();
+                match hash_file(&full) {
+                    Ok(h) => {
+                        f.blake3 = Some(h);
+                        f.quick = crate::ingest::source::quick_hash(&full).ok();
+                        readable.push((i, role, seg));
+                    }
+                    Err(e) => report.skipped.push(SkippedPath {
+                        path: shown.clone(),
+                        reason: format!("cannot read: {e}"),
+                    }),
+                }
+                opts.report(RebuildProgress::File {
+                    path: &shown,
+                    bytes: f.size,
+                });
+            }
+            if !readable.iter().any(|(_, r, _)| *r == FileRole::Original) {
+                continue;
+            }
+            for (i, _, _) in &readable {
+                keep.insert(files[*i].key.clone());
+            }
+            pending_files += readable.len();
+            discovered[di].members = readable;
+            pending.push(di);
+            kept.push(di);
+            if pending_files >= batch {
+                let (a, n) = self.save(cat, files, discovered, &pending, report)?;
+                saved_assets += a;
+                saved_files = saved_files.saturating_add_signed(n);
+                opts.report(RebuildProgress::Saved {
+                    assets: saved_assets,
+                    files: saved_files,
+                });
+                pending.clear();
+                pending_files = 0;
+            }
+        }
+        // What was read is kept, even when stopped.
+        if !pending.is_empty() {
+            let (a, n) = self.save(cat, files, discovered, &pending, report)?;
+            saved_assets += a;
+            saved_files = saved_files.saturating_add_signed(n);
+            opts.report(RebuildProgress::Saved {
+                assets: saved_assets,
+                files: saved_files,
+            });
+        }
+        if opts.cancelled() {
+            return Err(LibraryError::Cancelled);
+        }
+        // Files that are in no asset (notes, camera bookkeeping) were not
+        // read; count them so the progress reaches the end.
+        let in_assets: HashSet<usize> = discovered
+            .iter()
+            .flat_map(|d| d.members.iter().map(|(i, _, _)| *i))
+            .collect();
+        for (i, f) in files.iter().enumerate() {
+            if !in_assets.contains(&i) && !keep.contains(&f.key) {
+                let shown = f.rel.to_string();
+                opts.report(RebuildProgress::File {
+                    path: &shown,
+                    bytes: f.size,
+                });
+            }
+        }
+
+        // Finish: files no longer in the folder, sequences, tidying.
+        opts.report(RebuildProgress::Phase("Finishing"));
+        for s in sequences::detect(&self.frames) {
+            let ids: Vec<AssetId> = s
+                .members
+                .iter()
+                .map(|di| discovered[*di].asset_id)
+                .collect();
+            let Some(&first) = s.members.first() else {
+                continue;
+            };
+            let Some(first_key) = discovered[first]
+                .members
+                .iter()
+                .find(|(_, r, _)| *r == FileRole::Original)
+                .map(|(i, _, _)| &files[*i].key)
+            else {
+                continue;
+            };
+            let id = SequenceId::for_first(volume, first_key);
+            sequences.insert(
+                id,
+                (
+                    s.kind,
+                    ids.into_iter()
+                        .enumerate()
+                        .map(|(p, a)| (p as u32, a))
+                        .collect(),
+                ),
+            );
+        }
+        let resumed = report.resumed;
+        let case = self.case;
+        report.sequences = cat.write(|tx| -> Result<u64, LibraryError> {
+            for f in tx.files().for_volume(volume)? {
+                if !keep.contains(&f.rel_path.key(case)) {
+                    tx.files().delete(f.id)?;
+                }
+            }
+            tx.assets().delete_orphans()?;
+            // Sequences are worked out again unless part of the folder was
+            // saved before and not probed now.
+            if resumed == 0 {
+                tx.sequences().delete_for_volume(volume)?;
+            }
+            save_sequences(tx, volume, sequences)?;
+            tx.sequences().delete_small()?;
+            tx.events().delete_empty()?;
+            tx.tags().prune_unused()?;
+            tx.volumes().upsert(&vol)?;
+            Ok(tx
+                .sequences()
+                .list()?
+                .iter()
+                .filter(|s| s.volume_id == volume)
+                .count() as u64)
+        })?;
+        report.assets = kept.len() as u64;
+        report.files_indexed = kept
+            .iter()
+            .map(|di| discovered[*di].members.len() as u64)
+            .sum();
+        report.sidecars_used = kept
+            .iter()
+            .filter(|di| discovered[**di].sidecar.is_some())
+            .count() as u64;
+        report.probed = self.probed;
+        tracing::info!(
+            %volume,
+            assets = report.assets,
+            files = report.files_indexed,
+            resumed = report.resumed,
+            probed = report.probed,
+            problems = report.problems.len(),
+            "scanned folder in batches"
+        );
+        Ok(())
+    }
+
+    /// Saved by an earlier scan, and neither its files nor its sidecar have
+    /// changed since.
+    fn unchanged(
+        &self,
+        d: &Discovered,
+        files: &[Scanned],
+        sidecars: &HashMap<AssetId, Blake3Hash>,
+    ) -> bool {
+        let Some(rows) = self.before_by_asset.get(&d.asset_id) else {
+            return false;
+        };
+        rows.len() == d.members.len()
+            && d.members.iter().all(|(i, role, _)| {
+                let f = &files[*i];
+                self.before_by_key.get(&f.key).is_some_and(|b| {
+                    b.asset_id == d.asset_id
+                        && b.role == *role
+                        && b.size_bytes == f.size
+                        && f.mtime_ms.is_some()
+                        && b.mtime_ms == f.mtime_ms
+                })
+            })
+            && match d.sidecar {
+                Some(si) => sidecars.get(&d.asset_id) == Some(&self.found[si].blake3),
+                None => !sidecars.contains_key(&d.asset_id),
+            }
+    }
+
+    /// Probe and save the assets `idxs` in one transaction. Returns how many
+    /// assets the catalog gained, and the change in its file count.
+    fn save(
+        &mut self,
+        cat: &mut Catalog,
+        files: &[Scanned],
+        discovered: &mut [Discovered],
+        idxs: &[usize],
+        report: &mut RebuildReport,
+    ) -> Result<(u64, i64), LibraryError> {
+        if let Some(p) = self.prober {
+            let picks: Vec<(usize, usize)> = idxs
+                .iter()
+                .filter_map(|&di| discovered[di].group.map(|g| (di, g)))
+                .collect();
+            if !picks.is_empty() {
+                let sub = Grouping {
+                    groups: picks
+                        .iter()
+                        .map(|(_, g)| self.grouped.groups[*g].clone())
+                        .collect(),
+                    ..Default::default()
+                };
+                let r = p.probe(self.mount, self.rest_rels, &sub);
+                for (k, (di, _)) in picks.iter().enumerate() {
+                    discovered[*di].probed = r.assets.get(k).cloned();
+                }
+                for f in r.frames {
+                    if let Some((di, _)) = picks.get(f.id) {
+                        self.frames.push(Frame { id: *di, ..f });
+                    }
+                }
+            }
+        }
+        let volume = self.volume;
+        let (found, recipes) = (self.found, self.recipes);
+        let before_by_key = &self.before_by_key;
+        let before_by_asset = &self.before_by_asset;
+        let probed = &mut self.probed;
+        let problems = &mut report.problems;
+        cat.write(|tx| -> Result<(u64, i64), LibraryError> {
+            let (mut assets, mut n) = (0u64, 0i64);
+            for &di in idxs {
+                let d = &discovered[di];
+                // Rows an earlier scan saved for this asset or these files.
+                let mut stale: HashSet<FileId> = before_by_asset
+                    .get(&d.asset_id)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .collect();
+                for (i, _, _) in &d.members {
+                    if let Some(b) = before_by_key.get(&files[*i].key) {
+                        stale.insert(b.id);
+                    }
+                }
+                let had = !stale.is_empty();
+                n -= stale.len() as i64;
+                for id in stale {
+                    tx.files().delete(id)?;
+                }
+                // Read again from scratch, as a first scan would.
+                if had && tx.files().for_asset(d.asset_id)?.is_empty() {
+                    tx.assets().delete(d.asset_id)?;
+                }
+                save_asset(tx, volume, d, files, found, recipes, problems, probed)?;
+                if !had {
+                    assets += 1;
+                }
+                n += d.members.len() as i64;
+            }
+            Ok((assets, n))
+        })
+    }
 }
 
 /// Register the folder at `mount` as a volume (or find it again if it was
@@ -1001,6 +1462,11 @@ pub fn add_folder(
             }
         }
     };
+    // Saving as it goes: the folder is in the library from the start, and
+    // stays if the scan stops (the next scan carries on).
+    if opts.batch_files.is_some() {
+        lib.register_volume(&rec)?;
+    }
     let report = rebuild_record(cat, lib, &rec, &mount, opts)?;
     lib.register_volume(&rec)?;
     Ok((rec, report))

@@ -18,6 +18,9 @@ import { effectiveQuery, initial, reduce, type Msg, type UiState } from "./uiMod
 
 export type { CalPos, Mode, Section, UiState } from "./uiModel";
 
+/** Shortest time between re-opening the view while a folder is added. */
+const FOLDER_REFRESH_MS = 3000;
+
 interface Ctx {
   s: UiState;
   dispatch: (m: Msg) => void;
@@ -62,6 +65,31 @@ export function UiProvider({ children }: { children: ReactNode }) {
     return () => {
       a.then((f) => f());
       b.then((f) => f());
+    };
+  }, []);
+  // A folder being added fills in as it is read: the tree and counts follow
+  // every saved batch; the view is opened again at most every few seconds,
+  // and not while something is selected or in the viewer (that would lose
+  // the selection), so it catches up when the scan finishes.
+  const busy = useRef(false);
+  busy.current = s.viewer || sel.size(s.sel) > 0;
+  useEffect(() => {
+    let last = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reopen = () => {
+      timer = null;
+      if (busy.current) return;
+      last = Date.now();
+      setRefreshes((n) => n + 1);
+    };
+    const un = events.folderSaved(() => {
+      dispatch({ t: "edited" });
+      if (timer) return;
+      timer = setTimeout(reopen, Math.max(0, last + FOLDER_REFRESH_MS - Date.now()));
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      un.then((f) => f());
     };
   }, []);
   const ctx: Ctx = {

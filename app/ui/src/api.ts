@@ -18,6 +18,7 @@ import type { EditResult } from "./bindings/EditResult";
 import type { Facets } from "./bindings/Facets";
 import type { FileMetadata } from "./bindings/FileMetadata";
 import type { FolderDone } from "./bindings/FolderDone";
+import type { FolderSaved } from "./bindings/FolderSaved";
 import type { FolderNode } from "./bindings/FolderNode";
 import type { ImportCheck } from "./bindings/ImportCheck";
 import type { ImportPrefs } from "./bindings/ImportPrefs";
@@ -58,6 +59,7 @@ export type {
   Facets,
   FileMetadata,
   FolderDone,
+  FolderSaved,
   FolderNode,
   ImportCheck,
   ImportPrefs,
@@ -205,6 +207,8 @@ export const events = {
     listen<MaintDone>("maint://done", (e) => f(e.payload)),
   folderDone: (f: (e: FolderDone) => void): Promise<UnlistenFn> =>
     listen<FolderDone>("folder://done", (e) => f(e.payload)),
+  folderSaved: (f: (e: FolderSaved) => void): Promise<UnlistenFn> =>
+    listen<FolderSaved>("folder://saved", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

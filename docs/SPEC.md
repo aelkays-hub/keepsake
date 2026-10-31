@@ -18,7 +18,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
   - AVCHD `MPL`/`CLPI` playlist files alongside `BDMV/STREAM/*.MTS` segments.
 
 ### Folders already on disk
-- Add a folder of existing photos and videos (Folders screen, the empty library's "Add a folder…", `keepsake add-folder`). It is catalogued where it is: nothing is copied, moved or changed, and nothing is written into the folder. Edits go to the library's mirrored sidecars.
+- Add a folder of existing photos and videos (Folders screen, the empty library's "Add a folder…", `keepsake add-folder`). It is catalogued where it is: nothing is copied, moved or changed, and nothing is written into the folder. Edits go to the library's mirrored sidecars. The folder is in the library (tree, Folders screen) as soon as it is added, and its items are saved 20 files at a time as they are read, so the tree and counts fill in while it runs. If the scan stops or fails, what was saved stays, and adding the folder again carries on from there without reading those files again.
 - Lightroom, digiKam and Keepsake `.xmp` sidecars in the folder are read (ratings, labels, keywords, dates).
 - A Keepsake library or the thumbnail cache inside the folder is left out. A folder that overlaps one already in the library is refused.
 - Progress, Stop (nothing is saved), and "Scan again" for new, changed and removed files.

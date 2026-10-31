@@ -524,6 +524,19 @@ dto! {
         pub error: Option<String>,
     }
 
+    /// `folder://saved`: a folder being added has more of its items in the
+    /// library. Sent once it is in the library (with what an earlier scan
+    /// saved), then after every saved batch, so the views can update.
+    pub struct FolderSaved {
+        /// The folder as chosen.
+        pub folder: String,
+        /// Its items and files in the library so far.
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub files: u64,
+    }
+
     /// An application in the Open in menu for one item.
     pub struct OpenChoice {
         /// The program, as set in Settings; empty for the system default.

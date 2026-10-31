@@ -1038,7 +1038,7 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - **Read-only, always.** A folder added in place is recorded `read_only`, so every edit's sidecar goes to the library's mirror and nothing is written into the folder. That includes the hidden writability probe file. Case sensitivity is found by looking the folder up with its name's case swapped. Users' own folders, often managed by Lightroom, stay exactly as they were.
 - **No double counting.** A folder inside, or holding, a folder already in the library is refused. A folder inside the library folder is refused. Adding the same folder again scans it again under the same volume, keeping its edits.
 - **Keepsake's own files are left out.** A library made inside the photo folder (as in the case above) has its `catalog.db`, `sidecars/`, `recipes/` and so on skipped by name (`library::LIBRARY_ENTRIES`), wherever such a library is found, but not the photos beside them. In the cache folder only Keepsake's own sub-folders (`thumbnail`, `preview`, `proxy`, `export`, `card`, `.tmp`) are left out: a cache folder set to a photo folder still has its photos added. The app, `add-folder` and `rebuild-catalog` pass the cache folder.
-- **All or nothing.** The scan reads and hashes everything first, and is stoppable between files. It saves in one transaction, and registers the volume only after that. A stopped scan leaves the library unchanged.
+- **All or nothing.** The scan reads and hashes everything first, and is stoppable between files. It saves in one transaction, and registers the volume only after that. A stopped scan leaves the library unchanged. *Superseded by ADR-028: adding a folder now saves as it goes and resumes.*
 - **One long job at a time.** The app runs it as the maintenance job (shared with backup and verify) and reports on `maint://progress` (kind `folder`), then `folder://done`. Thumbnails are queued afterwards.
 
 **Not done.**
@@ -1073,3 +1073,21 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - **One copy.** With one destination the card is never reported safe to format. The owner chose this; a second destination remains possible in the import window.
 
 **Not done.** Choosing a second automatic destination in Settings; a notification outside the app window.
+
+## ADR-028 — Adding a folder saves as it goes, 20 files at a time, and resumes
+
+**Status**: Accepted (2026-10-31, product owner: "batch every 20 files", "update the UI immediately and keep on updating as files are added"). No new dependency. Supersedes ADR-025's "all or nothing".
+
+**Context.** The owner added `\\MYCLOUD-92LNT0\aelkays\Photos-OldAcer\2010` (about 10,600 files on a network drive). The scan read every file over the network, then probed them all, and saved only at the very end in one transaction. When it did not finish, nothing at all was kept: the folder never appeared in the tree, and each new try started from the first file. Smaller folders from the same drive (1 and 218 items) went in fine.
+
+**Decision.**
+- **Registered first.** `add_folder` registers the folder (`volumes.json` and the catalog's volume row) before it reads any file, so it is in the library, the tree and the Folders screen at once, and stays there if the scan stops.
+- **Saved in batches.** `RebuildOptions::batch_files` (`BATCH_FILES` = 20, used by the app and `keepsake add-folder`): items are hashed and probed one batch at a time, and each batch is written in its own short transaction (other writers, such as the thumbnail service, wait at most one batch). A batch holds whole items, so a RAW + JPEG pair or a clip's files are never split. Stopping keeps the batch in hand.
+- **Resume by comparing.** No separate checkpoint file: a file already in the catalog for this folder with the same size and modification time (and the same sidecar) is not read again. Running the add again therefore carries on where it stopped, and "Scan again" re-reads only new and changed files. Files no longer in the folder are removed at the end, once every file was seen.
+- **Live views.** The app sends `folder://saved` (items and files saved so far) on registration and after every batch. The tree, counts and Folders screen refresh on each; the grid's view is re-opened at most every 3 s, and not while something is selected or the viewer is open (that would lose the selection), so it catches up at the end.
+- **Sequences.** Bursts and brackets are found once at the end across the whole folder, from what each batch's probe saw (`ProbeReport::frames`). Time-zone borrowing between neighbouring photos (`capture::borrow_offsets`) works within a batch.
+- **Rebuilding the catalog** (`rebuild-catalog`, `rebuild_library`) keeps one transaction and reads every file: it is a recovery tool and must not trust the rows it is replacing.
+
+**Trade-off.** A scan that stops leaves the folder partly catalogued. The Folders screen and the CLI say so and that adding it again carries on.
+
+**Not done.** Resuming without listing the folder again (the listing is quick next to reading); a batch size setting.

@@ -21,6 +21,8 @@ export function FoldersScreen() {
   const [volumes, setVolumes] = useState<SidebarData["volumes"] | null>(null);
   const [progress, setProgress] = useState<MaintProgress | null>(null);
   const [done, setDone] = useState<FolderDone | null>(null);
+  /** Items of the folder being added that are in the library so far. */
+  const [saved, setSaved] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const load = useCallback(() => {
@@ -44,18 +46,26 @@ export function FoldersScreen() {
     const b = events.folderDone((d) => {
       setRunning(false);
       setProgress(null);
+      setSaved(null);
       setDone(d);
+      load();
+    });
+    // Saved as it is read: the list shows the folder and its count growing.
+    const c = events.folderSaved((e) => {
+      setSaved(e.items);
       load();
     });
     return () => {
       a.then((f) => f());
       b.then((f) => f());
+      c.then((f) => f());
     };
   }, [load]);
   const add = (folder: string) => {
     setProblem(null);
     setDone(null);
     setProgress(null);
+    setSaved(null);
     api
       .folderAdd(folder)
       .then(() => setRunning(true))
@@ -108,8 +118,8 @@ export function FoldersScreen() {
           </button>
         </div>
         <p className="muted">
-          Every file is read once to check it, so a large folder takes a while. You can keep using
-          Keepsake meanwhile.
+          Every file is read once to check it, so a large folder takes a while. Its photos appear in
+          the library as they are read, and you can keep using Keepsake meanwhile.
         </p>
       </div>
 
@@ -124,6 +134,12 @@ export function FoldersScreen() {
                 of {fmt.bytes(progress?.bytesTotal ?? 0)}
                 {progress?.current ? ` · ${progress.current}` : ""}
               </p>
+              {saved !== null && (
+                <p className="muted" data-testid="folder-saved">
+                  {fmt.plural(saved, "item")} in the library so far. They are saved as they are
+                  read: if this stops, adding the folder again carries on from here.
+                </p>
+              )}
               <button onClick={() => void api.maintCancel()} data-testid="folder-stop">
                 Stop
               </button>
@@ -190,7 +206,7 @@ function Outcome({ d, onShow }: { d: FolderDone; onShow: (id: string, title: str
   if (d.cancelled)
     return (
       <p data-testid="folder-outcome">
-        Stopped. Nothing was added; add the folder again to start over.
+        Stopped. What was read so far is in the library; add the folder again to carry on.
       </p>
     );
   return (

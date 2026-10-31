@@ -161,6 +161,9 @@ export function installMock(): void {
   // `?broken=details`: the backend returns malformed details (tests the
   // error screen with a real render failure).
   const broken = params.get("broken");
+  // `?folderStall=N`: the first folder scan fails after N batches (as when
+  // a network drive drops); the next scan carries on.
+  let folderStall = Number(params.get("folderStall") ?? 0);
   window.__mock = st;
   let library: string | null = noLibrary ? null : "D:\\Keepsake";
   const all = Array.from({ length: n }, (_, i) => item(i, n));
@@ -744,9 +747,16 @@ export function installMock(): void {
           const label = prev?.label ?? mount.split(/[\\/]/).filter(Boolean).pop() ?? mount;
           const id = prev?.id ?? `vf${st.folders.length}`;
           const total = 250e6;
-          let bytes = 0;
+          // Saved as it is read: in the library at once, then every batch.
+          const f = prev ?? { id, label, mount, count: 0 };
+          if (!prev) st.folders.push(f);
+          void emit("folder://saved", { folder: mount, items: f.count, files: f.count });
+          let bytes = (f.count / 38) * total;
+          let batches = 0;
           const tick = setInterval(() => {
             bytes = Math.min(total, bytes + total / 4);
+            f.count = Math.min(38, f.count + 10);
+            batches += 1;
             void emit("maint://progress", {
               kind: "folder",
               bytesDone: bytes,
@@ -754,9 +764,27 @@ export function installMock(): void {
               filesDone: Math.round((bytes / total) * 40),
               current: "January/DSC00002.ARW",
             });
+            void emit("folder://saved", { folder: mount, items: f.count, files: f.count });
+            if (folderStall > 0 && batches >= folderStall) {
+              folderStall = 0;
+              clearInterval(tick);
+              void emit("folder://done", {
+                folder: mount,
+                volume: null,
+                label: null,
+                items: 0,
+                files: 0,
+                withSidecars: 0,
+                otherFiles: 0,
+                problems: [],
+                cancelled: false,
+                error: "the network drive stopped answering",
+              });
+              return;
+            }
             if (bytes >= total) {
               clearInterval(tick);
-              if (!prev) st.folders.push({ id, label, mount, count: 38 });
+              f.count = 38;
               void emit("folder://done", {
                 folder: mount,
                 volume: id,

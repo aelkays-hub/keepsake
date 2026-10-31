@@ -7,7 +7,7 @@ use clap::Args;
 use serde_json::json;
 
 use keepsake_core::library::LibraryError;
-use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress};
+use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress, BATCH_FILES};
 
 use super::common::{
     bytes_bar, cancel_flag, maybe_prober, path_str, Config, Ctx, EXIT_CANCELLED, EXIT_OK,
@@ -47,12 +47,16 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
             bar.set_prefix(name.to_string());
             bar.set_message("");
         }
+        RebuildProgress::Saved { assets, .. } => {
+            bar.set_prefix(format!("Reading ({assets} saved)"))
+        }
     };
     let mut opts = RebuildOptions {
         prober: prober.as_ref(),
         cache_dirs: cache_dirs(),
         cancel: Some(cancel_flag()),
         progress: Some(&mut progress),
+        batch_files: Some(BATCH_FILES),
     };
     let result = add_folder(&mut cat, &lib, &a.folder, &mut opts);
     bar.finish_and_clear();
@@ -60,7 +64,9 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
         Ok(x) => x,
         Err(LibraryError::Cancelled) => {
             ctx.emit(&json!({ "cancelled": true }), || {
-                println!("Stopped. Nothing was added; run the command again to start over.");
+                println!(
+                    "Stopped. What was read so far is in the library; run the command again to carry on."
+                );
             })?;
             return Ok(EXIT_CANCELLED);
         }
@@ -81,6 +87,12 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
         println!(
             "Nothing in the folder was changed. Ratings and other edits are kept in the library."
         );
+        if r.resumed > 0 {
+            println!(
+                "{} items were already in the library unchanged and were not read again.",
+                r.resumed
+            );
+        }
         let other = r.skipped.len();
         if other > 0 {
             println!("{other} other files are not photos or videos and were left out.");
