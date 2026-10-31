@@ -9,7 +9,9 @@
 // frame, J and L jump a second, and the timecode of the frame on screen.
 // Arrows (when not zoomed) move through the selection, or the whole view
 // when one item is selected. F: full screen. Esc: close. 0–5 and 6–9 rate
-// and label the item shown; Ctrl+O opens it in another application.
+// and label the item shown; Ctrl+O opens it in another application. I (or
+// the Info button) shows the item's metadata in a panel on the right; the
+// picture's area shrinks to make room, and the choice is remembered.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -28,6 +30,8 @@ import { LABEL_KEYS } from "../keys";
 import * as sel from "../selection";
 import { useUi } from "../state";
 import { OpenInMenu } from "./OpenInMenu";
+import { setViewerInfo, useViewerInfo } from "../viewerInfo";
+import { ViewerInfo } from "./ViewerInfo";
 
 async function toggleFullscreen() {
   try {
@@ -553,6 +557,7 @@ export function Viewer() {
   const [member, setMember] = useState<MemberDto>("primary");
   const [note, setNote] = useState<string | null>(null);
   const stageKey = useRef<KeyFn>(() => false);
+  const info = useViewerInfo();
   const root = useRef<HTMLDivElement>(null);
   useFocusTrap(root);
   const close = useCallback(() => dispatch({ t: "viewer", open: false }), [dispatch]);
@@ -645,6 +650,8 @@ export function Viewer() {
       go("last");
     } else if (e.key === "f" || e.key === "F") {
       void toggleFullscreen();
+    } else if (e.key === "i" || e.key === "I") {
+      setViewerInfo(!info);
     } else if ((e.key === "r" || e.key === "R") && members?.hasPair) {
       setMember((m) => (m === "raw" ? "primary" : "raw"));
     } else if (/^[0-5]$/.test(e.key) && only) {
@@ -713,16 +720,30 @@ export function Viewer() {
         >
           ⛶
         </button>
+        <button
+          onClick={() => setViewerInfo(!info)}
+          aria-pressed={info}
+          aria-label="Information"
+          title="Show or hide the information panel (I)"
+          data-testid="viewer-info-toggle"
+        >
+          ⓘ Info
+        </button>
       </header>
-      {d && row?.id === d.id ? (
-        d.kind === "video" ? (
-          <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
+      <div className={`viewer-body${info ? " with-info" : ""}`}>
+        {d && row?.id === d.id ? (
+          d.kind === "video" ? (
+            <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
+          ) : (
+            <PhotoStage key={d.id} d={d} members={members} member={member} onKeyRef={stageKey} />
+          )
         ) : (
-          <PhotoStage key={d.id} d={d} members={members} member={member} onKeyRef={stageKey} />
-        )
-      ) : (
-        <div className="viewer-stage" />
-      )}
+          <div className="viewer-stage" />
+        )}
+        {info && d && row?.id === d.id && (
+          <ViewerInfo d={d} member={member} hasPair={members?.hasPair ?? false} />
+        )}
+      </div>
       <footer className="viewer-foot">
         <button onClick={() => go("prev")} aria-label="Previous item">
           ‹
@@ -730,7 +751,7 @@ export function Viewer() {
         <span className="muted">
           ← → move · {d?.kind === "video" ? "" : "Z fit/100% · + − zoom · "}
           {d?.kind === "video" ? "Space play · , . frame · J L second · " : ""}
-          {members?.hasPair ? "R JPEG/RAW · " : ""}F full screen · Esc close
+          {members?.hasPair ? "R JPEG/RAW · " : ""}I info · F full screen · Esc close
         </span>
         {note && (
           <span role="status" data-testid="viewer-note">

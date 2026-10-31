@@ -607,11 +607,16 @@ export function installMock(): void {
                   { name: "FNumber", value: "2.8" },
                   { name: "ISO", value: raw ? "400" : "200" },
                   { name: "LensModel", value: it.lens },
+                  { name: "FocalLength", value: "35.0 mm" },
                 ],
               },
               { group: "Sony", tags: [{ name: "SonyModelID", value: it.camera }] },
               { group: "XMP-dc", tags: [{ name: "Subject", value: "Lake, Summer" }] },
               { group: "File", tags: [{ name: "FileSize", value: "24 MB" }] },
+              {
+                group: "Composite",
+                tags: [{ name: "ImageSize", value: raw ? "6048x4024" : "4000x2667" }],
+              },
             ],
           };
         }

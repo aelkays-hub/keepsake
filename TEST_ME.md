@@ -1,8 +1,43 @@
-# Manual Test Steps — Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## The viewer's information panel
+
+Automated:
+```
+cd app/ui; pnpm exec playwright test e2e/mocked/viewer.spec.ts --project=mocked
+cd app/ui; pnpm exec playwright test e2e/app/tools.spec.ts --project=app
+```
+**Expected:** all pass (the second is Windows only).
+
+1. Open a photo in the viewer (double-click it) and click **ⓘ Info** at the top right.
+   **Expected:**
+   - a panel opens on the right; the picture shrinks to fit the space left, and is still whole and centred;
+   - at the top: date and time (with seconds), camera, lens, exposure (e.g. "1/250 s · f/2.8"), ISO, focal length, dimensions, file size, and the location if the photo has GPS;
+   - below: All metadata, grouped as in the inspector (Camera and image, Exposure, maker notes, File…).
+2. Type "iso" in the panel's filter.
+   **Expected:** only ISO tags stay; the viewer does not move to another photo or close while you type.
+3. Click outside the filter (on the picture's dark edge), then press → and ←.
+   **Expected:** the next and previous items are shown, and the panel updates for each one.
+4. With the panel open, press Z, use the zoom slider, drag the picture, then click Fit.
+   **Expected:** zoom works as before; at 100% the picture zooms around the middle of the area beside the panel; Fit shows the whole picture beside the panel, not under it.
+5. Press **I**.
+   **Expected:** the panel closes and the picture grows back to the full width. Press I again: it opens.
+6. Open a RAW + JPEG pair and press R.
+   **Expected:** the panel says "The RAW file" and shows the RAW's tags (e.g. a different file name ending in .ARW); R again goes back to the JPEG.
+7. Open a video clip.
+   **Expected:** the panel shows duration, frame rate and dimensions, and no exposure line; playback keys (Space, `,` `.`, J L) still work.
+8. Close the app with the panel open, start it again and open the viewer.
+   **Expected:** the panel is open. Close it, restart: it stays closed.
+9. Unplug the drive with some photos (or pick an item marked as offline) and view it.
+   **Expected:** the panel shows the catalog's date, camera and lens, and says the drive is not connected; no tag list.
+10. On **macOS**, repeat steps 1, 4 and 5 with a Retina display.
+    **Expected:** the same; Fit's percentage is smaller with the panel open when the picture is limited by its width.
 
 ---
 

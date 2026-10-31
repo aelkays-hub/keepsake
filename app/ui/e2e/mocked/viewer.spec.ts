@@ -427,3 +427,143 @@ test("settings: import presets can be deleted and created", async ({ page }) => 
   await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
   await expect(page.getByTestId("grid")).toBeVisible();
 });
+
+test("the information panel: toggled with the button or I, remembered, follows the item", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 2,000");
+  const panel = page.getByTestId("viewer-info");
+  const toggle = page.getByTestId("viewer-info-toggle");
+  // Hidden at first, and nothing is read.
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(await calls(page, "metadata_all")).toEqual([]);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const facts = panel.getByTestId("viewer-facts");
+  await expect(facts).toContainText("Date and time");
+  await expect(facts).toContainText("CameraSONY");
+  await expect(facts).toContainText("Focal length35.0 mm");
+  await expect(facts).toContainText("Dimensions");
+  // Then every tag, as in the inspector.
+  await expect(panel.locator("h3").first()).toHaveText("Camera and image (IFD0)");
+  await panel.getByTestId("meta-filter").fill("lens");
+  await expect(panel.locator(".all-meta dt")).toHaveText(["Lens Model"]);
+  // Typing in the filter does not move or close the viewer.
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 2,000");
+  const first = (await calls(page, "metadata_all")).at(-1);
+
+  // Next item: the panel follows.
+  await page.getByTestId("viewer").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("viewer-position")).toHaveText("2 of 2,000");
+  await expect.poll(async () => (await calls(page, "metadata_all")).at(-1)).not.toEqual(first);
+  await expect(panel).toBeVisible();
+
+  // I hides it, and I shows it again.
+  await page.keyboard.press("i");
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("I");
+  await expect(panel).toBeVisible();
+
+  // Remembered after a reload, open or closed.
+  await page.reload();
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer-info")).toBeVisible();
+  await page.keyboard.press("i");
+  await expect(page.getByTestId("viewer-info")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer")).toBeVisible();
+  await expect(page.getByTestId("viewer-info")).toHaveCount(0);
+});
+
+test("with the information panel open, Fit fits the smaller area and zoom still works", async ({
+  page,
+}) => {
+  // Tall and narrow: the picture's width decides Fit.
+  await page.setViewportSize({ width: 1000, height: 900 });
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  const level = page.getByTestId("zoom-level");
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(level).toHaveText(/^Fit \(\d+%\)$/);
+  const pctOf = async () => Number((await level.textContent())?.match(/\d+/)?.[0]);
+  const wide = await pctOf();
+  const before = (await stage.boundingBox())!;
+
+  await page.keyboard.press("i");
+  const panel = page.getByTestId("viewer-info");
+  await expect(panel).toBeVisible();
+  // The stage shrinks to make room, beside the panel.
+  await expect.poll(async () => (await stage.boundingBox())!.width).toBeLessThan(before.width);
+  const box = (await stage.boundingBox())!;
+  const side = (await panel.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(side.x + 1);
+  // Fit is measured again: the whole picture inside the smaller stage.
+  await expect.poll(pctOf).toBeLessThan(wide);
+  const r = (await img.boundingBox())!;
+  expect(r.x).toBeGreaterThanOrEqual(box.x - 1);
+  expect(r.x + r.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  expect(r.y + r.height).toBeLessThanOrEqual(box.y + box.height + 1);
+
+  // Zoom keeps the picture's middle in the stage's middle, then Fit again.
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  const z = (await img.boundingBox())!;
+  const mid = (box.x + box.width / 2 - z.x) / z.width;
+  expect(mid).toBeGreaterThan(0.4);
+  expect(mid).toBeLessThan(0.6);
+  await page.getByTestId("zoom-fit").click();
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  const f = (await img.boundingBox())!;
+  expect(f.x + f.width).toBeLessThanOrEqual(box.x + box.width + 1);
+});
+
+test("the information panel follows JPEG | RAW, plays with videos, and says when a drive is away", async ({
+  page,
+}) => {
+  await page.goto("/?items=2000");
+  await page.evaluate(() => localStorage.setItem("keepsake.viewer.info", "1"));
+  await openLibrary(page);
+  const panel = page.getByTestId("viewer-info");
+
+  // A pair: the RAW's tags after R.
+  const pair = find((x) => kindOf(x) === "raw" && x % 2 === 0 && online(x));
+  await viewOne(page, `DSC${pad(pair)}`);
+  await expect(panel.getByTestId("viewer-info-member")).toHaveText(/JPEG/);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("ISO200");
+  await page.keyboard.press("r");
+  await expect(panel.getByTestId("viewer-info-member")).toHaveText(/RAW/);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("ISO400");
+  expect((await calls(page, "metadata_all")).at(-1)).toEqual({ id: `a${pair}`, member: "raw" });
+  await page.keyboard.press("Escape");
+
+  // A video: its duration, no exposure.
+  const v = find((x) => kindOf(x) === "video" && online(x));
+  await viewOne(page, `C${pad(v)}`);
+  await expect(page.getByTestId("viewer-video")).toBeVisible();
+  await expect(panel.getByTestId("viewer-facts")).toContainText("Duration");
+  await expect(panel.getByTestId("viewer-facts")).not.toContainText("Exposure");
+  await page.keyboard.press("Escape");
+
+  // Unplugged: the catalog's facts and a note; the file is not read.
+  const off = find((x) => kindOf(x) === "photo" && !online(x));
+  const before = (await calls(page, "metadata_all")).length;
+  await viewOne(page, `DSC${pad(off)}`);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("Camera");
+  await expect(panel).toContainText("The drive with this item is not connected");
+  expect((await calls(page, "metadata_all")).length).toBe(before);
+});

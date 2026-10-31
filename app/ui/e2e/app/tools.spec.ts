@@ -103,6 +103,46 @@ test("viewer: a real JPEG at 100%, and frame stepping on a real proxy", async ()
   }
 });
 
+test("viewer information panel: real ExifTool tags for a photo and a clip", async () => {
+  const w = new World();
+  library(w, true);
+  const app = new App(w);
+  try {
+    await app.connect();
+    const page = await app.page("main");
+    await expect(page.getByTestId("count")).toHaveText("7 items");
+    await only(page, "DSC01005");
+    await page.getByTestId("tile").first().dblclick();
+    await expect(page.getByTestId("viewer")).toBeVisible();
+    await page.keyboard.press("i");
+    const panel = page.getByTestId("viewer-info");
+    const facts = panel.getByTestId("viewer-facts");
+    await expect(facts).toContainText("Date and time2024-06-15 13:02:11");
+    await expect(facts).toContainText("Dimensions1280 × 800");
+    // Every tag, straight from ExifTool.
+    await expect(panel.getByRole("region", { name: "File" })).toContainText("Image Width1280");
+    await expect(panel.locator(".all-meta-file")).toHaveText(/DSC01005\.JPG$/i);
+    // The picture still fits the room left beside the panel.
+    const stage = (await page.getByTestId("viewer-stage").boundingBox())!;
+    const side = (await panel.boundingBox())!;
+    expect(stage.x + stage.width).toBeLessThanOrEqual(side.x + 1);
+    const img = (await page.getByTestId("viewer-image").boundingBox())!;
+    expect(img.x + img.width).toBeLessThanOrEqual(stage.x + stage.width + 1);
+    await page.keyboard.press("Escape");
+
+    await only(page, "C0001");
+    await page.getByTestId("tile").first().dblclick();
+    await expect(page.getByTestId("viewer-video")).toBeVisible();
+    // Remembered: still open for the clip.
+    await expect(facts).toContainText("Duration");
+    await expect(facts).toContainText("Dimensions");
+    await expect(panel.locator(".all-meta-file")).toHaveText(/C0001\.MP4$/i);
+  } finally {
+    await app.close();
+    w.cleanup();
+  }
+});
+
 test("time shift writes the XMP sidecars and leaves the originals alone", async () => {
   const w = new World();
   library(w, true, false);
@@ -223,9 +263,9 @@ test("Open in runs the program set for the type; settings are saved", async () =
     await only(page, "DSC01003");
     await page.getByTestId("tile").first().click();
     await page.keyboard.press("Control+o");
-    await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, "utf8") : "")).toMatch(
-      /DSC01003\.JPG/,
-    );
+    await expect
+      .poll(() => (fs.existsSync(record) ? fs.readFileSync(record, "utf8") : ""))
+      .toMatch(/DSC01003\.JPG/);
     const opened = fs.readFileSync(record, "utf8").trim();
     expect(fs.existsSync(opened)).toBe(true);
     // The imported copy in A (temp paths may be spelled short or long).

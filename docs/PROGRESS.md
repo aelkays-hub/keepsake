@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
+| — | Information panel in the viewer: key facts and every metadata tag (Info button, I) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar view shows only the months and days that have pictures | ✅ Done (Windows; macOS via CI) |
 | — | Faster viewer zoom: full size made in the background, upright JPEGs copied, transform-based zoom; labelled thumbnail sizes | ✅ Done (Windows; macOS via CI) |
 | — | Every card imports by itself into year › month › day (Settings → When a card is inserted) | ✅ Done (Windows; macOS via CI) |
@@ -46,6 +47,21 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Information panel in the viewer (2026-10-30)
+
+### What was built
+- An Info button at the top right of the viewer, and the I key, show or hide a panel on the right (`ViewerInfo.tsx`). It lists the key facts first (date and time, camera, lens, exposure, ISO, focal length, video duration and frame rate, dimensions, file size, location), then every ExifTool tag, grouped, with a filter and Copy.
+- No backend work: the facts come from the catalog's details and the existing `metadata_all` command. The inspector's tag list was split out of `AllMetadata.tsx` as `MetadataTags`, and the read as `useFileMetadata` (`fileMetadata.ts`), so both places share them.
+- The panel follows the item shown, and the viewer's JPEG | RAW choice for pairs. Videos show duration and frame rate instead of exposure. On an unplugged drive it shows the catalog's facts and a note, and reads nothing.
+- The viewer's body is a two-column grid; the photo stage is measured (ResizeObserver), so Fit, zoom and pan use the narrower area. Open or closed is remembered in `localStorage` (`keepsake.viewer.info`, `viewerInfo.ts`).
+- The mock's tags gained a focal length and a Composite image size (the inspector's metadata test now counts 11 tags).
+
+### Tests
+- Mocked browser (`viewer.spec.ts`): toggled with the button and I, remembered after a reload (open and closed), follows the item with the arrows, the filter's keys stay in the filter; Fit fits the smaller stage beside the panel and zoom stays centred; JPEG | RAW switches the tags read, a video shows its duration and no exposure, an unplugged item shows the note and reads nothing.
+- Real app (`tools.spec.ts`, Windows): a dated JPEG shows its real date and time, 1280 × 800 and ExifTool's File tags, and fits beside the panel; a real clip shows its duration and dimensions.
 
 ---
 

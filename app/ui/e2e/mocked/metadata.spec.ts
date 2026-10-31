@@ -43,13 +43,14 @@ test("every tag, grouped; filter; stays open from item to item", async ({ page, 
   // Closed until asked: nothing is read.
   expect(await calls(page, "metadata_all")).toEqual([]);
   await box.locator("summary").click();
-  await expect(box.locator("summary")).toHaveText("All metadata (9)");
+  await expect(box.locator("summary")).toHaveText("All metadata (11)");
   await expect(box.locator("h3")).toHaveText([
     "Camera and image (IFD0)",
     "Exposure (EXIF)",
     "Sony maker notes",
     "XMP (dc)",
     "File",
+    "Computed by ExifTool",
   ]);
   await expect(box.getByRole("region", { name: "Exposure (EXIF)" })).toContainText(
     "Exposure Time1/250",
@@ -71,7 +72,7 @@ test("every tag, grouped; filter; stays open from item to item", async ({ page, 
   // The next item: still open, read again.
   const b = find((x) => x > a && kindOf(x) === "photo" && online(x));
   await select(page, b);
-  await expect(box.locator("summary")).toHaveText("All metadata (9)");
+  await expect(box.locator("summary")).toHaveText("All metadata (11)");
   await expect
     .poll(async () => (await calls(page, "metadata_all")).at(-1))
     .toEqual({

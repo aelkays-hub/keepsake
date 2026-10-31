@@ -1,11 +1,12 @@
 // "All metadata" in the inspector: every tag ExifTool reads from the item's
 // file (EXIF, GPS, the camera's maker notes, XMP, file facts), grouped,
 // with a filter and Copy. Read only when the section is open; the file is
-// never changed.
+// never changed. The tag list is shared with the viewer's information panel.
 
 import { useEffect, useMemo, useState } from "react";
 
-import { api, type FileMetadata, type MemberDto } from "../api";
+import type { FileMetadata, MemberDto } from "../api";
+import { useFileMetadata } from "../fileMetadata";
 import { groupName, tagName } from "../metaNames";
 
 const OPEN_KEY = "keepsake.allMetadata.open";
@@ -26,36 +27,25 @@ function remember(open: boolean) {
   }
 }
 
-export function AllMetadata({
-  id,
-  online,
-  hasRaw,
+/** The tags of one file: a filter, Copy, then every group. `tools` adds
+ * controls beside the filter (the inspector's JPEG | RAW switch). Shared by
+ * the inspector and the viewer's information panel. */
+export function MetadataTags({
+  data,
+  problem,
+  tools,
 }: {
-  id: string;
-  online: boolean;
-  hasRaw: boolean;
+  data: FileMetadata | null;
+  problem: string | null;
+  tools?: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(remembered);
-  const [member, setMember] = useState<MemberDto>("primary");
-  const [data, setData] = useState<FileMetadata | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [copied, setCopied] = useState(false);
-  useEffect(() => setMember("primary"), [id]);
+  const [copyProblem, setCopyProblem] = useState<string | null>(null);
   useEffect(() => {
-    setData(null);
-    setProblem(null);
     setCopied(false);
-    if (!open || !online) return;
-    let live = true;
-    api
-      .metadataAll(id, member)
-      .then((m) => live && setData(m))
-      .catch((e) => live && setProblem(String(e)));
-    return () => {
-      live = false;
-    };
-  }, [id, member, open, online]);
+    setCopyProblem(null);
+  }, [data]);
   const shown = useMemo(() => {
     if (!data) return [];
     const f = filter.trim().toLowerCase();
@@ -72,7 +62,6 @@ export function AllMetadata({
       }))
       .filter((g) => g.tags.length > 0);
   }, [data, filter]);
-  const total = data?.groups.reduce((n, g) => n + g.tags.length, 0) ?? 0;
   const copy = () => {
     if (!data) return;
     const text = data.groups
@@ -81,8 +70,67 @@ export function AllMetadata({
     navigator.clipboard
       .writeText(`${data.file}\n\n${text}\n`)
       .then(() => setCopied(true))
-      .catch(() => setProblem("could not copy to the clipboard"));
+      .catch(() => setCopyProblem("could not copy to the clipboard"));
   };
+  const trouble = problem ?? copyProblem;
+  return (
+    <>
+      <div className="all-meta-tools">
+        <input
+          type="search"
+          placeholder="Filter, e.g. ISO or lens"
+          aria-label="Filter metadata"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
+          data-testid="meta-filter"
+        />
+        {tools}
+        <button onClick={copy} disabled={!data} data-testid="meta-copy">
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {trouble && <p className="error">{trouble}</p>}
+      {!data && !problem && <p className="muted">Reading…</p>}
+      {data && (
+        <>
+          <p className="muted all-meta-file" title={data.file}>
+            {data.file}
+          </p>
+          {shown.length === 0 && <p className="muted">No tags match.</p>}
+          {shown.map((g) => (
+            <section key={g.group} aria-label={groupName(g.group)}>
+              <h3>{groupName(g.group)}</h3>
+              <dl className="meta">
+                {g.tags.map((t, i) => (
+                  <div key={`${t.name}${i}`} className="meta-row">
+                    <dt title={t.name}>{tagName(t.name)}</dt>
+                    <dd>{t.value || "—"}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+export function AllMetadata({
+  id,
+  online,
+  hasRaw,
+}: {
+  id: string;
+  online: boolean;
+  hasRaw: boolean;
+}) {
+  const [open, setOpen] = useState(remembered);
+  const [member, setMember] = useState<MemberDto>("primary");
+  useEffect(() => setMember("primary"), [id]);
+  const { data, problem } = useFileMetadata(id, member, open, online);
+  const total = data?.groups.reduce((n, g) => n + g.tags.length, 0) ?? 0;
   return (
     <details
       className="files all-meta"
@@ -98,18 +146,11 @@ export function AllMetadata({
       {!online ? (
         <p className="muted">Connect the drive with this item to read its metadata.</p>
       ) : (
-        <>
-          <div className="all-meta-tools">
-            <input
-              type="search"
-              placeholder="Filter, e.g. ISO or lens"
-              aria-label="Filter metadata"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              data-testid="meta-filter"
-            />
-            {hasRaw && (
+        <MetadataTags
+          data={data}
+          problem={problem}
+          tools={
+            hasRaw && (
               <div className="segmented" role="group" aria-label="File">
                 {(["primary", "raw"] as const).map((m) => (
                   <button key={m} aria-pressed={member === m} onClick={() => setMember(m)}>
@@ -117,35 +158,9 @@ export function AllMetadata({
                   </button>
                 ))}
               </div>
-            )}
-            <button onClick={copy} disabled={!data} data-testid="meta-copy">
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          {problem && <p className="error">{problem}</p>}
-          {!data && !problem && <p className="muted">Reading…</p>}
-          {data && (
-            <>
-              <p className="muted all-meta-file" title={data.file}>
-                {data.file}
-              </p>
-              {shown.length === 0 && <p className="muted">No tags match.</p>}
-              {shown.map((g) => (
-                <section key={g.group} aria-label={groupName(g.group)}>
-                  <h3>{groupName(g.group)}</h3>
-                  <dl className="meta">
-                    {g.tags.map((t, i) => (
-                      <div key={`${t.name}${i}`} className="meta-row">
-                        <dt title={t.name}>{tagName(t.name)}</dt>
-                        <dd>{t.value || "—"}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              ))}
-            </>
-          )}
-        </>
+            )
+          }
+        />
       )}
     </details>
   );
