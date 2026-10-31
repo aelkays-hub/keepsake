@@ -1,8 +1,34 @@
-# Manual Test Steps — Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## The calendar shows only months and days with pictures
+
+Automated:
+```
+cd app/ui; pnpm exec playwright test e2e/mocked/library.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Open Calendar view (Ctrl+1) and click a year in which you took pictures in only some months.
+   **Expected:**
+   - only the months with pictures are shown, in order (e.g. March, June, December), each with its count and a cover;
+   - no greyed-out empty months.
+2. Click a month.
+   **Expected:**
+   - only the days with pictures are shown, in order, each with its count and a cover;
+   - no Mo–Su headings and no blank or greyed-out days;
+   - each day reads its weekday and number, e.g. "Sat 14" (or "14 Sat", depending on your language settings), and the weekday is correct.
+3. Use the arrow keys to move between cells, Enter to open, Backspace to go up.
+   **Expected:** focus moves only between the cells shown; Enter on a day opens that day's grid with the count shown on the cell.
+4. Set a filter (e.g. 4 stars or more), then go back to the calendar.
+   **Expected:** months and days with no matching items disappear.
+5. Compare a day in the sidebar's calendar tree with the same day in the calendar.
+   **Expected:** the same label (e.g. "Sat 14").
 
 ---
 

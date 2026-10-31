@@ -439,11 +439,6 @@ textarea {
 .cal-grid.days {
   grid-template-columns: repeat(7, minmax(80px, 1fr));
 }
-.weekday {
-  color: var(--muted);
-  text-align: center;
-  font-size: 11px;
-}
 .cal-cell {
   position: relative;
   aspect-ratio: 4 / 3;
@@ -456,12 +451,6 @@ textarea {
   height: 100%;
   object-fit: cover;
   display: block;
-}
-.cal-cell.none {
-  opacity: 0.45;
-}
-.cal-cell.pad {
-  visibility: hidden;
 }
 .cal-label,
 .cal-count {

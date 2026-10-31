@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
+| — | Calendar view shows only the months and days that have pictures | ✅ Done (Windows; macOS via CI) |
 | — | Faster viewer zoom: full size made in the background, upright JPEGs copied, transform-based zoom; labelled thumbnail sizes | ✅ Done (Windows; macOS via CI) |
 | — | Every card imports by itself into year › month › day (Settings → When a card is inserted) | ✅ Done (Windows; macOS via CI) |
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
@@ -45,6 +46,19 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Calendar: only months and days with pictures (2026-10-30)
+
+### What was built
+- The calendar's months level lists only the months that have items, and the days level only the days, in date order. Empty months and days are no longer drawn as greyed-out cells.
+- The days level drops the weekday headings and blank padding (they only lined up a full month). Each day reads its weekday and number in the user's language ("Sat 14"), the same label as the sidebar tree (`dayLabel`).
+- The backend already returned only non-empty buckets; this is a UI change (`CalendarView.tsx`, `index.css`).
+
+### Tests
+- Mocked browser: `library.spec.ts` "calendar shows only the months and days that have pictures" (a 40-item library: fewer than 12 months and 28 days, each with at least one item, in order, none disabled, no weekday headings, weekday in the label). Existing calendar, keyboard and accessibility tests still pass.
+- Real app: `app.spec.ts` library test (calendar drill-down) still passes.
 
 ---
 

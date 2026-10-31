@@ -120,6 +120,50 @@ test("calendar drills from year to day and opens the day's grid", async ({ page 
   await expect(page.getByRole("group", { name: "Days" })).toBeVisible();
 });
 
+test("calendar shows only the months and days that have pictures", async ({ page }) => {
+  // A small library: most months and days are empty.
+  await openLibrary(page, 40);
+  await page.getByTestId("mode-calendar").click();
+  const cells = page.getByTestId("cal-cell");
+  await expect(cells.first()).toBeVisible();
+  const counts = async () =>
+    (await cells.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""))).map(
+      (l) => Number(l.split(": ")[1]?.split(" ")[0].replace(/,/g, "")),
+    );
+  const year = cells.filter({ hasNotText: "No date" }).first();
+  const y = await year.getAttribute("data-key");
+  await year.click();
+  await expect(page.getByRole("group", { name: "Months" })).toBeVisible();
+  // Fewer than twelve months, each with at least one item, in calendar order.
+  const months = await cells.evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
+  expect(months.length).toBeGreaterThan(0);
+  expect(months.length).toBeLessThan(12);
+  expect(months.every((k) => k?.startsWith(`${y}-`))).toBe(true);
+  expect([...months].sort()).toEqual(months);
+  expect((await counts()).every((n) => n >= 1)).toBe(true);
+  await expect(page.locator('[data-testid="cal-cell"][disabled]')).toHaveCount(0);
+
+  await cells.first().click();
+  await expect(page.getByRole("group", { name: "Days" })).toBeVisible();
+  const days = await cells.evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
+  expect(days.length).toBeGreaterThan(0);
+  expect(days.length).toBeLessThan(28);
+  expect(days.every((k) => k?.startsWith(`${months[0]}-`))).toBe(true);
+  expect((await counts()).every((n) => n >= 1)).toBe(true);
+  await expect(page.locator('[data-testid="cal-cell"][disabled]')).toHaveCount(0);
+  // No weekday headings or blank padding; each day says its weekday ("Sat 14").
+  await expect(page.locator(".weekday, .cal-cell.pad")).toHaveCount(0);
+  const [yy, mm, dd] = (days[0] ?? "").split("-").map(Number);
+  const wd = new Date(Date.UTC(yy, mm - 1, dd)).toLocaleDateString(undefined, {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  // Either order, by locale: "Thu 1" or "1 Thu".
+  const label = cells.first().locator(".cal-label");
+  await expect(label).toContainText(wd);
+  await expect(label).toHaveText(new RegExp(`(^|\\D)${dd}(\\D|$)`));
+});
+
 test("search with words and filters narrows the grid", async ({ page }) => {
   await openLibrary(page, 20000);
   await page.getByTestId("search").fill("DSC00010");
