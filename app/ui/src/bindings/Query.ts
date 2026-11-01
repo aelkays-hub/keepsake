@@ -12,4 +12,16 @@ from: string | null, to: string | null, camera: string | null, lens: string | nu
 /**
  * With `volume`: this folder of it and below (`2025/May`).
  */
-folder?: string, session: string | null, undated: boolean, };
+folder?: string, session: string | null, undated: boolean, 
+/**
+ * Camera model is exactly this; `""`: none (a report row).
+ */
+cameraIs?: string, 
+/**
+ * Lens model is exactly this; `""`: none.
+ */
+lensIs?: string, 
+/**
+ * Has a file of this extension (`JPG`); `""`: one without.
+ */
+fileType?: string, };

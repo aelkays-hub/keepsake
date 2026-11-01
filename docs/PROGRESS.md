@@ -16,6 +16,7 @@
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
+| — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder reads only the start and end of each file; full fingerprints are made in the background | ✅ Done (Windows; macOS via CI) |
@@ -50,6 +51,27 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Report rows open their photos (2026-11-01)
+
+### What was asked
+- "The report should have a hyperlink that will take me to the set of photos I clicked on": a year shows all that year's photos on one screen, a camera all of that camera's, and so on.
+
+### What was built
+- Each row's name in Tools → Report is a link. It opens the library grid with that row's items and no other filters (words, type, rating and sort are reset). The heading reads **Report › Year 2024** (or Camera …, Lens …, Type …, Drive …), and **Report** goes back to the same breakdown.
+- Years, months and days open as a date range; **Unknown** dates as the undated items. Drives open what is on that drive, plugged in or not.
+- New search filters so that the grid holds exactly the row's count: `camera_is` and `lens_is` (the exact model, spaces around it ignored; `""` for none) and `file_type` (items with a file of that extension, any case; `""` for a file without one). The existing camera and lens filters match "contains", so `ILCE-7` also found `ILCE-7M4`; the report rows do not use them.
+- UI: a `report` section in `uiModel.ts` (its title and filter), an `open` message that clears other filters, `lineQuery` and `lineTitle` in `report.ts`.
+
+### Tests
+- `report_tests`: for every row of every breakdown (dates, Unknown, cameras including `ILCE-7` beside `ILCE-7M4`, lenses, file types including a RAW+JPEG pair and a file with no extension, drives including an unplugged one), the row's filter finds exactly the row's item count.
+- Vitest: each breakdown's filter and title, February in leap and other years; opening a row resets filters, sort and mode.
+- Mocked Playwright `report.spec.ts`: clicking a year, month, camera, lens, type and drive row shows that many items and the heading, and **Report** returns to the same table; a row opens without the filters set before.
+
+### Not done
+- The toolbar's camera and lens lists still use the "contains" filter, so picking `ILCE-7` there also shows `ILCE-7M4` photos.
 
 ---
 

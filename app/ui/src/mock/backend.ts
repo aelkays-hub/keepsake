@@ -273,6 +273,9 @@ export function installMock(): void {
     const d = day(it.t);
     return d ? `${d.slice(0, 4)}/${d.slice(0, 7)}` : "Undated";
   };
+  /** An item's file extensions, as the report counts them. */
+  const typesOf = (it: Item) =>
+    it.kind === "video" ? ["MP4"] : it.kind === "raw" ? ["ARW", "JPG"] : ["JPG"];
   const matches = (q: Query) => (it: Item) => {
     const d = day(it.t);
     if (q.undated && it.t !== null) return false;
@@ -280,6 +283,9 @@ export function installMock(): void {
     if (q.to && (!d || d > q.to)) return false;
     if (q.camera && !it.camera.toLowerCase().includes(q.camera.toLowerCase())) return false;
     if (q.lens && !it.lens.toLowerCase().includes(q.lens.toLowerCase())) return false;
+    if (q.cameraIs !== undefined && it.camera !== q.cameraIs) return false;
+    if (q.lensIs !== undefined && it.lens !== q.lensIs) return false;
+    if (q.fileType !== undefined && !typesOf(it).includes(q.fileType.toUpperCase())) return false;
     if (q.kind && it.kind !== q.kind && !(q.kind === "photo" && it.kind === "raw")) return false;
     if (q.minRating && rating(it) < q.minRating) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;

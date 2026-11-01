@@ -3,6 +3,7 @@
 // command.
 
 import type { LibraryReport } from "./bindings/LibraryReport";
+import type { Query } from "./bindings/Query";
 import type { ReportGroup } from "./bindings/ReportGroup";
 
 export type Breakdown = "year" | "month" | "day" | "camera" | "lens" | "type" | "drive";
@@ -19,6 +20,9 @@ export const BREAKDOWNS: { key: Breakdown; label: string; column: string }[] = [
 
 export interface ReportLine {
   key: string;
+  /** The group as the report gives it (`2024-06`, `ILCE-7M4`); null when
+   * unknown. For drives, the drive's name (`key` is its volume). */
+  group: string | null;
   /** As shown: `Unknown` for a missing group, `June 2024` for a month. */
   label: string;
   /** The drive is unplugged (drives only). */
@@ -57,6 +61,7 @@ export function dateLabel(g: string): string {
 function line(r: ReportGroup, label?: string): ReportLine {
   return {
     key: r.group ?? "\u0000unknown",
+    group: r.group,
     label: label ?? r.group ?? "Unknown",
     photos: r.photos,
     videos: r.videos,
@@ -86,6 +91,43 @@ export function lines(r: LibraryReport, b: Breakdown): ReportLine[] {
     case "drive":
       return r.drives.map((d) => ({ ...line(d.row), key: d.volume, offline: !d.online }));
   }
+}
+
+/** `2024-02` → 29: the last day of a `YYYY-MM` month. */
+function lastDay(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** The filter that shows a line's items in the library, so that the grid
+ * holds as many items as the line counts. */
+export function lineQuery(b: Breakdown, l: ReportLine): Partial<Query> {
+  const g = l.group;
+  switch (b) {
+    case "year":
+    case "month":
+    case "day": {
+      if (g === null) return { undated: true };
+      if (b === "year") return { from: `${g}-01-01`, to: `${g}-12-31` };
+      if (b === "month") return { from: `${g}-01`, to: `${g}-${String(lastDay(g))}` };
+      return { from: g, to: g };
+    }
+    case "camera":
+      return { cameraIs: g ?? "" };
+    case "lens":
+      return { lensIs: g ?? "" };
+    case "type":
+      return { fileType: g ?? "" };
+    case "drive":
+      return { volume: l.key };
+  }
+}
+
+/** The library's heading for a line's items: `Year 2024`, `Camera ILCE-7M4`. */
+export function lineTitle(b: Breakdown, l: ReportLine): string {
+  if (b === "type" && l.group === "") return "Files without an extension";
+  const meta = BREAKDOWNS.find((x) => x.key === b);
+  return `${meta?.column ?? ""} ${l.label}`.trim();
 }
 
 /** The grand totals as a line. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { emptyQuery } from "../api";
 import { effectiveQuery, initial, reduce } from "../uiModel";
 
 describe("folder section", () => {
@@ -22,5 +23,29 @@ describe("folder section", () => {
     const q = effectiveQuery(s);
     expect(q.volume).toBe("v1");
     expect(q.folder).toBeUndefined();
+  });
+});
+
+describe("report section", () => {
+  it("shows a report row's items with no other filters", () => {
+    const filtered = {
+      ...initial,
+      mode: "calendar" as const,
+      screen: "report" as const,
+      filters: { ...emptyQuery, camera: "ZV-1", text: "beach" },
+      sort: { field: "size" as const, descending: false },
+    };
+    const s = reduce(filtered, {
+      t: "open",
+      section: {
+        kind: "report",
+        title: "Year 2024",
+        query: { from: "2024-01-01", to: "2024-12-31" },
+      },
+    });
+    expect(s.screen).toBe("library");
+    expect(s.mode).toBe("grid");
+    expect(s.sort).toEqual(initial.sort);
+    expect(effectiveQuery(s)).toEqual({ ...emptyQuery, from: "2024-01-01", to: "2024-12-31" });
   });
 });

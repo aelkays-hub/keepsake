@@ -52,6 +52,18 @@ dto! {
         pub session: Option<String>,
         #[serde(default)]
         pub undated: bool,
+        /// Camera model is exactly this; `""`: none (a report row).
+        #[serde(default)]
+        #[ts(optional)]
+        pub camera_is: Option<String>,
+        /// Lens model is exactly this; `""`: none.
+        #[serde(default)]
+        #[ts(optional)]
+        pub lens_is: Option<String>,
+        /// Has a file of this extension (`JPG`); `""`: one without.
+        #[serde(default)]
+        #[ts(optional)]
+        pub file_type: Option<String>,
     }
 
     /// A folder in the sidebar's folder tree.

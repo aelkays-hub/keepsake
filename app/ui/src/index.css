@@ -992,6 +992,22 @@ textarea {
 .report tbody th {
   font-weight: normal;
 }
+/* A row's name opens its items in the library. */
+.report button.link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.report button.link:hover {
+  text-decoration: underline;
+}
+.report th.muted button.link {
+  color: var(--muted);
+}
 .report tfoot th,
 .report tfoot td {
   font-weight: 600;

@@ -11,7 +11,9 @@ export type Section =
   | { kind: "volume"; id: string; title: string }
   /** A folder of a volume and everything below it. */
   | { kind: "folder"; id: string; path: string; title: string }
-  | { kind: "import"; id: string; title: string };
+  | { kind: "import"; id: string; title: string }
+  /** The items of one report row (Tools → Report), e.g. a year or a camera. */
+  | { kind: "report"; title: string; query: Partial<Query> };
 
 export type Mode = "calendar" | "grid" | "details";
 
@@ -45,6 +47,8 @@ export interface UiState {
 
 export type Msg =
   | { t: "section"; section: Section }
+  /** Show a section with no other filters (a report row). */
+  | { t: "open"; section: Section }
   | { t: "mode"; mode: Mode }
   | { t: "filters"; filters: Query }
   | { t: "sort"; sort: SortSpec }
@@ -78,6 +82,14 @@ export function reduce(s: UiState, m: Msg): UiState {
         m.section.kind === "calendar" ? "calendar" : s.mode === "calendar" ? "grid" : s.mode;
       return { ...s, section: m.section, cal, mode, sel: sel.emptySel, screen: "library" };
     }
+    case "open":
+      return reduce(
+        { ...s, filters: emptyQuery, sort: initial.sort },
+        {
+          t: "section",
+          section: m.section,
+        },
+      );
     case "mode":
       return {
         ...s,
@@ -130,6 +142,9 @@ export function effectiveQuery(s: UiState): Query {
       break;
     case "import":
       q.session = s.section.id;
+      break;
+    case "report":
+      Object.assign(q, s.section.query);
       break;
     case "calendar": {
       const { year, month, day } = s.cal;

@@ -1,7 +1,7 @@
 // Report: how many photos and videos the library holds and how much disk
 // they take, by year, month, day, camera, lens, file type and drive, from
 // the catalog alone (no media file is read). Export writes every breakdown
-// to one CSV file.
+// to one CSV file. A row's name opens its items in the library.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -10,16 +10,28 @@ import * as fmt from "../format";
 import {
   BREAKDOWNS,
   csvName,
+  lineQuery,
   lines,
+  lineTitle,
   sum,
   totals,
   type Breakdown,
   type ReportLine,
 } from "../report";
+import { useUi } from "../state";
+
+/** The breakdown shown last, so that coming back from a row's items shows
+ * the same table. */
+let lastBy: Breakdown = "year";
 
 export function ReportScreen() {
   const [r, setR] = useState<LibraryReport | null>(null);
-  const [by, setBy] = useState<Breakdown>("year");
+  const { dispatch } = useUi();
+  const [by, setByState] = useState<Breakdown>(lastBy);
+  const setBy = (b: Breakdown) => {
+    lastBy = b;
+    setByState(b);
+  };
   const [loading, setLoading] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -132,7 +144,16 @@ export function ReportScreen() {
             </thead>
             <tbody>
               {rows.map((l) => (
-                <Line key={l.key} l={l} />
+                <Line
+                  key={l.key}
+                  l={l}
+                  onOpen={() =>
+                    dispatch({
+                      t: "open",
+                      section: { kind: "report", title: lineTitle(by, l), query: lineQuery(by, l) },
+                    })
+                  }
+                />
               ))}
             </tbody>
             {all && rows.length > 0 && (
@@ -160,12 +181,23 @@ function Stat(p: { label: string; value: string; title?: string; id: string }) {
   );
 }
 
-function Line({ l, countsHidden = false }: { l: ReportLine; countsHidden?: boolean }) {
-  const n = (v: number | null) => (countsHidden || v === null ? "—" : fmt.count(v));
+function Line(p: { l: ReportLine; countsHidden?: boolean; onOpen?: () => void }) {
+  const { l } = p;
+  const n = (v: number | null) => (p.countsHidden || v === null ? "—" : fmt.count(v));
   return (
     <tr>
       <th scope="row" className={l.label === "Unknown" ? "muted" : undefined}>
-        {l.label}
+        {p.onOpen ? (
+          <button
+            className="link"
+            onClick={p.onOpen}
+            title={`Show these ${fmt.count(l.items)} items`}
+          >
+            {l.label}
+          </button>
+        ) : (
+          l.label
+        )}
         {l.offline ? <span className="muted"> (unplugged)</span> : null}
       </th>
       <td className="num">{n(l.photos)}</td>

@@ -83,10 +83,15 @@ pub struct LibraryReport {
     pub drives: Vec<DriveRow>,
 }
 
-/// The text after a file name's last dot, upper case (`''` with no dot).
-/// `rtrim(name, <name without dots>)` strips the extension, leaving `stem.`.
-const EXT: &str = "CASE WHEN instr(name, '.') = 0 THEN ''
-      ELSE upper(substr(name, length(rtrim(name, replace(name, '.', ''))) + 1)) END";
+/// SQL for the text after file name `col`'s last dot, upper case (`''`
+/// with no dot). `rtrim(name, <name without dots>)` strips the extension,
+/// leaving `stem.`. The file type filter of a search uses it too.
+pub(crate) fn ext_of(col: &str) -> String {
+    format!(
+        "CASE WHEN instr({col}, '.') = 0 THEN ''
+      ELSE upper(substr({col}, length(rtrim({col}, replace({col}, '.', ''))) + 1)) END"
+    )
+}
 
 const DAY: i64 = 0;
 const MONTH: i64 = 1;
@@ -192,11 +197,12 @@ impl<M> Report<'_, M> {
 
     /// By extension, one copy of each file (as in `assets.file_count`).
     fn file_types(&self) -> Result<Vec<ReportRow>, CatalogError> {
+        let ext = ext_of("name");
         let sql = format!(
             "WITH one AS (
                SELECT asset_id, max(size_bytes) AS sz, min(file_name) AS name
                  FROM files NOT INDEXED GROUP BY asset_id, blake3)
-             SELECT nullif({EXT}, '') AS ext, count(DISTINCT asset_id) AS items,
+             SELECT nullif({ext}, '') AS ext, count(DISTINCT asset_id) AS items,
                     count(*), sum(sz)
                FROM one
               GROUP BY ext

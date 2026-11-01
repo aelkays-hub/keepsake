@@ -47,6 +47,17 @@ pub struct SearchQuery {
     /// Only assets without a capture time.
     #[serde(default)]
     pub undated: bool,
+    /// Camera model is exactly this (spaces around it ignored); `""`: no
+    /// camera model. As the report groups them (a report row's items).
+    #[serde(default)]
+    pub camera_is: Option<String>,
+    /// Lens model is exactly this; `""`: no lens model.
+    #[serde(default)]
+    pub lens_is: Option<String>,
+    /// Assets with a file of this extension (`JPG`, any case, no dot);
+    /// `""`: a file without one.
+    #[serde(default)]
+    pub file_type: Option<String>,
 }
 
 /// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
@@ -126,6 +137,27 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
             f.wh.push(format!("instr(lower(ifnull({col}, '')), lower(?)) > 0"));
             f.args.push(Box::new(c.to_owned()));
         }
+    }
+    for (val, col) in [
+        (&q.camera_is, "a.camera_model"),
+        (&q.lens_is, "a.lens_model"),
+    ] {
+        match val.as_deref().map(str::trim) {
+            Some("") => f.wh.push(format!("nullif(trim({col}), '') IS NULL")),
+            Some(c) => {
+                f.wh.push(format!("trim({col}) = ?"));
+                f.args.push(Box::new(c.to_owned()));
+            }
+            None => {}
+        }
+    }
+    if let Some(t) = &q.file_type {
+        f.wh.push(format!(
+            "EXISTS (SELECT 1 FROM files fx WHERE fx.asset_id = a.id AND {} = ?)",
+            super::report::ext_of("fx.file_name")
+        ));
+        f.args
+            .push(Box::new(t.trim().trim_start_matches('.').to_uppercase()));
     }
     if let Some(k) = q.kind {
         f.wh.push("a.media_kind = ?".into());

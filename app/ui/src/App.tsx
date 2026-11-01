@@ -48,6 +48,13 @@ function Heading() {
       ) : (
         "Calendar"
       );
+  } else if (s.section.kind === "report") {
+    title = (
+      <>
+        <button onClick={() => dispatch({ t: "screen", screen: "report" })}>Report</button>
+        {` › ${s.section.title}`}
+      </>
+    );
   } else if ("title" in s.section) {
     title = s.section.title;
   }

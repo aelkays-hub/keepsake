@@ -35,6 +35,10 @@ export function Toolbar() {
       .then(setFacets)
       .catch(() => undefined);
   }, [refreshes, s.revision]);
+  // Words cleared from elsewhere (a report row shows its items unfiltered).
+  useEffect(() => {
+    if (!s.filters.text) setText((t) => (t ? "" : t));
+  }, [s.filters.text]);
   // Words are applied after a short pause in typing.
   useEffect(() => {
     const t = setTimeout(() => {

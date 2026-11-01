@@ -1,8 +1,27 @@
-# Manual Test Steps — A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Report rows open their photos
+
+Automated:
+```
+cargo test -p keepsake-core --test report_tests every_report_row
+cd app/ui; pnpm test; pnpm test:e2e report
+```
+
+Manual (both OSes):
+1. Open **Report** in the sidebar. **Expected:** the name in each row (a year, a camera…) is a link in the accent colour; hovering it says how many items it shows.
+2. On **Year**, click a year. **Expected:** the grid shows that year's photos and videos; the heading reads **Report › Year 2024**, and the item count in the status bar equals the row's **Items**.
+3. Click **Report** in the heading. **Expected:** the report comes back on the **Year** table.
+4. Repeat with a month, a day, a camera, a lens, a file type (for example ARW) and a drive. **Expected:** each time the count equals the row's **Items**. A drive that is unplugged still shows its items (with cached thumbnails).
+5. If the report has an **Unknown** row (date, camera or lens), click it. **Expected:** only items without a date (or without a camera, or lens) show.
+6. Two cameras whose names overlap (for example ILCE-7 and ILCE-7M4): click one. **Expected:** only that camera's items show.
+7. Set a filter in the toolbar (type Videos, some words), open the report and click a row. **Expected:** the filters are cleared, and the count matches the row.
 
 ---
 

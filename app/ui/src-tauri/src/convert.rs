@@ -54,6 +54,9 @@ pub fn query(q: &Query) -> Result<SearchQuery, String> {
             .map(|s| id::<ImportSessionId>(s, "import"))
             .transpose()?,
         undated: q.undated,
+        camera_is: q.camera_is.clone(),
+        lens_is: q.lens_is.clone(),
+        file_type: q.file_type.clone(),
         limit: None,
     })
 }

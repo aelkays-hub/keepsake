@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use keepsake_core::catalog::{
     Asset, AssetId, Blake3Hash, CaptureTime, Catalog, FileHash, FileRole, LibraryReport, MediaKind,
-    NewFile, ReportRow, Volume, VolumeId, VolumeKind,
+    NewFile, ReportRow, SearchQuery, Volume, VolumeId, VolumeKind,
 };
 use keepsake_core::relpath::{CaseSensitivity, RelPath};
 use keepsake_core::report;
@@ -384,4 +384,140 @@ fn item_totals_follow_fingerprints_and_deletes() {
     assert_eq!(counts(&report(&cat).totals), (1, 0, 1, 70));
     cat.write(|tx| tx.files().delete(original.id)).unwrap();
     assert_eq!(counts(&report(&cat).totals), (1, 0, 0, 0));
+}
+
+/// How many items a search finds.
+fn found(cat: &Catalog, q: &SearchQuery) -> u64 {
+    cat.read(|tx| tx.browse().count(q)).unwrap()
+}
+
+/// The search a report row opens (as the UI's `lineQuery` builds it).
+fn date_query(group: Option<&str>) -> SearchQuery {
+    let Some(g) = group else {
+        return SearchQuery {
+            undated: true,
+            ..Default::default()
+        };
+    };
+    let (from, to) = match g.len() {
+        4 => (format!("{g}-01-01"), format!("{g}-12-31")),
+        7 => {
+            let first = chrono::NaiveDate::parse_from_str(&format!("{g}-01"), "%Y-%m-%d").unwrap();
+            let last = first
+                .checked_add_months(chrono::Months::new(1))
+                .unwrap()
+                .pred_opt()
+                .unwrap();
+            (first.to_string(), last.to_string())
+        }
+        _ => (g.to_owned(), g.to_owned()),
+    };
+    SearchQuery {
+        from: Some(from),
+        to: Some(to),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn every_report_row_opens_exactly_its_items() {
+    let main = volume("Photos", true);
+    let archive = volume("Archive", false);
+    let mut cat = setup(&[&main, &archive]);
+    // `ILCE-7` is part of `ILCE-7M4`: a row must not show the other's items.
+    let a7 = asset(
+        MediaKind::Photo,
+        Some("2024-02-29"),
+        Some("ILCE-7"),
+        Some("FE 35mm"),
+    );
+    add(
+        &mut cat,
+        &a7,
+        &[file(&main, "a.JPG", FileRole::Original, 5, "a")],
+    );
+    let m4 = asset(
+        MediaKind::Photo,
+        Some("2024-03-01"),
+        Some(" ILCE-7M4 "),
+        Some("FE 35mm F1.8"),
+    );
+    add(
+        &mut cat,
+        &m4,
+        &[
+            file(&main, "b.ARW", FileRole::RawPair, 50, "b"),
+            file(&main, "b.jpg", FileRole::Original, 5, "b2"),
+        ],
+    );
+    let clip = asset(MediaKind::Video, Some("2023-12-31"), Some("ILCE-7M4"), None);
+    add(
+        &mut cat,
+        &clip,
+        &[file(&archive, "c.MP4", FileRole::Original, 500, "c")],
+    );
+    let odd = asset(MediaKind::Photo, None, None, Some(" "));
+    add(
+        &mut cat,
+        &odd,
+        &[file(&main, "README", FileRole::Original, 1, "d")],
+    );
+    let backed = asset(MediaKind::Photo, Some("2024-02-01"), Some("ILCE-7"), None);
+    add(
+        &mut cat,
+        &backed,
+        &[
+            file(&main, "e.jpg", FileRole::Original, 5, "e"),
+            file(&archive, "2024/e.jpg", FileRole::Original, 5, "e"),
+        ],
+    );
+
+    let r = report(&cat);
+    for rows in [&r.years, &r.months, &r.days] {
+        for row in rows {
+            let q = date_query(row.group.as_deref());
+            assert_eq!(found(&cat, &q), row.items, "{q:?}");
+        }
+    }
+    let exact = |g: &Option<String>| Some(g.clone().unwrap_or_default());
+    for row in &r.cameras {
+        let q = SearchQuery {
+            camera_is: exact(&row.group),
+            ..Default::default()
+        };
+        assert_eq!(found(&cat, &q), row.items, "{q:?}");
+    }
+    for row in &r.lenses {
+        let q = SearchQuery {
+            lens_is: exact(&row.group),
+            ..Default::default()
+        };
+        assert_eq!(found(&cat, &q), row.items, "{q:?}");
+    }
+    for row in &r.file_types {
+        let q = SearchQuery {
+            file_type: exact(&row.group),
+            ..Default::default()
+        };
+        assert_eq!(found(&cat, &q), row.items, "{q:?}");
+    }
+    for d in &r.drives {
+        let q = SearchQuery {
+            volume: Some(d.volume_id),
+            ..Default::default()
+        };
+        assert_eq!(found(&cat, &q), d.row.items, "{q:?}");
+    }
+    // The rows checked above are the ones that matter here.
+    assert_eq!(find(&r.cameras, Some("ILCE-7")).items, 2);
+    assert_eq!(find(&r.cameras, Some("ILCE-7M4")).items, 2);
+    assert_eq!(find(&r.cameras, None).items, 1);
+    assert_eq!(find(&r.months, Some("2024-02")).items, 2);
+    assert_eq!(items(find(&r.file_types, Some("JPG"))).0, 3);
+    // The filter takes any case and a leading dot, like people type it.
+    let q = SearchQuery {
+        file_type: Some(".arw".into()),
+        ..Default::default()
+    };
+    assert_eq!(found(&cat, &q), 1);
 }

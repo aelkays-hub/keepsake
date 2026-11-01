@@ -88,3 +88,43 @@ test("an empty library says so", async ({ page }) => {
   await expect(screen.getByTestId("report-total-photos")).toHaveText("0");
   await expect(screen.getByText("The library is empty.")).toBeVisible();
 });
+
+test("a row's name opens its items, and the heading leads back", async ({ page }) => {
+  const screen = await open(page, 1000);
+  const table = screen.getByTestId("report-table");
+  const check = async (by: string, row: number) => {
+    await screen.getByTestId(`report-by-${by}`).click();
+    const tr = table.locator("tbody tr").nth(row);
+    const name = (await tr.locator("th button").textContent()) ?? "";
+    const items = num(await tr.locator("td").nth(2).textContent());
+    await tr.locator("th button").click();
+    await expect(page.getByTestId("heading")).toContainText(name);
+    await expect(page.getByTestId("count")).toHaveText(
+      `${items.toLocaleString("en-US")} item${items === 1 ? "" : "s"}`,
+    );
+    // Back to the report, on the same breakdown.
+    await page.getByTestId("heading").getByRole("button", { name: "Report" }).click();
+    await expect(screen.getByTestId(`report-by-${by}`)).toHaveAttribute("aria-pressed", "true");
+  };
+  await check("year", 0);
+  await check("month", 1);
+  await check("camera", 0);
+  await check("lens", 2);
+  await check("type", 1);
+  await check("drive", 0);
+});
+
+test("a row opens its items without the filters set before", async ({ page }) => {
+  await page.goto("/?items=1000");
+  await page.getByTestId("type").selectOption("video");
+  await page.getByTestId("search").fill("zzz-nothing");
+  await expect(page.getByTestId("count")).toHaveText("0 items");
+  await page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
+  const screen = page.getByTestId("report-screen");
+  const tr = screen.getByTestId("report-table").locator("tbody tr").first();
+  const items = num(await tr.locator("td").nth(2).textContent());
+  await tr.locator("th button").click();
+  await expect(page.getByTestId("count")).toHaveText(`${items.toLocaleString("en-US")} items`);
+  await expect(page.getByTestId("search")).toHaveValue("");
+  await expect(page.getByTestId("type")).toHaveValue("");
+});
