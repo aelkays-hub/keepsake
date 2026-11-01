@@ -1212,11 +1212,10 @@ fn verify_asset(
 fn group_kind(items: &[&ImportItem]) -> GroupKind {
     let orig = items.iter().find(|i| i.role == FileRole::Original);
     let video = orig.is_some_and(|o| {
-        matches!(
-            ext_of(o.dest_rel_path.file_name())
+        crate::grouping::VIDEO_EXT.contains(
+            &ext_of(o.dest_rel_path.file_name())
                 .to_ascii_lowercase()
                 .as_str(),
-            "mp4" | "mts" | "m2ts" | "mov" | "avi" | "mkv"
         )
     });
     if items.iter().any(|i| i.role == FileRole::Segment)

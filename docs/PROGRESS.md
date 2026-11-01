@@ -53,6 +53,24 @@
 
 ---
 
+## Older video types are found when adding a folder (2026-11-01)
+
+### What was reported
+- "when Z:ideos was scanned it did not pick up all the content in the folder and its subfolders": a NAS `Videos` share with 306 videos gave 33 items (all its `.mp4` and `.avi`).
+
+### Cause and fix
+- Only `mp4, mts, m2ts, mov, avi, mkv` were videos; the share is mostly `.mpg` (233), `.vob` (32) and `.mpeg` (8), which were skipped as not media.
+- One list, `grouping::VIDEO_EXT`, now used by the grouper, `rebuild::media_kind_for` and import (each had its own copy). Added `mpg, mpeg, vob, m4v, 3gp, wmv, mod, tod`.
+- **Scan again** on an added folder picks up the new types (skipped files are not remembered).
+
+### Tests
+- `add_folder_tests`: a home video folder (MPEG at the top and in subfolders, `VIDEO_TS` VOBs, MOD/TOD with a MODD sidecar, 3GP, M4V, WMV) gives one video item per clip, and DVD IFO/BUP files are not items.
+
+### Not done
+- A DVD's VOBs are one item each, not one per title. Two videos with the same name in one folder (`VTS_01_1.mpg` beside `VTS_01_1.VOB`) are one item, with the second as an extra file.
+
+---
+
 ## Start-up no longer freezes while the library opens (2026-11-01)
 
 ### What was reported

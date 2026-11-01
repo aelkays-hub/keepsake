@@ -8,7 +8,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use keepsake_core::catalog::{Catalog, Rating};
+use keepsake_core::catalog::{Catalog, MediaKind, Rating};
 use keepsake_core::library::{Library, LibraryError};
 use keepsake_core::metadata::MetadataService;
 use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress};
@@ -315,5 +315,57 @@ fn photos_in_the_cache_folder_are_added_but_its_thumbnails_are_not() {
             "2026/September/A7404962.jpg",
         ],
         "{report:?}"
+    );
+}
+
+/// A home video folder like a NAS `Videos` share: MPEG files at the top and
+/// in dated subfolders, a DVD's `VIDEO_TS`, SD-camera MOD/TOD with their
+/// MODD sidecars, phone and Windows clips. Every video is found, as a video;
+/// the DVD's IFO/BUP and other non-media files are not items.
+#[test]
+fn older_home_video_types_in_subfolders_are_all_added_as_videos() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Videos");
+    let videos = [
+        "MOV000003.avi",
+        "party.mpg",
+        "2007-12-16 Graduation/clip01.MPG",
+        "2007-12-16 Graduation/clip02.mpeg",
+        "Cancun_2009/MOV001.MOD",
+        "Cancun_2009/MOV002.TOD",
+        "VIDEO_TS/VTS_01_1.VOB",
+        "VIDEO_TS/VTS_01_2.VOB",
+        "Phone/VID_0001.3gp",
+        "Phone/VID_0002.m4v",
+        "Old PC/holiday.wmv",
+        "trial.mp4",
+    ];
+    for v in videos {
+        common::write_file(&dir, v, v.as_bytes());
+    }
+    common::write_file(&dir, "Cancun_2009/MOV001.MODD", b"sidecar");
+    common::write_file(&dir, "VIDEO_TS/VTS_01_0.IFO", b"dvd info");
+    common::write_file(&dir, "VIDEO_TS/VTS_01_0.BUP", b"dvd backup");
+    common::write_file(&dir, "Thumbs.db", b"windows thumbnails");
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+
+    let report = add(&mut cat, &lib, &dir);
+
+    assert_eq!(report.assets, videos.len() as u64, "{report:?}");
+    let mut originals = Vec::new();
+    for id in cat.read(|tx| tx.assets().list_ids()).unwrap() {
+        let asset = cat.read(|tx| tx.assets().require(id)).unwrap();
+        assert_eq!(asset.media_kind, MediaKind::Video, "{asset:?}");
+        let files = cat.read(|tx| tx.files().for_asset(id)).unwrap();
+        originals.push(files[0].rel_path.to_string());
+    }
+    originals.sort();
+    let mut expected: Vec<String> = videos.iter().map(|v| v.to_string()).collect();
+    expected.sort();
+    assert_eq!(originals, expected);
+    assert!(
+        catalogued(&cat).contains(&"Cancun_2009/MOV001.MODD".to_string()),
+        "the MODD sidecar stays with its clip"
     );
 }

@@ -36,7 +36,7 @@ use crate::catalog::{
 };
 use crate::corpus::scanner::skip_reason;
 use crate::grouping::sequences::{self, Frame};
-use crate::grouping::{self, Grouping};
+use crate::grouping::{self, Grouping, VIDEO_EXT};
 use crate::library::{
     case_of, is_library_dir, is_library_entry, probe_volume, Library, LibraryError, VolumeRecord,
 };
@@ -180,8 +180,6 @@ struct Discovered {
     /// a batch.
     group: Option<usize>,
 }
-
-const VIDEO_EXT: &[&str] = &["mp4", "mts", "m2ts", "mov", "avi", "mkv"];
 
 fn ext_of(name: &str) -> String {
     name.rsplit_once('.')

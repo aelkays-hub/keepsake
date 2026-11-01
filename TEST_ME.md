@@ -1,8 +1,22 @@
-# Manual Test Steps — Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Older video types in added folders
+
+Automated:
+```
+cargo test -p keepsake-core --test add_folder_tests older_home_video_types
+```
+
+Manual (both OSes):
+1. Open **Folders** in the sidebar and click **Scan again** next to `Videos` (on Windows `Z:ideos`, a NAS share); on macOS add a folder holding `.mpg`, `.vob` or `.wmv` files.
+2. **Expected:** the count grows from 33 to about 300; `.mpg`, `.mpeg` and DVD `.VOB` clips appear as videos with thumbnails and play in the viewer; files in subfolders (for example `Cancun_2009`) are there too.
+3. **Expected:** DVD `.IFO`/`.BUP` files, `Thumbs.db` and the hidden `.metadata` folder are not items. A few broken files (for example `SalehKetab_trial_0.mp4`, which has no `moov` atom) show without a thumbnail, as before.
 
 ---
 

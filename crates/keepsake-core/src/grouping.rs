@@ -90,7 +90,14 @@ pub struct AvchdLayout {
     pub recordings: Vec<Vec<String>>,
 }
 
-const VIDEO_EXT: &[&str] = &["mp4", "mts", "m2ts", "mov", "avi", "mkv"];
+/// Video file types (lower case). The one list: import, adding a folder and
+/// photo-or-video all use it. Besides camera formats it has older ones found
+/// in home video folders: MPEG (`mpg`, `mpeg`), DVD (`vob`), JVC/Panasonic
+/// SD cameras (`mod`, `tod`), phones (`3gp`, `m4v`) and Windows (`wmv`).
+pub(crate) const VIDEO_EXT: &[&str] = &[
+    "mp4", "mts", "m2ts", "mov", "avi", "mkv", "mpg", "mpeg", "vob", "m4v", "3gp", "wmv", "mod",
+    "tod",
+];
 const RAW_EXT: &[&str] = &[
     "arw", "srf", "sr2", "dng", "cr2", "cr3", "nef", "raf", "orf", "rw2",
 ];
