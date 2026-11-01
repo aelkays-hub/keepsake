@@ -25,6 +25,7 @@ import type { ImportPrefs } from "./bindings/ImportPrefs";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
 import type { ImportResult } from "./bindings/ImportResult";
+import type { LibraryReport } from "./bindings/LibraryReport";
 import type { MaintDone } from "./bindings/MaintDone";
 import type { MaintProgress } from "./bindings/MaintProgress";
 import type { MemberDto } from "./bindings/MemberDto";
@@ -33,6 +34,8 @@ import type { OpenChoice } from "./bindings/OpenChoice";
 import type { Preset } from "./bindings/Preset";
 import type { Query } from "./bindings/Query";
 import type { RenderSummary } from "./bindings/RenderSummary";
+import type { ReportDrive } from "./bindings/ReportDrive";
+import type { ReportGroup } from "./bindings/ReportGroup";
 import type { Row } from "./bindings/Row";
 import type { Selection } from "./bindings/Selection";
 import type { SettingsInfo } from "./bindings/SettingsInfo";
@@ -66,6 +69,7 @@ export type {
   ImportProgress,
   ImportRequest,
   ImportResult,
+  LibraryReport,
   MaintDone,
   MaintProgress,
   MemberDto,
@@ -74,6 +78,8 @@ export type {
   Preset,
   Query,
   RenderSummary,
+  ReportDrive,
+  ReportGroup,
   Row,
   Selection,
   SettingsInfo,
@@ -172,6 +178,8 @@ export const api = {
     invoke<EditResult>("time_shift_apply", { selection, offsetS }),
 
   backupOverview: () => invoke<BackupOverview>("backup_overview"),
+  libraryReport: () => invoke<LibraryReport>("library_report"),
+  libraryReportCsv: (path: string) => invoke<string>("library_report_csv", { path }),
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),
@@ -222,5 +230,12 @@ export async function pickFile(title: string): Promise<string | null> {
 export async function pickFolder(title: string): Promise<string | null> {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const r = await open({ directory: true, multiple: false, title });
+  return typeof r === "string" ? r : null;
+}
+
+/** Ask the native dialog where to save a CSV file (null if cancelled). */
+export async function pickSaveCsv(title: string, defaultPath: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const r = await save({ title, defaultPath, filters: [{ name: "CSV", extensions: ["csv"] }] });
   return typeof r === "string" ? r : null;
 }

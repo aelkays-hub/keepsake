@@ -149,6 +149,7 @@ export function Sidebar() {
       entries: [
         { key: "folders", label: "Folders", section: { kind: "all" }, screen: "folders" },
         { key: "backup", label: "Backup", section: { kind: "all" }, screen: "backup" },
+        { key: "report", label: "Report", section: { kind: "all" }, screen: "report" },
         { key: "settings", label: "Settings", section: { kind: "all" }, screen: "settings" },
       ],
     },

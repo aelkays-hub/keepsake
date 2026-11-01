@@ -482,6 +482,49 @@ dto! {
         pub busy: bool,
     }
 
+    /// One group of a library report breakdown (Tools → Report).
+    pub struct ReportGroup {
+        /// `2024`, `2024-06`, `2024-06-01`, a camera, lens or extension;
+        /// null when unknown (shown as `Unknown`).
+        pub group: Option<String>,
+        /// Photos plus videos.
+        #[ts(type = "number")]
+        pub items: u64,
+        /// Null in the file type and drive breakdowns (not split there).
+        #[ts(type = "number | null")]
+        pub photos: Option<u64>,
+        #[ts(type = "number | null")]
+        pub videos: Option<u64>,
+        /// Every file of the items (both halves of a RAW+JPEG pair), one
+        /// copy of each.
+        #[ts(type = "number")]
+        pub files: u64,
+        #[ts(type = "number")]
+        pub bytes: u64,
+    }
+
+    /// Every copy on one drive.
+    pub struct ReportDrive {
+        pub volume: String,
+        pub online: bool,
+        /// `group` is the drive's name.
+        pub row: ReportGroup,
+    }
+
+    /// Tools → Report: totals and every breakdown.
+    pub struct LibraryReport {
+        pub totals: ReportGroup,
+        /// Newest first, unknown last.
+        pub years: Vec<ReportGroup>,
+        pub months: Vec<ReportGroup>,
+        pub days: Vec<ReportGroup>,
+        /// Most items first, unknown last.
+        pub cameras: Vec<ReportGroup>,
+        pub lenses: Vec<ReportGroup>,
+        pub file_types: Vec<ReportGroup>,
+        pub drives: Vec<ReportDrive>,
+    }
+
     /// `maint://progress`: a backup, verify or folder scan is running.
     pub struct MaintProgress {
         /// `backup`, `verify` or `folder`.

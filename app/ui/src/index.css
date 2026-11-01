@@ -945,6 +945,25 @@ textarea {
 .history .num {
   text-align: right;
 }
+.report tbody th {
+  font-weight: normal;
+}
+.report tfoot th,
+.report tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+}
+.report td.num {
+  font-variant-numeric: tabular-nums;
+}
+.report-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+.report-stat strong {
+  font-size: 20px;
+}
 
 /* ── Screens (Backup, Settings) ────────────────────────────────────── */
 .screen-main {

@@ -11,6 +11,7 @@ import { FirstRun } from "./components/FirstRun";
 import { FoldersScreen } from "./components/FoldersScreen";
 import { GridView } from "./components/GridView";
 import { Inspector } from "./components/Inspector";
+import { ReportScreen } from "./components/ReportScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
@@ -74,6 +75,12 @@ function Main() {
     return (
       <main className="main screen-main" aria-label="Backup">
         <BackupScreen />
+      </main>
+    );
+  if (s.screen === "report")
+    return (
+      <main className="main screen-main" aria-label="Report">
+        <ReportScreen />
       </main>
     );
   if (s.screen === "settings")

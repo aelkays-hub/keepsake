@@ -9,6 +9,7 @@ mod import;
 mod maintenance;
 mod prefs;
 mod render;
+mod report;
 mod state;
 mod viewer;
 
@@ -117,6 +118,8 @@ pub fn run() {
             maintenance::backup_run,
             maintenance::verify_run,
             maintenance::maint_cancel,
+            report::library_report,
+            report::library_report_csv,
             folders::folder_add,
             prefs::settings_get,
             prefs::settings_set,

@@ -15,8 +15,10 @@ import type { HistoryRun } from "../bindings/HistoryRun";
 import type { Details } from "../bindings/Details";
 import type { ImportRequest } from "../bindings/ImportRequest";
 import type { ItemKind } from "../bindings/ItemKind";
+import type { LibraryReport } from "../bindings/LibraryReport";
 import type { Preset } from "../bindings/Preset";
 import type { Query } from "../bindings/Query";
+import type { ReportGroup } from "../bindings/ReportGroup";
 import type { Row } from "../bindings/Row";
 import type { Selection } from "../bindings/Selection";
 import type { SettingsInfo } from "../bindings/SettingsInfo";
@@ -107,6 +109,78 @@ function item(i: number, n: number): Item {
 
 const iso = (t: number | null) => (t === null ? null : new Date(t).toISOString().slice(0, 19));
 const day = (t: number | null) => (t === null ? null : new Date(t).toISOString().slice(0, 10));
+
+/** Tools → Report over the mock items: a RAW item is a RAW+JPEG pair (one
+ * photo, two files, the JPEG 6 MB). Same ordering rules as the backend. */
+function mockReport(all: Item[]): LibraryReport {
+  type Acc = Map<string | null, ReportGroup>;
+  const blank = (g: string | null, split: boolean): ReportGroup => ({
+    group: g,
+    items: 0,
+    photos: split ? 0 : null,
+    videos: split ? 0 : null,
+    files: 0,
+    bytes: 0,
+  });
+  // `photo` null: a breakdown without the photo/video split.
+  const bump = (m: Acc, g: string | null, photo: boolean | null, files: number, bytes: number) => {
+    let r = m.get(g);
+    if (!r) m.set(g, (r = blank(g, photo !== null)));
+    r.items++;
+    if (photo === true && r.photos !== null) r.photos++;
+    if (photo === false && r.videos !== null) r.videos++;
+    r.files += files;
+    r.bytes += bytes;
+  };
+  const [total, years, months, days, cameras, lenses, types, drives]: Acc[] = Array.from(
+    { length: 8 },
+    () => new Map(),
+  );
+  for (const it of all) {
+    const photo = it.kind !== "video";
+    const files = it.kind === "raw" ? 2 : 1;
+    const bytes = it.size + (it.kind === "raw" ? 6e6 : 0);
+    const d = day(it.t);
+    bump(total, null, photo, files, bytes);
+    bump(years, d && d.slice(0, 4), photo, files, bytes);
+    bump(months, d && d.slice(0, 7), photo, files, bytes);
+    bump(days, d, photo, files, bytes);
+    bump(cameras, it.camera, photo, files, bytes);
+    bump(lenses, it.lens, photo, files, bytes);
+    bump(types, it.kind === "video" ? "MP4" : it.kind === "raw" ? "ARW" : "JPG", null, 1, it.size);
+    if (it.kind === "raw") bump(types, "JPG", null, 1, 6e6);
+    bump(drives, it.online ? "vOn" : "vOff", null, files, bytes);
+  }
+  const byDate = (m: Acc) =>
+    [...m.values()].sort((a, b) =>
+      a.group === null ? 1 : b.group === null ? -1 : b.group.localeCompare(a.group),
+    );
+  const byCount = (m: Acc) =>
+    [...m.values()].sort((a, b) =>
+      a.group === null
+        ? 1
+        : b.group === null
+          ? -1
+          : b.items - a.items || a.group.localeCompare(b.group),
+    );
+  const names: Record<string, string> = { vOn: "Photos A", vOff: "Archive (unplugged)" };
+  return {
+    totals: total.get(null) ?? blank(null, true),
+    years: byDate(years),
+    months: byDate(months),
+    days: byDate(days),
+    cameras: byCount(cameras),
+    lenses: byCount(lenses),
+    fileTypes: byCount(types),
+    drives: [...drives.values()]
+      .map((r) => ({
+        volume: r.group ?? "",
+        online: r.group === "vOn",
+        row: { ...r, group: names[r.group ?? ""] ?? r.group },
+      }))
+      .sort((a, b) => (a.row.group ?? "").localeCompare(b.row.group ?? "")),
+  };
+}
 
 export function installMock(): void {
   const params = new URLSearchParams(window.location.search);
@@ -678,6 +752,15 @@ export function installMock(): void {
           const ids = resolve(a.selection as Selection).filter((i) => all[i].t !== null);
           for (const i of ids) st.shift.set(i, (st.shift.get(i) ?? 0) + (a.offsetS as number));
           return { changed: ids.length, background: false };
+        }
+        case "library_report":
+          return mockReport(all);
+        case "plugin:dialog|save":
+          return "C:\\Users\\me\\Documents\\Keepsake report.csv";
+        case "library_report_csv": {
+          const path = String(a.path ?? "").trim();
+          if (!path) throw new Error("choose where to save the report");
+          return /\.[^\\/.]+$/.test(path) ? path : `${path}.csv`;
         }
         case "backup_overview": {
           const dests = new Map<string, HistoryRun>();
