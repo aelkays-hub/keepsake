@@ -39,7 +39,8 @@ pub fn enqueue_pending(cat: &mut Catalog) -> Result<u64, CatalogError> {
     let ids = cat.read(|tx| tx.files().assets_unfingerprinted())?;
     let now = crate::jobs::now_ms();
     let mut n = 0;
-    for chunk in ids.chunks(2000) {
+    let size = crate::render::ENQUEUE_CHUNK;
+    for (c, chunk) in ids.chunks(size).enumerate() {
         n += cat.write(|tx| {
             let jobs: Vec<NewJob<'_>> = chunk
                 .iter()
@@ -49,7 +50,7 @@ pub fn enqueue_pending(cat: &mut Catalog) -> Result<u64, CatalogError> {
                     asset_id: *id,
                     rank: 0,
                     // Already newest first.
-                    sort_key: i as i64,
+                    sort_key: (c * size + i) as i64,
                 })
                 .collect();
             tx.jobs().enqueue(&jobs, Priority::Backlog, now, true)

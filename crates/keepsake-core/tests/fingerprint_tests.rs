@@ -350,3 +350,64 @@ fn a_fingerprint_job_does_not_hide_an_asset_from_the_render_backlog() {
     );
     assert_eq!(counts.by_kind[JOB_FINGERPRINT]["queued"], 3);
 }
+
+/// A large backlog is queued in many small writes (so the catalog is never
+/// held for long) and still runs newest first across all of them.
+#[test]
+fn a_large_backlog_is_queued_in_small_writes_and_stays_newest_first() {
+    use keepsake_core::catalog::{
+        Asset, AssetId, CaptureTime, FileRole, MediaKind, NewFile, Volume, VolumeId, VolumeKind,
+    };
+    use keepsake_core::relpath::CaseSensitivity;
+
+    let mut cat = Catalog::open_in_memory().unwrap();
+    let vol = Volume {
+        id: VolumeId::new_random(),
+        label: "NAS".into(),
+        fs_id: "fs-nas".into(),
+        kind: VolumeKind::External,
+        case: CaseSensitivity::Insensitive,
+        read_only: true,
+        online: true,
+        mount_path: Some(PathBuf::from("/mnt/nas")),
+        last_seen_ms: None,
+    };
+    cat.write(|tx| tx.volumes().upsert(&vol)).unwrap();
+    // More than two writes' worth, in a shuffled order of capture times.
+    let n = 450u64;
+    for i in 0..n {
+        let mut a = Asset::new(AssetId::new_random(), MediaKind::Photo, 1);
+        a.capture = Some(CaptureTime {
+            utc_ms: ((i * 7919) % n) as i64 * 1000,
+            utc_offset_min: Some(0),
+        });
+        let rel = RelPath::parse(&format!("p/{i}.jpg")).unwrap();
+        let f = NewFile {
+            volume_id: vol.id,
+            hash: FileHash::pending_for(vol.id, rel.as_str(), 10, Some(i)),
+            rel_path: rel,
+            role: FileRole::Original,
+            size_bytes: 10,
+            xxh3: Some(i),
+            mtime_ms: Some(1),
+            segment_index: None,
+        };
+        cat.write(|tx| {
+            tx.assets().insert(&a)?;
+            tx.files().insert(a.id, &f)
+        })
+        .unwrap();
+    }
+    let newest_first = cat.read(|tx| tx.files().assets_unfingerprinted()).unwrap();
+    assert_eq!(newest_first.len() as u64, n);
+
+    assert_eq!(enqueue_pending(&mut cat).unwrap(), n);
+    let mut order = Vec::new();
+    while let Some(job) = cat
+        .write(|tx| tx.jobs().claim(&[JOB_FINGERPRINT], i64::MAX))
+        .unwrap()
+    {
+        order.push(job.asset_id);
+    }
+    assert_eq!(order, newest_first);
+}

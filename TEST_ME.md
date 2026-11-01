@@ -1,8 +1,24 @@
-# Manual Test Steps — Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## No "database is locked" during a backlog
+
+Automated:
+```
+cargo test -p keepsake-core --lib catalog::error
+cargo test -p keepsake-core --test fingerprint_tests large_backlog
+```
+
+Manual (both OSes; best with the library on a USB hard disk or other slow drive):
+1. Start Keepsake with a large library that still has thumbnails or fingerprints to make (the status bar shows work queued), then click **Scan again** on a folder in **Folders**.
+2. Scroll the grid and open items while the scan and background work run, for a few minutes.
+3. **Expected:** no "database is locked" message, and thumbnails keep appearing. A slow drive may make things wait briefly, but nothing fails.
+4. Open the log folder (**Settings → Open log folder**). **Expected:** no `database is locked` lines. Any `slow catalog write` lines name the code that held the catalog; please send them along.
 
 ---
 

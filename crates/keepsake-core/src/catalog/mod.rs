@@ -93,6 +93,14 @@ impl<M> Tx<'_, M> {
     }
 }
 
+/// How long a connection waits for another one's write before giving up
+/// with "database is locked".
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A write that holds the catalog this long is logged with where it came
+/// from, since every other writer waits for it.
+const SLOW_WRITE_MS: u128 = 2000;
+
 /// An open catalog database.
 pub struct Catalog {
     conn: Connection,
@@ -112,7 +120,9 @@ impl Catalog {
     }
 
     fn init(mut conn: Connection, wal: bool) -> Result<Self, CatalogError> {
-        conn.busy_timeout(Duration::from_secs(5))?;
+        // Long enough for a slow drive (a catalog on a USB hard disk under
+        // a large write-ahead log): waiting beats failing with "locked".
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         conn.pragma_update(None, "foreign_keys", true)?;
         if wal {
             let mode: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
@@ -161,20 +171,28 @@ impl Catalog {
 
     /// Run `f` in a write transaction (`BEGIN IMMEDIATE`). Commits when `f`
     /// returns `Ok`, rolls back when it returns `Err`.
+    #[track_caller]
     pub fn write<T, E>(&mut self, f: impl FnOnce(&WriteTx<'_>) -> Result<T, E>) -> Result<T, E>
     where
         E: From<CatalogError>,
     {
+        let caller = std::panic::Location::caller();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(CatalogError::from)?;
+        // Held from here: every other writer waits.
+        let held = std::time::Instant::now();
         let tx = Tx {
             tx,
             _mode: PhantomData,
         };
         let out = f(&tx)?;
         tx.tx.commit().map_err(CatalogError::from)?;
+        let ms = held.elapsed().as_millis();
+        if ms >= SLOW_WRITE_MS {
+            tracing::warn!(ms, at = %caller, "slow catalog write: others wait for it");
+        }
         Ok(out)
     }
 

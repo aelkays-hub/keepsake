@@ -255,7 +255,7 @@ No GPL code is linked. Migrations use `PRAGMA user_version` instead of a migrati
 
 **Context**: The catalog is a rebuildable query cache (ADR-003). Schema v1 is the first released migration, so later schema changes must come as new migrations (`0002_*.sql`, …), never as edits to this one.
 
-**Decision**: The schema below is `crates/keepsake-core/src/catalog/migrations/0001_init.sql`. The migration runner sets `PRAGMA user_version = 1` once the script succeeds, and `Catalog::open` sets `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON` and `busy_timeout=5000` on every connection.
+**Decision**: The schema below is `crates/keepsake-core/src/catalog/migrations/0001_init.sql`. The migration runner sets `PRAGMA user_version = 1` once the script succeeds, and `Catalog::open` sets `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON` and `busy_timeout=5000` on every connection (30,000 since 2026-11-01: see the PROGRESS entry on "database is locked").
 
 ### Changes from the reviewed draft
 

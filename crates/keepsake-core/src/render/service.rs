@@ -24,7 +24,7 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, JOB_PROXY, JOB_STILLS};
-use crate::catalog::{AssetId, Catalog, Job, JobCounts, JobState, MediaKind};
+use crate::catalog::{AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind};
 use crate::fingerprint::{self, FingerprintError, JOB_FINGERPRINT};
 use crate::jobs::{self, now_ms, PauseReason};
 use crate::library::Library;
@@ -33,6 +33,8 @@ use crate::settings::RenderSettings;
 
 /// Offline media is looked at again after this long.
 const OFFLINE_RETRY_MS: i64 = 10 * 60 * 1000;
+/// How soon a job is tried again after the catalog was busy.
+const BUSY_RETRY: Duration = Duration::from_secs(2);
 
 /// How the service runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,6 +270,24 @@ impl RenderService {
         }
     }
 
+    /// A job's bookkeeping write, tried again while the catalog is busy so a
+    /// slow moment does not stop the worker (or leave its job running).
+    fn write_busy<T>(
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        mut f: impl FnMut(&crate::catalog::WriteTx<'_>) -> Result<T, CatalogError>,
+    ) -> Result<T, CatalogError> {
+        loop {
+            match cat.write(&mut f) {
+                Err(e) if e.is_busy() && !cancel.load(Ordering::SeqCst) => {
+                    tracing::warn!("catalog busy; trying the job's update again");
+                    Self::sleep(cancel, BUSY_RETRY);
+                }
+                r => return r,
+            }
+        }
+    }
+
     fn sleep(cancel: &AtomicBool, d: Duration) {
         let end = Instant::now() + d;
         while Instant::now() < end && !cancel.load(Ordering::SeqCst) {
@@ -291,7 +311,14 @@ impl RenderService {
                 Self::sleep(cancel, Duration::from_secs(1));
                 continue;
             }
-            let Some(job) = cat.write(|t| t.jobs().claim(&[kind], now_ms()))? else {
+            let claimed = match cat.write(|t| t.jobs().claim(&[kind], now_ms())) {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
                 if self.opts.until_empty {
                     break;
                 }
@@ -308,7 +335,7 @@ impl RenderService {
             let now = now_ms();
             match result {
                 Ok((made, encoder)) => {
-                    cat.write(|t| t.jobs().complete(job.id, now))?;
+                    Self::write_busy(&mut cat, cancel, |t| t.jobs().complete(job.id, now))?;
                     shared.done.fetch_add(1, Ordering::SeqCst);
                     let _ = tx.send(RenderEvent::Done {
                         job: job.id,
@@ -320,9 +347,24 @@ impl RenderService {
                     });
                     self.maybe_evict(&mut cat, shared, tx);
                 }
+                Err(e) if e.is_busy() => {
+                    // Not the job's fault: again soon, attempt not counted.
+                    let reason = e.to_string();
+                    let at = now + BUSY_RETRY.as_millis() as i64;
+                    Self::write_busy(&mut cat, cancel, |t| t.jobs().defer(job.id, &reason, at))?;
+                    tracing::debug!(job = job.id, kind = %job.kind, "catalog busy; job deferred");
+                    let _ = tx.send(RenderEvent::Deferred {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        reason,
+                    });
+                }
                 Err(RenderError::Offline) => {
                     let reason = RenderError::Offline.to_string();
-                    cat.write(|t| t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS))?;
+                    Self::write_busy(&mut cat, cancel, |t| {
+                        t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS)
+                    })?;
                     let _ = tx.send(RenderEvent::Deferred {
                         job: job.id,
                         kind: job.kind.clone(),
@@ -337,7 +379,9 @@ impl RenderService {
                         jobs::retry_at(job.attempts, now)
                     };
                     let msg = e.to_string();
-                    cat.write(|t| t.jobs().fail(job.id, &msg, retry, now))?;
+                    Self::write_busy(&mut cat, cancel, |t| {
+                        t.jobs().fail(job.id, &msg, retry, now)
+                    })?;
                     if retry.is_none() {
                         shared.failed.fetch_add(1, Ordering::SeqCst);
                     }
@@ -410,6 +454,7 @@ impl RenderService {
             JOB_FINGERPRINT => match fingerprint::fingerprint_asset(cat, &self.lib, job.asset_id) {
                 Ok(_) => Ok((Vec::new(), None)),
                 Err(FingerprintError::Offline) => Err(RenderError::Offline),
+                Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
                 Err(e) => Err(RenderError::Failed(e.to_string())),
             },
             other => Err(RenderError::Unsupported(format!("job kind {other}"))),

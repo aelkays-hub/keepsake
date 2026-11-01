@@ -62,6 +62,15 @@ pub enum RenderError {
 }
 
 impl RenderError {
+    /// The catalog was locked by another writer for too long: try the job
+    /// again soon, without counting it as a failed attempt.
+    pub fn is_busy(&self) -> bool {
+        match self {
+            RenderError::Catalog(e) | RenderError::Library(LibraryError::Catalog(e)) => e.is_busy(),
+            _ => false,
+        }
+    }
+
     /// Retrying will not help.
     pub fn is_permanent(&self) -> bool {
         matches!(self, RenderError::Unsupported(_))
@@ -137,7 +146,7 @@ pub fn enqueue(
     // Short transactions, so a big backlog never blocks other writers
     // (claims, edits) for long.
     let mut n = 0;
-    for chunk in assets.chunks(2000) {
+    for chunk in assets.chunks(ENQUEUE_CHUNK) {
         n += enqueue_chunk(cat, chunk, priority, again)?;
     }
     Ok(n)
@@ -175,6 +184,11 @@ fn enqueue_chunk(
         tx.jobs().enqueue(&jobs, priority, now, again)
     })
 }
+
+/// Jobs queued per write. Each holds the catalog while it runs, so a large
+/// backlog is queued in small writes that let the workers and the window in
+/// between (2,000 per write held it for seconds on a USB hard disk).
+pub(crate) const ENQUEUE_CHUNK: usize = 200;
 
 /// Queue every asset in the library that has no render jobs yet (backlog),
 /// and the fingerprint jobs of files not yet read in full.

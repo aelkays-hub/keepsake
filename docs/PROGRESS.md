@@ -53,6 +53,27 @@
 
 ---
 
+## "Database is locked" while a backlog runs (2026-11-01)
+
+### What was reported
+- "got this error SQLite error: database is locked". Thumbnail jobs failed with it a minute after start-up and every 13–25 s after. The catalog is on a USB hard disk with a 178 MB write-ahead log, and the queue held about 59,600 fingerprint and 58,200 thumbnail jobs.
+
+### Cause and fix
+- Each connection waited 5 s for another one's write, then failed. At start-up and after each folder scan, `render::enqueue_backlog` queues thumbnails and re-queues fingerprints for every item without a full fingerprint, about 83,000 here, 2,000 per write. On that drive one such write held the catalog for longer than 5 s.
+- Jobs are now queued 200 per write (`render::ENQUEUE_CHUNK`), and connections wait up to 30 s (`catalog::BUSY_TIMEOUT`).
+- Render, proxy and fingerprint workers treat "locked" as no fault of the job. The job is deferred 2 s with no attempt counted, and the worker's own claim or complete is tried again, instead of the error ending the worker.
+- `Catalog::write` logs any write that holds the catalog for 2 s or more, with the line it came from (`slow catalog write`), so any other long holder shows in the log.
+- Fingerprint jobs got sort keys counting from 0 in each write, so a backlog over one write was not newest first across writes. Keys now count across the whole backlog.
+
+### Tests
+- `catalog::error` unit tests: SQLITE_BUSY and SQLITE_LOCKED are busy; other errors are not.
+- `fingerprint_tests`: 450 items with no fingerprint are queued over three writes and claimed newest first.
+
+### Not done
+- No automated test of a worker meeting a locked catalog (it would wait the full 30 s). Proved by the log on the reporting machine instead.
+
+---
+
 ## Older video types are found when adding a folder (2026-11-01)
 
 ### What was reported
