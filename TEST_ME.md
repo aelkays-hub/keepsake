@@ -1,8 +1,27 @@
-# Manual Test Steps — Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Scan again one folder (right-click)
+
+Automated:
+```
+cargo test -p keepsake-core --test add_folder_tests subfolder
+cd app/ui; pnpm test:e2e folder-tree
+```
+
+Manual (both OSes):
+1. In the sidebar choose **By folder**, open an added folder (on Windows for example `Videos` on `Z:`), and right-click one of its sub-folders. **Expected:** a menu with **Show** and **Scan again**.
+2. Add a new photo to that sub-folder on disk, delete one from it, and also add a photo to a *different* sub-folder. Then choose **Scan again** on the first sub-folder. **Expected:** the Folders screen opens with "Scanning a folder…" and then "Scanned <name>: N items". The new photo is in the library and the deleted one is gone. The photo added to the other sub-folder is *not* in the library yet. Ratings on the scanned sub-folder's photos are unchanged.
+3. Right-click the added folder itself (the top of its tree) and choose **Scan again**. **Expected:** the whole folder is read, and the photo in the other sub-folder comes in.
+4. Right-click a folder on a drive that is not connected. **Expected:** Scan again is greyed out, and the menu says the drive is not connected.
+5. With the keyboard, move to a folder with the arrow keys and press the Menu key (Windows) or Shift+F10 (both OSes). **Expected:** the menu opens on its first item; ↑ ↓ move, Enter chooses, and Escape closes it and returns to the folder.
+6. Start a backup, and while it runs choose Scan again on a folder. **Expected:** the menu says another job is already running, and nothing starts.
+7. Nothing inside the added folder is changed by any of this: no files are written there.
 
 ---
 

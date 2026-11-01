@@ -2,12 +2,15 @@
 // the folders on disk), Events, Volumes, Tools, Imports. Arrow keys move
 // between entries (a single tab stop), Enter or click opens one; Right and
 // Left open and close a tree node, or go to its first child or its parent.
+// A folder of the folder tree has a menu (right-click, the Menu key or
+// Shift+F10) to scan it again.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, events, type Sidebar as SidebarData } from "../api";
 import * as fmt from "../format";
 import { useUi, type Section } from "../state";
+import { FolderMenu } from "./FolderMenu";
 import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
 import { useFolderTree, type FolderTreeNode } from "../useFolderTree";
@@ -189,6 +192,12 @@ export function Sidebar() {
   const active = Math.max(0, flat.findIndex(isActive));
   const [focus, setFocus] = useState(active);
   const nav = useRef<HTMLElement>(null);
+  /** The open folder menu: where, and for which entry. */
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; at: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const menuFor = (entry: Entry, at: number, x: number, y: number) => {
+    if (entry.fold) setMenu({ x, y, entry, at });
+  };
   const move = (to: number) => {
     const i = Math.max(0, Math.min(flat.length - 1, to));
     setFocus(i);
@@ -223,7 +232,12 @@ export function Sidebar() {
   const onKey = (e: React.KeyboardEvent) => {
     const entry = flat[focus];
     const c = nodeOf(entry);
-    if (e.key === "ArrowDown") move(focus + 1);
+    if ((e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) && entry?.fold) {
+      const r = nav.current
+        ?.querySelector<HTMLButtonElement>(`[data-entry="${focus}"]`)
+        ?.getBoundingClientRect();
+      menuFor(entry, focus, r ? r.left + 24 : 0, r ? r.bottom : 0);
+    } else if (e.key === "ArrowDown") move(focus + 1);
     else if (e.key === "ArrowUp") move(focus - 1);
     else if (e.key === "Home") move(0);
     else if (e.key === "End") move(flat.length - 1);
@@ -296,6 +310,12 @@ export function Sidebar() {
                         openEntry(e);
                       }}
                       onFocus={() => setFocus(i)}
+                      onContextMenu={(ev) => {
+                        if (!e.fold) return;
+                        ev.preventDefault();
+                        setFocus(i);
+                        menuFor(e, i, ev.clientX, ev.clientY);
+                      }}
                     >
                       {c && (
                         <span
@@ -331,6 +351,32 @@ export function Sidebar() {
             </ul>
           </section>
         ),
+      )}
+      {menu?.entry.fold && (
+        <FolderMenu
+          x={menu.x}
+          y={menu.y}
+          label={menu.entry.label}
+          online={
+            data?.volumes.find((v) => v.id === menu.entry.fold?.volume)?.online ??
+            menu.entry.fold.online ??
+            false
+          }
+          onShow={() => openEntry(menu.entry)}
+          onScan={() => {
+            const f = menu.entry.fold;
+            if (!f) return Promise.resolve();
+            // The Folders screen shows the scan's progress and outcome.
+            return api
+              .folderRescan(f.volume, f.path)
+              .then(() => dispatch({ t: "screen", screen: "folders" }));
+          }}
+          onClose={() => {
+            const at = menu.at;
+            closeMenu();
+            nav.current?.querySelector<HTMLButtonElement>(`[data-entry="${at}"]`)?.focus();
+          }}
+        />
       )}
     </nav>
   );

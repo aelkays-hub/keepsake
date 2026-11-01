@@ -7,8 +7,12 @@
 
 use std::path::PathBuf;
 
-use keepsake_core::library::LibraryError;
-use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress, BATCH_FILES};
+use keepsake_core::catalog::{Catalog, VolumeId};
+use keepsake_core::library::{Library, LibraryError, VolumeRecord};
+use keepsake_core::rebuild::{
+    add_folder, rescan_folder, RebuildOptions, RebuildProgress, RebuildReport, BATCH_FILES,
+};
+use keepsake_core::relpath::RelPath;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::api::{FolderDone, FolderSaved};
@@ -20,7 +24,6 @@ use crate::state::{err, AppState, CmdResult};
 /// once; progress and the result come as events.
 #[tauri::command(async)]
 pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> CmdResult<()> {
-    let open = state.open()?;
     let folder = PathBuf::from(path.trim());
     if folder.as_os_str().is_empty() {
         return Err("choose a folder".into());
@@ -28,11 +31,58 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
     if !folder.is_dir() {
         return Err(format!("{} is not a folder", path.trim()));
     }
-    spawn(&state, "add-folder", move |cancel| {
+    let shown = convert::path_text(&folder);
+    scan(app, &state, shown, false, move |cat, lib, opts| {
+        add_folder(cat, lib, &folder, opts)
+    })
+}
+
+/// Scan again one folder of a volume already in the library (`path` on the
+/// volume, e.g. `2025/May`), with what is below it; `None` for the whole
+/// volume. The rest of the volume is left as it is. Like [`folder_add`],
+/// returns at once and reports with events.
+#[tauri::command(async)]
+pub fn folder_rescan(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    volume: String,
+    path: Option<String>,
+) -> CmdResult<()> {
+    let open = state.open()?;
+    let id: VolumeId = convert::id(&volume, "volume")?;
+    let rel = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => Some(RelPath::parse(p).map_err(err)?),
+        None => None,
+    };
+    let rec = open.lib.volume(id).map_err(err)?;
+    let shown = match (&rec.last_mount, &rel) {
+        (Some(m), Some(r)) => convert::path_text(&r.to_fs_path(m)),
+        (Some(m), None) => convert::path_text(m),
+        (None, _) => rec.label.clone(),
+    };
+    scan(app, &state, shown, true, move |cat, lib, opts| {
+        rescan_folder(cat, lib, id, rel.as_ref(), opts)
+    })
+}
+
+type ScanResult = Result<(VolumeRecord, RebuildReport), LibraryError>;
+
+/// Run a folder scan as the maintenance job: progress as `maint://progress`
+/// (kind `folder`), `folder://saved` per batch, `folder://done` at the end.
+/// `shown` names the folder in the events; `again` marks a scan of a folder
+/// already in the library.
+fn scan(
+    app: AppHandle,
+    state: &AppState,
+    shown: String,
+    again: bool,
+    run: impl FnOnce(&mut Catalog, &Library, &mut RebuildOptions<'_>) -> ScanResult + Send + 'static,
+) -> CmdResult<()> {
+    let open = state.open()?;
+    spawn(state, "add-folder", move |cancel| {
         let mut rep = Reporter::new(&app, "folder");
-        let shown = convert::path_text(&folder);
         let mut done = FolderDone {
-            folder: convert::path_text(&folder),
+            folder: shown.clone(),
             volume: None,
             label: None,
             items: 0,
@@ -42,6 +92,7 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
             problems: Vec::new(),
             cancelled: false,
             error: None,
+            scanned_again: again,
         };
         let result = (|| -> Result<(), String> {
             let mut cat = open.writer()?;
@@ -79,8 +130,9 @@ pub fn folder_add(app: AppHandle, state: State<'_, AppState>, path: String) -> C
                 cancel: Some(&cancel),
                 progress: Some(&mut progress),
                 batch_files: Some(BATCH_FILES),
+                only: None,
             };
-            match add_folder(&mut cat, &open.lib, &folder, &mut opts) {
+            match run(&mut cat, &open.lib, &mut opts) {
                 Ok((rec, r)) => {
                     done.volume = Some(rec.id.to_string());
                     done.label = Some(rec.label);

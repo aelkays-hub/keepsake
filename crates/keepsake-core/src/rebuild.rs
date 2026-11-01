@@ -105,6 +105,10 @@ pub struct RebuildOptions<'a> {
     /// files an earlier scan saved unchanged. `None`: one transaction at
     /// the end, every file read again (rebuilding the catalog).
     pub batch_files: Option<usize>,
+    /// Scan only this folder of the volume and what is below it (needs
+    /// `batch_files`). Files elsewhere on the volume are left as they are;
+    /// files gone from this folder are removed.
+    pub only: Option<RelPath>,
     pub progress: Option<&'a mut dyn FnMut(&RebuildProgress<'_>)>,
 }
 
@@ -408,11 +412,30 @@ fn rebuild_record(
     let mut report = RebuildReport::default();
     let started = std::time::Instant::now();
 
-    // 1. Walk the volume.
+    // 1. Walk the volume (or the one folder of it being scanned).
+    let only = opts.only.clone();
+    let start = match &only {
+        Some(_) if !batched => {
+            return Err(LibraryError::Invalid(
+                "scanning one folder needs a batched scan".into(),
+            ))
+        }
+        Some(rel) => {
+            let dir = rel.to_fs_path(mount);
+            if !dir.is_dir() {
+                return Err(LibraryError::Invalid(format!(
+                    "{} is not a folder (moved or renamed?)",
+                    shown(&dir)
+                )));
+            }
+            dir
+        }
+        None => mount.to_path_buf(),
+    };
     opts.report(RebuildProgress::Phase("Listing files"));
     let skip = Skip::new(&opts.cache_dirs);
     let mut listing = Vec::new();
-    walk(mount, mount, &skip, &mut listing, &mut report);
+    walk(mount, &start, &skip, &mut listing, &mut report);
     let (count, bytes) = listing
         .iter()
         .filter(|(r, _)| !sidecar::is_sidecar_name(r.file_name()))
@@ -478,10 +501,13 @@ fn rebuild_record(
     // 2. Read sidecars.
     let mirror_root = sidecar::mirror_root(&lib.sidecars_dir(), volume);
     let mut mirror_listing = Vec::new();
-    if mirror_root.is_dir() {
+    let mirror_start = only
+        .as_ref()
+        .map_or_else(|| mirror_root.clone(), |r| r.to_fs_path(&mirror_root));
+    if mirror_start.is_dir() {
         walk(
             &mirror_root,
-            &mirror_root,
+            &mirror_start,
             &Skip::default(),
             &mut mirror_listing,
             &mut report,
@@ -818,6 +844,7 @@ fn rebuild_record(
             before_by_asset: HashMap::new(),
             frames: Vec::new(),
             probed: 0,
+            only: only.as_ref().map(|r| r.key(case)),
         };
         b.run(
             cat,
@@ -1055,6 +1082,19 @@ struct Batcher<'a> {
     /// Stills probed in this scan, for sequences (`id`: index in `discovered`).
     frames: Vec<Frame>,
     probed: u64,
+    /// The key of the one folder scanned ([`RebuildOptions::only`]): only
+    /// files under it can be found gone.
+    only: Option<String>,
+}
+
+impl Batcher<'_> {
+    /// Is the file with key `key` in the part of the volume being scanned?
+    fn scanned(&self, key: &str) -> bool {
+        self.only.as_deref().is_none_or(|p| {
+            key.strip_prefix(p)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    }
 }
 
 impl Batcher<'_> {
@@ -1240,14 +1280,15 @@ impl Batcher<'_> {
         let case = self.case;
         report.sequences = cat.write(|tx| -> Result<u64, LibraryError> {
             for f in tx.files().for_volume(volume)? {
-                if !keep.contains(&f.rel_path.key(case)) {
+                let key = f.rel_path.key(case);
+                if !keep.contains(&key) && self.scanned(&key) {
                     tx.files().delete(f.id)?;
                 }
             }
             tx.assets().delete_orphans()?;
             // Sequences are worked out again unless part of the folder was
-            // saved before and not probed now.
-            if resumed == 0 {
+            // saved before and not probed now, or only one folder was read.
+            if resumed == 0 && self.only.is_none() {
                 tx.sequences().delete_for_volume(volume)?;
             }
             save_sequences(tx, volume, sequences)?;
@@ -1546,6 +1587,27 @@ pub fn add_folder(
     let report = rebuild_record(cat, lib, &rec, &mount, opts)?;
     lib.register_volume(&rec)?;
     Ok((rec, report))
+}
+
+/// Scan again one folder of a volume already in the library, and what is
+/// below it (`folder`; `None` for the whole volume), as a batched scan:
+/// new and changed files there are read, files gone from there are removed,
+/// and the rest of the volume is left as it is.
+pub fn rescan_folder(
+    cat: &mut Catalog,
+    lib: &Library,
+    volume: VolumeId,
+    folder: Option<&RelPath>,
+    opts: &mut RebuildOptions<'_>,
+) -> Result<(VolumeRecord, RebuildReport), LibraryError> {
+    let rec = lib.volume(volume)?;
+    let mount = crate::verify::mount_of(cat, lib, volume)
+        .ok_or_else(|| LibraryError::Invalid(format!("\"{}\" is not connected", rec.label)))?;
+    if opts.batch_files.is_none() {
+        opts.batch_files = Some(BATCH_FILES);
+    }
+    opts.only = folder.cloned();
+    add_folder(cat, lib, &mount, opts)
 }
 
 /// Rebuild every registered volume found at its last mount point. Volumes that

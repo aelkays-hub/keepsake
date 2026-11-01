@@ -569,6 +569,9 @@ dto! {
         pub problems: Vec<String>,
         pub cancelled: bool,
         pub error: Option<String>,
+        /// A folder already in the library, or one folder of it, scanned
+        /// again from the sidebar (not added).
+        pub scanned_again: bool,
     }
 
     /// `folder://saved`: a folder being added has more of its items in the

@@ -98,3 +98,80 @@ test("folders with the keyboard: right opens, left closes and goes up", async ({
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("heading")).toHaveText("Photos A");
 });
+
+test("right-click a folder: Scan again scans that folder and shows the progress", async ({
+  page,
+}) => {
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  const year = folder(page, "2016");
+  await expect(year).toBeVisible();
+
+  // Not on other entries.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click({
+    button: "right",
+  });
+  await expect(page.getByTestId("folder-menu")).toHaveCount(0);
+
+  await year.click({ button: "right" });
+  const menu = page.getByTestId("folder-menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Show" })).toBeFocused();
+  await menu.getByRole("menuitem", { name: "Scan again" }).click();
+  await expect(menu).toHaveCount(0);
+  await expect
+    .poll(async () => (await calls(page, "folder_rescan")).at(-1))
+    .toEqual({ volume: "vOn", path: "2016" });
+  // The Folders screen shows it running, then what was found.
+  await expect(page.getByTestId("folders-screen")).toBeVisible();
+  await expect(page.getByTestId("folder-outcome")).toContainText("Scanned Photos A: 12 items");
+
+  // The volume itself: the whole folder.
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click({ button: "right" });
+  await page.getByTestId("folder-menu-rescan").click();
+  await expect
+    .poll(async () => (await calls(page, "folder_rescan")).at(-1))
+    .toEqual({ volume: "vOn", path: null });
+});
+
+test("the folder menu from the keyboard, and on a drive that is not connected", async ({
+  page,
+}) => {
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  const archive = node(page, "Archive (unplugged)");
+  await archive.focus();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByTestId("folder-menu");
+  await expect(menu).toBeVisible();
+  await expect(page.getByTestId("folder-menu-rescan")).toBeDisabled();
+  await expect(menu).toContainText("not connected");
+  // Arrows stay in the menu; Escape closes it and goes back to the folder.
+  await page.keyboard.press("ArrowDown");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(archive).toBeFocused();
+
+  // Show from the menu opens the folder.
+  await node(page, "Photos A").focus();
+  await page.keyboard.press("ContextMenu");
+  await expect(menu.getByRole("menuitem", { name: "Show" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("heading")).toHaveText("Photos A");
+  // A click elsewhere closes it.
+  await node(page, "Photos A").click({ button: "right" });
+  await expect(menu).toBeVisible();
+  await page.getByTestId("count").click();
+  await expect(menu).toHaveCount(0);
+});
+
+test("a scan that cannot start says why in the menu", async ({ page }) => {
+  await page.goto("/?items=2000&rescanBusy=1");
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click({ button: "right" });
+  await page.getByTestId("folder-menu-rescan").click();
+  await expect(page.getByTestId("folder-menu-problem")).toContainText("already running");
+  await expect(page.getByTestId("folders-screen")).toHaveCount(0);
+});

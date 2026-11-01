@@ -121,6 +121,7 @@ pub fn run() {
             report::library_report,
             report::library_report_csv,
             folders::folder_add,
+            folders::folder_rescan,
             prefs::settings_get,
             prefs::settings_set,
             prefs::cache_remove_old,

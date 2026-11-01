@@ -22,6 +22,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - Lightroom, digiKam and Keepsake `.xmp` sidecars in the folder are read (ratings, labels, keywords, dates).
 - A Keepsake library or the thumbnail cache inside the folder is left out. A folder that overlaps one already in the library is refused.
 - Progress, Stop (nothing is saved), and "Scan again" for new, changed and removed files.
+- In the sidebar's folder tree, right-click a folder (or press the Menu key or Shift+F10) for **Show** and **Scan again**. Scan again on a folder inside an added folder reads only that folder and the folders in it: new and changed files there come in, files gone from there are removed, and the rest of the added folder is left as it is. The Folders screen shows the progress and outcome.
 
 ### Library views
 - Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.

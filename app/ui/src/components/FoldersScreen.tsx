@@ -137,7 +137,7 @@ export function FoldersScreen() {
         <div className="card" role="status" data-testid="folder-status">
           {running && (
             <>
-              <h2>Adding a folder…</h2>
+              <h2>Scanning a folder…</h2>
               <progress max={100} value={pct} aria-label="Progress" />
               <p className="muted">
                 {fmt.count(progress?.filesDone ?? 0)} files · {fmt.bytes(progress?.bytesDone ?? 0)}{" "}
@@ -229,7 +229,7 @@ function Outcome({ d, onShow }: { d: FolderDone; onShow: (id: string, title: str
   return (
     <div data-testid="folder-outcome">
       <h2 className="ok">
-        Added {d.label}: {fmt.plural(d.items, "item")}
+        {d.scannedAgain ? "Scanned" : "Added"} {d.label}: {fmt.plural(d.items, "item")}
       </h2>
       <p>
         {fmt.plural(d.files, "file")} in {d.folder}. Nothing in the folder was changed.

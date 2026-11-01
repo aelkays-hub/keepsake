@@ -57,6 +57,7 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
         cancel: Some(cancel_flag()),
         progress: Some(&mut progress),
         batch_files: Some(BATCH_FILES),
+        only: None,
     };
     let result = add_folder(&mut cat, &lib, &a.folder, &mut opts);
     bar.finish_and_clear();

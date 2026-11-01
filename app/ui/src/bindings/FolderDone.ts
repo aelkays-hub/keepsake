@@ -23,4 +23,9 @@ otherFiles: number,
 /**
  * Up to 20 problems, one line each.
  */
-problems: Array<string>, cancelled: boolean, error: string | null, };
+problems: Array<string>, cancelled: boolean, error: string | null, 
+/**
+ * A folder already in the library, or one folder of it, scanned
+ * again from the sidebar (not added).
+ */
+scannedAgain: boolean, };

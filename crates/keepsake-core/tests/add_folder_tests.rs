@@ -11,7 +11,8 @@ use std::sync::atomic::AtomicBool;
 use keepsake_core::catalog::{Catalog, MediaKind, Rating};
 use keepsake_core::library::{Library, LibraryError};
 use keepsake_core::metadata::MetadataService;
-use keepsake_core::rebuild::{add_folder, RebuildOptions, RebuildProgress};
+use keepsake_core::rebuild::{add_folder, rescan_folder, RebuildOptions, RebuildProgress};
+use keepsake_core::relpath::RelPath;
 
 /// A folder laid out like a photo archive: months, a RAW with a Lightroom
 /// sidecar, a video and a note.
@@ -368,4 +369,115 @@ fn older_home_video_types_in_subfolders_are_all_added_as_videos() {
         catalogued(&cat).contains(&"Cancun_2009/MOV001.MODD".to_string()),
         "the MODD sidecar stays with its clip"
     );
+}
+
+/// Scanning again one sub-folder (the sidebar's right-click Scan again):
+/// new files there come in and files gone from there go, ratings stay, and
+/// the rest of the folder is not looked at.
+#[test]
+fn scanning_one_subfolder_again_leaves_the_rest_of_the_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = archive(tmp.path());
+    common::write_file(&dir, "January/Party/DSC00010.JPG", b"party one");
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    let (rec, _) = add_folder(&mut cat, &lib, &dir, &mut RebuildOptions::default()).unwrap();
+    assert_eq!(catalogued(&cat).len(), 4);
+    let jpeg = cat
+        .read(|tx| tx.assets().list_ids())
+        .unwrap()
+        .into_iter()
+        .find(|id| {
+            cat.read(|tx| tx.files().for_asset(*id)).unwrap()[0]
+                .rel_path
+                .as_str()
+                == "January/DSC00001.JPG"
+        })
+        .unwrap();
+    MetadataService::new(&lib, &mut cat)
+        .set_rating(jpeg, Rating::new(3).unwrap())
+        .unwrap();
+
+    // In January (and below it): one new, one gone. Elsewhere: one new, one gone.
+    common::write_file(&dir, "January/DSC00003.JPG", b"new in january");
+    common::write_file(&dir, "January/Party/DSC00011.JPG", b"party two");
+    std::fs::remove_file(dir.join("January/Party/DSC00010.JPG")).unwrap();
+    common::write_file(&dir, "March/DSC00020.JPG", b"new in march");
+    std::fs::remove_file(dir.join("February/C0001.MP4")).unwrap();
+
+    let january = RelPath::parse("January").unwrap();
+    let (again, report) = rescan_folder(
+        &mut cat,
+        &lib,
+        rec.id,
+        Some(&january),
+        &mut RebuildOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(again.id, rec.id, "the same folder in the library");
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(
+        catalogued(&cat),
+        [
+            // Not scanned: still there although gone from disk, and the
+            // new March file is not found yet.
+            "February/C0001.MP4",
+            "January/DSC00001.JPG",
+            "January/DSC00002.ARW",
+            "January/DSC00003.JPG",
+            "January/Party/DSC00011.JPG",
+        ]
+    );
+    // The rating made in Keepsake is kept.
+    assert_eq!(
+        cat.read(|tx| tx.assets().require(jpeg))
+            .unwrap()
+            .rating
+            .get(),
+        3
+    );
+    assert_eq!(lib.volumes().unwrap().len(), 1);
+
+    // The whole folder again: March comes in and February goes.
+    let (_, _) =
+        rescan_folder(&mut cat, &lib, rec.id, None, &mut RebuildOptions::default()).unwrap();
+    let all = catalogued(&cat);
+    assert!(all.contains(&"March/DSC00020.JPG".to_owned()));
+    assert!(!all.contains(&"February/C0001.MP4".to_owned()));
+}
+
+#[test]
+fn scanning_a_subfolder_that_is_gone_or_a_folder_not_connected_says_so() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = archive(tmp.path());
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    let (rec, _) = add_folder(&mut cat, &lib, &dir, &mut RebuildOptions::default()).unwrap();
+    let before = catalogued(&cat);
+
+    let gone = RelPath::parse("April").unwrap();
+    let e = rescan_folder(
+        &mut cat,
+        &lib,
+        rec.id,
+        Some(&gone),
+        &mut RebuildOptions::default(),
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("is not a folder"), "{e}");
+    assert_eq!(catalogued(&cat), before, "nothing removed");
+
+    let moved = tmp.path().join("moved");
+    std::fs::rename(&dir, &moved).unwrap();
+    let january = RelPath::parse("January").unwrap();
+    let e = rescan_folder(
+        &mut cat,
+        &lib,
+        rec.id,
+        Some(&january),
+        &mut RebuildOptions::default(),
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("is not connected"), "{e}");
+    assert_eq!(catalogued(&cat), before, "nothing removed");
 }

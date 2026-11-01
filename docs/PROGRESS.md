@@ -53,6 +53,25 @@
 
 ---
 
+## Scan again one folder inside an added folder, from a right-click menu (2026-11-01)
+
+### What was asked
+- "need the ability to scan again a folder in an imported folder, need a right click menu on the folder than I need to scan again".
+
+### What was built
+- Core: `rebuild::rescan_folder(cat, lib, volume, Some(&rel), opts)` and `RebuildOptions::only`. A batched scan walks only that folder of the volume, and its library sidecar mirror. Only files under it can be found gone. Sequences elsewhere on the volume are kept. Ratings and other edits are kept as in any scan again. `None` scans the whole volume. It reports when the drive is not connected or the folder is not there.
+- Tauri: `folder_rescan(volume, path)`, sharing the scan job and its events with `folder_add` (`folders::scan`). `FolderDone.scannedAgain` lets the outcome read "Scanned …" rather than "Added …".
+- UI: `FolderMenu` opens on right-click of a folder or volume in the sidebar's folder tree, or with the Menu key or Shift+F10. It has **Show** and **Scan again**, with arrow keys, Escape and a click away to close it. Scan again is disabled when the drive is not connected, and shows why when a scan cannot start (another is running). Starting it opens the Folders screen, whose progress heading now says "Scanning a folder…".
+
+### Tests
+- `add_folder_tests`: scanning one sub-folder again finds new files and drops gone ones there (and below), keeps a rating, and leaves the rest of the folder alone (a file gone elsewhere stays, a new file elsewhere is not found yet). Scanning the whole volume after that catches up. A missing sub-folder or a disconnected folder is refused and changes nothing.
+- Mocked Playwright `folder-tree.spec.ts`: the right-click menu scans the folder (and the whole volume from its root) and shows the outcome; no menu on other entries; the keyboard opens and closes it and focus returns; disabled on an unplugged drive; Show opens the folder; a scan that cannot start says why.
+
+### Not done
+- No CLI option for one sub-folder (`keepsake add-folder` scans the whole folder).
+
+---
+
 ## Previous and next in the viewer, on the picture's edges (2026-11-01)
 
 ### What was asked

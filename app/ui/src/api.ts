@@ -184,6 +184,9 @@ export const api = {
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),
   folderAdd: (path: string) => invoke<void>("folder_add", { path }),
+  /** Scan again one folder of a volume (`path` on it; `null` the whole volume). */
+  folderRescan: (volume: string, path: string | null) =>
+    invoke<void>("folder_rescan", { volume, path }),
 
   settingsGet: () => invoke<SettingsInfo>("settings_get"),
   settingsSet: (update: SettingsUpdate) => invoke<SettingsSaved>("settings_set", { update }),

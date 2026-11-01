@@ -828,6 +828,39 @@ export function installMock(): void {
           }, 100);
           return null;
         }
+        case "folder_rescan": {
+          // ?rescanBusy=1: another scan is running.
+          if (params.get("rescanBusy") === "1")
+            throw new Error("a backup, verification or folder scan is already running");
+          const where = a.path ? `${String(a.volume)}/${String(a.path)}` : String(a.volume);
+          let n = 0;
+          const tick = setInterval(() => {
+            n += 1;
+            void emit("maint://progress", {
+              kind: "folder",
+              bytesDone: n * 25e6,
+              bytesTotal: 100e6,
+              filesDone: n * 3,
+              current: `${String(a.path ?? "")}/DSC0000${n}.JPG`,
+            });
+            if (n < 4) return;
+            clearInterval(tick);
+            void emit("folder://done", {
+              folder: where,
+              volume: String(a.volume),
+              label: "Photos A",
+              items: 12,
+              files: 12,
+              withSidecars: 0,
+              otherFiles: 0,
+              problems: [],
+              cancelled: false,
+              error: null,
+              scannedAgain: true,
+            });
+          }, 300);
+          return null;
+        }
         case "folder_add": {
           const mount = String(a.path ?? "").trim();
           if (!mount) throw new Error("choose a folder");
@@ -870,6 +903,7 @@ export function installMock(): void {
                 problems: [],
                 cancelled: false,
                 error: "the network drive stopped answering",
+                scannedAgain: false,
               });
               return;
             }
@@ -893,6 +927,7 @@ export function installMock(): void {
                 problems: [],
                 cancelled: false,
                 error: null,
+                scannedAgain: false,
               });
             }
           }, 100);
