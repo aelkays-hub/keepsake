@@ -6,6 +6,7 @@ pub mod devices;
 pub mod diag;
 pub mod error;
 pub mod external;
+pub mod fingerprint;
 pub mod grouping;
 pub mod history;
 pub mod ingest;

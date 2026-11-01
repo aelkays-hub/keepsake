@@ -181,7 +181,8 @@ One physical file on disk. An Asset has 1-N Files.
 | `volume_id` | `Uuid` | FK to Volume |
 | `rel_path` | `RelPath` | Relative to volume root, exact on-disk spelling, `/`-separated |
 | `rel_path_key` | `String` | NFC, lowercased on case-insensitive volumes; unique per volume |
-| `blake3` | `[u8; 32]` | Content identity hash |
+| `blake3` | `[u8; 32]` | Content identity hash; a stand-in key while `fingerprinted` is 0 |
+| `fingerprinted` | `bool` | 0 for files added in place that the background job has not read in full yet (ADR-029); `File::hash` is `FileHash::Full` or `FileHash::Pending` |
 | `size_bytes` | `u64` | |
 | `role` | `FileRole` | See below |
 
@@ -371,6 +372,8 @@ keepsake rebuild-catalog --fresh
 2. Read sidecars beside the files and in the mirror; per file, the newest `xmp:MetadataDate` wins.
 3. Form assets from Keepsake sidecars' `keepsake:Files` lists, then group the remaining files with the Sony card heuristics (one original per group; ARW/HIF companions become `RawPair`, `SUB/` files `CameraProxy`, XML/CPI/MPL `Sidecar`). Assets without a Keepsake sidecar get an id derived from the original's location.
 4. Replace the volume's rows in one transaction. If the asset already exists from another volume, the sidecar wins only when its metadata is newer.
+
+Adding a folder (`add_folder` with `batch_files`) differs: it saves 20 files at a time and reads only each file's quick hash; files get a stand-in key and `fingerprint::JOB_FINGERPRINT` jobs read them in full later, on the render service's fingerprint worker (ADR-028, ADR-029).
 
 Not rebuilt: renditions (regenerated on demand), import session history, and labels or tags nothing uses. A test builds a catalog, deletes it, rebuilds, and asserts the two are equal (`crates/keepsake-core/tests/rebuild_tests.rs`).
 

@@ -31,8 +31,8 @@ use serde::Serialize;
 
 use crate::catalog::{
     Asset, AssetId, AssetTag, Blake3Hash, CaptureSource, Catalog, Confidence, EditRecipe, Event,
-    EventId, File, FileId, FileRole, MediaKind, NewFile, SequenceId, SequenceKind, SidecarLocation,
-    SidecarRecord, StillSequence, TagSource, VolumeId, VolumeKind, WriteTx,
+    EventId, File, FileHash, FileId, FileRole, MediaKind, NewFile, SequenceId, SequenceKind,
+    SidecarLocation, SidecarRecord, StillSequence, TagSource, VolumeId, VolumeKind, WriteTx,
 };
 use crate::corpus::scanner::skip_reason;
 use crate::grouping::sequences::{self, Frame};
@@ -153,8 +153,9 @@ struct Scanned {
     rel: RelPath,
     key: String,
     size: u64,
-    /// Read up front, or (batched scans) when the file's batch comes.
-    blake3: Option<Blake3Hash>,
+    /// Read in full up front, or (batched scans) a stand-in made from the
+    /// quick hash when the file's batch comes.
+    hash: Option<FileHash>,
     quick: Option<u64>,
     mtime_ms: Option<i64>,
 }
@@ -197,7 +198,7 @@ pub fn media_kind_for(name: &str) -> MediaKind {
     }
 }
 
-fn mtime_ms(meta: &std::fs::Metadata) -> Option<i64> {
+pub(crate) fn mtime_ms(meta: &std::fs::Metadata) -> Option<i64> {
     let d = meta
         .modified()
         .ok()?
@@ -234,7 +235,7 @@ fn read_sidecars(
     })
 }
 
-fn hash_file(path: &Path) -> std::io::Result<Blake3Hash> {
+pub(crate) fn hash_file(path: &Path) -> std::io::Result<Blake3Hash> {
     let mut f = std::fs::File::open(path)?;
     let mut h = blake3::Hasher::new();
     let mut buf = vec![0u8; 1 << 16];
@@ -444,7 +445,7 @@ fn rebuild_record(
                 quick: None,
                 rel,
                 size: meta.len(),
-                blake3: None,
+                hash: None,
                 mtime_ms: mtime_ms(&meta),
             });
             continue;
@@ -457,7 +458,7 @@ fn rebuild_record(
                 quick: crate::ingest::source::quick_hash(&full).ok(),
                 rel,
                 size: meta.len(),
-                blake3: Some(blake3),
+                hash: Some(FileHash::Full(blake3)),
                 mtime_ms: mtime_ms(&meta),
             }),
             Err(e) => report.skipped.push(SkippedPath {
@@ -991,8 +992,8 @@ fn save_asset(
     }
     for (i, role, seg) in &d.members {
         let f = &files[*i];
-        let blake3 = f
-            .blake3
+        let hash = f
+            .hash
             .ok_or_else(|| LibraryError::Invalid(format!("{} was not read", f.rel)))?;
         tx.files().insert(
             d.asset_id,
@@ -1001,7 +1002,7 @@ fn save_asset(
                 rel_path: f.rel.clone(),
                 role: *role,
                 size_bytes: f.size,
-                blake3,
+                hash,
                 xxh3: f.quick,
                 mtime_ms: f.mtime_ms,
                 segment_index: *seg,
@@ -1131,16 +1132,18 @@ impl Batcher<'_> {
                 kept.push(di);
                 continue;
             }
-            // Read its files; one that cannot be read is left out.
+            // Read the start and end of its files (the quick hash); the full
+            // fingerprint is made later by a background job. A file that
+            // cannot be read is left out.
             let mut readable = Vec::new();
             for &(i, role, seg) in &discovered[di].members {
                 let f = &mut files[i];
                 let full = f.rel.to_fs_path(self.mount);
                 let shown = f.rel.to_string();
-                match hash_file(&full) {
-                    Ok(h) => {
-                        f.blake3 = Some(h);
-                        f.quick = crate::ingest::source::quick_hash(&full).ok();
+                match crate::ingest::source::quick_hash(&full) {
+                    Ok(q) => {
+                        f.quick = Some(q);
+                        f.hash = Some(FileHash::pending_for(volume, &f.key, f.size, Some(q)));
                         readable.push((i, role, seg));
                     }
                     Err(e) => report.skipped.push(SkippedPath {

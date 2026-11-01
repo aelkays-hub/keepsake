@@ -20,6 +20,9 @@ pub enum Problem {
         expected: Blake3Hash,
         actual: Blake3Hash,
     },
+    /// Not fingerprinted yet, and its size or quick hash (first and last
+    /// MiB) no longer match what was catalogued.
+    ChangedSinceAdded,
     Unreadable {
         error: String,
     },
@@ -45,6 +48,9 @@ pub struct VolumeResult {
     pub files_checked: u64,
     pub bytes_checked: u64,
     pub ok: u64,
+    /// Files without a full fingerprint yet (added in place, still being
+    /// read in the background): checked by size and quick hash only.
+    pub not_fingerprinted: u64,
 }
 
 /// The whole report.
@@ -66,7 +72,12 @@ impl VerifyReport {
     pub fn changed(&self) -> usize {
         self.issues
             .iter()
-            .filter(|i| matches!(i.problem, Problem::Changed { .. }))
+            .filter(|i| {
+                matches!(
+                    i.problem,
+                    Problem::Changed { .. } | Problem::ChangedSinceAdded
+                )
+            })
             .count()
     }
 
@@ -137,6 +148,7 @@ pub fn verify(
             files_checked: 0,
             bytes_checked: 0,
             ok: 0,
+            not_fingerprinted: 0,
         };
         let Some(mount) = mount else {
             report.volumes.push(res);
@@ -153,7 +165,13 @@ pub fn verify(
                 break;
             }
             let path = f.rel_path.to_fs_path(&mount);
-            let problem = check(&path, &f.blake3);
+            let problem = match f.hash.full() {
+                Some(want) => check(&path, &want),
+                None => {
+                    res.not_fingerprinted += 1;
+                    check_quick(&path, f.size_bytes, f.xxh3)
+                }
+            };
             res.files_checked += 1;
             res.bytes_checked += f.size_bytes;
             progress(&VerifyProgress::File {
@@ -176,6 +194,30 @@ pub fn verify(
         }
     }
     Ok(report)
+}
+
+/// For a file without a full fingerprint: size and quick hash.
+fn check_quick(path: &Path, size: u64, quick: Option<u64>) -> Option<Problem> {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Problem::Missing),
+        Err(e) => {
+            return Some(Problem::Unreadable {
+                error: e.to_string(),
+            })
+        }
+    };
+    if meta.len() != size {
+        return Some(Problem::ChangedSinceAdded);
+    }
+    let want = quick?;
+    match crate::ingest::source::quick_hash(path) {
+        Ok(h) if h == want => None,
+        Ok(_) => Some(Problem::ChangedSinceAdded),
+        Err(e) => Some(Problem::Unreadable {
+            error: e.to_string(),
+        }),
+    }
 }
 
 fn check(path: &Path, want: &Blake3Hash) -> Option<Problem> {

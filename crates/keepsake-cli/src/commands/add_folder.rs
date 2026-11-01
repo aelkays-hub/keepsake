@@ -87,6 +87,10 @@ pub fn run(ctx: &Ctx, a: AddFolderArgs) -> Result<u8> {
         println!(
             "Nothing in the folder was changed. Ratings and other edits are kept in the library."
         );
+        println!(
+            "Only the start and end of each file was read. `keepsake renders run` reads them \
+             in full for their fingerprints (the app does this in the background)."
+        );
         if r.resumed > 0 {
             println!(
                 "{} items were already in the library unchanged and were not read again.",

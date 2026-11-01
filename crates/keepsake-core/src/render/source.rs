@@ -67,20 +67,23 @@ pub fn lower_ext(path: &std::path::Path) -> String {
 /// alone: works while the media is offline.
 pub fn source_hash(cat: &Catalog, asset: AssetId) -> Result<Option<Blake3Hash>, RenderError> {
     let files = cat.read(|tx| tx.files().for_asset(asset))?;
-    Ok(files
-        .iter()
-        .find(|f| f.role == FileRole::Original)
-        .map(|f| f.blake3))
+    Ok(cache_key(&files))
+}
+
+/// An asset's cache key: its original's fingerprint, preferring a copy read
+/// in full over one that still has a stand-in key.
+fn cache_key(files: &[crate::catalog::File]) -> Option<Blake3Hash> {
+    let originals = || files.iter().filter(|f| f.role == FileRole::Original);
+    originals()
+        .find_map(|f| f.hash.full())
+        .or_else(|| originals().next().map(|f| f.hash.key()))
 }
 
 /// Find the asset's files on a mounted volume.
 pub fn locate(cat: &Catalog, lib: &Library, asset: AssetId) -> Result<Source, RenderError> {
     let a = cat.read(|tx| tx.assets().require(asset))?;
     let files = cat.read(|tx| tx.files().for_asset(asset))?;
-    let hash = files
-        .iter()
-        .find(|f| f.role == FileRole::Original)
-        .map(|f| f.blake3)
+    let hash = cache_key(&files)
         .ok_or_else(|| RenderError::Failed("the asset has no original file".into()))?;
     let mut volumes: Vec<_> = files.iter().map(|f| f.volume_id).collect();
     volumes.dedup();

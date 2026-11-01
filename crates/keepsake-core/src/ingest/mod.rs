@@ -32,7 +32,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::catalog::{
-    now_ms, Asset, AssetId, Blake3Hash, Catalog, CatalogError, FileRole, ImportAsset,
+    now_ms, Asset, AssetId, Blake3Hash, Catalog, CatalogError, FileHash, FileRole, ImportAsset,
     ImportAssetState, ImportDestination, ImportDiff, ImportItem, ImportItemStatus, ImportSession,
     ImportSessionId, ImportStatus, MediaKind, NewFile, SequenceId, StillSequence, VolumeId,
     VolumeKind, WriteTx,
@@ -1443,7 +1443,7 @@ fn catalogue_one(
                     rel_path: it.dest_rel_path.clone(),
                     role: it.role,
                     size_bytes: it.size_bytes,
-                    blake3: hash,
+                    hash: FileHash::Full(hash),
                     xxh3: Some(it.quick_hash),
                     mtime_ms: None,
                     segment_index: it.segment_index,
@@ -1492,7 +1492,7 @@ fn confirm_already_imported(
             };
             let vols: HashSet<VolumeId> = existing
                 .iter()
-                .filter(|f| f.blake3 == h && f.volume_id != source_volume)
+                .filter(|f| f.hash.full() == Some(h) && f.volume_id != source_volume)
                 .map(|f| f.volume_id)
                 .collect();
             worst = worst.min(vols.len());

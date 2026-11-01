@@ -1091,3 +1091,21 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Trade-off.** A scan that stops leaves the folder partly catalogued. The Folders screen and the CLI say so and that adding it again carries on.
 
 **Not done.** Resuming without listing the folder again (the listing is quick next to reading); a batch size setting.
+
+## ADR-029 — Folders added in place are fingerprinted in the background
+
+**Status**: Accepted (2026-10-31, product owner: "Yes, do it here" to "make adding a folder skip the full read and make the full fingerprints later in the background"). No new dependency.
+
+**Context.** The NAS folder `2019` holds 13,587 RAW files, 598 GB. Adding a folder read every byte to make each file's BLAKE3, which at the 25-30 MB/s the drive gives is 5-6 hours before the folder is fully in the library, even with batches (ADR-028).
+
+**Decision.**
+- **Quick read on add.** A batched add (`RebuildOptions::batch_files`: the app and `keepsake add-folder`) reads only each file's quick hash (xxh3 of its size, first MiB and last MiB), about 27 GB for `2019`. The file is saved with a stand-in key, `FileHash::Pending`, made from its volume, path, size and quick hash, so it is unique and never equals a real BLAKE3.
+- **Schema v7.** `files.fingerprinted` (0 or 1, default 1, so every existing row is unchanged); `blake3` holds the stand-in key while it is 0. In code `File::hash` is a `FileHash` (`Full` or `Pending`): `key()` names renditions, and anything that checks content must use `full()`, so the compiler finds every such place.
+- **Background job.** `fingerprint::JOB_FINGERPRINT`, one job per asset on the persistent job queue, run by one extra worker in the render service (the same pauses: on battery, during an import). It checks the file is still the catalogued one (size, modification time, quick hash; before and after reading), reads it in full and stores its BLAKE3 (`Files::set_fingerprint`). A changed file is reported and left for a rescan; a disconnected drive defers the job. `render::enqueue_backlog` (app start, after every add) queues the jobs.
+- **Thumbnails.** Renditions are cached under the stand-in key from the start, and move to the real key when the fingerprint is stored (one `UPDATE` of `renditions.source_hash`; each row keeps its file path). If the same content was already rendered under the real key, that one wins and the other is left to eviction.
+- **Content checks.** Duplicate detection (`by_hash`, "already in the library" for card imports) only matches real fingerprints. Verify checks an unfingerprinted file by size and quick hash and reports it as "changed since added" if they differ; its report counts such files. Backup copies an unfingerprinted file only if its quick hash still matches, and stores the fingerprint it computed while copying, for the source and the copy.
+- **Unchanged:** card ingest, `rebuild-catalog` and an add without batches still read every file in full.
+
+**Trade-off.** Until its fingerprint is made, a file's middle is unchecked: damage there between adding and fingerprinting would go into the fingerprint. The window is the background pass (hours for a big NAS folder); the quick hash and size are checked throughout.
+
+**Not done.** Several fingerprint workers (one is enough for one network drive); a setting to fingerprint on add.

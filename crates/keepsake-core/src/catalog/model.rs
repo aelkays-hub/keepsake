@@ -274,7 +274,7 @@ pub struct File {
     pub rel_path: RelPath,
     pub role: FileRole,
     pub size_bytes: u64,
-    pub blake3: Blake3Hash,
+    pub hash: FileHash,
     pub xxh3: Option<u64>,
     pub mtime_ms: Option<i64>,
     /// AVCHD recording position of a `segment` file (1, 2, …); `None` for
@@ -289,10 +289,63 @@ pub struct NewFile {
     pub rel_path: RelPath,
     pub role: FileRole,
     pub size_bytes: u64,
-    pub blake3: Blake3Hash,
+    pub hash: FileHash,
     pub xxh3: Option<u64>,
     pub mtime_ms: Option<i64>,
     pub segment_index: Option<u32>,
+}
+
+/// A file's fingerprint. Files added in place are catalogued before they
+/// are read in full: until a background job has read one, it has a stand-in
+/// key, which only names its renditions in the cache. Anything that checks
+/// content (verify, backup, duplicates) needs [`FileHash::full`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "state", content = "blake3", rename_all = "snake_case")]
+pub enum FileHash {
+    /// The BLAKE3 of the whole file.
+    Full(Blake3Hash),
+    /// Not read in full yet: a key made by [`FileHash::pending_for`].
+    Pending(Blake3Hash),
+}
+
+impl FileHash {
+    /// The stand-in key of a file not yet read in full: from its place,
+    /// size and quick hash, so it is unique and never equals a real BLAKE3.
+    pub fn pending_for(
+        volume: VolumeId,
+        rel_path_key: &str,
+        size_bytes: u64,
+        xxh3: Option<u64>,
+    ) -> Self {
+        let mut h = blake3::Hasher::new();
+        h.update(b"keepsake:pending-fingerprint:v1|");
+        h.update(volume.as_uuid().as_bytes());
+        h.update(&(rel_path_key.len() as u64).to_le_bytes());
+        h.update(rel_path_key.as_bytes());
+        h.update(&size_bytes.to_le_bytes());
+        h.update(&[u8::from(xxh3.is_some())]);
+        h.update(&xxh3.unwrap_or(0).to_le_bytes());
+        FileHash::Pending(Blake3Hash(*h.finalize().as_bytes()))
+    }
+
+    /// The real BLAKE3, once the whole file has been read.
+    pub fn full(&self) -> Option<Blake3Hash> {
+        match self {
+            FileHash::Full(h) => Some(*h),
+            FileHash::Pending(_) => None,
+        }
+    }
+
+    /// What the file's renditions are cached under (the `blake3` column).
+    pub fn key(&self) -> Blake3Hash {
+        match self {
+            FileHash::Full(h) | FileHash::Pending(h) => *h,
+        }
+    }
+
+    pub fn is_full(&self) -> bool {
+        matches!(self, FileHash::Full(_))
+    }
 }
 
 /// A time-and-place cluster of assets.

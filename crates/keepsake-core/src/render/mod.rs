@@ -176,10 +176,12 @@ fn enqueue_chunk(
     })
 }
 
-/// Queue every asset in the library that has no render jobs yet (backlog).
+/// Queue every asset in the library that has no render jobs yet (backlog),
+/// and the fingerprint jobs of files not yet read in full.
 pub fn enqueue_backlog(cat: &mut Catalog) -> Result<u64, CatalogError> {
     let ids = cat.read(|tx| tx.assets().without_jobs())?;
-    enqueue(cat, &ids, Priority::Backlog, false)
+    let n = enqueue(cat, &ids, Priority::Backlog, false)?;
+    Ok(n + crate::fingerprint::enqueue_pending(cat)?)
 }
 
 /// Does an asset lack any of its renditions in `cache`?

@@ -98,3 +98,19 @@ test("a folder is listed at once and fills in as it is read; after a failure it 
   await expect(list).toHaveCount(1);
   await expect(list.first()).toContainText("38 items");
 });
+
+test("full fingerprints are made in the background after a folder is added", async ({ page }) => {
+  await page.goto("/?items=0");
+  await page.getByTestId("empty-add-folder").click();
+  const screen = page.getByTestId("folders-screen");
+  await screen.getByTestId("folder-path").fill("E:\\Pictures\\2019");
+  await screen.getByTestId("folder-add").click();
+  const outcome = screen.getByTestId("folder-outcome");
+  await expect(outcome).toContainText("Added 2019: 38 items");
+  await expect(outcome).toContainText("full fingerprints are being made in the background");
+  // The folder says how many files are left, and the line goes when done.
+  const left = screen.getByTestId("folder-list").getByTestId("folder-fingerprinting");
+  await expect(left).toHaveText("Fingerprinting 40 files in the background");
+  await expect(left).toHaveCount(0, { timeout: 10_000 });
+  await expect(screen.getByTestId("folder-list").locator("li").first()).toContainText("38 items");
+});

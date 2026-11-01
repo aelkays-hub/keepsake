@@ -128,6 +128,10 @@ dto! {
         pub mount: Option<String>,
         #[ts(type = "number")]
         pub count: u64,
+        /// Files added in place that are still being read in full for their
+        /// fingerprint, in the background.
+        #[ts(type = "number")]
+        pub unfingerprinted: u64,
     }
 
     pub struct EventItem {

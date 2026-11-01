@@ -15,6 +15,9 @@ import {
 import * as fmt from "../format";
 import { useUi } from "../state";
 
+/** How often the list is read again while fingerprints are being made. */
+const FINGERPRINT_REFRESH_MS = 3000;
+
 export function FoldersScreen() {
   const { dispatch } = useUi();
   const [path, setPath] = useState("");
@@ -36,6 +39,13 @@ export function FoldersScreen() {
       .then((o) => setRunning((r) => r || o.busy))
       .catch(() => undefined);
   }, []);
+  // Fingerprints are made in the background: look again while any are left.
+  const fingerprinting = volumes?.some((v) => v.online && v.unfingerprinted > 0) ?? false;
+  useEffect(() => {
+    if (!fingerprinting) return;
+    const t = window.setInterval(load, FINGERPRINT_REFRESH_MS);
+    return () => window.clearInterval(t);
+  }, [fingerprinting, load]);
   useEffect(() => {
     load();
     const a = events.maintProgress((p) => {
@@ -173,6 +183,13 @@ export function FoldersScreen() {
                 <div className="muted">
                   {v.mount ?? "Not connected"} · {fmt.plural(v.count, "item")}
                 </div>
+                {v.unfingerprinted > 0 && (
+                  <div className="muted" data-testid="folder-fingerprinting">
+                    {v.online
+                      ? `Fingerprinting ${fmt.plural(v.unfingerprinted, "file")} in the background`
+                      : `${fmt.plural(v.unfingerprinted, "file")} to fingerprint when connected`}
+                  </div>
+                )}
               </div>
               <button
                 onClick={() =>
@@ -220,7 +237,7 @@ function Outcome({ d, onShow }: { d: FolderDone; onShow: (id: string, title: str
           ` ${fmt.count(d.withSidecars)} took ratings or keywords from .xmp files.`}
         {d.otherFiles > 0 &&
           ` ${fmt.plural(d.otherFiles, "other file")} (not photos or videos) left out.`}{" "}
-        Thumbnails are being made in the background.
+        Thumbnails and full fingerprints are being made in the background.
       </p>
       {d.problems.length > 0 && (
         <ul className="problems">

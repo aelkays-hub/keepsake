@@ -5,7 +5,9 @@
 //! copy path as ingest (hidden temporary, fsync, read back past the cache,
 //! rename without replacing, read the final file again). A copy is made only
 //! when the source still matches the catalog's BLAKE3, so damage is never
-//! propagated. Files already on the backup with the same content are skipped.
+//! propagated; a file added in place and not fingerprinted yet must still
+//! match its quick hash, and the copy's read gives it its fingerprint
+//! (ADR-029). Files already on the backup with the same content are skipped.
 //! The library itself (a consistent catalog snapshot, the volume registry,
 //! recipes, mirrored sidecars, card memory and presets) goes to `<dest>/.keepsake-library/`.
 
@@ -15,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 
-use crate::catalog::{AssetId, Catalog, File, NewFile, VolumeId};
+use crate::catalog::{AssetId, Catalog, File, FileHash, NewFile, VolumeId};
 use crate::ingest::fault::FaultPlan;
 use crate::ingest::source::SourceVolume;
 use crate::ingest::{copy, Destination, IngestError};
@@ -61,9 +63,12 @@ struct Job {
 }
 
 fn same_logical(a: &File, b: &File) -> bool {
-    a.role == b.role
-        && a.blake3 == b.blake3
-        && a.rel_path.file_name_nfc() == b.rel_path.file_name_nfc()
+    let same_content = match (a.hash.full(), b.hash.full()) {
+        (Some(x), Some(y)) => x == y,
+        // Not read in full yet: size and quick hash.
+        _ => a.size_bytes == b.size_bytes && a.xxh3.is_some() && a.xxh3 == b.xxh3,
+    };
+    a.role == b.role && same_content && a.rel_path.file_name_nfc() == b.rel_path.file_name_nfc()
 }
 
 fn with_suffix(rel: &RelPath, n: u32) -> RelPath {
@@ -310,6 +315,18 @@ fn copy_one(
     fault: &FaultPlan,
 ) -> Result<(), IngestError> {
     let src = SourceVolume::new(&job.src_mount)?;
+    // A file not read in full yet has no fingerprint to check the copy
+    // against: its quick hash must still match, and the copy's read gives
+    // it its fingerprint.
+    if !job.file.hash.is_full() {
+        let quick = src.quick_hash(&job.file.rel_path)?;
+        if job.file.xxh3 != Some(quick) {
+            return Err(IngestError::Unsafe(format!(
+                "{} changed since it was added (scan its folder again)",
+                job.file.rel_path
+            )));
+        }
+    }
     let fin = job.target.to_fs_path(&dest.mount);
     let tmp = copy::temp_path(&fin, TAG);
     copy::remove_if_exists(&tmp)?;
@@ -341,7 +358,7 @@ fn copy_one(
     if let Some(Err(e)) = teed.writes.into_iter().next() {
         return cleanup(IngestError::Io(e));
     }
-    if teed.hash != job.file.blake3 {
+    if job.file.hash.full().is_some_and(|h| h != teed.hash) {
         // The library's copy no longer matches its recorded hash: never spread it.
         return cleanup(IngestError::Unsafe(format!(
             "{} on its volume differs from the catalog (run `keepsake verify`)",
@@ -379,6 +396,9 @@ fn copy_one(
         )));
     }
     cat.write(|tx| {
+        if !job.file.hash.is_full() {
+            tx.files().set_fingerprint(job.file.id, &teed.hash)?;
+        }
         tx.files().insert(
             job.asset,
             &NewFile {
@@ -386,7 +406,7 @@ fn copy_one(
                 rel_path: job.target.clone(),
                 role: job.file.role,
                 size_bytes: job.file.size_bytes,
-                blake3: teed.hash,
+                hash: FileHash::Full(teed.hash),
                 xxh3: job.file.xxh3,
                 mtime_ms: None,
                 segment_index: job.file.segment_index,

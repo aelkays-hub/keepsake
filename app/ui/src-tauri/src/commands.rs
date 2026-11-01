@@ -227,6 +227,11 @@ pub fn sidebar(state: State<'_, AppState>) -> CmdResult<Sidebar> {
         .map_err(err)?
         .into_iter()
         .collect();
+    let pending: std::collections::HashMap<_, _> = cat
+        .read(|tx| tx.files().unfingerprinted_by_volume())
+        .map_err(err)?
+        .into_iter()
+        .collect();
     let records = open.lib.volumes().map_err(err)?;
     let label_of = |id| {
         records
@@ -246,6 +251,7 @@ pub fn sidebar(state: State<'_, AppState>) -> CmdResult<Sidebar> {
             mount: keepsake_core::verify::mount_of(&cat, &open.lib, v.id)
                 .map(|m| convert::path_text(&m)),
             count: vcount.get(&v.id).copied().unwrap_or(0),
+            unfingerprinted: pending.get(&v.id).copied().unwrap_or(0),
             label: v.label,
         })
         .collect();

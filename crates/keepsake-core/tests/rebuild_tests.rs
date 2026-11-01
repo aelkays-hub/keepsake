@@ -451,7 +451,11 @@ fn check_against_expectations(w: &World, cat: &Catalog, expects: &[Expect], when
             assert_eq!(f.asset_id, e.id, "{ctx}: {path} grouped into wrong asset");
             let mount = mounts.iter().find(|(id, _)| id == vol).unwrap().1;
             let bytes = std::fs::read(f.rel_path.to_fs_path(mount)).unwrap();
-            assert_eq!(f.blake3, Blake3Hash::of(&bytes), "{ctx}: {path} hash");
+            assert_eq!(
+                f.hash.full(),
+                Some(Blake3Hash::of(&bytes)),
+                "{ctx}: {path} hash"
+            );
             assert_eq!(f.size_bytes, bytes.len() as u64, "{ctx}: {path} size");
         }
     }

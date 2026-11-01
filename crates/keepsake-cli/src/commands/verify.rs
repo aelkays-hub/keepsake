@@ -75,11 +75,19 @@ pub fn run(ctx: &Ctx, a: VerifyArgs) -> Result<u8> {
                 ),
                 None => println!("  {}: not mounted, not checked", v.label),
             }
+            if v.not_fingerprinted > 0 {
+                println!(
+                    "    {} not fingerprinted yet: checked by size and first and last MiB only \
+                     (`keepsake renders run` reads them in full)",
+                    v.not_fingerprinted
+                );
+            }
         }
         for i in &r.issues {
             let what = match &i.problem {
                 Problem::Missing => "MISSING".to_owned(),
                 Problem::Changed { .. } => "CHANGED".to_owned(),
+                Problem::ChangedSinceAdded => "CHANGED SINCE ADDED".to_owned(),
                 Problem::Unreadable { error } => format!("UNREADABLE ({error})"),
             };
             println!("  {what}: {} on {}", i.path, i.volume);

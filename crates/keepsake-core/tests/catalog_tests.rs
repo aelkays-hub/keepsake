@@ -4,7 +4,7 @@ mod common;
 
 use keepsake_core::catalog::{
     Asset, AssetId, AssetTag, Blake3Hash, CaptureTime, Catalog, CatalogError, Event, EventId,
-    FileRole, ImportItem, ImportItemStatus, ImportSession, ImportSessionId, ImportStatus,
+    FileHash, FileRole, ImportItem, ImportItemStatus, ImportSession, ImportSessionId, ImportStatus,
     MediaKind, NewFile, Rating, Rendition, RenditionId, RenditionKind, TagPath, TagSource, Volume,
     VolumeId, VolumeKind, LATEST_VERSION,
 };
@@ -30,7 +30,7 @@ fn file(vol: VolumeId, rel: &str, role: FileRole) -> NewFile {
         rel_path: RelPath::parse(rel).unwrap(),
         role,
         size_bytes: 10,
-        blake3: Blake3Hash::of(rel.as_bytes()),
+        hash: FileHash::Full(Blake3Hash::of(rel.as_bytes())),
         xxh3: Some(u64::MAX),
         mtime_ms: Some(1),
         segment_index: None,

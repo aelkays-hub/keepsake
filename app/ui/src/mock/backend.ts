@@ -75,7 +75,7 @@ export interface MockState {
   shift: Map<number, number>;
   history: HistoryRun[];
   /** Folders added in place. */
-  folders: { id: string; label: string; mount: string; count: number }[];
+  folders: { id: string; label: string; mount: string; count: number; unfingerprinted: number }[];
   settings: SettingsInfo;
   opened: { id: string; member: string }[];
   uiErrors: { message: string; detail: string | null }[];
@@ -376,6 +376,7 @@ export function installMock(): void {
                 online: true,
                 mount: "F:\\Photos",
                 count: Math.ceil((n * 3) / 4),
+                unfingerprinted: 0,
               },
               {
                 id: "vOff",
@@ -383,6 +384,7 @@ export function installMock(): void {
                 online: false,
                 mount: null,
                 count: Math.floor(n / 4),
+                unfingerprinted: 0,
               },
               ...st.folders.map((f) => ({ ...f, online: true })),
             ].filter((v) => v.count > 0),
@@ -748,7 +750,7 @@ export function installMock(): void {
           const id = prev?.id ?? `vf${st.folders.length}`;
           const total = 250e6;
           // Saved as it is read: in the library at once, then every batch.
-          const f = prev ?? { id, label, mount, count: 0 };
+          const f = prev ?? { id, label, mount, count: 0, unfingerprinted: 0 };
           if (!prev) st.folders.push(f);
           void emit("folder://saved", { folder: mount, items: f.count, files: f.count });
           let bytes = (f.count / 38) * total;
@@ -756,6 +758,8 @@ export function installMock(): void {
           const tick = setInterval(() => {
             bytes = Math.min(total, bytes + total / 4);
             f.count = Math.min(38, f.count + 10);
+            // Only the start and end of each file is read; full fingerprints come later.
+            f.unfingerprinted = Math.round((f.count * 40) / 38);
             batches += 1;
             void emit("maint://progress", {
               kind: "folder",
@@ -785,6 +789,12 @@ export function installMock(): void {
             if (bytes >= total) {
               clearInterval(tick);
               f.count = 38;
+              f.unfingerprinted = 40;
+              // The background job fingerprints 10 files every half second.
+              const fp = setInterval(() => {
+                f.unfingerprinted = Math.max(0, f.unfingerprinted - 10);
+                if (f.unfingerprinted === 0) clearInterval(fp);
+              }, 500);
               void emit("folder://done", {
                 folder: mount,
                 volume: id,

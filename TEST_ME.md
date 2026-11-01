@@ -1,4 +1,4 @@
-# Manual Test Steps — Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -35,8 +35,31 @@ Use a big folder (thousands of photos). A network drive is the best test, e.g. `
 7. From a terminal: `keepsake add-folder <folder>`, press Ctrl+C part way, then run it again.
    **Expected:** the first run says what was read is in the library; the second finishes and its report counts the items not read again.
 8. Add a very large folder with many Lightroom `.xmp` files (e.g. `2019` on the MyCloud drive).
-   **Expected:** the progress shows "Listing files", then "Reading sidecars", and the first items appear within about a minute; the screen never sits still for minutes. Photos rated in Lightroom show those ratings.
-   Note: the whole folder still takes a long time (every byte is read once, several hours for hundreds of GB over the network), but items keep arriving 20 files at a time.
+   **Expected:** the progress shows "Listing files", then "Reading sidecars", and the first items appear within about a minute; the screen never sits still for minutes. Photos rated in Lightroom show those ratings. The whole folder is in within minutes to tens of minutes, not hours (only the start and end of each file is read).
+
+---
+
+## Full fingerprints are made in the background
+
+Automated:
+```
+cargo test -p keepsake-core --test fingerprint_tests
+cd app/ui; pnpm exec playwright test e2e/mocked/folders.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+1. Open an existing library made before this change.
+   **Expected:** it opens as before; every folder already in it shows no "Fingerprinting" line (its files were read in full when added).
+2. Add a big folder (e.g. `2019` on the MyCloud drive; on macOS a NAS share or external disk).
+   **Expected:** when the add finishes, its row under "In the library" says "Fingerprinting N files in the background", and N goes down every few seconds. Thumbnails keep appearing meanwhile. When N reaches 0 the line goes.
+3. While it is fingerprinting, quit Keepsake and start it again.
+   **Expected:** the line comes back with the count where it was, and keeps going down.
+4. Unplug the drive (or disconnect the network share) while it is fingerprinting.
+   **Expected:** the row says "N files to fingerprint when connected"; reconnect and it carries on within about ten minutes.
+5. From a terminal: `keepsake verify` while some files are not fingerprinted yet.
+   **Expected:** for that folder it says how many were checked by size and first and last MiB only; no problems are reported.
+6. Back the library up to another drive (Backup screen) before fingerprinting finishes.
+   **Expected:** the backup copies the folder's files without errors; those files then no longer count as waiting for a fingerprint.
 
 ---
 

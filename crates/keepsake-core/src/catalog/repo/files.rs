@@ -2,7 +2,9 @@ use rusqlite::{params, OptionalExtension, Row};
 
 use super::{define_repo, rel_path_col, to_i64, u64_col};
 use crate::catalog::error::CatalogError;
-use crate::catalog::{fts, AssetId, Blake3Hash, File, FileId, FileRole, NewFile, Rw, VolumeId};
+use crate::catalog::{
+    fts, AssetId, Blake3Hash, File, FileHash, FileId, FileRole, NewFile, Rw, VolumeId,
+};
 use crate::relpath::{CaseSensitivity, RelPath};
 
 define_repo!(
@@ -10,11 +12,13 @@ define_repo!(
     Files
 );
 
-const COLS: &str =
-    "id, asset_id, volume_id, rel_path, role, size_bytes, blake3, xxh3, mtime_ms, segment_index";
+const COLS: &str = "id, asset_id, volume_id, rel_path, role, size_bytes, blake3, xxh3, mtime_ms, \
+     segment_index, fingerprinted";
 
 fn map(r: &Row<'_>) -> rusqlite::Result<File> {
     let xxh3: Option<i64> = r.get(7)?;
+    let key: Blake3Hash = r.get(6)?;
+    let full: bool = r.get(10)?;
     Ok(File {
         id: r.get(0)?,
         asset_id: r.get(1)?,
@@ -22,7 +26,11 @@ fn map(r: &Row<'_>) -> rusqlite::Result<File> {
         rel_path: rel_path_col(r, 3)?,
         role: r.get(4)?,
         size_bytes: u64_col(r, 5)?,
-        blake3: r.get(6)?,
+        hash: if full {
+            FileHash::Full(key)
+        } else {
+            FileHash::Pending(key)
+        },
         // xxh3 is a 64-bit hash stored bit-for-bit in an INTEGER column.
         xxh3: xxh3.map(|v| v as u64),
         mtime_ms: r.get(8)?,
@@ -102,12 +110,38 @@ impl<M> Files<'_, M> {
         Ok(rows)
     }
 
+    /// Files whose full fingerprint is `hash` (stand-in keys never match).
     pub fn by_hash(&self, hash: &Blake3Hash) -> Result<Vec<File>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM files WHERE blake3 = ?1 ORDER BY volume_id, rel_path_key"
+            "SELECT {COLS} FROM files WHERE blake3 = ?1 AND fingerprinted = 1
+             ORDER BY volume_id, rel_path_key"
         ))?;
         let rows = st.query_map([hash], map)?.collect::<Result<_, _>>()?;
         Ok(rows)
+    }
+
+    /// Assets with a file not yet read in full, newest capture first.
+    pub fn assets_unfingerprinted(&self) -> Result<Vec<AssetId>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT a.id FROM assets a
+             WHERE EXISTS (SELECT 1 FROM files f WHERE f.asset_id = a.id AND f.fingerprinted = 0)
+             ORDER BY a.capture_ts_ms IS NULL, a.capture_ts_ms DESC, a.id",
+        )?;
+        let rows = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// How many files on each volume are not yet read in full.
+    pub fn unfingerprinted_by_volume(&self) -> Result<Vec<(VolumeId, u64)>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT volume_id, count(*) FROM files WHERE fingerprinted = 0 GROUP BY volume_id",
+        )?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, VolumeId>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(v, n)| Ok((v, super::to_u64(n, "count")?)))
+            .collect()
     }
 }
 
@@ -135,8 +169,9 @@ impl Files<'_, Rw> {
         let id = FileId::for_location(f.volume_id, &key);
         self.conn.prepare_cached(
             "INSERT INTO files (id, asset_id, volume_id, rel_path, rel_path_key, file_name, role,
-                                size_bytes, blake3, xxh3, mtime_ms, segment_index)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                size_bytes, blake3, xxh3, mtime_ms, segment_index,
+                                fingerprinted)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         )?
         .execute(params![
                 id,
@@ -147,11 +182,12 @@ impl Files<'_, Rw> {
                 f.rel_path.file_name_nfc(),
                 f.role,
                 to_i64(f.size_bytes, "size")?,
-                f.blake3,
+                f.hash.key(),
                 f.xxh3.map(|v| v as i64),
                 f.mtime_ms,
                 // Segment positions are only stored for segments (> 0).
-                f.segment_index.filter(|i| *i > 0)
+                f.segment_index.filter(|i| *i > 0),
+                f.hash.is_full()
             ])
         .map_err(|e| match CatalogError::from(e) {
             CatalogError::Duplicate(_) => {
@@ -167,11 +203,34 @@ impl Files<'_, Rw> {
             rel_path: f.rel_path.clone(),
             role: f.role,
             size_bytes: f.size_bytes,
-            blake3: f.blake3,
+            hash: f.hash,
             xxh3: f.xxh3,
             mtime_ms: f.mtime_ms,
             segment_index: f.segment_index.filter(|i| *i > 0),
         })
+    }
+
+    /// Store the full fingerprint of a file that had a stand-in key; its
+    /// renditions move to the real key. Returns `false` if the file is gone
+    /// or already fingerprinted.
+    pub fn set_fingerprint(&self, id: FileId, hash: &Blake3Hash) -> Result<bool, CatalogError> {
+        let Some(old) = self.get(id)? else {
+            return Ok(false);
+        };
+        let FileHash::Pending(key) = old.hash else {
+            return Ok(false);
+        };
+        self.conn.execute(
+            "UPDATE files SET blake3 = ?2, fingerprinted = 1 WHERE id = ?1",
+            params![id, hash],
+        )?;
+        // A rendition already made from the same content under the real key
+        // wins; the stand-in's is left to the cache's eviction.
+        self.conn.execute(
+            "UPDATE OR IGNORE renditions SET source_hash = ?2 WHERE source_hash = ?1",
+            params![key, hash],
+        )?;
+        Ok(true)
     }
 
     pub fn set_role(&self, id: FileId, role: FileRole) -> Result<(), CatalogError> {

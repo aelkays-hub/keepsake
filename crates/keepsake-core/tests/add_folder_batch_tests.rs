@@ -128,7 +128,7 @@ fn scanning_again_reads_changed_files_and_drops_removed_ones() {
             .unwrap()
             .into_iter()
             .find(|f| f.rel_path.as_str().ends_with(name))
-            .map(|f| f.blake3)
+            .map(|f| f.hash)
     };
     let old = hash_of(&cat, "DSC00003.JPG").unwrap();
 

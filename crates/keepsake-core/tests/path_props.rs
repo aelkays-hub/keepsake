@@ -157,7 +157,7 @@ fn insert(cat: &mut Catalog, vol: VolumeId, asset: AssetId, rel: &str) -> Result
         rel_path: RelPath::parse(rel).unwrap(),
         role: FileRole::Sidecar,
         size_bytes: 0,
-        blake3: Blake3Hash::of(b""),
+        hash: keepsake_core::catalog::FileHash::Full(Blake3Hash::of(b"")),
         xxh3: None,
         mtime_ms: None,
         segment_index: None,

@@ -47,7 +47,7 @@ pub fn new_file(root: &Path, volume: VolumeId, rel: &RelPath, role: FileRole) ->
         rel_path: rel.clone(),
         role,
         size_bytes: bytes.len() as u64,
-        blake3: Blake3Hash::of(&bytes),
+        hash: keepsake_core::catalog::FileHash::Full(Blake3Hash::of(&bytes)),
         xxh3: Some(keepsake_core::ingest::source::quick_hash(&full).unwrap()),
         mtime_ms: Some(mtime),
         segment_index: None,

@@ -3,7 +3,8 @@
 //! [`RenderService::run`] starts the workers and calls back with
 //! [`RenderEvent`]s on the calling thread:
 //! - `workers` threads take [`super::JOB_STILLS`] jobs, `proxy_workers`
-//!   threads take [`super::JOB_PROXY`] jobs; each has its own catalog
+//!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
+//!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; each has its own catalog
 //!   connection and claims one job at a time;
 //! - before each job a worker checks the pauses (on battery, an ingest is
 //!   running) and waits while one applies;
@@ -24,6 +25,7 @@ use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, JOB_PROXY, JOB_STILLS};
 use crate::catalog::{AssetId, Catalog, Job, JobCounts, JobState, MediaKind};
+use crate::fingerprint::{self, FingerprintError, JOB_FINGERPRINT};
 use crate::jobs::{self, now_ms, PauseReason};
 use crate::library::Library;
 use crate::probe::ExifTool;
@@ -218,7 +220,8 @@ impl RenderService {
         std::thread::scope(|s| {
             let mut handles = Vec::new();
             let plan = std::iter::repeat_n(JOB_STILLS, self.opts.workers.max(1))
-                .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers));
+                .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
+                .chain(std::iter::once(JOB_FINGERPRINT));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -404,6 +407,11 @@ impl RenderService {
                     None => (Vec::new(), None),
                 })
             }
+            JOB_FINGERPRINT => match fingerprint::fingerprint_asset(cat, &self.lib, job.asset_id) {
+                Ok(_) => Ok((Vec::new(), None)),
+                Err(FingerprintError::Offline) => Err(RenderError::Offline),
+                Err(e) => Err(RenderError::Failed(e.to_string())),
+            },
             other => Err(RenderError::Unsupported(format!("job kind {other}"))),
         }
     }

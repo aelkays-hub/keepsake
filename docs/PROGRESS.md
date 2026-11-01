@@ -17,6 +17,7 @@
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
+| — | Adding a folder reads only the start and end of each file; full fingerprints are made in the background | ✅ Done (Windows; macOS via CI) |
 | — | Information panel in the viewer: key facts and every metadata tag (Info button, I) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar view shows only the months and days that have pictures | ✅ Done (Windows; macOS via CI) |
 | — | Faster viewer zoom: full size made in the background, upright JPEGs copied, transform-based zoom; labelled thumbnail sizes | ✅ Done (Windows; macOS via CI) |
@@ -48,6 +49,24 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Full fingerprints in the background for folders added in place (2026-10-31)
+
+### What was wrong
+- `2019` on the network drive is 598 GB of RAW. Adding a folder read every byte for its BLAKE3 fingerprint, so at 25-30 MB/s the folder took 5-6 hours to be fully in the library.
+
+### What was built (ADR-029)
+- A batched add (app and `keepsake add-folder`) reads only each file's quick hash (first and last MiB, about 27 GB for `2019`, roughly 15 minutes). Files are saved with a stand-in key (`FileHash::Pending`).
+- Schema v7: `files.fingerprinted` (existing rows stay fingerprinted). `File::hash` is a `FileHash`: `key()` for the thumbnail cache, `full()` for anything that checks content.
+- `fingerprint::JOB_FINGERPRINT` jobs, one per asset, on the job queue; one fingerprint worker in the render service (same pauses as renders). Each checks the file is unchanged (size, date, quick hash), reads it in full, stores the BLAKE3 and moves its thumbnails to the real key. Changed files are reported; a disconnected drive defers the job. Queued by `render::enqueue_backlog` at app start and after every add; `without_jobs` only counts render jobs now.
+- Duplicate checks match only real fingerprints. Verify checks unfingerprinted files by size and quick hash (new problem "changed since added") and counts them. Backup copies such a file only if its quick hash still matches, and stores the fingerprint it computed.
+- The Folders screen shows "Fingerprinting N files in the background" per folder (refreshed every 3 s while any are left; "to fingerprint when connected" for an unplugged drive). `keepsake verify` and `keepsake add-folder` say so too.
+
+### Tests
+- Rust (`fingerprint_tests.rs`, 9 tests): a batched add leaves stand-in keys that are unique and never match content, the job stores the real BLAKE3 for every file and then has nothing to do; an add without batches still reads in full; a file changed after adding (same size, same first and last MiB) is refused and a rescan fixes it; a disconnected drive is deferred; a thumbnail made before the fingerprint moves to the real key; verify by size and quick hash, missing and changed; a backup fingerprints what it copies and a second run finds the copies; a backup refuses a file changed since added; fingerprint jobs do not hide assets from the render backlog. All workspace tests pass.
+- Mocked browser (`folders.spec.ts`): after an add the folder shows "Fingerprinting 40 files in the background", and the line goes when done.
 
 ---
 
