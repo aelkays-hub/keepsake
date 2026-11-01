@@ -62,6 +62,7 @@ Copies are written to a hidden temporary name, verified by BLAKE3 and only then 
 | `crates/keepsake-core/src/cards.rs` `save` `record_import` `forget` | `cards.json` (the card memory), and a forgotten card's entry | `watch_tests.rs::trusted_card_imports_then_reports_nothing_new` `watch_tests.rs::forgetting_a_card_keeps_the_library` `cli_tests.rs::presets_and_cards_are_managed_from_the_cli` |
 | `crates/keepsake-core/src/presets.rs` `save` `delete` | `presets.json` | `cli_tests.rs::presets_and_cards_are_managed_from_the_cli` `viewer.spec.ts::settings: import presets can be deleted and created` |
 | `crates/keepsake-core/src/history.rs` `record` | `history.json` (backup and verify runs) | `history.rs::records_newest_first_and_finds_last_good_verify` `cli_tests.rs::backup_is_incremental_and_verified` |
+| `crates/keepsake-core/src/report.rs` `write_csv` | the library report as a CSV file, only at the path the user chose in the save dialog or with `keepsake report --csv` (never inside a photo folder unless chosen there) | `report_tests.rs::csv_has_every_breakdown_with_unknown_groups` `cli_tests.rs::report_counts_items_once_and_every_copy_per_drive` |
 | `crates/keepsake-core/src/metadata.rs` `save_recipe` `remove_recipe` | `recipes/<asset>/<recipe>.json` | `library_writes_tests.rs::recipes_are_written_and_removed_in_the_library_only` |
 | `crates/keepsake-core/src/seed.rs` `seed` | a synthetic library (developers only, `keepsake dev seed`, refuses a non-empty library) | `browse_tests.rs::counts_and_pages_cover_the_whole_view_in_order` |
 

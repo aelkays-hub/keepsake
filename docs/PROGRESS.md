@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder reads only the start and end of each file; full fingerprints are made in the background | ✅ Done (Windows; macOS via CI) |
@@ -49,6 +50,28 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Library report under Tools (2026-11-01)
+
+### What was asked
+- "under tools I would like to add a report on the total number of pictures … by date, year, camera type, lens, file type … amount of total storage they take on disk".
+
+### What was built (ADR-030)
+- **Tools → Report** (`ReportScreen.tsx`): totals (photos, videos, files, size) and one table at a time by Year, Month, Day, Camera, Lens, File type or Drive, with a total row; Refresh; **Export to CSV…** (save dialog, then `library_report_csv`). Unknown dates, cameras, lenses and extensions are one "Unknown" row, last.
+- Core: `tx.report().library()` (`catalog/repo/report.rs`), GROUP BY queries only, no media read. A RAW+JPEG pair is one photo; files and size count every file of an item, one copy each (copies on backup drives share the BLAKE3 key). Unplugged drives count. The Drive table shows every copy per drive. `keepsake_core::report` writes the CSV (UTF-8 with BOM, formulas defused).
+- **Schema v8**: `assets.file_count` and `assets.file_bytes`, kept by triggers on `files` and filled by the migration (about 15 s once for 300,000 items). Without them the report joined every file to its asset: 12 s at 300,000; now 1.5 s. File types and drives are a scan of `files` without that join, so they show items without the photo/video split.
+- Tauri: `library_report`, `library_report_csv` (`src-tauri/src/report.rs`, thin); bindings `LibraryReport`, `ReportGroup`, `ReportDrive`; capability `dialog:allow-save` added. Mock backend computes the report from the mock items.
+- CLI: `keepsake report [--by year|month|day|camera|lens|type|drive] [--csv PATH]`, with `--json`.
+- Lens: already stored (`assets.lens_model`, from ExifTool `LensModel`), so nothing new to read.
+
+### Tests
+- Rust (`report_tests.rs`, 8 tests): empty library; RAW+JPEG pair is one photo with both files' bytes, and under both types; photos and videos apart by day, month and year, newest first; missing date, camera, lens and extension are Unknown and last; unplugged drives count and a backup copy counts once (drive table: every copy); a not-yet-fingerprinted copy counts until its fingerprint matches, and deletes update the totals; CSV content and BOM; a seeded 5,000-item library adds up in every breakdown. `report.rs` unit tests for sizes and CSV quoting. Scale test: the report at 300,000 items, 1.47 s (limit 2 s). CLI test: two-destination import counts once in totals and fully per drive, CSV written. `safety_audit_tests` lists the new CSV write in `SAFETY.md`.
+- UI: vitest `report.test.ts` (labels, items, drives, CSV name); mocked Playwright `report.spec.ts` (totals, every breakdown, Unknown, unplugged drive, export, refresh, empty library); the a11y sweep includes the Report screen. All workspace Rust tests and all 76 mocked browser tests pass on Windows.
+
+### Not done
+- Filters on the report (whole library only), charts, lens make; photo/video split for file types and drives.
 
 ---
 

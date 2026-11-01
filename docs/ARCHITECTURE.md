@@ -86,6 +86,7 @@ SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`)
 - **Schema:** `crates/keepsake-core/src/catalog/migrations/NNNN_*.sql`, applied in order and tracked with `PRAGMA user_version`. A catalog newer than the build is refused.
 - **Access:** all SQL lives in `catalog/`. Callers use `Catalog::read` / `Catalog::write` (a `BEGIN IMMEDIATE` transaction that commits on `Ok` and rolls back on `Err`) and the typed repositories on the transaction (`tx.assets()`, `tx.files()`, `tx.tags()`, ...). Write methods exist only on a write transaction.
 - **Search:** `asset_fts` (FTS5, `unicode61 remove_diacritics 2`, prefix index) holds file names, comment and tag names including ancestors. It is updated in Rust inside the same transaction as each change; `tx.fts_mismatches()` checks it.
+- **Report:** `tx.report().library()` (`catalog/repo/report.rs`) gives the library report: totals and breakdowns by day, month, year, camera, lens, file type and drive, as GROUP BY queries. Dates, cameras and lenses are one scan of `assets` using `assets.file_count` / `file_bytes` (schema v8, kept by triggers: one copy per BLAKE3 key per asset), summed per (day, camera, lens) once and rolled up from that. File types and drives are one scan of `files` each, with no join to `assets`. About 1.5 s at 300,000 items with every breakdown. `keepsake_core::report` writes it as CSV.
 - **User edits:** `metadata::MetadataService` updates the rows and rewrites the asset's sidecars in one transaction (see _XMP Sidecars_).
 
 ### Probe
@@ -170,6 +171,7 @@ The logical memory of a moment. One asset may have multiple physical files (orig
 | `label` | `Option<String>` | Colour label |
 | `comment` | `Option<String>` | Free text |
 | `tags` | `Vec<String>` | AI and user tags |
+| `file_count`, `file_bytes` | `u64` | Catalog only (v8, triggers): the asset's files and their size, one copy of each BLAKE3 key; for the library report |
 
 ### File
 One physical file on disk. An Asset has 1-N Files.

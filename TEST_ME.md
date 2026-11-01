@@ -1,8 +1,43 @@
-# Manual Test Steps — Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Library report (Tools → Report)
+
+Automated:
+```
+cargo test -p keepsake-core --test report_tests
+cargo test -p keepsake-cli --test cli_tests report
+cd app/ui; pnpm test; pnpm exec playwright test e2e/mocked/report.spec.ts --project=mocked
+```
+**Expected:** all pass.
+
+The first start after this change upgrades the catalog to schema v8 (it adds each item's file count and size). This happens once and takes about 15 seconds for 300,000 items; the window may wait that long on that first start.
+
+1. In the sidebar under **Tools**, click **Report**.
+   **Expected:** within a second or two the screen shows Photos, Videos, Files and Size for the whole library, and a table by **Year**, newest first. Items with no date are one **Unknown** row at the bottom. Hovering a size shows the exact bytes.
+2. Compare with what you know: the number of photos plus videos equals "N items" in the status bar of **All items** with no filters.
+   **Expected:** they match. A RAW+JPEG pair is one photo, but its row's Files counts 2.
+3. Click **Month**, **Day**, **Camera**, **Lens**, **File type** and **Drive** in turn.
+   **Expected:** each shows its own table. Months read "June 2024", days "1 June 2024". Cameras and lenses are biggest first, with **Unknown** last (items without a camera or lens, e.g. added with `--no-probe`). File type shows `ARW`, `JPG`, `MP4` and so on, items only (Photos and Videos show —); a RAW+JPEG pair is counted under both. The footer row is the library total.
+4. With a drive unplugged (e.g. the network drive off, or an external disk ejected), click **Refresh**.
+   **Expected:** nothing changes in the totals: unplugged items still count. In **Drive**, that drive is listed with "(unplugged)".
+5. If you have a backup (Tools → Backup), look at **Drive**.
+   **Expected:** the backup drive is listed with its own files and size. The totals at the top are not doubled: a backed-up file counts once. The footer "All drives" adds every copy.
+6. Click **Export to CSV…**, keep the suggested name (`Keepsake report <today>.csv`) and save it in Documents.
+   **Expected:** "Saved to …" with the path. Opening the file in Excel (Windows) or Numbers (macOS) shows the columns Breakdown, Group, Photos, Videos, Items, Files, Bytes, Size, a Total row, then the Year, Month, Day, Camera, Lens, File type and Drive rows. Accented names read correctly.
+7. Click **Export to CSV…** and cancel the dialog.
+   **Expected:** nothing is written and no error is shown.
+8. From a terminal: `keepsake report`, `keepsake report --by camera`, `keepsake report --by drive --csv report.csv`, `keepsake --json report`.
+   **Expected:** a table with photos, videos, items, files and size per group and a Total line; `--csv` writes the file and says so; `--json` prints the whole report.
+9. Check nothing was written to your photo folders.
+   **Expected:** the report only reads the catalog; no file in a photo folder has a new modification time.
+
+On **macOS**, the save dialog is the system sheet; on **Windows**, the standard Save As window. Everything else is the same.
 
 ---
 

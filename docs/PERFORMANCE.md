@@ -81,6 +81,7 @@ A synthetic library from `keepsake dev seed` (ten years, four cameras, a quarter
 | Camera and lens lists | 200 ms |
 | Searches: 13 kinds of query, each sorted by date and by name | 0–115 ms |
 | Calendar levels, with and without a word filter | 2–104 ms |
+| Library report, every breakdown (Tools → Report) | 1.47 s |
 
 **What was slow, and the fixes:**
 
@@ -89,6 +90,7 @@ A synthetic library from `keepsake dev seed` (ten years, four cameras, a quarter
 | Sidebar per-volume count read every file row (partial index, schema v6) | 1.9 s | 31 ms |
 | Calendar with words: one search per cell for its cover (now one pass) | 1.8 s | 58 ms |
 | Calendar years: every asset read (now index range counts and seeks) | 170 ms | 65 ms |
+| Library report joined every file to its asset (now per-asset totals kept in `assets`, schema v8; ADR-030) | 12.3 s | 1.47 s |
 
 Also:
 - **Shared reads:** every read shared one connection behind a lock, so opening a 300,000-item view held up the calendar and the next search. Reads now use a pool of connections.

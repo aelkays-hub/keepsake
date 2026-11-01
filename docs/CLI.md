@@ -19,6 +19,7 @@ keepsake verify [--volume X]
 keepsake search [QUERY] [--from DAY] [--to DAY] [--camera TEXT] [--type photo|video] [--limit N]
 keepsake shift-time [PATH…] --by ±H:MM[:SS] [--query Q] [--from DAY] [--to DAY] [--camera TEXT] [--type T] [--dry-run]
 keepsake backup <dest> [--label L]
+keepsake report [--by year|month|day|camera|lens|type|drive] [--csv PATH]
 keepsake rebuild-catalog [--fresh] [--no-probe]
 keepsake probe <folder>
 keepsake watch [--auto-ingest] [--no-probe]
@@ -175,6 +176,19 @@ Finds assets whose file names, comments or tags contain every word of `QUERY` (p
 Results with words are best matches first; without words, oldest first.
 
 JSON: `query`, `count`, `results[]` (`asset`, `file`, `volume`, `kind`, `captured`, `camera`, `rating`, `label`).
+
+### report
+
+`keepsake report [--by year|month|day|camera|lens|type|drive] [--csv PATH]`
+
+How many photos and videos the library holds and the disk space they take, from the catalog alone (read-only; no media file is read, and items on unplugged drives count). Prints the totals and one breakdown (default `year`): photos, videos, items, files and size per group. Missing dates, cameras, lenses and extensions are one `Unknown` group.
+
+A RAW+JPEG pair is one photo; its files and size count both halves. A file on several drives (backups, a second import destination) counts once, except with `--by drive`, which shows every copy on each drive. File types and drives show items only (`-` for photos and videos).
+
+`--csv PATH`
+: Also write every breakdown to `PATH` (columns `Breakdown,Group,Photos,Videos,Items,Files,Bytes,Size`).
+
+JSON: `report` (`totals`, `years`, `months`, `days`, `cameras`, `lenses`, `file_types`: rows of `group`, `items`, `photos`, `videos`, `files`, `bytes`; `drives[]`: `volume_id`, `online`, `row`) and `csv`.
 
 ### shift-time
 

@@ -1109,3 +1109,23 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Trade-off.** Until its fingerprint is made, a file's middle is unchecked: damage there between adding and fingerprinting would go into the fingerprint. The window is the background pass (hours for a big NAS folder); the quick hash and size are checked throughout.
 
 **Not done.** Several fingerprint workers (one is enough for one network drive); a setting to fingerprint on add.
+
+---
+
+## ADR-030 — Library report: what counts, and per-asset file totals in the catalog
+
+**Status**: Accepted (2026-11-01, product owner: "under tools I would like to add a report on the total number of pictures … by date, year, camera type, lens, file type … amount of total storage they take on disk"). No new dependency; the app's capability now also allows the dialog plugin's save dialog (`dialog:allow-save`), for Export to CSV.
+
+**Context.** The library is large (one year of RAW on the network drive is about 600 GB, hundreds of thousands of files overall). The report must come from the catalog, never the media, and stay quick. A first version joined `files` to `assets` in SQL; at 300,000 items it took 12 s, because every row needed a random lookup (a 300 MB catalog against SQLite's 2 MB page cache).
+
+**Decision.**
+- **Counting.** An item is an asset, so a RAW+JPEG pair is one photo. Files and bytes count every file of the item (both halves, sidecars, segments), one copy each: copies on other drives share the BLAKE3 key and count once. A file not fingerprinted yet (ADR-029) has a stand-in key unique to its place, so it counts on its own until its fingerprint is known. Files on unplugged drives count. The **Drive** table is the exception: every copy on each drive.
+- **Schema v8.** `assets.file_count` and `assets.file_bytes`, kept by three triggers on `files` (insert, delete, update of size, key or asset), like `assets.size_bytes` (v6), and filled for existing assets by the migration. Date, camera and lens breakdowns are then one scan of `assets` (summed per day, camera and lens, then rolled up).
+- **File types and drives** are one scan of `files` each, with no join to `assets`, so they give items (distinct assets) without the photo/video split. A pair counts under both of its extensions.
+- **Unknown.** A missing date, camera, lens (blank counts as missing) or extension is `None` in core and `Unknown` on screen and in the CSV, listed last.
+- **CSV.** One file, a `Breakdown` column naming each table, raw bytes and a readable size, UTF-8 with a byte-order mark for Excel, CRLF line ends. A group starting with `=`, `+`, `-` or `@` gets a `'` so a spreadsheet does not read it as a formula.
+
+**Measured** (300,000 items, release, `scale_tests.rs`): see `docs/PERFORMANCE.md`.
+
+**Not done.** Filters on the report (it covers the whole library); charts; lens make. The photo/video split for file types and drives would need the join (about 1.3 s more each at 300,000).
+

@@ -53,6 +53,12 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - Verify any previously imported destination or backup on demand (re-hash, compare against catalog).
 - Visual report of missing, corrupt, or mismatched files.
 
+### Library report
+- Tools → **Report**: how many photos and videos the library holds and the disk space they take, from the catalog alone (no media file is read, so unplugged drives count too).
+- Totals (photos, videos, files, size) and one table at a time, broken down by **year, month, day, camera, lens, file type or drive**. Each row: photos, videos, items, files and size (exact bytes on hover). Unknown dates, cameras, lenses and extensions are one **Unknown** group, listed last. Dates are newest first; the others most items first.
+- A RAW+JPEG pair is one photo; its files and size count both halves (and sidecars). A file copied to several drives (backups, a second import destination) counts once, except in the **Drive** table, which shows every copy on each drive. File types and drives show items only (no photo/video split); a pair counts under both of its file types.
+- **Export to CSV…** writes every breakdown to one file (UTF-8 for Excel; raw bytes and a readable size). `keepsake report` prints the same and `--csv` writes the file.
+
 ### Interop
 - Open the item in another application (Ctrl+O): the system default, or an application set per file type in Settings.
 
@@ -67,7 +73,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Settings
 - Library (open or create another), cache folder (with removal of the old cache's files after a move), cache size limit, image and video workers, pause on battery, Open in applications (several per file type; the first is the default for Ctrl+O, all are in the Open in… menu of the inspector and the viewer), and import presets (create, edit, delete). Ctrl+,.
-- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.
+- CLI commands (manual: `docs/CLI.md`): `init`, `ingest` (with `--dry-run`, `--resume`, `--status`, `--list`), `verify`, `search`, `shift-time`, `backup`, `report` (by year, month, day, camera, lens, type or drive; `--csv`), `rebuild-catalog`, `probe`, `watch` (card events; `--auto-ingest`), `card` (list, trust, untrust, rename, forget), `preset` (save, list, delete), `renders` (status, run, enqueue, show, retry, evict, bench). Every command has `--json`.
 
 ---
 
