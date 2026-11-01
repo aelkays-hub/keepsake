@@ -172,3 +172,37 @@ fn walk_bytes(dir: &Path) -> u64 {
     }
     n
 }
+
+#[test]
+fn each_lightroom_sidecar_goes_with_its_own_photo() {
+    // Enough sidecars to be read several at a time, each with its own rating.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("2010");
+    let lr =
+        String::from_utf8(std::fs::read(common::fixture("xmp/lightroom.xmp")).unwrap()).unwrap();
+    assert!(lr.contains(r#"xmp:Rating="4""#));
+    for i in 0..60usize {
+        let folder = if i % 2 == 0 { "January" } else { "February" };
+        common::write_file(&dir, &format!("{folder}/DSC{i:05}.ARW"), b"raw");
+        let rating = format!(r#"xmp:Rating="{}""#, i % 6);
+        common::write_file(
+            &dir,
+            &format!("{folder}/DSC{i:05}.xmp"),
+            lr.replace(r#"xmp:Rating="4""#, &rating).as_bytes(),
+        );
+    }
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    let (r, _, _) = add_batched(&mut cat, &lib, &dir, None);
+    let r = r.unwrap();
+    assert_eq!(r.assets, 60);
+    assert_eq!(r.sidecars_used, 60);
+    for id in cat.read(|tx| tx.assets().list_ids()).unwrap() {
+        let rating = cat.read(|tx| tx.assets().require(id)).unwrap().rating.get();
+        let files = cat.read(|tx| tx.files().for_asset(id)).unwrap();
+        assert_eq!(files.len(), 1);
+        let name = files[0].rel_path.file_name().to_owned();
+        let i: usize = name[3..8].parse().unwrap();
+        assert_eq!(usize::from(rating), i % 6, "{name}");
+    }
+}

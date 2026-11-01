@@ -259,7 +259,7 @@ fn progress_counts_every_file_read() {
     let total: u64 = [8u64, 7, 5, 9].iter().sum();
     assert_eq!(listed, Some((4, total)));
     assert_eq!((read, bytes), (4, total));
-    assert_eq!(phases, ["Saving"]);
+    assert_eq!(phases, ["Listing files", "Reading sidecars", "Saving"]);
 }
 
 #[test]

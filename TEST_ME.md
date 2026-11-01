@@ -34,6 +34,9 @@ Use a big folder (thousands of photos). A network drive is the best test, e.g. `
    **Expected:** the deleted photo is gone from the library, the new one is there, and the scan is quick.
 7. From a terminal: `keepsake add-folder <folder>`, press Ctrl+C part way, then run it again.
    **Expected:** the first run says what was read is in the library; the second finishes and its report counts the items not read again.
+8. Add a very large folder with many Lightroom `.xmp` files (e.g. `2019` on the MyCloud drive).
+   **Expected:** the progress shows "Listing files", then "Reading sidecars", and the first items appear within about a minute; the screen never sits still for minutes. Photos rated in Lightroom show those ratings.
+   Note: the whole folder still takes a long time (every byte is read once, several hours for hundreds of GB over the network), but items keep arriving 20 files at a time.
 
 ---
 

@@ -51,6 +51,26 @@
 
 ---
 
+## Adding a big network folder no longer sits silent before the first save (2026-10-31)
+
+### What was wrong
+- Adding `2019` from the network drive (14,268 files, 598 GB of RAW) showed no progress for minutes. Before the first batch was saved, the add listed the folder asking the drive about every file a second time (86 s), read 2,990 Lightroom sidecars one after another (84 s), and matched each sidecar against every file in the folder (52 s in a release build, far longer in the debug app). None of these steps reported progress.
+
+### What was built
+- The folder walk uses the details the listing already returned (`DirEntry::metadata`), so a network folder is not asked about each file again: 86 s to 6 s.
+- Sidecars are read 8 at a time (`read_sidecars`, standard-library threads, no new dependency): 84 s to 26 s.
+- Lightroom `<stem>.xmp` sidecars are matched through an index of files by path without extension, built once: 52 s to under 0.1 s.
+- The progress shows "Listing files" and "Reading sidecars" while those run. Debug log lines give each step's time.
+- Measured on `2019` with a release build: first save after 33 s instead of 3 min 43 s.
+
+### Still slow by nature
+- Every file is read in full to make its BLAKE3 fingerprint. For 598 GB at the 25–30 MB/s the drive gives, that is several hours. Items appear 20 files at a time all along, and a stopped scan carries on.
+
+### Tests
+- Rust: `each_lightroom_sidecar_goes_with_its_own_photo` (60 photos with their own Lightroom sidecars and ratings, read in batches, each rating lands on its own photo). `progress_counts_every_file_read` now expects the new step names. All workspace tests pass.
+
+---
+
 ## Adding a folder saves as it goes and resumes (2026-10-31)
 
 ### What was wrong

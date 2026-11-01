@@ -206,6 +206,34 @@ fn mtime_ms(meta: &std::fs::Metadata) -> Option<i64> {
     i64::try_from(d.as_millis()).ok()
 }
 
+/// Read sidecars a few at a time: on a network folder each one is a round
+/// trip, so one after another took minutes. Results are in input order.
+fn read_sidecars(
+    candidates: &[(SidecarLocation, PathBuf, RelPath)],
+) -> Vec<Result<Option<sidecar::LoadedSidecar>, crate::xmp::XmpError>> {
+    const READERS: usize = 8;
+    let chunk = candidates.len().div_ceil(READERS).max(1);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = candidates
+            .chunks(chunk)
+            .map(|part| {
+                s.spawn(move || {
+                    part.iter()
+                        .map(|(_, full, _)| sidecar::read(full))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| match h.join() {
+                Ok(v) => v,
+                Err(p) => std::panic::resume_unwind(p),
+            })
+            .collect()
+    })
+}
+
 fn hash_file(path: &Path) -> std::io::Result<Blake3Hash> {
     let mut f = std::fs::File::open(path)?;
     let mut h = blake3::Hasher::new();
@@ -244,7 +272,9 @@ fn walk(
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
         let path = entry.path();
-        let meta = match std::fs::symlink_metadata(&path) {
+        // Does not follow links. On Windows it comes with the listing, so a
+        // network folder is not asked about each file again.
+        let meta = match entry.metadata() {
             Ok(m) => m,
             Err(e) => {
                 report
@@ -377,8 +407,10 @@ fn rebuild_record(
     let prober = opts.prober;
     let batched = opts.batch_files.is_some();
     let mut report = RebuildReport::default();
+    let started = std::time::Instant::now();
 
     // 1. Walk the volume.
+    opts.report(RebuildProgress::Phase("Listing files"));
     let skip = Skip::new(&opts.cache_dirs);
     let mut listing = Vec::new();
     walk(mount, mount, &skip, &mut listing, &mut report);
@@ -386,6 +418,11 @@ fn rebuild_record(
         .iter()
         .filter(|(r, _)| !sidecar::is_sidecar_name(r.file_name()))
         .fold((0u64, 0u64), |(n, b), (_, m)| (n + 1, b + m.len()));
+    tracing::debug!(
+        files = count,
+        ms = started.elapsed().as_millis() as u64,
+        "listed folder"
+    );
     opts.report(RebuildProgress::Listed {
         files: count,
         bytes,
@@ -451,7 +488,7 @@ fn rebuild_record(
             &mut report,
         );
     }
-    let candidates = beside_sidecars
+    let candidates: Vec<(SidecarLocation, PathBuf, RelPath)> = beside_sidecars
         .into_iter()
         .map(|r| (SidecarLocation::Beside, r.to_fs_path(mount), r))
         .chain(
@@ -459,10 +496,19 @@ fn rebuild_record(
                 .into_iter()
                 .filter(|(r, _)| sidecar::is_sidecar_name(r.file_name()))
                 .map(|(r, _)| (SidecarLocation::Mirror, r.to_fs_path(&mirror_root), r)),
-        );
+        )
+        .collect();
     let mut found: Vec<FoundSidecar> = Vec::new();
-    for (location, full, rel) in candidates {
-        match sidecar::read(&full) {
+    tracing::debug!(
+        ms = started.elapsed().as_millis() as u64,
+        "reading sidecars"
+    );
+    if !candidates.is_empty() {
+        opts.report(RebuildProgress::Phase("Reading sidecars"));
+    }
+    let loaded = read_sidecars(&candidates);
+    for ((location, full, rel), loaded) in candidates.into_iter().zip(loaded) {
+        match loaded {
             Ok(Some(l)) => found.push(FoundSidecar {
                 location,
                 rel,
@@ -477,9 +523,33 @@ fn rebuild_record(
         }
     }
 
+    tracing::debug!(
+        sidecars = found.len(),
+        ms = started.elapsed().as_millis() as u64,
+        "read sidecars"
+    );
     // Map sidecars to the files they describe.
     let mut exact: HashMap<String, usize> = HashMap::new();
     let mut lightroom: HashMap<String, usize> = HashMap::new();
+    // Files by path without extension, for Lightroom `<stem>.xmp` (built
+    // once: matching each sidecar against every file took minutes on large
+    // folders).
+    let mut by_stem: HashMap<String, Vec<usize>> = HashMap::new();
+    if !found.is_empty() {
+        for (fi, f) in files.iter().enumerate() {
+            let Some((stem, _)) = f.rel.file_name().rsplit_once('.') else {
+                continue;
+            };
+            let stem_rel = match f.rel.parent() {
+                Some(p) => format!("{p}/{stem}"),
+                None => stem.to_owned(),
+            };
+            by_stem
+                .entry(path_key(&stem_rel, case))
+                .or_default()
+                .push(fi);
+        }
+    }
     for (i, s) in found.iter().enumerate() {
         let target = s.rel.as_str();
         let target = &target[..target.len().saturating_sub(4)];
@@ -490,17 +560,8 @@ fn rebuild_record(
                 continue;
             }
             // Lightroom `<stem>.xmp`: matches files with that stem in the same folder.
-            for f in &files {
-                let Some((stem, _)) = f.rel.file_name().rsplit_once('.') else {
-                    continue;
-                };
-                let stem_rel = match f.rel.parent() {
-                    Some(p) => format!("{p}/{stem}"),
-                    None => stem.to_owned(),
-                };
-                if path_key(&stem_rel, case) == key {
-                    keep_newest(&mut lightroom, f.key.clone(), i, &found);
-                }
+            for &fi in by_stem.get(&key).into_iter().flatten() {
+                keep_newest(&mut lightroom, files[fi].key.clone(), i, &found);
             }
         } else {
             report
@@ -509,6 +570,10 @@ fn rebuild_record(
         }
     }
 
+    tracing::debug!(
+        ms = started.elapsed().as_millis() as u64,
+        "matched sidecars"
+    );
     // 3a. Assets from Keepsake sidecars that list their member files.
     let mut claimed: HashSet<usize> = HashSet::new();
     let mut used_ids: HashSet<AssetId> = HashSet::new();
@@ -581,7 +646,16 @@ fn rebuild_record(
     let all_rels: Vec<RelPath> = files.iter().map(|f| f.rel.clone()).collect();
     let (layout, layout_problems) = grouping::read_avchd_layout(mount, &all_rels);
     report.problems.extend(layout_problems);
+    tracing::debug!(
+        ms = started.elapsed().as_millis() as u64,
+        "read AVCHD playlists"
+    );
     let grouped = grouping::group(&rest_rels, layout.as_ref());
+    tracing::debug!(
+        groups = grouped.groups.len(),
+        ms = started.elapsed().as_millis() as u64,
+        "grouped files"
+    );
     report.problems.extend(grouped.problems.iter().cloned());
     for (list, reason) in [
         (&grouped.card_files, "camera card file"),
@@ -730,6 +804,7 @@ fn rebuild_record(
         }
     }
 
+    tracing::debug!(ms = started.elapsed().as_millis() as u64, "ready to save");
     if let Some(batch) = opts.batch_files {
         let mut b = Batcher {
             volume,
