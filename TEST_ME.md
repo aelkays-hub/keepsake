@@ -1,8 +1,23 @@
-# Manual Test Steps — Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Start-up while the library opens
+
+Automated:
+```
+cargo test -p keepsake-app state::tests
+cd app/ui; pnpm test:e2e opening
+```
+
+Manual (both OSes):
+1. Start Keepsake normally. **Expected:** the library appears within a few seconds, as before.
+2. To see a slow open, use a library on a slow drive (a USB hard drive or network folder) the first time after a catalog upgrade, or a large library on any drive. **Expected:** the window draws at once with **Opening your library…**; after about 3 s it adds that the first start after an update can take a minute; then the library appears. The window can be moved and resized meanwhile and is never shown as *Not responding* (Windows) or with a spinning cursor (macOS).
+3. Close Keepsake while it says Opening, then start it again. **Expected:** it opens normally (an interrupted upgrade is redone).
 
 ---
 

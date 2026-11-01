@@ -339,8 +339,12 @@ export function installMock(): void {
       const a = (args ?? {}) as Record<string, unknown>;
       st.calls.push({ cmd, args: a });
       switch (cmd) {
-        case "app_info":
-          return { version: "0.1.0-mock", library, uiTest: true };
+        case "app_info": {
+          const reply = { version: "0.1.0-mock", library, uiTest: true };
+          // ?opening=<ms>: the library takes that long to open.
+          const ms = Number(params.get("opening") ?? 0);
+          return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
         case "library_create":
         case "library_open":
           library = String(a.path);

@@ -53,6 +53,22 @@
 
 ---
 
+## Start-up no longer freezes while the library opens (2026-11-01)
+
+### What was reported
+- "keepsake is hanging when I start it": the first start after the schema v8 upgrade sat with a frozen, blank window for 47 s (log: `window ready ms=47418`; usual 1.2–2 s). The catalog (112,674 items, 209 MB) is on a USB hard drive, and the upgrade rewrites every item row.
+
+### Cause and fix
+- The default library was opened inside Tauri's `setup`, on the main thread, so the window could not draw until any catalog upgrade was done.
+- Now `open_default_in_background` opens it on its own thread. A `StartGate` in `AppState` makes `app_info` wait until it is done, so the UI's start logic is unchanged and cannot show first-run setup too early. The gate is ended by a drop guard, even if opening panics.
+- The UI shows **Opening your library…** until then, and after 3 s adds that the first start after an update can take a minute while the catalog is upgraded.
+
+### Tests
+- `state.rs`: the gate returns at once when nothing is opening and holds until the opening finishes.
+- Mocked Playwright `opening.spec.ts` (`?opening=<ms>` in the mock): the opening message, the note after 3 s, then the library; a quick open shows no message.
+
+---
+
 ## Library report under Tools (2026-11-01)
 
 ### What was asked

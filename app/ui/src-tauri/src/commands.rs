@@ -23,6 +23,7 @@ pub fn get_version() -> &'static str {
 
 #[tauri::command(async)]
 pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    state.start.wait();
     AppInfo {
         version: keepsake_core::version().to_owned(),
         library: state.try_open().map(|o| convert::path_text(o.root())),
@@ -49,8 +50,34 @@ fn adopt(app: &AppHandle, state: &AppState, lib: Library) -> CmdResult<AppInfo> 
     })
 }
 
-/// Open the default library at start-up, if there is one.
-pub fn open_default(app: &AppHandle) {
+/// Open the default library on its own thread, so the window can draw while
+/// it opens (a catalog upgrade can take a minute on a slow drive).
+/// `app_info` waits until it is done.
+pub fn open_default_in_background(app: &AppHandle) {
+    /// Ends the start-up opening when dropped, even if opening panics.
+    struct Finish(AppHandle);
+    impl Drop for Finish {
+        fn drop(&mut self) {
+            self.0.state::<AppState>().start.finish();
+        }
+    }
+    app.state::<AppState>().start.begin();
+    let done = Finish(app.clone());
+    let spawned = std::thread::Builder::new()
+        .name("open-library".into())
+        .spawn(move || {
+            open_default(&done.0);
+            drop(done);
+        });
+    // Without a thread (which `Finish` then ends), open here instead.
+    if let Err(e) = spawned {
+        tracing::warn!("opening the library in the background: {e}");
+        open_default(app);
+    }
+}
+
+/// Open the default library, if there is one.
+fn open_default(app: &AppHandle) {
     let state = app.state::<AppState>();
     let Ok(settings) = Settings::load() else {
         return;

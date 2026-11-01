@@ -158,6 +158,25 @@ function Shell() {
   );
 }
 
+/** Shown until the library is open: a catalog upgrade can take a minute. */
+function Opening() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), 3000);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <div className="opening" role="status" data-testid="opening">
+      <p>Opening your library…</p>
+      {slow && (
+        <p className="muted" data-testid="opening-slow">
+          The first start after an update can take a minute while the catalog is upgraded.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -168,7 +187,7 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
   if (error) return <p className="error">Keepsake could not start: {error}</p>;
-  if (!info) return null;
+  if (!info) return <Opening />;
   if (!info.library) return <FirstRun onReady={setInfo} uiTest={info.uiTest} />;
   return (
     <UiProvider key={info.library}>

@@ -74,7 +74,7 @@ pub fn run() {
                 main = main.additional_browser_args(&args);
             }
             main.build()?;
-            commands::open_default(app.handle());
+            commands::open_default_in_background(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

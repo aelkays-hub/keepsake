@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use keepsake_core::catalog::{AssetId, Catalog, VolumeId};
 use keepsake_core::library::Library;
@@ -66,9 +66,39 @@ impl Drop for Reader<'_> {
     }
 }
 
+/// Whether the default library is still being opened at start-up. Opening
+/// can take a while (a catalog upgrade on a slow drive), so it runs off the
+/// main thread and `app_info` waits here instead of the window freezing.
+#[derive(Default)]
+pub struct StartGate {
+    opening: Mutex<bool>,
+    done: Condvar,
+}
+
+impl StartGate {
+    pub fn begin(&self) {
+        *lock(&self.opening) = true;
+    }
+
+    pub fn finish(&self) {
+        *lock(&self.opening) = false;
+        self.done.notify_all();
+    }
+
+    /// Return once the start-up opening, if any, has finished.
+    pub fn wait(&self) {
+        let mut opening = lock(&self.opening);
+        while *opening {
+            opening = self.done.wait(opening).unwrap_or_else(|p| p.into_inner());
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct AppState {
     open: Mutex<Option<Arc<Open>>>,
+    /// The default library is being opened at start-up.
+    pub start: StartGate,
     views: Mutex<HashMap<u32, View>>,
     next_view: Mutex<u32>,
     /// Stop flag of the running import, if any.
@@ -209,5 +239,35 @@ impl Open {
 
     pub fn cache_root(&self) -> PathBuf {
         self.cache.root().to_path_buf()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StartGate;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn wait_returns_at_once_when_nothing_is_opening() {
+        let gate = StartGate::default();
+        let t = Instant::now();
+        gate.wait();
+        assert!(t.elapsed() < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn wait_holds_until_the_opening_finishes() {
+        let gate = Arc::new(StartGate::default());
+        gate.begin();
+        let g = Arc::clone(&gate);
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            g.finish();
+        });
+        let t = Instant::now();
+        gate.wait();
+        assert!(t.elapsed() >= Duration::from_millis(150));
+        opener.join().unwrap();
     }
 }
