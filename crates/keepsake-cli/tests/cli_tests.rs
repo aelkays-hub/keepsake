@@ -1356,3 +1356,44 @@ fn add_folder_catalogues_in_place_and_writes_nothing_into_the_folder() {
     let found = e.json(&["search", "DSC00001"], 0);
     assert_eq!(found["count"], 1, "{found:#}");
 }
+
+// ── report ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn report_counts_items_once_and_every_copy_per_drive() {
+    let e = Env::new();
+    e.init();
+    // Two destinations: every file has two copies with the same hash.
+    e.ingest(false);
+    let csv = e.p("report.csv");
+    let v = e.json(&["report", "--csv", &csv.display().to_string()], 0);
+    let r = &v["report"];
+    let t = &r["totals"];
+    let items = t["items"].as_u64().unwrap();
+    assert_eq!(
+        items,
+        t["photos"].as_u64().unwrap() + t["videos"].as_u64().unwrap()
+    );
+    assert!(items > 0);
+    let drives = r["drives"].as_array().unwrap();
+    assert_eq!(drives.len(), 2, "{drives:?}");
+    for d in drives {
+        // Each drive holds a full copy; the totals count one.
+        assert_eq!(d["row"]["files"], t["files"]);
+        assert_eq!(d["row"]["bytes"], t["bytes"]);
+        assert_eq!(d["row"]["items"], t["items"]);
+    }
+    // Without probing there are no cameras: one Unknown group.
+    assert_eq!(r["cameras"][0]["group"], Value::Null);
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert!(text.contains("Breakdown,Group,Photos,Videos,Items,Files,Bytes,Size"));
+    assert!(text.contains("\r\nCamera,Unknown,"), "{text}");
+
+    let out = e.run(&["report", "--by", "camera"]);
+    assert_eq!(out.status.code(), Some(0));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("Camera") && s.contains("Unknown") && s.contains("Total"),
+        "{s}"
+    );
+}

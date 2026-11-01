@@ -39,6 +39,9 @@ enum Commands {
     Verify(commands::verify::VerifyArgs),
     /// Find assets by words, date range, camera and type.
     Search(commands::search::SearchArgs),
+    /// How many photos and videos the library holds and the disk space they
+    /// take, by year, month, day, camera, lens, file type or drive. Read-only.
+    Report(commands::report::ReportArgs),
     /// Shift capture times (XMP sidecars and catalog only; originals are never touched).
     ShiftTime(commands::shift::ShiftArgs),
     /// Copy the library to a drive: incremental and verified.
@@ -101,6 +104,7 @@ fn main() -> ExitCode {
         Commands::AddFolder(a) => commands::add_folder::run(&ctx, a),
         Commands::Verify(a) => commands::verify::run(&ctx, a),
         Commands::Search(a) => commands::search::run(&ctx, a),
+        Commands::Report(a) => commands::report::run(&ctx, a),
         Commands::ShiftTime(a) => commands::shift::run(&ctx, a),
         Commands::Backup(a) => commands::backup::run(&ctx, a),
         Commands::RebuildCatalog(a) => commands::rebuild::run(&ctx, a),
