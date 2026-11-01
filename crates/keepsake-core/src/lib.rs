@@ -20,6 +20,7 @@ pub mod probe;
 pub mod rebuild;
 pub mod relpath;
 pub mod render;
+pub mod report;
 pub mod seed;
 pub mod select;
 pub mod settings;

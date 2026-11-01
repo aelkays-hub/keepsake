@@ -270,6 +270,11 @@ fn scale_300k_meets_the_limits() {
         }
     }
 
+    // ── Tools → Report: every breakdown in one call.
+    let (took, report) = worst(|| cat.read(|tx| tx.report().library()).unwrap());
+    assert_eq!(report.totals.items, ASSETS);
+    check("library report (all breakdowns)", took, ASSETS, limit(2000));
+
     eprintln!("\n| Operation | Items | Time (ms) | Limit (ms) |\n|---|---:|---:|---:|");
     let mut over = Vec::new();
     for (what, took, n, max) in &rows {
