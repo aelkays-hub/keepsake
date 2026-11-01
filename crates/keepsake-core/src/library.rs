@@ -179,9 +179,20 @@ impl Library {
     }
 
     /// Open (creating or migrating) this library's catalog.
+    ///
+    /// Writes only when the library's stamp is missing or from another
+    /// version: the app opens a connection for every read, and a write would
+    /// wait in line behind the background work's writes.
     pub fn open_catalog(&self) -> Result<Catalog, LibraryError> {
         let mut cat = Catalog::open(&self.catalog_path())?;
         let id = self.id.to_string();
+        let stamped = cat.read(|tx| -> Result<bool, CatalogError> {
+            Ok(tx.meta().get("library_id")?.is_some()
+                && tx.meta().get("last_app_version")?.as_deref() == Some(crate::version()))
+        })?;
+        if stamped {
+            return Ok(cat);
+        }
         cat.write(|tx| -> Result<(), CatalogError> {
             if tx.meta().get("library_id")?.is_none() {
                 tx.meta().set("library_id", &id)?;

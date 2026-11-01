@@ -93,10 +93,13 @@ impl<M> Renditions<'_, M> {
         Ok(self.conn.query_row(&sql, args.as_slice(), |r| r.get(0))?)
     }
 
-    /// Least recently used first (for cache eviction).
+    /// The order cache eviction removes renditions in: previews and proxies
+    /// first, then thumbnails, each least recently used first. Thumbnails
+    /// are small and the grid needs every one; the others are large and
+    /// made again when a picture or video is opened.
     pub fn list_lru(&self) -> Result<Vec<Rendition>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM renditions ORDER BY last_used_ms, id"
+            "SELECT {COLS} FROM renditions ORDER BY kind = 'thumbnail', last_used_ms, id"
         ))?;
         let rows = st.query_map([], map)?.collect::<Result<_, _>>()?;
         Ok(rows)

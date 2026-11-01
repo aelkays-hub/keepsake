@@ -238,6 +238,10 @@ export function installMock(): void {
   // `?folderStall=N`: the first folder scan fails after N batches (as when
   // a network drive drops); the next scan carries on.
   let folderStall = Number(params.get("folderStall") ?? 0);
+  // `?noPreview=1`: photo previews are not made yet (a full cache); an
+  // item put on screen with render_set_visible gets one.
+  const noPreview = params.get("noPreview") === "1";
+  const previewMade = new Set<string>();
   window.__mock = st;
   let library: string | null = noLibrary ? null : "D:\\Keepsake";
   const all = Array.from({ length: n }, (_, i) => item(i, n));
@@ -517,7 +521,7 @@ export function installMock(): void {
                   ]
                 : []),
             ],
-            preview: THUMBS[it.i % 16],
+            preview: noPreview && !previewMade.has(`a${it.i}`) ? null : THUMBS[it.i % 16],
             // A tiny synthetic WebM (Playwright's Chromium has no H.264).
             proxy: it.kind === "video" ? `${window.location.origin}/e2e/assets/clip.webm` : null,
             online: it.online,
@@ -558,6 +562,7 @@ export function installMock(): void {
             keptOffline: 1e9,
           };
         case "render_set_visible":
+          for (const id of a.ids as string[]) previewMade.add(id);
           return 0;
         case "import_scan":
           return {

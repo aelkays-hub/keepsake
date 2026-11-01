@@ -79,7 +79,7 @@ Copies are written to a hidden temporary name, verified by BLAKE3 and only then 
 | Code | What it writes | Tests |
 |---|---|---|
 | `crates/keepsake-core/src/render/cache.rs` `temp_path` `put_bytes` `put_file` `clear_temp` | renditions through `<cache>/.tmp`, renamed into `<kind>/<aa>/<hash>-<recipe>.<ext>`; leftover temporaries | `render_tests.rs::cache_paths_are_content_addressed` `render_tests.rs::the_service_renders_everything_once_and_reports_progress` |
-| `crates/keepsake-core/src/render/cache.rs` `evict` | deletes least-recently-used renditions over the size limit (never those of offline media) | `render_tests.rs::eviction_is_lru_and_keeps_offline_media` |
+| `crates/keepsake-core/src/render/cache.rs` `evict_to` (and `evict`, which calls it) | deletes cached renditions over the size limit, down to a target below it: previews and proxies before thumbnails, each least recently used first (never those of offline media); only files in the cache folder | `render_tests.rs::eviction_is_lru_and_keeps_offline_media`, `eviction_removes_previews_and_proxies_before_thumbnails_and_leaves_room` |
 | `crates/keepsake-core/src/render/cache.rs` `remove_files` | after the cache moved, deletes Keepsake's own sub-folders of the old cache folder, nothing else | `render_tests.rs::removing_an_old_cache_keeps_everything_that_is_not_ours` |
 | `crates/keepsake-core/src/render/card.rs` `card_thumbnail` `sweep` | `<cache>/card/`: thumbnails of items still on a card (never on the card); swept after a week | `render_tests.rs::card_items_get_thumbnails_without_touching_the_card` |
 | `crates/keepsake-core/src/render/service.rs` `run` | creates the cache folder | `render_tests.rs::the_service_renders_everything_once_and_reports_progress` |

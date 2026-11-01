@@ -100,6 +100,19 @@ test("previous and next buttons on the picture's edges step without closing", as
   await expect(viewer).toBeVisible();
 });
 
+test("a photo opened without its preview has it made at once", async ({ page }) => {
+  // A full cache: background work made thumbnails only.
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await page.goto("/?items=2000&noPreview=1");
+  await expect(page.getByTestId("tile").first()).toBeVisible();
+  await viewOne(page, `DSC${pad(i)}`);
+  await expect
+    .poll(async () => (await calls(page, "render_set_visible")).at(-1))
+    .toEqual({ ids: [`a${i}`] });
+  // The viewer looks again and shows the picture.
+  await expect(page.getByTestId("viewer-image")).toBeVisible({ timeout: 5000 });
+});
+
 test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) => {
   const i = find((x) => kindOf(x) === "photo" && online(x));
   await openLibrary(page);

@@ -5,9 +5,10 @@
 //! written to `<root>/.tmp` and renamed into place, so a rendition is either
 //! complete or absent.
 //!
-//! Eviction removes least-recently-used renditions until the cache is under
-//! its limit, but never one whose source is not on a mounted volume: it
-//! could not be made again, and it is what lets offline media be browsed.
+//! Eviction removes previews and proxies first, then thumbnails (each least
+//! recently used first) until the cache is under its limit, but never one
+//! whose source is not on a mounted volume: it could not be made again, and
+//! it is what lets offline media be browsed.
 
 use std::path::{Path, PathBuf};
 
@@ -262,14 +263,28 @@ impl Cache {
         })
     }
 
-    /// Remove least-recently-used renditions of online media until the
-    /// cache holds at most `max_bytes`.
+    /// Remove renditions of online media until the cache holds at most
+    /// `max_bytes`: previews and proxies first, then thumbnails, each least
+    /// recently used first.
     pub fn evict(
         &self,
         cat: &mut Catalog,
         lib: &Library,
         max_bytes: u64,
     ) -> Result<EvictReport, RenderError> {
+        self.evict_to(cat, lib, max_bytes, max_bytes)
+    }
+
+    /// Like [`Self::evict`], but once over `max_bytes` remove down to
+    /// `target` (below it), so the next pass is not due after one more file.
+    pub fn evict_to(
+        &self,
+        cat: &mut Catalog,
+        lib: &Library,
+        max_bytes: u64,
+        target: u64,
+    ) -> Result<EvictReport, RenderError> {
+        let target = target.min(max_bytes);
         let (_, mut total) = cat.read(|tx| tx.renditions().totals())?;
         let mut rep = EvictReport::default();
         if total > max_bytes {
@@ -277,7 +292,7 @@ impl Cache {
             let online = online_volumes(cat, lib)?;
             let mut gone = Vec::new();
             for r in &rows {
-                if total <= max_bytes {
+                if total <= target {
                     break;
                 }
                 if !cat.read(|tx| tx.renditions().source_on(&r.source_hash, &online))? {

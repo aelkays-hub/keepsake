@@ -126,7 +126,7 @@ Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offl
 - **Cache:**
   - Files are named `<root>/<kind>/<aa>/<source BLAKE3>-<recipe hash>.<ext>` (content-addressed), written through `.tmp` and a rename, and indexed by the `renditions` table.
   - Identical originals share renditions. A recipe change gives new names.
-  - LRU eviction keeps the cache under `max_bytes`, but never removes a rendition whose original is not on a mounted volume.
+  - LRU eviction keeps the cache under `max_bytes`, previews and proxies before thumbnails, but never removes a rendition whose original is not on a mounted volume. The render service trims to 90% of the limit, and while the cache is above 80% its background jobs make thumbnails only; opening an item makes the rest (ADR-031).
   - The root is `[render] cache_dir` in `config.toml` (default: the OS cache folder).
 
 ### VideoOps

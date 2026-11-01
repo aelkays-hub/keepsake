@@ -10,7 +10,12 @@
 //!   running) and waits while one applies;
 //! - media that is offline is deferred (not counted as an attempt); other
 //!   failures retry with backoff, then stay failed;
-//! - every few jobs, and at the end, the cache is trimmed to its limit;
+//! - every few jobs, and at the end, the cache is trimmed: once over its
+//!   limit, down to [`EVICT_TO_PCT`] of it;
+//! - while the cache is above [`FULL_PCT`] of its limit, jobs not on screen
+//!   make thumbnails only (no preview, no proxy): a large library's previews
+//!   and proxies do not fit, and making them would only push out the
+//!   thumbnails the grid needs. Opening the item makes the rest;
 //! - the cancel flag stops workers after their current job.
 
 use std::path::PathBuf;
@@ -23,8 +28,10 @@ use serde::Serialize;
 
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
-use super::{still, video, RenderError, RenderTools, JOB_PROXY, JOB_STILLS};
-use crate::catalog::{AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind};
+use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
+use crate::catalog::{
+    AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
+};
 use crate::fingerprint::{self, FingerprintError, JOB_FINGERPRINT};
 use crate::jobs::{self, now_ms, PauseReason};
 use crate::library::Library;
@@ -35,6 +42,14 @@ use crate::settings::RenderSettings;
 const OFFLINE_RETRY_MS: i64 = 10 * 60 * 1000;
 /// How soon a job is tried again after the catalog was busy.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
+/// Once over its limit, the cache is trimmed to this share of it (percent).
+pub const EVICT_TO_PCT: u64 = 90;
+/// Above this share of its limit (percent), the cache counts as full.
+pub const FULL_PCT: u64 = 80;
+
+fn pct_of(max_bytes: u64, pct: u64) -> u64 {
+    max_bytes / 100 * pct
+}
 
 /// How the service runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,6 +187,8 @@ struct Shared {
     since_evict: AtomicU64,
     paused: Mutex<Option<PauseReason>>,
     evicting: Mutex<()>,
+    /// The cache is above [`FULL_PCT`] of its limit (as of the last trim).
+    full: AtomicBool,
 }
 
 impl RenderService {
@@ -203,10 +220,11 @@ impl RenderService {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(&RenderEvent),
     ) -> Result<(), RenderError> {
-        {
+        let bytes = {
             let mut cat = self.lib.open_catalog()?;
             jobs::recover(&mut cat)?;
-        }
+            cat.read(|tx| tx.renditions().totals())?.1
+        };
         self.cache.clear_temp();
         std::fs::create_dir_all(self.cache.root())?;
         let exiftool = ExifTool::start(&self.tools.exiftool, Duration::from_secs(30)).ok();
@@ -216,6 +234,7 @@ impl RenderService {
             since_evict: AtomicU64::new(0),
             paused: Mutex::new(None),
             evicting: Mutex::new(()),
+            full: AtomicBool::new(self.is_full(bytes)),
         };
         let (tx, rx) = channel::<RenderEvent>();
         let mut errors: Vec<RenderError> = Vec::new();
@@ -246,7 +265,7 @@ impl RenderService {
             return Err(e);
         }
         let mut cat = self.lib.open_catalog()?;
-        let rep = self.cache.evict(&mut cat, &self.lib, self.opts.max_bytes)?;
+        let rep = self.trim(&mut cat)?;
         if rep.removed > 0 {
             events(&RenderEvent::Evicted { report: rep });
         }
@@ -331,7 +350,9 @@ impl RenderService {
                 asset: job.asset_id,
             });
             let t0 = Instant::now();
-            let result = self.process(&mut cat, &job, exiftool);
+            let thumbs_only =
+                job.priority != Priority::Visible && shared.full.load(Ordering::SeqCst);
+            let result = self.process(&mut cat, &job, exiftool, thumbs_only);
             let now = now_ms();
             match result {
                 Ok((made, encoder)) => {
@@ -408,31 +429,56 @@ impl RenderService {
             return;
         };
         shared.since_evict.store(0, Ordering::SeqCst);
-        match self.cache.evict(cat, &self.lib, self.opts.max_bytes) {
-            Ok(rep) if rep.removed > 0 => {
-                let _ = tx.send(RenderEvent::Evicted { report: rep });
+        match self.trim(cat) {
+            Ok(rep) => {
+                shared
+                    .full
+                    .store(self.is_full(rep.bytes_after), Ordering::SeqCst);
+                if rep.removed > 0 {
+                    let _ = tx.send(RenderEvent::Evicted { report: rep });
+                }
             }
-            Ok(_) => {}
             Err(e) => tracing::warn!("evict: {e}"),
         }
     }
 
+    /// Trim the cache: once over its limit, down to [`EVICT_TO_PCT`] of it.
+    fn trim(&self, cat: &mut Catalog) -> Result<EvictReport, RenderError> {
+        let max = self.opts.max_bytes;
+        self.cache
+            .evict_to(cat, &self.lib, max, pct_of(max, EVICT_TO_PCT))
+    }
+
+    /// Does a cache of `bytes` count as full?
+    fn is_full(&self, bytes: u64) -> bool {
+        bytes > pct_of(self.opts.max_bytes, FULL_PCT)
+    }
+
     /// Run one job. Returns the variants made and the encoder used.
+    /// `thumbs_only`: make the thumbnails, not the preview or the proxy.
     fn process(
         &self,
         cat: &mut Catalog,
         job: &Job,
         exiftool: Option<&ExifTool>,
+        thumbs_only: bool,
     ) -> Result<(Vec<String>, Option<String>), RenderError> {
         match job.kind.as_str() {
             JOB_STILLS => {
                 let src = locate(cat, &self.lib, job.asset_id)?;
-                let made = still::render_stills(cat, &self.cache, &src, &self.tools, exiftool)?;
+                let wanted: &[Variant] = if thumbs_only {
+                    &[Variant::Thumb1024, Variant::Thumb256]
+                } else {
+                    &Variant::STILLS
+                };
+                let made =
+                    still::render_stills_of(cat, &self.cache, &src, &self.tools, exiftool, wanted)?;
                 Ok((
                     made.iter().map(|(v, _)| v.name().to_owned()).collect(),
                     None,
                 ))
             }
+            JOB_PROXY if thumbs_only => Ok((Vec::new(), None)),
             JOB_PROXY => {
                 let a = cat.read(|t| t.assets().require(job.asset_id))?;
                 if a.media_kind != MediaKind::Video {

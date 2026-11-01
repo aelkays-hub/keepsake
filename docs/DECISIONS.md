@@ -853,7 +853,7 @@ Their own dependencies are all permissive: `zune-jpeg`/`zune-core` (MIT/Apache/Z
 **Cache**
 - `<cache>/<kind>/<aa>/<source>-<recipe>.<ext>`. The source is the original's BLAKE3 from the catalog, so lookups work offline and identical files share renditions. The recipe is the BLAKE3 of canonical JSON with a version.
 - Files are written to `.tmp` and renamed. A row whose file vanished is dropped on lookup, and `set_visible` queues it again.
-- Eviction is least recently used first. Last-use times are written at most every 10 minutes per rendition.
+- Eviction is least recently used first (since ADR-031: previews and proxies before thumbnails). Last-use times are written at most every 10 minutes per rendition.
 - A rendition is evictable only if one of its originals is on a mounted volume. Renditions of offline media stay even above the limit, and `renders status` shows them.
 
 **Queue** (catalog schema v4, `jobs` table, generic over `kind`)
@@ -1128,4 +1128,21 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Measured** (300,000 items, release, `scale_tests.rs`): see `docs/PERFORMANCE.md`.
 
 **Not done.** Filters on the report (it covers the whole library); charts; lens make. The photo/video split for file types and drives would need the join (about 1.3 s more each at 300,000).
+
+---
+
+## ADR-031 — A full cache keeps the thumbnails
+
+**Status**: Accepted (2026-11-01, product owner: "Yes, fix it", after Keepsake showed no pictures and no folder tree on a 129,000-item library).
+
+**Context.** The 20 GiB default cache cannot hold a large library's renditions. Measured on the product owner's library (129,127 items): 3.4 GB of thumbnails for 75,000 items, 9.5 GB of previews for 37,600, 7.5 GB of proxies for 131 videos, with 58,000 items still queued. Background work made every rendition of every item, and pure least-recently-used eviction then removed the oldest ones, the thumbnails of the newest photos, which the grid shows first. The grid queued them again and the cycle repeated. Each eviction pass held the catalog for 2–7 s on the USB hard disk, and every new catalog connection wrote a version stamp that waited behind it, so the window took 63 s to start and the sidebar and grid stayed empty.
+
+**Decision.**
+- **Eviction order.** Previews and proxies first, then thumbnails, each least recently used first. Thumbnails are small (about 46 KB) and the grid needs every one; previews and proxies are large and made again when the item is opened.
+- **Room after a trim.** Once the cache is over its limit, the render service trims it to 90% of the limit (`EVICT_TO_PCT`), so a pass is not due again after one more file. `keepsake renders evict` still trims to the limit itself.
+- **Full cache, thumbnails only.** While the cache is above 80% of its limit (`FULL_PCT`, checked at each trim), jobs not on screen make the two thumbnails and no preview or proxy. The job counts as done.
+- **Opening makes the rest.** The viewer asks for a missing photo preview the way it already asked for a missing video proxy (`render_set_visible`, on-screen priority, then it looks again every 2 s). On-screen jobs always make every rendition.
+- **No write to open a connection.** `Library::open_catalog` writes the library stamp only when it is missing or from another version. The app opens a connection for most reads, and the write had to wait for the background work's writes.
+
+**Not done.** A smarter default limit (from the library's size or the free space); eviction that reads only the rows it needs instead of all of them.
 

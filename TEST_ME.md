@@ -1,8 +1,28 @@
-# Manual Test Steps — Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## A full cache keeps the thumbnails
+
+Automated:
+```
+cargo test -p keepsake-core --test render_tests eviction
+cargo test -p keepsake-core --test render_tests a_full_cache
+cargo test -p keepsake-core --test catalog_tests opening_a_library_catalog
+cd app/ui; pnpm test:e2e viewer
+```
+
+Manual (both OSes), with a large library whose cache is full (Settings shows the cache use against its limit):
+1. Start Keepsake. **Expected:** the window and the grid come up within a few seconds, and the sidebar's **By folder** tree lists the folders.
+2. Scroll the grid to the newest photos and wait a minute. **Expected:** their thumbnails show and stay; they do not disappear and come back.
+3. Open a photo that has not been opened before (double-click). **Expected:** the picture appears within a few seconds (its preview is made right away). Open a video that has not been played. **Expected:** it plays after a short wait.
+4. On Settings, the cache use stays at or under its limit. **Expected:** it settles near 90% of the limit or lower rather than sitting exactly at it.
+5. Raise the cache limit in Settings (for example to 100 GB), wait a while. **Expected:** previews are made in the background again (the cache use grows past the old limit).
+6. Open the log folder (Settings → Open log folder) and look at the newest log. **Expected:** "slow catalog write" lines are rare, not one every minute or two.
 
 ---
 

@@ -53,6 +53,31 @@
 
 ---
 
+## A full thumbnail cache keeps the thumbnails (2026-11-01)
+
+### What was reported
+- "I run keepsake and nothing loads", "I see no pics", "I am not seeing the folder structure on the left sidebar".
+
+### What was found
+- The 20 GiB cache was full (20,482 MB: 7.5 GB of video proxies, 9.5 GB of previews, 3.4 GB of thumbnails) with 58,000 items still queued. Plain least-recently-used eviction removed the first thumbnails made, those of the newest photos, so the grid had none to show and queued them again.
+- Each eviction pass held the catalog 2–7 s on the USB hard disk. Every new catalog connection also wrote a version stamp, which waited behind it: the window took 63 s to start (2.6 s that morning), and the sidebar and grid stayed empty.
+
+### What was built (ADR-031)
+- Eviction removes previews and proxies before thumbnails (`renditions().list_lru`). The render service trims to 90% of the limit once over it (`Cache::evict_to`).
+- While the cache is above 80% of its limit, background jobs make the two thumbnails only, no preview or proxy (`still::render_stills_of`). On-screen jobs make everything.
+- The viewer asks for a missing photo preview at once and looks again every 2 s, as it already did for a video proxy.
+- `Library::open_catalog` writes its stamp only when missing or from another version, so opening a connection never waits for a writer.
+
+### Tests
+- `render_tests`: eviction takes a preview and a proxy before an older thumbnail, and trims to the target; with a full cache the service makes thumbnails only (no preview, no proxy, jobs done), and putting the items on screen makes the preview and proxy.
+- `catalog_tests`: opening a library catalog again does not wait while another connection holds the write lock.
+- Mocked Playwright `viewer.spec.ts`: a photo opened without a preview asks for it and then shows it.
+
+### Not done
+- A default limit sized from the library or the free space. For a library this size, raise the limit in Settings (for example 100 GB).
+
+---
+
 ## Scan again one folder inside an added folder, from a right-click menu (2026-11-01)
 
 ### What was asked

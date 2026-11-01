@@ -585,14 +585,18 @@ export function Viewer() {
     };
   }, [index, view, s.revision, close]);
 
-  // A video without its proxy yet: have it made first, and look again.
+  // A video without its proxy, or a photo without its preview (not made in
+  // the background while the cache is full): have it made first, and look
+  // again.
   useEffect(() => {
-    if (!d || d.kind !== "video" || d.proxy || !d.online) return;
+    if (!d || !d.online) return;
+    const video = d.kind === "video";
+    if (video ? d.proxy : d.preview) return;
     void api.renderSetVisible([d.id]).catch(() => undefined);
     const t = setInterval(() => {
       api
         .details(d.id)
-        .then((x) => x.proxy && setD(x))
+        .then((x) => (video ? x.proxy : x.preview) && setD(x))
         .catch(() => undefined);
     }, 2000);
     return () => clearInterval(t);

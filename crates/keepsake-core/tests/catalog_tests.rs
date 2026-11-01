@@ -71,6 +71,28 @@ fn opens_file_catalog_in_wal_mode_and_migrates_once() {
 }
 
 #[test]
+fn opening_a_library_catalog_again_does_not_wait_for_another_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let lib = keepsake_core::library::Library::create(&dir.path().join("lib")).unwrap();
+    let cat = lib.open_catalog().unwrap();
+    let version = cat.read(|tx| tx.meta().get("last_app_version")).unwrap();
+    assert_eq!(version.as_deref(), Some(keepsake_core::version()));
+    // Another connection holds the write lock (the render service, say):
+    // opening one more for reading must not queue behind it.
+    let other = rusqlite::Connection::open(lib.catalog_path()).unwrap();
+    other.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let t0 = std::time::Instant::now();
+    let again = lib.open_catalog().unwrap();
+    assert!(
+        t0.elapsed() < std::time::Duration::from_secs(5),
+        "waited {:?} for the write lock",
+        t0.elapsed()
+    );
+    drop(again);
+    other.execute_batch("ROLLBACK").unwrap();
+}
+
+#[test]
 fn refuses_newer_schema() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("catalog.db");

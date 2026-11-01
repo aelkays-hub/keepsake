@@ -297,9 +297,22 @@ pub fn render_stills(
     tools: &RenderTools,
     exiftool: Option<&ExifTool>,
 ) -> Result<Vec<(Variant, PathBuf)>, RenderError> {
+    render_stills_of(cat, cache, src, tools, exiftool, &Variant::STILLS)
+}
+
+/// Make whichever of `wanted` (some of [`Variant::STILLS`]) are missing:
+/// the thumbnails alone while the cache is nearly full, say.
+pub fn render_stills_of(
+    cat: &mut Catalog,
+    cache: &Cache,
+    src: &Source,
+    tools: &RenderTools,
+    exiftool: Option<&ExifTool>,
+    wanted: &[Variant],
+) -> Result<Vec<(Variant, PathBuf)>, RenderError> {
     let mut missing = Vec::new();
     for v in Variant::STILLS {
-        if cache.find(cat, &src.hash, v)?.is_none() {
+        if wanted.contains(&v) && cache.find(cat, &src.hash, v)?.is_none() {
             missing.push(v);
         }
     }

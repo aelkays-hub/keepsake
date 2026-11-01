@@ -541,6 +541,111 @@ fn eviction_is_lru_and_keeps_offline_media() {
     assert_eq!(w.cache.stats(&w.cat, &w.lib, 0).unwrap().files, 0);
 }
 
+#[test]
+fn eviction_removes_previews_and_proxies_before_thumbnails_and_leaves_room() {
+    let mut w = World::new();
+    for n in ["a", "b", "c", "d"] {
+        common::write_file(&w.media, &format!("{n}.jpg"), n.repeat(4).as_bytes());
+    }
+    w.index();
+    let h = |n: &str| Blake3Hash::of(n.repeat(4).as_bytes());
+    // Oldest first: a thumbnail, a preview, a proxy, a thumbnail.
+    for (n, v) in [
+        ("a", Variant::Thumb256),
+        ("b", Variant::Preview2560),
+        ("c", Variant::Proxy720),
+        ("d", Variant::Thumb256),
+    ] {
+        w.cache
+            .put_bytes(&mut w.cat, &h(n), v, &[0u8; 100])
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let left = |w: &mut World| -> Vec<&'static str> {
+        [
+            ("a", Variant::Thumb256),
+            ("b", Variant::Preview2560),
+            ("c", Variant::Proxy720),
+            ("d", Variant::Thumb256),
+        ]
+        .into_iter()
+        .filter(|(n, v)| w.cache.find(&mut w.cat, &h(n), *v).unwrap().is_some())
+        .map(|(n, _)| n)
+        .collect()
+    };
+    // The preview goes first, though the thumbnail before it is older.
+    let rep = w.cache.evict(&mut w.cat, &w.lib, 350).unwrap();
+    assert_eq!((rep.removed, rep.bytes_after), (1, 300), "{rep:?}");
+    assert_eq!(left(&mut w), ["a", "c", "d"]);
+    // Under the limit: nothing is removed, even with a lower target.
+    let rep = w.cache.evict_to(&mut w.cat, &w.lib, 300, 100).unwrap();
+    assert_eq!(rep.removed, 0);
+    // Over it: down to the target, the proxy before the oldest thumbnail.
+    let rep = w.cache.evict_to(&mut w.cat, &w.lib, 250, 100).unwrap();
+    assert_eq!((rep.removed, rep.bytes_after), (2, 100), "{rep:?}");
+    assert_eq!(left(&mut w), ["d"]);
+}
+
+#[test]
+fn a_full_cache_makes_thumbnails_only_until_the_item_is_opened() {
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    still_file(&t, &w.media.join("p.jpg"), 1600, 1200, &[]);
+    clip(&t, &w.media.join("v.mp4"), 1280, 720, 2, "libopenh264");
+    w.index();
+    // The cache is 85% full of renditions of media that is not connected
+    // (never removed), so it stays full, with room for thumbnails.
+    w.cache
+        .put_bytes(
+            &mut w.cat,
+            &Blake3Hash::of(b"elsewhere"),
+            Variant::Preview2560,
+            &vec![0u8; 8_500_000],
+        )
+        .unwrap();
+    render::enqueue_backlog(&mut w.cat).unwrap();
+    let opts = RenderOptions {
+        workers: 1,
+        proxy_workers: 1,
+        max_bytes: 10_000_000,
+        pause_on_battery: false,
+        until_empty: true,
+        forced_encoder: None,
+        evict_every: 1,
+    };
+    let svc = RenderService::new(&w.lib, t, w.cache.clone(), opts);
+    w.run(&svc);
+    let (p, v) = (w.asset_of("p.jpg"), w.asset_of("v.mp4"));
+    for a in [p, v] {
+        for th in [Variant::Thumb256, Variant::Thumb1024] {
+            assert!(w.cache.lookup(&mut w.cat, a, th).unwrap().is_some());
+        }
+        assert!(w
+            .cache
+            .lookup(&mut w.cat, a, Variant::Preview2560)
+            .unwrap()
+            .is_none());
+    }
+    assert!(w.cache.lookup_proxy(&mut w.cat, v).unwrap().is_none());
+    let st = w.cat.read(|tx| tx.jobs().counts()).unwrap();
+    assert_eq!(
+        (st.total(JobState::Queued), st.total(JobState::Failed)),
+        (0, 0),
+        "{st:?}"
+    );
+    // Opened (on screen): the preview and the proxy are made after all.
+    render::set_visible(&mut w.cat, &w.cache, &[p, v]).unwrap();
+    w.run(&svc);
+    assert!(w
+        .cache
+        .lookup(&mut w.cat, p, Variant::Preview2560)
+        .unwrap()
+        .is_some());
+    assert!(w.cache.lookup_proxy(&mut w.cat, v).unwrap().is_some());
+    // (With room, background jobs make everything:
+    // the_service_renders_everything_once_and_reports_progress.)
+}
+
 // ── Stills ──────────────────────────────────────────────────────────────────
 
 #[test]
