@@ -605,9 +605,10 @@ export function Viewer() {
     return () => back?.focus();
   }, []);
 
+  const step = (dir: "next" | "prev" | "first" | "last") =>
+    index === null ? null : sel.viewerStep(s.sel, count, index, dir);
   const go = (dir: "next" | "prev" | "first" | "last") => {
-    if (index === null) return;
-    const to = sel.viewerStep(s.sel, count, index, dir);
+    const to = step(dir);
     if (to === null) return;
     // Through a selection: it stays. Through the view: select what is shown.
     dispatch({ t: "sel", sel: sel.size(s.sel) > 1 ? { ...s.sel, focus: to } : sel.only(to) });
@@ -731,25 +732,47 @@ export function Viewer() {
         </button>
       </header>
       <div className={`viewer-body${info ? " with-info" : ""}`}>
-        {d && row?.id === d.id ? (
-          d.kind === "video" ? (
-            <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
+        <div className="viewer-main">
+          {d && row?.id === d.id ? (
+            d.kind === "video" ? (
+              <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
+            ) : (
+              <PhotoStage key={d.id} d={d} members={members} member={member} onKeyRef={stageKey} />
+            )
           ) : (
-            <PhotoStage key={d.id} d={d} members={members} member={member} onKeyRef={stageKey} />
-          )
-        ) : (
-          <div className="viewer-stage" />
-        )}
+            <div className="viewer-stage" />
+          )}
+          {/* Previous and next on the picture's edges, without leaving the viewer.
+              aria-disabled, not disabled, at the ends: a disabled button drops
+              keyboard focus out of the viewer. */}
+          <button
+            className="viewer-step prev"
+            onClick={() => go("prev")}
+            aria-disabled={step("prev") === null}
+            aria-label="Previous item"
+            title="Previous (←)"
+            data-testid="viewer-prev"
+          >
+            ‹
+          </button>
+          <button
+            className="viewer-step next"
+            onClick={() => go("next")}
+            aria-disabled={step("next") === null}
+            aria-label="Next item"
+            title="Next (→)"
+            data-testid="viewer-next"
+          >
+            ›
+          </button>
+        </div>
         {info && d && row?.id === d.id && (
           <ViewerInfo d={d} member={member} hasPair={members?.hasPair ?? false} />
         )}
       </div>
       <footer className="viewer-foot">
-        <button onClick={() => go("prev")} aria-label="Previous item">
-          ‹
-        </button>
         <span className="muted">
-          ← → move · {d?.kind === "video" ? "" : "Z fit/100% · + − zoom · "}
+          ← → previous / next · {d?.kind === "video" ? "" : "Z fit/100% · + − zoom · "}
           {d?.kind === "video" ? "Space play · , . frame · J L second · " : ""}
           {members?.hasPair ? "R JPEG/RAW · " : ""}I info · F full screen · Esc close
         </span>
@@ -758,10 +781,6 @@ export function Viewer() {
             {note}
           </span>
         )}
-        <span className="spacer" />
-        <button onClick={() => go("next")} aria-label="Next item">
-          ›
-        </button>
       </footer>
     </div>
   );

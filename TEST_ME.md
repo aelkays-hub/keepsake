@@ -1,8 +1,26 @@
-# Manual Test Steps — No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Previous and next in the viewer
+
+Automated:
+```
+cd app/ui; pnpm test:e2e viewer
+```
+
+Manual (both OSes):
+1. Double-click a photo in the grid. **Expected:** large ‹ and › buttons sit on the left and right edges of the picture, and brighten when the mouse is over the picture.
+2. Click ›, then ‹. **Expected:** the next and then the previous item shows in the same viewer; the position at the top ("4 of 50") changes, and the viewer does not close.
+3. Go to the first item. **Expected:** ‹ is hidden. On the last item, › is hidden.
+4. After clicking a button, press → and ←. **Expected:** they step too.
+5. Select three items (Ctrl-click on Windows, ⌘-click on macOS), press Enter, and use ‹ ›. **Expected:** only those three are shown.
+6. Open a video. **Expected:** the buttons are there too, and do not cover the play bar.
+7. Zoom a photo in (Z). **Expected:** the arrow keys pan the picture, and the edge buttons still step to the next item.
 
 ---
 

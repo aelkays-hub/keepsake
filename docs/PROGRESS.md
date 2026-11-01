@@ -53,6 +53,22 @@
 
 ---
 
+## Previous and next in the viewer, on the picture's edges (2026-11-01)
+
+### What was asked
+- "the viewer should give me the ability to go backwards and forwards when viewing a pic not close it and open the next one".
+
+### What was built
+- The viewer already stepped with ← → (and Page Up/Down, Home, End), but its only buttons were two small ‹ › glyphs in the footer corners, easy to miss.
+- Now large ‹ › buttons sit on the left and right edges of the picture or video (`.viewer-step`, `viewer-prev` / `viewer-next`). They are brighter on hover and hidden at the first or last item. They step through the view, or through the selection when more than one item is selected, as the arrow keys do. The footer glyphs are gone, and the footer hint reads "← → previous / next".
+- At the ends the buttons are `aria-disabled` rather than `disabled`, so keyboard focus stays in the viewer and the arrow keys keep working after a click.
+- While zoomed in on a photo, the arrow keys still pan; the edge buttons step.
+
+### Tests
+- Mocked Playwright `viewer.spec.ts`: the buttons step forward and back without closing, are unavailable at the ends, and the arrow keys work after a click.
+
+---
+
 ## "Database is locked" while a backlog runs (2026-11-01)
 
 ### What was reported

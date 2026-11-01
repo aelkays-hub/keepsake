@@ -69,6 +69,37 @@ test("Enter opens the viewer; arrows move through the view, or the selection", a
   await expect(page.getByTestId("selected")).toHaveText("2 selected");
 });
 
+test("previous and next buttons on the picture's edges step without closing", async ({ page }) => {
+  await openLibrary(page, 3);
+  await tile(page, 0).dblclick();
+  const viewer = page.getByTestId("viewer");
+  const pos = page.getByTestId("viewer-position");
+  const prev = page.getByTestId("viewer-prev");
+  const next = page.getByTestId("viewer-next");
+  await expect(pos).toHaveText("1 of 3");
+  // Nothing before the first item.
+  await expect(prev).toBeDisabled();
+  await expect(next).toBeEnabled();
+  const first = await page.getByTestId("viewer-name").textContent();
+  await next.click();
+  await expect(pos).toHaveText("2 of 3");
+  await expect(viewer).toBeVisible();
+  await expect(page.getByTestId("viewer-name")).not.toHaveText(first ?? "");
+  await expect(prev).toBeEnabled();
+  await next.click();
+  await expect(pos).toHaveText("3 of 3");
+  // Nothing after the last item.
+  await expect(next).toBeDisabled();
+  await prev.click();
+  await prev.click();
+  await expect(pos).toHaveText("1 of 3");
+  await expect(page.getByTestId("viewer-name")).toHaveText(first ?? "");
+  // The arrow keys still work after clicking a button.
+  await page.keyboard.press("ArrowRight");
+  await expect(pos).toHaveText("2 of 3");
+  await expect(viewer).toBeVisible();
+});
+
 test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) => {
   const i = find((x) => kindOf(x) === "photo" && online(x));
   await openLibrary(page);
