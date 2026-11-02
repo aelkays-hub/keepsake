@@ -16,6 +16,7 @@ use keepsake_core::catalog::{
     Asset, AssetId, Blake3Hash, Catalog, FileRole, JobState, MediaKind, NewJob, Priority,
     VolumeKind,
 };
+use keepsake_core::fingerprint::JOB_FINGERPRINT;
 use keepsake_core::jobs;
 use keepsake_core::library::Library;
 use keepsake_core::rebuild::add_volume;
@@ -1280,4 +1281,184 @@ fn removing_an_old_cache_keeps_everything_that_is_not_ours() {
         .find(&mut w.cat, &src, Variant::Thumb256)
         .unwrap()
         .is_none());
+}
+
+// ── Camera JPEGs: thumbnails from the built-in preview ─────────────────────
+
+fn plain_jpeg(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(w, h, image::Rgb(rgb));
+    still::encode_jpeg(&image::DynamicImage::ImageRgb8(img)).unwrap()
+}
+
+/// A JPEG laid out as cameras write it: EXIF with `orientation`, an MPF
+/// index, the main picture, then the built-in preview after it.
+fn camera_jpeg(main: &[u8], preview: &[u8], orientation: u16) -> Vec<u8> {
+    let seg = |m: u8, data: &[u8]| {
+        let mut v = vec![0xFF, m];
+        v.extend(u16::try_from(data.len() + 2).unwrap().to_be_bytes());
+        v.extend(data);
+        v
+    };
+    let mut exif = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+    exif.extend(1u16.to_le_bytes());
+    exif.extend(0x0112u16.to_le_bytes());
+    exif.extend(3u16.to_le_bytes());
+    exif.extend(1u32.to_le_bytes());
+    exif.extend(orientation.to_le_bytes());
+    exif.extend([0, 0, 0, 0, 0, 0]);
+    let app1 = seg(0xE1, &exif);
+    let rest = &main[2..];
+    // APP2: marker and length (4), "MPF\0" (4), TIFF header (8), one IFD
+    // entry (2 + 12 + 4), two 16-byte MP entries (32).
+    let tiff_at = 2 + app1.len() + 8;
+    let preview_at = 2 + app1.len() + 66 + rest.len();
+    let le32 = |v: usize| u32::try_from(v).unwrap().to_le_bytes();
+    let mut mpf = b"MPF\0II*\0\x08\0\0\0".to_vec();
+    mpf.extend(1u16.to_le_bytes());
+    mpf.extend(0xB002u16.to_le_bytes());
+    mpf.extend(7u16.to_le_bytes());
+    mpf.extend(le32(32));
+    mpf.extend(le32(26));
+    mpf.extend(le32(0));
+    mpf.extend(0x2003_0000u32.to_le_bytes());
+    mpf.extend(le32(main.len()));
+    mpf.extend(le32(0));
+    mpf.extend(le32(0));
+    mpf.extend(0x0001_0001u32.to_le_bytes());
+    mpf.extend(le32(preview.len()));
+    mpf.extend(le32(preview_at - tiff_at));
+    mpf.extend(le32(0));
+    let app2 = seg(0xE2, &mpf);
+    assert_eq!(app2.len(), 66);
+    [&[0xFF, 0xD8][..], &app1, &app2, rest, preview].concat()
+}
+
+fn center(img: &image::DynamicImage) -> [u8; 3] {
+    let rgb = img.to_rgb8();
+    rgb.get_pixel(rgb.width() / 2, rgb.height() / 2).0
+}
+
+/// Mostly this colour (JPEG is lossy).
+fn near(c: [u8; 3], want: [u8; 3]) -> bool {
+    c.iter().zip(want).all(|(a, b)| a.abs_diff(b) < 40)
+}
+
+#[test]
+fn a_camera_jpeg_built_in_preview_is_found_and_turned_like_the_picture() {
+    let tmp = tempfile::tempdir().unwrap();
+    let main = plain_jpeg(2000, 1500, [200, 0, 0]);
+    let preview = plain_jpeg(1616, 1080, [0, 200, 0]);
+    let write = |name: &str, bytes: &[u8]| {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    };
+    let upright = write("a.jpg", &camera_jpeg(&main, &preview, 1));
+    let img = still::jpeg_builtin_preview(&upright, 1024)
+        .unwrap()
+        .unwrap();
+    assert_eq!((img.width(), img.height()), (1616, 1080));
+    assert!(
+        near(center(&img), [0, 200, 0]),
+        "the preview, not the picture"
+    );
+    // Turned like the main picture (90° clockwise to view).
+    let turned = write("b.jpg", &camera_jpeg(&main, &preview, 6));
+    let img = still::jpeg_builtin_preview(&turned, 1024).unwrap().unwrap();
+    assert_eq!((img.width(), img.height()), (1080, 1616));
+    // Whole file still decodes as the main picture.
+    let full = still::decode(&std::fs::read(&turned).unwrap(), None).unwrap();
+    assert_eq!((full.width(), full.height()), (1500, 2000));
+
+    // None: no MPF, a preview too small, an index pointing past the end.
+    let plain = write("c.jpg", &main);
+    assert!(still::jpeg_builtin_preview(&plain, 1024).unwrap().is_none());
+    let small = write(
+        "d.jpg",
+        &camera_jpeg(&main, &plain_jpeg(640, 480, [0; 3]), 1),
+    );
+    assert!(still::jpeg_builtin_preview(&small, 1024).unwrap().is_none());
+    let whole = camera_jpeg(&main, &preview, 1);
+    let cut = write("e.jpg", &whole[..whole.len() - preview.len() / 2]);
+    assert!(still::jpeg_builtin_preview(&cut, 1024).unwrap().is_none());
+    // Garbage never panics.
+    for n in [0, 1, 2, 3, 10, 40, 100, 200] {
+        let _ = still::mpf_preview_at(&whole[..n.min(whole.len())]);
+    }
+    let mut bad = whole.clone();
+    for b in bad.iter_mut().skip(80).take(60) {
+        *b = 0xFF;
+    }
+    let _ = still::mpf_preview_at(&bad);
+}
+
+#[test]
+fn thumbnails_alone_come_from_the_built_in_preview_and_the_preview_from_the_picture() {
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    let main = plain_jpeg(2000, 1500, [200, 0, 0]);
+    let preview = plain_jpeg(1616, 1080, [0, 200, 0]);
+    std::fs::write(w.media.join("cam.jpg"), camera_jpeg(&main, &preview, 1)).unwrap();
+    w.index();
+    let src = w.source("cam.jpg");
+    let made = still::render_stills_of(
+        &mut w.cat,
+        &w.cache,
+        &src,
+        &t,
+        None,
+        &[Variant::Thumb1024, Variant::Thumb256],
+    )
+    .unwrap();
+    let got: Vec<(u32, u32)> = made.iter().map(|(_, p)| dims(p)).collect();
+    // 1616×1080 fitted, not 2000×1500 (that would be 1024×768).
+    assert_eq!(got, [(1024, 684), (256, 171)]);
+    let thumb = image::open(&made[0].1).unwrap();
+    assert!(near(center(&thumb), [0, 200, 0]));
+    // The preview (opened in the viewer) is the whole picture.
+    let made = still::render_stills(&mut w.cat, &w.cache, &src, &t, None).unwrap();
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0].0, Variant::Preview2560);
+    assert_eq!(dims(&made[0].1), (2000, 1500));
+    assert!(near(center(&image::open(&made[0].1).unwrap()), [200, 0, 0]));
+}
+
+#[test]
+fn fingerprints_wait_while_thumbnails_are_ready() {
+    let Some(t) = tools() else { return };
+    let mut w = World::new();
+    for i in 0..4 {
+        still_file(&t, &w.media.join(format!("p{i}.jpg")), 1600, 1200, &[]);
+    }
+    w.index();
+    render::enqueue_backlog(&mut w.cat).unwrap();
+    let ids: Vec<AssetId> = (0..4).map(|i| w.asset_of(&format!("p{i}.jpg"))).collect();
+    w.cat
+        .write(|tx| {
+            let jobs: Vec<NewJob<'_>> = ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| NewJob {
+                    kind: JOB_FINGERPRINT,
+                    asset_id: *id,
+                    rank: 0,
+                    sort_key: i as i64,
+                })
+                .collect();
+            tx.jobs()
+                .enqueue(&jobs, Priority::Backlog, jobs::now_ms(), true)
+        })
+        .unwrap();
+    let evs = w.run(&w.service(&t, 1));
+    let started: Vec<String> = evs
+        .iter()
+        .filter_map(|e| match e {
+            RenderEvent::Started { kind, .. } => Some(kind.clone()),
+            _ => None,
+        })
+        .collect();
+    let last_still = started.iter().rposition(|k| k == JOB_STILLS).unwrap();
+    let first_fp = started.iter().position(|k| k == JOB_FINGERPRINT).unwrap();
+    assert!(first_fp > last_still, "{started:?}");
+    assert_eq!(started.iter().filter(|k| *k == JOB_FINGERPRINT).count(), 4);
 }

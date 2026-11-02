@@ -17,6 +17,7 @@
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
+| — | Faster thumbnails on a network drive: fingerprints wait for thumbnails; camera JPEG thumbnails from the built-in preview | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder reads only the start and end of each file; full fingerprints are made in the background | ✅ Done (Windows; macOS via CI) |
@@ -51,6 +52,28 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Faster thumbnails on a network drive (2026-11-02)
+
+### What was asked
+- "How can we speed up the thumbnail generation process? With the amount of pics I have it will take multiple days." Then: "Yes, do both."
+
+### What was found
+- The app made about 29 thumbnails a minute from the NAS, with 57,000 photos left (about 33 hours). The same files on the local disk: 323 JPEGs or 527 RAWs a minute (`keepsake renders bench`). The network drive was the limit, not the CPU.
+- 52,000 background fingerprint jobs were reading whole files (1.4 s for a 48 MB RAW) at the same time. Camera JPEGs were read in full (18.6 MB) for two thumbnails, though they hold a 185 KB preview.
+
+### What was built (ADR-032)
+- The fingerprint worker waits while a thumbnail job is ready (it looks again every 5 s), so thumbnails get the drive first.
+- Thumbnails alone of a JPEG with a built-in MPF preview of at least 1024 px are made from it (`still::jpeg_builtin_preview`, `mpf_preview_at`): the first 256 KB and the preview are read. Orientation follows the main picture; anything unusual falls back to the whole file. The viewer's preview is still the whole picture.
+
+### Tests
+- `render_tests`: a camera-style JPEG (EXIF orientation, MPF index, preview after the picture) gives its preview, turned; no MPF, a small preview or a cut file give none; garbage does not panic. Thumbnails alone come from the preview, and the viewer's preview from the picture. With thumbnail and fingerprint jobs queued, every fingerprint starts after the last thumbnail job.
+- Corpus (`corpus_jpeg_built_in_previews_match_the_picture`): 59 of 1,010 JPEGs have a preview; each matches the picture in shape, orientation and content.
+
+### Not done
+- Edited JPEGs have no built-in preview and are still read in full. The speed on the NAS after this change has not been measured yet; restart the app and compare.
 
 ---
 

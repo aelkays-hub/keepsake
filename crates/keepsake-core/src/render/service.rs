@@ -6,6 +6,8 @@
 //!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
 //!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; each has its own catalog
 //!   connection and claims one job at a time;
+//! - fingerprints wait while a thumbnail job is ready: each reads a whole
+//!   file, and on a network drive they would take the disk from thumbnails;
 //! - before each job a worker checks the pauses (on battery, an ingest is
 //!   running) and waits while one applies;
 //! - media that is offline is deferred (not counted as an attempt); other
@@ -42,6 +44,9 @@ use crate::settings::RenderSettings;
 const OFFLINE_RETRY_MS: i64 = 10 * 60 * 1000;
 /// How soon a job is tried again after the catalog was busy.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
+/// How long the fingerprint worker waits before looking again while
+/// thumbnail jobs are ready.
+const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
 /// Once over its limit, the cache is trimmed to this share of it (percent).
 pub const EVICT_TO_PCT: u64 = 90;
 /// Above this share of its limit (percent), the cache counts as full.
@@ -307,6 +312,14 @@ impl RenderService {
         }
     }
 
+    /// A thumbnail job is ready to run (a busy catalog counts as yes: look
+    /// again later).
+    fn stills_waiting(cat: &Catalog) -> bool {
+        cat.read(|t| t.jobs().next(&[JOB_STILLS], now_ms()))
+            .map(|j| j.is_some())
+            .unwrap_or(true)
+    }
+
     fn sleep(cancel: &AtomicBool, d: Duration) {
         let end = Instant::now() + d;
         while Instant::now() < end && !cancel.load(Ordering::SeqCst) {
@@ -328,6 +341,13 @@ impl RenderService {
             self.note_pause(shared, pause, tx);
             if pause.is_some() {
                 Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            }
+            // Fingerprints read every byte of a file; on a network drive
+            // that leaves thumbnails waiting for the disk. They wait while
+            // a thumbnail job is ready instead.
+            if kind == JOB_FINGERPRINT && Self::stills_waiting(&cat) {
+                Self::sleep(cancel, FINGERPRINT_WAIT);
                 continue;
             }
             let claimed = match cat.write(|t| t.jobs().claim(&[kind], now_ms())) {

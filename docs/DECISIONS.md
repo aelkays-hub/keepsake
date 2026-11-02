@@ -1146,3 +1146,18 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 
 **Not done.** A smarter default limit (from the library's size or the free space); eviction that reads only the rows it needs instead of all of them.
 
+---
+
+## ADR-032 — Thumbnails before fingerprints, and from a camera JPEG's built-in preview
+
+**Status**: Accepted (2026-11-02, product owner: "Yes, do both", after asking how to speed up thumbnails that would take days).
+
+**Context.** On the product owner's library, kept on a network drive (a MyCloud NAS, about 36 MB/s), the app made about 29 thumbnails a minute, with 57,000 photos still to do (about 33 hours). `keepsake renders bench` on the same files copied to the local disk made 323 JPEGs or 527 RAWs a minute with 4 workers, so the CPU was not the limit. The fingerprint worker (ADR-029) was reading 52,000 files in full at the same time, a 48 MB RAW taking 1.4 s, and took the drive from the thumbnail workers; listing one folder took over two minutes. Camera JPEGs were also read in full (an 18.6 MB A7 IV JPEG) to make two thumbnails, though they carry a 1616×1080 preview of 185 KB.
+
+**Decision.**
+- **Fingerprints wait.** The fingerprint worker claims a job only while no thumbnail or preview job is ready to run (`jobs().next(["render.stills"])`); otherwise it looks again every 5 s. Fingerprints serve duplicate checks and backups, which can wait; the grid cannot. Jobs deferred for an offline drive are not ready, so they never hold fingerprints back.
+- **Built-in preview for thumbnails alone.** When a job makes only thumbnails (a full cache, ADR-031) and the photo is a JPEG with an MPF preview (CIPA DC-007, written by Sony and most other cameras) of at least 1024 px, the thumbnails are made from it: the first 256 KB of the file and the preview are read, not the whole file. The main picture's EXIF orientation is applied. Anything unusual (no MPF, a preview too small, an index past the end, a preview that does not decode) falls back to the whole file. The viewer's preview is still made from the whole picture. Parsed in-house (about 80 lines); no dependency.
+
+**Measured.** Corpus: 59 of 1,010 JPEGs have a built-in preview (camera originals; edited exports have none), and every one matches the whole picture in shape, orientation and content (`corpus_jpeg_built_in_previews_match_the_picture`).
+
+**Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.

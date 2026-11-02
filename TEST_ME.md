@@ -1,8 +1,27 @@
-# Manual Test Steps — Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faster thumbnails on a network drive
+
+Automated:
+```
+cargo test -p keepsake-core --test render_tests built_in
+cargo test -p keepsake-core --test render_tests fingerprints_wait
+$env:KEEPSAKE_CORPUS = "C:\path\to\corpus"
+cargo test -p keepsake-core --test corpus_tests -- --include-ignored corpus_jpeg
+```
+
+Manual (both OSes), with a library on a network drive or a slow USB disk and many items without thumbnails:
+1. Before starting the new build, note the rate: run `keepsake renders status` twice, a minute or two apart, and compare the "thumbnails/previews: … done" numbers.
+2. Close Keepsake, start the new build, wait two minutes, and measure the same way. **Expected:** more thumbnails a minute than before.
+3. Run `keepsake renders --json status` and look at `fingerprint` under `by_kind`. **Expected:** its `done` number stays the same while thumbnails are being made, and goes up once they are all done.
+4. Scroll the grid to camera JPEGs (straight from a Sony camera). **Expected:** their thumbnails look right and are the right way up, including photos taken in portrait.
+5. Open one of them in the viewer. **Expected:** the full picture appears sharp (it is made from the whole file), and zooming to 100% shows full detail.
 
 ---
 

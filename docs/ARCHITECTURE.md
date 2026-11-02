@@ -126,7 +126,7 @@ Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offl
 - **Cache:**
   - Files are named `<root>/<kind>/<aa>/<source BLAKE3>-<recipe hash>.<ext>` (content-addressed), written through `.tmp` and a rename, and indexed by the `renditions` table.
   - Identical originals share renditions. A recipe change gives new names.
-  - LRU eviction keeps the cache under `max_bytes`, previews and proxies before thumbnails, but never removes a rendition whose original is not on a mounted volume. The render service trims to 90% of the limit, and while the cache is above 80% its background jobs make thumbnails only; opening an item makes the rest (ADR-031).
+  - LRU eviction keeps the cache under `max_bytes`, previews and proxies before thumbnails, but never removes a rendition whose original is not on a mounted volume. The render service trims to 90% of the limit, and while the cache is above 80% its background jobs make thumbnails only; opening an item makes the rest (ADR-031). Thumbnails alone of a camera JPEG are made from its built-in MPF preview, without reading the whole file (ADR-032).
   - The root is `[render] cache_dir` in `config.toml` (default: the OS cache folder).
 
 ### VideoOps
@@ -375,7 +375,7 @@ keepsake rebuild-catalog --fresh
 3. Form assets from Keepsake sidecars' `keepsake:Files` lists, then group the remaining files with the Sony card heuristics (one original per group; ARW/HIF companions become `RawPair`, `SUB/` files `CameraProxy`, XML/CPI/MPL `Sidecar`). Assets without a Keepsake sidecar get an id derived from the original's location.
 4. Replace the volume's rows in one transaction. If the asset already exists from another volume, the sidecar wins only when its metadata is newer.
 
-Adding a folder (`add_folder` with `batch_files`) differs: it saves 20 files at a time and reads only each file's quick hash; files get a stand-in key and `fingerprint::JOB_FINGERPRINT` jobs read them in full later, on the render service's fingerprint worker (ADR-028, ADR-029).
+Adding a folder (`add_folder` with `batch_files`) differs: it saves 20 files at a time and reads only each file's quick hash; files get a stand-in key and `fingerprint::JOB_FINGERPRINT` jobs read them in full later, on the render service's fingerprint worker (ADR-028, ADR-029), which waits while thumbnail jobs are ready (ADR-032).
 
 Not rebuilt: renditions (regenerated on demand), import session history, and labels or tags nothing uses. A test builds a catalog, deletes it, rebuilds, and asserts the two are equal (`crates/keepsake-core/tests/rebuild_tests.rs`).
 

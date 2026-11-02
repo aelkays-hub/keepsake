@@ -227,3 +227,68 @@ fn corpus_probes_cleanly() {
         );
     }
 }
+
+/// Every camera JPEG's built-in preview (used for thumbnails alone) is the
+/// same picture, the same way up, as the whole file.
+#[test]
+#[ignore = "requires KEEPSAKE_CORPUS"]
+fn corpus_jpeg_built_in_previews_match_the_picture() {
+    use keepsake_core::render::still;
+    let Some(root) = corpus_root() else {
+        eprintln!("SKIP: KEEPSAKE_CORPUS not set");
+        return;
+    };
+    let mut stack = vec![root];
+    let (mut seen, mut used) = (0, 0);
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+            if !ext.eq_ignore_ascii_case("jpg") && !ext.eq_ignore_ascii_case("jpeg") {
+                continue;
+            }
+            seen += 1;
+            let Some(quick) = still::jpeg_builtin_preview(&p, 1024).unwrap() else {
+                continue;
+            };
+            used += 1;
+            let full = still::decode(&std::fs::read(&p).unwrap(), None).unwrap();
+            let ratio = |w: u32, h: u32| f64::from(w) / f64::from(h);
+            let (a, b) = (
+                ratio(quick.width(), quick.height()),
+                ratio(full.width(), full.height()),
+            );
+            assert!(
+                (a - b).abs() / b < 0.05,
+                "{}: aspect {a} vs {b}",
+                p.display()
+            );
+            // The same picture: small versions differ little.
+            let small = |i: &image::DynamicImage| {
+                i.resize_exact(16, 16, image::imageops::FilterType::Triangle)
+                    .to_luma8()
+            };
+            let (q, f) = (small(&quick), small(&full));
+            let diff: u32 = q
+                .pixels()
+                .zip(f.pixels())
+                .map(|(x, y)| u32::from(x.0[0].abs_diff(y.0[0])))
+                .sum();
+            assert!(
+                diff / 256 < 25,
+                "{}: mean difference {}",
+                p.display(),
+                diff / 256
+            );
+        }
+    }
+    eprintln!("{used} of {seen} JPEGs have a built-in preview");
+    assert!(
+        used > 0,
+        "no camera JPEG with a built-in preview in the corpus"
+    );
+}

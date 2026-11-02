@@ -12,6 +12,11 @@
 //! The preview is fitted to 2560 px (never enlarged); the 1024 px
 //! thumbnail is made from the preview, the 256 px one from that. All are
 //! JPEG at [`JPEG_QUALITY`].
+//!
+//! When only the thumbnails are wanted (a full cache), a camera JPEG's
+//! built-in MPF preview (Sony: 1616×1080, at the end of the file) is used
+//! instead of the whole picture, if it is at least 1024 px: a few hundred
+//! KB read instead of the whole file.
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -150,6 +155,138 @@ pub fn embedded_preview(
         .and_then(|o| u8::try_from(o).ok())
         .and_then(Orientation::from_exif);
     Ok((buf, orientation))
+}
+
+/// How much of a JPEG's start is read to find its built-in preview.
+const JPEG_HEAD: u64 = 256 * 1024;
+
+fn be_or_le(le: bool, b: &[u8]) -> Option<u32> {
+    let b: [u8; 4] = b.get(..4)?.try_into().ok()?;
+    Some(if le {
+        u32::from_le_bytes(b)
+    } else {
+        u32::from_be_bytes(b)
+    })
+}
+
+fn u16_of(le: bool, b: &[u8]) -> Option<u16> {
+    let b: [u8; 2] = b.get(..2)?.try_into().ok()?;
+    Some(if le {
+        u16::from_le_bytes(b)
+    } else {
+        u16::from_be_bytes(b)
+    })
+}
+
+/// Where a JPEG's largest built-in preview is (file offset, length), from
+/// the start of the file (`head`): the MPF segment (CIPA DC-007) that
+/// cameras write, e.g. Sony's 1616×1080 "large thumbnail", stored after
+/// the main picture. `None` without one.
+pub fn mpf_preview_at(head: &[u8]) -> Option<(u64, u64)> {
+    if !head.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut i = 2usize;
+    // The markers before the picture data: APPn segments with lengths.
+    let (tiff_at, tiff) = loop {
+        if *head.get(i)? != 0xFF {
+            return None;
+        }
+        let marker = *head.get(i + 1)?;
+        if marker == 0xFF {
+            i += 1;
+            continue;
+        }
+        if marker == 0xDA || marker == 0xD9 {
+            return None;
+        }
+        let len = usize::from(u16_of(false, head.get(i + 2..)?)?);
+        let data = head.get(i + 4..i + 2 + len)?;
+        if marker == 0xE2 && data.starts_with(b"MPF\0") {
+            break (i + 8, &data[4..]);
+        }
+        i += 2 + len;
+    };
+    let le = match tiff.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let ifd = usize::try_from(be_or_le(le, tiff.get(4..)?)?).ok()?;
+    let count = usize::from(u16_of(le, tiff.get(ifd..)?)?);
+    // MPEntry (0xB002): 16 bytes per picture; the first is the main one.
+    let entries = (0..count).find_map(|k| {
+        let e = tiff.get(ifd + 2 + 12 * k..ifd + 14 + 12 * k)?;
+        (u16_of(le, e)? == 0xB002).then(|| {
+            let n = be_or_le(le, &e[4..])?;
+            let at = be_or_le(le, &e[8..])?;
+            Some((usize::try_from(at).ok()?, usize::try_from(n).ok()?))
+        })?
+    })?;
+    let (at, n) = entries;
+    let table = tiff.get(at..at.checked_add(n)?)?;
+    table
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .skip(1)
+        .filter_map(|e| {
+            let size = u64::from(be_or_le(le, &e[4..])?);
+            let offset = u64::from(be_or_le(le, &e[8..])?);
+            (size > 0 && offset > 0).then(|| (tiff_at as u64 + offset, size))
+        })
+        .max_by_key(|(_, size)| *size)
+}
+
+/// A JPEG's built-in preview, turned like the main picture, when it is at
+/// least `min_long_edge` pixels: reads the file's start and the preview
+/// only (about 200 KB of an 18 MB Sony JPEG). `None` when there is none
+/// or it cannot be used; the caller then decodes the whole file.
+pub fn jpeg_builtin_preview(
+    path: &Path,
+    min_long_edge: u32,
+) -> Result<Option<DynamicImage>, RenderError> {
+    let mut f = std::fs::File::open(path)?;
+    let file_len = f.metadata()?.len();
+    let mut head = Vec::new();
+    (&mut f).take(JPEG_HEAD).read_to_end(&mut head)?;
+    let Some((at, len)) = mpf_preview_at(&head) else {
+        return Ok(None);
+    };
+    if at.checked_add(len).is_none_or(|end| end > file_len) || len > 16 * 1024 * 1024 {
+        return Ok(None);
+    }
+    // The main picture's orientation, from its headers.
+    let orientation = ImageReader::new(Cursor::new(&head))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_decoder().ok())
+        .and_then(|mut d| d.orientation().ok());
+    let Some(orientation) = orientation else {
+        return Ok(None);
+    };
+    f.seek(SeekFrom::Start(at))?;
+    let mut buf = vec![0u8; usize::try_from(len).unwrap_or(0)];
+    f.read_exact(&mut buf)?;
+    if !buf.starts_with(&[0xFF, 0xD8]) {
+        return Ok(None);
+    }
+    let Ok(img) = decode(&buf, Some(orientation)) else {
+        return Ok(None);
+    };
+    Ok((img.width().max(img.height()) >= min_long_edge).then_some(img))
+}
+
+/// A smaller picture to make the thumbnails from, when one is at hand
+/// without reading the whole original (a camera JPEG's built-in preview).
+fn thumbnail_picture(src: &Source) -> Result<Option<DynamicImage>, RenderError> {
+    if src.media_kind != MediaKind::Photo {
+        return Ok(None);
+    }
+    match lower_ext(&src.still).as_str() {
+        "jpg" | "jpeg" => jpeg_builtin_preview(&src.still, 1024),
+        _ => Ok(None),
+    }
 }
 
 /// FFmpeg inputs for a source: one file, or AVCHD segments joined with the
@@ -319,10 +456,21 @@ pub fn render_stills_of(
     if missing.is_empty() {
         return Ok(Vec::new());
     }
-    let scratch = cache.temp_path("frame")?;
-    let full = picture(src, tools, exiftool, &scratch)?;
-    let preview = fit(&full, 2560)?;
-    drop(full);
+    // Thumbnails alone: from a camera JPEG's built-in preview when it has
+    // one, so the whole file is not read (much faster on a network drive).
+    let quick = if missing.contains(&Variant::Preview2560) {
+        None
+    } else {
+        thumbnail_picture(src)?
+    };
+    let preview = match quick {
+        Some(img) => img,
+        None => {
+            let scratch = cache.temp_path("frame")?;
+            let full = picture(src, tools, exiftool, &scratch)?;
+            fit(&full, 2560)?
+        }
+    };
     let t1024 = fit(&preview, 1024)?;
     let t256 = fit(&t1024, 256)?;
     let mut made = Vec::new();
