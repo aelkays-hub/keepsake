@@ -1,8 +1,31 @@
-# Manual Test Steps — Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Selecting many items to edit
+
+Automated:
+```
+cargo test -p keepsake-core --test selection_summary_tests
+cd app/ui; pnpm test; pnpm exec playwright test --project=mocked e2e/mocked/multi-select.spec.ts
+```
+
+Manual (both OSes; on macOS read Ctrl as ⌘), in the grid with at least a dozen photos:
+1. Point at a thumbnail. **Expected:** a round tick-box appears at its top right.
+2. Click one photo, then click the tick-boxes of two others. **Expected:** all three are selected (blue border, filled tick), the status bar says "3 selected", and the inspector says "3 items selected — every edit below applies to all of them".
+3. Click the tick-box of one of them again. **Expected:** it leaves the selection ("2 selected").
+4. Click **Select** in the toolbar (it turns to "✓ Selecting" and every tile shows its tick-box). Click three tiles with no keys held. **Expected:** each click adds a tile; clicking a selected tile removes it. **All** selects everything shown, **None** clears it.
+5. Press Esc in the grid. **Expected:** the selection clears and Select mode turns off.
+6. Press the mouse on a thumbnail and drag across several rows. **Expected:** a blue rectangle follows the mouse and every tile it touches is selected; on release the rectangle goes. Drag near the bottom edge: the grid scrolls and keeps selecting.
+7. Hold Ctrl and drag a second rectangle elsewhere. **Expected:** it adds to the first selection. Click in an empty gap between tiles: the selection clears.
+8. Select three photos and click 4 stars in the inspector. **Expected:** all three show 4 stars on their tiles.
+9. Type a keyword (e.g. `Places|Lake`) and press Enter. Type a comment and click elsewhere. **Expected:** each of the three photos, selected alone, shows the keyword and the comment.
+10. Add a fourth photo (its tick-box). **Expected:** the inspector shows "Mixed ratings" (if its rating differs), the keyword chip reads "Places|Lake (3 of 4)" with a dashed border, and the comment box says "Different comments…" if its comment differs. Click **+** on the chip. **Expected:** the chip loses "(3 of 4)": all four have it.
+11. Check that no original file changed: their modified dates in Explorer / Finder are the same as before; only the XMP sidecars in the library changed.
 
 ---
 

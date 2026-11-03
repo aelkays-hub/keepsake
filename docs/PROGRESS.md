@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Select many to edit: tick-box on tiles, Select mode, drag a rectangle; inspector shows what the selection shares; comment for all | ✅ Done (Windows; macOS via CI) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
 | — | Faster thumbnails on a network drive: fingerprints wait for thumbnails; camera JPEG thumbnails from the built-in preview | ✅ Done (Windows; macOS via CI) |
