@@ -27,10 +27,10 @@ pub use ids::{
 pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
-    Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DriveRow, EventSpan,
-    Events, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
+    Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DriveRow, EditFields,
+    EventSpan, Events, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
     LibraryReport, Meta, NewJob, Priority, Recipes, Renditions, Report, ReportRow, Search,
-    SearchQuery, Sequences, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
+    SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 

@@ -94,6 +94,7 @@ pub fn run() {
             edit::edit_label,
             edit::edit_comment,
             edit::edit_keywords,
+            edit::selection_summary,
             edit::keywords,
             render::render_status,
             render::render_set_visible,

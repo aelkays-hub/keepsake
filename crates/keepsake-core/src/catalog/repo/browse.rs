@@ -128,6 +128,36 @@ fn map(r: &Row<'_>) -> rusqlite::Result<BrowseRow> {
     })
 }
 
+/// One value across a selection: what every item has, or `Mixed`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Shared<T> {
+    /// Nothing counted yet.
+    #[default]
+    Empty,
+    Same(T),
+    Mixed,
+}
+
+impl<T: PartialEq> Shared<T> {
+    pub fn add(&mut self, v: T) {
+        match self {
+            Shared::Empty => *self = Shared::Same(v),
+            Shared::Same(cur) if *cur != v => *self = Shared::Mixed,
+            _ => {}
+        }
+    }
+}
+
+/// The editable fields of a selection, as the inspector shows them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditFields {
+    /// Assets found (missing ids are skipped).
+    pub count: u64,
+    pub rating: Shared<u8>,
+    pub label: Shared<Option<String>>,
+    pub comment: Shared<Option<String>>,
+}
+
 /// ORDER BY for a sort: missing values last, ties by capture time then
 /// insertion order, so the order is total and stable.
 fn order_by(s: Sort) -> String {
@@ -268,6 +298,35 @@ impl<M> Browse<'_, M> {
             }
         }
         self.attach_files(&mut out)?;
+        Ok(out)
+    }
+
+    /// Rating, label and comment across `ids` (duplicates must be removed
+    /// first). One pass, 500 ids per statement.
+    pub fn edit_fields(&self, ids: &[AssetId]) -> Result<EditFields, CatalogError> {
+        let mut out = EditFields::default();
+        for chunk in ids.chunks(500) {
+            let sql = format!(
+                "SELECT a.rating, l.name, a.comment FROM assets a
+                   LEFT JOIN labels l ON l.id = a.label_id WHERE a.id IN ({})",
+                vec!["?"; chunk.len()].join(",")
+            );
+            let mut st = self.conn.prepare(&sql)?;
+            let rows = st.query_map(rusqlite::params_from_iter(chunk.iter()), |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (rating, label, comment) = row?;
+                out.count += 1;
+                out.rating.add(u8::try_from(rating).unwrap_or(0));
+                out.label.add(label);
+                out.comment.add(comment.filter(|c| !c.trim().is_empty()));
+            }
+        }
         Ok(out)
     }
 

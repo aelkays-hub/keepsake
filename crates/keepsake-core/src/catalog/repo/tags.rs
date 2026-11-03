@@ -52,6 +52,44 @@ impl<M> Tags<'_, M> {
         raw.iter().map(|p| TagPath::parse_lightroom(p)).collect()
     }
 
+    /// Each user keyword on any of `ids`, with how many of them carry it,
+    /// sorted by path. Duplicate ids must be removed first.
+    pub fn user_counts(&self, ids: &[AssetId]) -> Result<Vec<(TagPath, u64)>, CatalogError> {
+        let mut by_tag: std::collections::HashMap<i64, u64> = std::collections::HashMap::new();
+        for chunk in ids.chunks(500) {
+            let sql = format!(
+                "SELECT tag_id, count(*) FROM asset_tags
+                  WHERE source = 'user' AND asset_id IN ({}) GROUP BY tag_id",
+                vec!["?"; chunk.len()].join(",")
+            );
+            let mut st = self.conn.prepare(&sql)?;
+            let rows = st.query_map(rusqlite::params_from_iter(chunk.iter()), |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (tag, n) = row?;
+                *by_tag.entry(tag).or_default() += u64::try_from(n).unwrap_or(0);
+            }
+        }
+        if by_tag.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut st = self
+            .conn
+            .prepare(&format!("{PATHS_CTE} SELECT id, path FROM tag_paths"))?;
+        let paths: Vec<(i64, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut out = Vec::with_capacity(by_tag.len());
+        for (id, p) in paths {
+            if let Some(n) = by_tag.get(&id) {
+                out.push((TagPath::parse_lightroom(&p)?, *n));
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
     /// Ids of assets carrying `path` (exactly, not descendants).
     pub fn assets_with(&self, path: &TagPath) -> Result<Vec<AssetId>, CatalogError> {
         let Some(tag) = find_path(self.conn, path)? else {

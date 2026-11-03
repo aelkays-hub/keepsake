@@ -144,6 +144,30 @@ pub(crate) fn sync_sidecars(
     Ok(())
 }
 
+/// What a multi-selection has in common, for the inspector.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SelectionSummary {
+    pub fields: crate::catalog::EditFields,
+    /// Every user keyword on the selection with how many items carry it.
+    /// A keyword on all of them has a count of `fields.count`.
+    pub keywords: Vec<(TagPath, u64)>,
+}
+
+/// Summarise the editable metadata of `ids` (any order, duplicates allowed).
+pub fn selection_summary(cat: &Catalog, ids: &[AssetId]) -> Result<SelectionSummary, LibraryError> {
+    let mut ids = ids.to_vec();
+    ids.sort();
+    ids.dedup();
+    Ok(cat.read(
+        |tx| -> Result<SelectionSummary, crate::catalog::CatalogError> {
+            Ok(SelectionSummary {
+                fields: tx.browse().edit_fields(&ids)?,
+                keywords: tx.tags().user_counts(&ids)?,
+            })
+        },
+    )?)
+}
+
 impl<'a> MetadataService<'a> {
     pub fn new(lib: &'a Library, cat: &'a mut Catalog) -> Self {
         Self { lib, cat }

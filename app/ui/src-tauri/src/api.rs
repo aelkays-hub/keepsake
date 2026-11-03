@@ -223,6 +223,29 @@ dto! {
         pub ranges: Vec<(u64, u64)>,
     }
 
+    /// What the selected items have in common (the inspector with several
+    /// selected). A field is `null` with `…Mixed` set when they differ.
+    pub struct SelectionSummary {
+        #[ts(type = "number")]
+        pub count: u64,
+        /// `null` when the ratings differ.
+        pub rating: Option<u8>,
+        pub label: Option<String>,
+        pub label_mixed: bool,
+        pub comment: Option<String>,
+        pub comment_mixed: bool,
+        /// Every keyword on any of them; on all of them when `count` equals
+        /// the summary's `count`.
+        pub keywords: Vec<KeywordCount>,
+    }
+
+    pub struct KeywordCount {
+        /// Lightroom-style path (`Places|Lake`).
+        pub keyword: String,
+        #[ts(type = "number")]
+        pub count: u64,
+    }
+
     /// Result of an edit. Large selections run in the background and report
     /// with `edit://progress` and `edit://done` events.
     pub struct EditResult {

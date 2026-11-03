@@ -20,7 +20,8 @@ mod volumes;
 
 pub use assets::{Assets, DayCount};
 pub use browse::{
-    Browse, BrowseRow, CalendarBucket, CalendarLevel, Facet, FacetColumn, Sort, SortField,
+    Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,
+    SortField,
 };
 pub use events::{EventSpan, Events};
 pub use files::Files;

@@ -5,12 +5,15 @@
 
 use std::sync::Arc;
 
-use keepsake_core::catalog::{AssetId, Rating, TagPath};
+use keepsake_core::catalog::{AssetId, Rating, Shared, TagPath};
 use keepsake_core::library::LibraryError;
 use keepsake_core::metadata::MetadataService;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::api::{EditProgress, EditResult, Selection, ShiftSample, TimeShiftPreview};
+use crate::api::{
+    EditProgress, EditResult, KeywordCount, Selection, SelectionSummary, ShiftSample,
+    TimeShiftPreview,
+};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult, Open};
 
@@ -124,22 +127,62 @@ pub fn edit_label(
     )
 }
 
+/// Set (or clear, with `None`) the comment of every selected item.
 #[tauri::command(async)]
 pub fn edit_comment(
+    app: AppHandle,
     state: State<'_, AppState>,
-    id: String,
+    selection: Selection,
     comment: Option<String>,
 ) -> CmdResult<EditResult> {
+    let ids = resolve(&state, &selection)?;
+    apply(
+        &app,
+        state.open()?,
+        ids,
+        Arc::new(move |svc, id| svc.set_comment(id, comment.as_deref()).map(|_| ())),
+    )
+}
+
+/// What the selection has in common: rating, label, comment and keywords.
+#[tauri::command(async)]
+pub fn selection_summary(
+    state: State<'_, AppState>,
+    selection: Selection,
+) -> CmdResult<SelectionSummary> {
+    let ids = resolve(&state, &selection)?;
     let open = state.open()?;
-    let a = convert::id(&id, "asset")?;
-    let mut cat = open.writer()?;
-    MetadataService::new(&open.lib, &mut cat)
-        .set_comment(a, comment.as_deref())
-        .map_err(err)?;
-    Ok(EditResult {
-        changed: 1,
-        background: false,
+    let s = keepsake_core::metadata::selection_summary(&*open.cat()?, &ids).map_err(err)?;
+    let (label, label_mixed) = split(s.fields.label);
+    let (comment, comment_mixed) = split(s.fields.comment);
+    Ok(SelectionSummary {
+        count: s.fields.count,
+        rating: match s.fields.rating {
+            Shared::Same(r) => Some(r),
+            _ => None,
+        },
+        label,
+        label_mixed,
+        comment,
+        comment_mixed,
+        keywords: s
+            .keywords
+            .into_iter()
+            .map(|(k, count)| KeywordCount {
+                keyword: k.to_lightroom(),
+                count,
+            })
+            .collect(),
     })
+}
+
+/// A shared optional value as (value, mixed).
+fn split(v: Shared<Option<String>>) -> (Option<String>, bool) {
+    match v {
+        Shared::Same(x) => (x, false),
+        Shared::Mixed => (None, true),
+        Shared::Empty => (None, false),
+    }
 }
 
 /// Add and remove keywords (Lightroom-style paths, `Places|Lake`).
