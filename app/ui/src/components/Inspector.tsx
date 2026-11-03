@@ -1,11 +1,12 @@
 // The inspector: preview, metadata, and edits (rating, label, comment,
-// keywords). Rating, label and keywords apply to the whole selection; the
-// comment to the focused item. Every edit goes through core and writes XMP.
+// keywords). Every edit applies to the whole selection and goes through core,
+// which writes XMP. With several selected, the edit fields show what they
+// have in common (a selection summary), not just the focused item.
 
 import { useEffect, useState } from "react";
 
-import { api, fileUrl, type Details, type Row } from "../api";
-import { useEdits } from "../edits";
+import { api, fileUrl, type Details, type Row, type SelectionSummary } from "../api";
+import { keywordChips, selectionPayload, useEdits } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
@@ -47,6 +48,14 @@ export function Inspector() {
   const [kw, setKw] = useState("");
   const [suggest, setSuggest] = useState<string[]>([]);
   const n = sel.size(s.sel);
+  const multi = n > 1;
+  const summary = useSummary(multi);
+  // The comment box: what the user typed since it was last loaded.
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (multi) setComment(summary?.comment ?? "");
+    setDirty(false);
+  }, [multi, summary]);
   useEffect(() => {
     let live = true;
     if (!row) {
@@ -58,12 +67,17 @@ export function Inspector() {
       .then((x) => {
         if (!live) return;
         setD(x);
-        setComment(x.comment ?? "");
+        if (!multi) {
+          setComment(x.comment ?? "");
+          setDirty(false);
+        }
       })
       .catch(console.error);
     return () => {
       live = false;
     };
+    // `multi` only decides whether the comment box follows this item.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, s.revision]);
   useEffect(() => {
     api
@@ -81,12 +95,9 @@ export function Inspector() {
   }
   const preview = fileUrl(d.preview) ?? fileUrl(row?.thumb);
   const saveComment = () => {
-    if ((d.comment ?? "") !== comment) {
-      api
-        .editComment(d.id, comment || null)
-        .then(() => setD({ ...d, comment }))
-        .catch(console.error);
-    }
+    if (!dirty) return;
+    setDirty(false);
+    edits.comment(comment.trim() ? comment : null);
   };
   const addKeyword = () => {
     const k = kw.trim();
@@ -97,9 +108,9 @@ export function Inspector() {
   return (
     <aside className="inspector" aria-label="Inspector" data-testid="inspector">
       {preview ? <img className="preview" src={preview} alt="" /> : <div className="preview ph" />}
-      {n > 1 && (
+      {multi && (
         <p className="multi" data-testid="multi">
-          {fmt.plural(n, "item")} selected — rating, label and keywords apply to all.
+          {fmt.plural(n, "item")} selected — every edit below applies to all of them.
         </p>
       )}
       <h2 className="name" title={d.name ?? ""}>
@@ -107,8 +118,21 @@ export function Inspector() {
       </h2>
       {!d.online && <p className="badge off">The drive with this item is not connected.</p>}
       <section aria-label="Rating and label" className="edit">
-        <Stars value={d.rating} onChange={(v) => edits.rate(v)} />
-        <LabelPicker value={d.label} onChange={(v) => edits.label(v)} />
+        <Stars value={multi ? (summary?.rating ?? 0) : d.rating} onChange={(v) => edits.rate(v)} />
+        {multi && summary && summary.rating === null && (
+          <span className="mixed" data-testid="rating-mixed">
+            Mixed ratings
+          </span>
+        )}
+        <LabelPicker
+          value={multi ? (summary?.label ?? null) : d.label}
+          onChange={(v) => edits.label(v)}
+        />
+        {multi && summary?.labelMixed && (
+          <span className="mixed" data-testid="label-mixed">
+            Mixed labels
+          </span>
+        )}
       </section>
       <div className="actions" aria-label="Actions">
         <button onClick={() => dispatch({ t: "viewer", open: true })} title="View (Enter)">
@@ -148,8 +172,15 @@ export function Inspector() {
         Comment
         <textarea
           value={comment}
-          disabled={n > 1}
-          onChange={(e) => setComment(e.target.value)}
+          placeholder={
+            multi && summary?.commentMixed
+              ? "Different comments. What you type replaces them all."
+              : undefined
+          }
+          onChange={(e) => {
+            setComment(e.target.value);
+            setDirty(true);
+          }}
           onBlur={saveComment}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveComment();
@@ -162,10 +193,23 @@ export function Inspector() {
       <div className="block">
         Keywords
         <ul className="chips" aria-label="Keywords">
-          {d.keywords.map((k) => (
-            <li key={k}>
+          {keywordChips(multi, d.keywords, summary).map(({ k, of }) => (
+            <li
+              key={k}
+              className={of ? "partial" : undefined}
+              title={of ? `On ${of} of the ${fmt.count(n)} selected` : undefined}
+            >
               {k}
-              <button aria-label={`Remove ${k}`} onClick={() => edits.keywords([], [k])}>
+              {of && <span className="muted"> ({of})</span>}
+              {of && (
+                <button aria-label={`Add ${k} to all`} onClick={() => edits.keywords([k], [])}>
+                  +
+                </button>
+              )}
+              <button
+                aria-label={multi ? `Remove ${k} from all` : `Remove ${k}`}
+                onClick={() => edits.keywords([], [k])}
+              >
                 ✕
               </button>
             </li>
@@ -206,4 +250,33 @@ export function Inspector() {
       />
     </aside>
   );
+}
+
+/**
+ * What the selection shares (rating, label, comment, keywords), fetched again
+ * when the selection or the library changes. A short wait first, so a drag
+ * across the grid asks once, not on every tile it passes.
+ */
+function useSummary(multi: boolean): SelectionSummary | null {
+  const { s, view } = useUi();
+  const [summary, setSummary] = useState<SelectionSummary | null>(null);
+  const v = view?.view ?? null;
+  useEffect(() => {
+    if (!multi) {
+      setSummary(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .selectionSummary(selectionPayload(v, s.sel))
+        .then((x) => live && setSummary(x))
+        .catch(console.error);
+    }, 120);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [multi, v, s.sel, s.revision]);
+  return summary;
 }

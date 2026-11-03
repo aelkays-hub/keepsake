@@ -60,7 +60,8 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
   const pick = (i: number, e: React.MouseEvent) => {
     parent.current?.focus();
     if (e.shiftKey) dispatch({ t: "sel", sel: sel.extend(s.sel, i) });
-    else if (e.ctrlKey || e.metaKey) dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
+    else if (e.ctrlKey || e.metaKey || s.selecting)
+      dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
     else dispatch({ t: "sel", sel: sel.only(i) });
   };
   return (

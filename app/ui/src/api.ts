@@ -38,6 +38,7 @@ import type { ReportDrive } from "./bindings/ReportDrive";
 import type { ReportGroup } from "./bindings/ReportGroup";
 import type { Row } from "./bindings/Row";
 import type { Selection } from "./bindings/Selection";
+import type { SelectionSummary } from "./bindings/SelectionSummary";
 import type { SettingsInfo } from "./bindings/SettingsInfo";
 import type { SettingsSaved } from "./bindings/SettingsSaved";
 import type { SettingsUpdate } from "./bindings/SettingsUpdate";
@@ -82,6 +83,7 @@ export type {
   ReportGroup,
   Row,
   Selection,
+  SelectionSummary,
   SettingsInfo,
   SettingsSaved,
   SettingsUpdate,
@@ -136,8 +138,10 @@ export const api = {
     invoke<EditResult>("edit_rating", { selection, rating }),
   editLabel: (selection: Selection, label: string | null) =>
     invoke<EditResult>("edit_label", { selection, label }),
-  editComment: (id: string, comment: string | null) =>
-    invoke<EditResult>("edit_comment", { id, comment }),
+  editComment: (selection: Selection, comment: string | null) =>
+    invoke<EditResult>("edit_comment", { selection, comment }),
+  selectionSummary: (selection: Selection) =>
+    invoke<SelectionSummary>("selection_summary", { selection }),
   editKeywords: (selection: Selection, add: string[], remove: string[]) =>
     invoke<EditResult>("edit_keywords", { selection, add, remove }),
   keywords: () => invoke<string[]>("keywords"),

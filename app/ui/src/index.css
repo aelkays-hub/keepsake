@@ -312,6 +312,53 @@ textarea {
   outline: 2px dashed var(--focus);
   outline-offset: -4px;
 }
+/* The tick-box: on hover, on selected tiles, and on every tile in Select mode. */
+.tile .check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.tile:hover .check,
+.tile.selected .check,
+.grid-scroll[data-selecting] .tile .check {
+  opacity: 1;
+}
+.tile.selected .check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tile .check:hover {
+  transform: scale(1.1);
+}
+/* The rectangle drawn while dragging to select. */
+.marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+.select-box {
+  display: inline-flex;
+  gap: 4px;
+}
+.select-box button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
 .tile.offline img {
   opacity: 0.55;
 }
@@ -568,6 +615,15 @@ textarea {
   border: 0;
   background: transparent;
   padding: 0 4px;
+}
+.chips li.partial {
+  opacity: 0.75;
+  border-style: dashed;
+}
+.mixed {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 6px;
 }
 .multi {
   background: var(--sel);

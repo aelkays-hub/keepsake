@@ -543,8 +543,33 @@ export function installMock(): void {
             st.label.set(i, (a.label as string | null) ?? null);
           return { changed: 1, background: false };
         case "edit_comment":
-          st.comment.set(Number(String(a.id).slice(1)), (a.comment as string | null) ?? null);
+          for (const i of resolve(a.selection as Selection))
+            st.comment.set(i, (a.comment as string | null) || null);
           return { changed: 1, background: false };
+        case "selection_summary": {
+          const ids = [...new Set(resolve(a.selection as Selection))].filter((i) => all[i]);
+          const one = <T>(vals: T[]): { v: T | null; mixed: boolean } =>
+            vals.length && vals.every((x) => x === vals[0])
+              ? { v: vals[0], mixed: false }
+              : { v: null, mixed: vals.length > 0 };
+          const r = one(ids.map((i) => rating(all[i])));
+          const l = one(ids.map((i) => label(all[i])));
+          const c = one(ids.map((i) => st.comment.get(i) ?? null));
+          const counts = new Map<string, number>();
+          for (const i of ids)
+            for (const k of st.keywords.get(i) ?? []) counts.set(k, (counts.get(k) ?? 0) + 1);
+          return {
+            count: ids.length,
+            rating: r.v,
+            label: l.v,
+            labelMixed: l.mixed,
+            comment: c.v,
+            commentMixed: c.mixed,
+            keywords: [...counts.entries()]
+              .sort(([x], [y]) => x.localeCompare(y))
+              .map(([keyword, count]) => ({ keyword, count })),
+          };
+        }
         case "edit_keywords":
           for (const i of resolve(a.selection as Selection)) {
             const cur = (st.keywords.get(i) ?? []).filter(

@@ -36,6 +36,8 @@ export interface UiState {
   sort: SortSpec;
   cal: CalPos;
   sel: sel.Sel;
+  /** Select mode: a plain click on a tile adds it to the selection. */
+  selecting: boolean;
   /** Bumped after edits so rows are fetched again. */
   revision: number;
   inspector: boolean;
@@ -54,6 +56,7 @@ export type Msg =
   | { t: "sort"; sort: SortSpec }
   | { t: "cal"; cal: CalPos }
   | { t: "sel"; sel: sel.Sel }
+  | { t: "selecting"; on: boolean }
   | { t: "edited" }
   | { t: "inspector"; open: boolean }
   | { t: "screen"; screen: Screen }
@@ -67,6 +70,7 @@ export const initial: UiState = {
   sort: { field: "date", descending: true },
   cal: { year: null, month: null, day: null },
   sel: sel.emptySel,
+  selecting: false,
   revision: 0,
   inspector: true,
   screen: "library",
@@ -111,6 +115,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       };
     case "sel":
       return { ...s, sel: m.sel };
+    case "selecting":
+      return { ...s, selecting: m.on };
     case "edited":
       return { ...s, revision: s.revision + 1 };
     case "inspector":

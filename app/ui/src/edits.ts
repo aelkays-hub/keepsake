@@ -2,7 +2,8 @@
 
 import { useCallback } from "react";
 
-import { api, type Selection } from "./api";
+import { api, type Selection, type SelectionSummary } from "./api";
+import * as fmt from "./format";
 import { actionFor, moveIndex, type KeyLike } from "./keys";
 import * as sel from "./selection";
 import { useUi } from "./state";
@@ -33,6 +34,9 @@ export function useEdits() {
     },
     keywords: (add: string[], remove: string[]) => {
       if (!empty) api.editKeywords(payload, add, remove).then(done).catch(console.error);
+    },
+    comment: (text: string | null) => {
+      if (!empty) api.editComment(payload, text).then(done).catch(console.error);
     },
   };
 }
@@ -66,7 +70,9 @@ export function useListKeys(
         dispatch({ t: "sel", sel: sel.all(count) });
         break;
       case "clear":
+        // Esc also leaves Select mode.
         dispatch({ t: "sel", sel: sel.emptySel });
+        if (s.selecting) dispatch({ t: "selecting", on: false });
         break;
       case "open":
         if (s.sel.focus !== null) open(s.sel.focus);
@@ -89,4 +95,27 @@ export function useListKeys(
     }
     e.preventDefault();
   };
+}
+
+/**
+ * The keyword chips: the item's own, or with several selected, the ones on
+ * all of them first, then those on some (with "n of m").
+ */
+export function keywordChips(
+  multi: boolean,
+  own: string[],
+  summary: SelectionSummary | null,
+): { k: string; of: string | null }[] {
+  if (!multi) return own.map((k) => ({ k, of: null }));
+  if (!summary) return [];
+  const total = Number(summary.count);
+  const all = summary.keywords.filter((x) => Number(x.count) >= total);
+  const some = summary.keywords.filter((x) => Number(x.count) < total);
+  return [
+    ...all.map((x) => ({ k: x.keyword, of: null })),
+    ...some.map((x) => ({
+      k: x.keyword,
+      of: `${fmt.count(Number(x.count))} of ${fmt.count(total)}`,
+    })),
+  ];
 }

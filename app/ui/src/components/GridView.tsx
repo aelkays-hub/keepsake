@@ -1,5 +1,7 @@
 // The thumbnail grid: virtualized rows of tiles, multi-select with mouse
-// and keyboard, offline badges, ratings, labels and video durations.
+// (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
+// dragging a rectangle) and keyboard, offline badges, ratings, labels and
+// video durations.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -17,6 +19,21 @@ import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
 
 const GAP = 8;
+/** How far the mouse moves before a press becomes a drag. */
+const DRAG_PX = 4;
+/** How close to the top or bottom a drag scrolls the grid. */
+const EDGE_PX = 48;
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Drag {
+  stop: () => void;
+}
 
 function Tile({
   row,
@@ -25,7 +42,6 @@ function Tile({
   large,
   selected,
   focused,
-  onPick,
   onOpen,
 }: {
   row: Row | undefined;
@@ -35,7 +51,6 @@ function Tile({
   large: boolean;
   selected: boolean;
   focused: boolean;
-  onPick: (i: number, e: React.MouseEvent) => void;
   onOpen: (i: number) => void;
 }) {
   const src = fileUrl((large ? row?.thumbLarge : null) ?? row?.thumb);
@@ -50,8 +65,9 @@ function Tile({
       aria-label={describeRow(row, index)}
       className={`tile${selected ? " selected" : ""}${focused ? " focused" : ""}${row && !row.online ? " offline" : ""}`}
       style={{ width: px, height: px }}
-      onMouseDown={(e) => onPick(index, e)}
-      onDoubleClick={() => onOpen(index)}
+      onDoubleClick={(e) => {
+        if (!(e.target as HTMLElement).closest(".check")) onOpen(index);
+      }}
       title={row?.name ?? ""}
     >
       {src ? (
@@ -59,6 +75,16 @@ function Tile({
       ) : (
         <div className="ph" />
       )}
+      <span
+        className="check"
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? "Remove from selection" : "Add to selection"}
+        title={selected ? "Remove from selection" : "Add to selection"}
+        data-testid="tile-check"
+      >
+        {selected ? "✓" : ""}
+      </span>
       {row && (
         <div className="badges">
           {!row.online && (
@@ -141,11 +167,104 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     }
     listKeys(e);
   };
-  const pick = (i: number, e: React.MouseEvent) => {
-    parent.current?.focus();
-    if (e.shiftKey) dispatch({ t: "sel", sel: sel.extend(s.sel, i) });
-    else if (e.ctrlKey || e.metaKey) dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
-    else dispatch({ t: "sel", sel: sel.only(i) });
+  const content = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<Box | null>(null);
+  const drag = useRef<Drag | null>(null);
+  const geom = { cols, count: rows.count, tile: TILE, gap: GAP };
+  const geomRef = useRef(geom);
+  geomRef.current = geom;
+  // Stop a drag left running when the grid goes away.
+  useEffect(() => () => drag.current?.stop(), []);
+  const onMouseDown = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    const hit = t.closest<HTMLElement>("[data-index]");
+    const i = hit ? Number(hit.dataset.index) : null;
+    parent.current?.focus({ preventScroll: true });
+    if (e.button !== 0) {
+      // Right-click keeps a selection it lands in.
+      if (i !== null && !sel.has(s.sel, i)) dispatch({ t: "sel", sel: sel.only(i) });
+      return;
+    }
+    if (t === parent.current && e.nativeEvent.offsetX >= t.clientWidth) return; // scroll bar
+    const additive = e.ctrlKey || e.metaKey || s.selecting;
+    if (i !== null) {
+      if (e.shiftKey) dispatch({ t: "sel", sel: sel.extend(s.sel, i) });
+      else if (additive || t.closest(".check")) dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
+      else dispatch({ t: "sel", sel: sel.only(i) });
+    }
+    // A drag from here selects a rectangle; extra with Ctrl/Shift or in
+    // Select mode, else in place of the selection.
+    const base = additive || e.shiftKey ? s.sel : sel.emptySel;
+    startDrag(e, i, base);
+  };
+  const startDrag = (e: React.MouseEvent, start: number | null, base: sel.Sel) => {
+    const c = content.current;
+    const p = parent.current;
+    if (!c || !p) return;
+    const at = (x: number, y: number) => {
+      const r = c.getBoundingClientRect();
+      return { x: x - r.left, y: y - r.top };
+    };
+    const origin = at(e.clientX, e.clientY);
+    let last = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    let speed = 0;
+    let frame = 0;
+    const update = () => {
+      const cur = at(last.x, last.y);
+      setBox({
+        x: Math.min(origin.x, cur.x),
+        y: Math.min(origin.y, cur.y),
+        w: Math.abs(cur.x - origin.x),
+        h: Math.abs(cur.y - origin.y),
+      });
+      const ranges = sel.inRect(geomRef.current, origin.x, origin.y, cur.x, cur.y);
+      const focus = start ?? ranges[0]?.[0] ?? null;
+      dispatch({ t: "sel", sel: sel.union(base, ranges, focus) });
+    };
+    // Near the top or bottom edge the grid scrolls, faster nearer the edge.
+    const tick = () => {
+      if (speed !== 0) {
+        p.scrollTop += speed;
+        update();
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    const move = (ev: MouseEvent) => {
+      last = { x: ev.clientX, y: ev.clientY };
+      if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < DRAG_PX) return;
+      if (!moved) {
+        moved = true;
+        frame = requestAnimationFrame(tick);
+      }
+      const r = p.getBoundingClientRect();
+      const edge = Math.min(EDGE_PX, r.height / 4);
+      speed =
+        ev.clientY < r.top + edge
+          ? -Math.ceil((r.top + edge - ev.clientY) / 3)
+          : ev.clientY > r.bottom - edge
+            ? Math.ceil((ev.clientY - (r.bottom - edge)) / 3)
+            : 0;
+      update();
+    };
+    const stop = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      cancelAnimationFrame(frame);
+      drag.current = null;
+      setBox(null);
+    };
+    const up = () => {
+      stop();
+      // A click on the space between tiles clears the selection.
+      if (!moved && start === null && base === sel.emptySel) {
+        dispatch({ t: "sel", sel: sel.emptySel });
+      }
+    };
+    drag.current?.stop();
+    drag.current = { stop };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   };
   const loaded = view !== null && (view.count === 0 || rows.get(0) !== undefined);
   useEffect(() => {
@@ -180,9 +299,11 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
       data-testid="grid"
       data-count={rows.count}
       data-size={size}
+      data-selecting={s.selecting || undefined}
       onKeyDown={onKey}
+      onMouseDown={onMouseDown}
     >
-      <div style={{ height: v.getTotalSize(), position: "relative" }}>
+      <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
         {items.map((vr) => (
           <div
             key={vr.key}
@@ -202,13 +323,19 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
                   large={large}
                   selected={sel.has(s.sel, i)}
                   focused={s.sel.focus === i}
-                  onPick={pick}
                   onOpen={onOpen}
                 />
               );
             })}
           </div>
         ))}
+        {box && (
+          <div
+            className="marquee"
+            data-testid="marquee"
+            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+          />
+        )}
       </div>
     </div>
   );

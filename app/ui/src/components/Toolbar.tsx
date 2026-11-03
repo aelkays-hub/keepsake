@@ -1,5 +1,5 @@
 // Search bar and filters (date range, camera, lens, type, rating, words),
-// view switch and sort.
+// Select mode, view switch and sort.
 
 import { useEffect, useState } from "react";
 
@@ -7,6 +7,7 @@ import { api, emptyQuery, type Facets, type Query } from "../api";
 import type { KindFilter } from "../bindings/KindFilter";
 import type { SortKey } from "../bindings/SortKey";
 import * as fmt from "../format";
+import * as sel from "../selection";
 import { useUi, type Mode } from "../state";
 import { setThumbSize, THUMB_SIZES, useThumbSize } from "../thumbSize";
 
@@ -22,7 +23,7 @@ const SORTS: { key: SortKey; label: string }[] = [
 ];
 
 export function Toolbar() {
-  const { s, dispatch, refreshes } = useUi();
+  const { s, dispatch, refreshes, view } = useUi();
   const thumbSize = useThumbSize();
   const [text, setText] = useState(s.filters.text ?? "");
   const [facets, setFacets] = useState<Facets>({ cameras: [], lenses: [] });
@@ -176,6 +177,36 @@ export function Toolbar() {
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {s.mode !== "calendar" && (
+        <div className="filter select-box" role="group" aria-label="Selection">
+          <button
+            aria-pressed={s.selecting}
+            onClick={() => dispatch({ t: "selecting", on: !s.selecting })}
+            title="Select mode: a click adds or removes an item, without Ctrl (Esc to leave)"
+            data-testid="select-mode"
+          >
+            {s.selecting ? "✓ Selecting" : "Select"}
+          </button>
+          {s.selecting && (
+            <>
+              <button
+                onClick={() => dispatch({ t: "sel", sel: sel.all(Number(view?.count ?? 0)) })}
+                title="Select everything here (Ctrl+A)"
+                data-testid="select-all"
+              >
+                All
+              </button>
+              <button
+                onClick={() => dispatch({ t: "sel", sel: sel.emptySel })}
+                title="Select nothing"
+                data-testid="select-none"
+              >
+                None
+              </button>
+            </>
+          )}
         </div>
       )}
       <div className="segmented" role="tablist" aria-label="View">
