@@ -36,14 +36,20 @@ test.afterAll(() => {
 
 const results: { what: string; value: string; limit: string; ok: boolean }[] = [];
 function record(what: string, ms: number, limitMs: number) {
-  results.push({ what, value: `${Math.round(ms)} ms`, limit: `${limitMs} ms`, ok: ms <= limitMs * SLACK });
+  results.push({
+    what,
+    value: `${Math.round(ms)} ms`,
+    limit: `${limitMs} ms`,
+    ok: ms <= limitMs * SLACK,
+  });
 }
 
 const invoke = <T>(page: Page, cmd: string) =>
   page.evaluate(
     (c) =>
-      (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string) => Promise<unknown> } })
-        .__TAURI_INTERNALS__.invoke(c),
+      (
+        window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string) => Promise<unknown> } }
+      ).__TAURI_INTERNALS__.invoke(c),
     cmd,
   ) as Promise<T>;
 
@@ -110,12 +116,19 @@ test("300,000 items: start-up, search, calendar and scrolling", async () => {
     await expect(page.getByTestId("tile").first().locator("img")).toBeVisible();
 
     // Search: from the last keystroke to the new count on screen. This
-    // includes the deliberate pause that waits for typing to stop.
+    // includes the deliberate pause that waits for typing to stop. Each
+    // search runs three times and is judged on the middle time: on a shared
+    // CI machine single timings of one search swung from 190 to 620 ms. The
+    // app keeps no search cache, so every repeat does the full work.
     for (const words of ["lake", "sunset lake", "dsc01234", "family"]) {
-      const ms = await timeToCount(page, () => page.getByTestId("search").fill(words));
-      record(`search "${words}" (keystroke to results)`, ms, 300);
-      await page.getByTestId("search").fill("");
-      await expect(page.getByTestId("count")).toHaveText(`${N.toLocaleString("en-US")} items`);
+      const times: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        times.push(await timeToCount(page, () => page.getByTestId("search").fill(words)));
+        await page.getByTestId("search").fill("");
+        await expect(page.getByTestId("count")).toHaveText(`${N.toLocaleString("en-US")} items`);
+      }
+      times.sort((a, b) => a - b);
+      record(`search "${words}" (keystroke to results, middle of 3)`, times[1], 300);
     }
     const camMs = await timeToCount(page, () => page.getByTestId("rating").selectOption("4"));
     record("filter: 4 stars or more", camMs, 300);
@@ -181,7 +194,9 @@ test("300,000 items: start-up, search, calendar and scrolling", async () => {
         `\n${release ? "Release" : "Debug"} app, ${N.toLocaleString("en-US")} items, limits × ${SLACK}:`,
         "| Measure | Result | Limit | OK |",
         "|---|---|---|---|",
-        ...results.map((r) => `| ${r.what} | ${r.value} | ${r.limit} | ${r.ok ? "yes" : "**no**"} |`),
+        ...results.map(
+          (r) => `| ${r.what} | ${r.value} | ${r.limit} | ${r.ok ? "yes" : "**no**"} |`,
+        ),
       ].join("\n"),
     );
   }
