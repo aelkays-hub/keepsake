@@ -63,7 +63,9 @@ test("zoom on a 6000 x 4000 JPEG: full size soon, and slider steps within a few 
   try {
     await app.connect();
     const page = await app.page("main");
-    await expect(page.getByTestId("count")).toHaveText("1 item");
+    // Start-up is not what this test measures (perf.spec.ts does): on a busy
+    // CI machine the library took over 10 s to open once.
+    await expect(page.getByTestId("count")).toHaveText("1 item", { timeout: 60_000 });
     await page.getByTestId("tile").first().dblclick();
     const t0 = Date.now();
     const img = page.getByTestId("viewer-image");
