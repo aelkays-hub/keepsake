@@ -1,8 +1,30 @@
-# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Show in Explorer / Finder, Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Show in Explorer / Finder (item right-click menu)
+
+Automated:
+```
+cargo test -p keepsake-core --test reveal_tests
+cargo test -p keepsake-platform reveal
+cargo test -p keepsake-app reveal
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/show-in-folder.spec.ts
+```
+
+Manual, with a library that has photos and videos on a connected drive, and (for step 7) some on a drive you can unplug. **Windows** says "Explorer", **macOS** says "Finder".
+1. In the grid, right-click a photo. **Expected:** a small menu opens at the pointer with **Show in Explorer** (macOS: **Show in Finder**) focused, a line, then **Open in …** for each application set in Settings and **Open with the system default**.
+2. Click **Show in Explorer / Finder**. **Expected:** the menu closes; a window opens on the folder holding the photo's original, with that file selected (highlighted). On macOS Finder comes to the front with the file selected. Try a file whose folder name has spaces: it still works.
+3. Do the same for a video, and for a RAW + JPEG item. **Expected:** the original file is selected (for the pair, the file the catalog holds as the original).
+4. Select three tiles (Ctrl/⌘-click), then right-click the third. **Expected:** all three stay selected, the menu is for the third (hover over the menu: its name is that file), and Show selects that file.
+5. Click a tile, press **Shift+F10**. **Expected:** the menu opens on the tile; ↓ and ↑ move through the items; **Esc** closes it and the tile keeps focus. On a Windows keyboard with a Menu key, press it: same menu. Press Enter on Show: the folder opens.
+6. Press Ctrl+3 (details table) and right-click a row, then open the viewer (Enter) and right-click the picture, or press Shift+F10. **Expected:** the same menu in both. In the viewer, Esc closes the menu but not the viewer, and after Show the bottom line says "Shown in Explorer" ("Shown in Finder").
+7. Unplug the drive holding some items, then right-click one of them (it has an "offline" badge). **Expected:** **Show in Explorer / Finder** is greyed out, the menu says **Drive not connected (drive name)**, and there are no Open in items. Esc closes it. Plug the drive back in and try again: Show works.
+8. Check the originals did not change: their modified dates and sizes are the same as before. Nothing is moved, renamed or deleted.
 
 ---
 
