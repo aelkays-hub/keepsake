@@ -137,3 +137,36 @@ test("in the viewer: Escape closes the menu, not the viewer", async ({ page }) =
   await expect(viewer).toBeVisible();
   expect(await calls(page, "show_in_folder")).toHaveLength(1);
 });
+
+test("Ctrl+click toggles the selection and opens no menu", async ({ page }) => {
+  await setUp(page);
+  const a = online(page).nth(0);
+  const b = online(page).nth(1);
+  await a.click();
+  await b.click({ modifiers: ["Control"] });
+  await expect(page.locator('[data-testid="tile"][aria-selected="true"]')).toHaveCount(2);
+  // On a Mac, Ctrl+click also fires contextmenu (primary button, Ctrl down):
+  // send that here too, so every OS checks it.
+  await b.evaluate((el) =>
+    el.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+      }),
+    ),
+  );
+  await expect(page.getByTestId("item-menu")).toHaveCount(0);
+  // Keys still go to the grid, not to a menu.
+  await expect(b).toBeFocused();
+  await b.click({ modifiers: ["Control"] });
+  await expect(b).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator('[data-testid="tile"][aria-selected="true"]')).toHaveCount(1);
+  expect(await calls(page, "original_place")).toEqual([]);
+  // A right-click still opens it.
+  await b.click({ button: "right" });
+  await expect(page.getByTestId("item-menu")).toBeVisible();
+});

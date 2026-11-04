@@ -15,7 +15,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
-import { isMenuKey, useItemMenu } from "./useItemMenu";
+import { isMenuClick, isMenuKey, useItemMenu } from "./useItemMenu";
 import { markReady } from "../diagnostics";
 import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
@@ -161,6 +161,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   );
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (!isMenuClick(e)) return;
     const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
     if (!hit) return;
     const i = Number(hit.dataset.index);

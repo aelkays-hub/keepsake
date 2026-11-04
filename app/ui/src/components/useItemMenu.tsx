@@ -5,6 +5,15 @@ import { useState } from "react";
 
 import { ItemMenu } from "./ItemMenu";
 
+const mac =
+  typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
+
+/** A `contextmenu` event that should open the item menu. On a Mac, Ctrl+click
+ * also fires `contextmenu`, but here Ctrl+click adds to or removes from the
+ * selection, so it opens nothing: only the secondary button (or the Menu key,
+ * Shift+F10) does. */
+export const isMenuClick = (e: React.MouseEvent) => !(e.ctrlKey && (e.button === 0 || mac));
+
 /** The Menu key or Shift+F10: open the focused item's menu. */
 export const isMenuKey = (e: React.KeyboardEvent) =>
   e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey && !e.ctrlKey && !e.altKey);

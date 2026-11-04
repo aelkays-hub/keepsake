@@ -31,7 +31,7 @@ import * as sel from "../selection";
 import { useUi } from "../state";
 import { OpenInMenu } from "./OpenInMenu";
 import { ItemMenu } from "./ItemMenu";
-import { isMenuKey } from "./useItemMenu";
+import { isMenuClick, isMenuKey } from "./useItemMenu";
 import { setViewerInfo, useViewerInfo } from "../viewerInfo";
 import { ViewerInfo } from "./ViewerInfo";
 
@@ -749,7 +749,7 @@ export function Viewer() {
           ref={main}
           onContextMenu={(e) => {
             e.preventDefault();
-            if (!row) return;
+            if (!row || !isMenuClick(e)) return;
             const b = main.current?.getBoundingClientRect();
             setMenuAt(
               e.clientX === 0 && e.clientY === 0 && b

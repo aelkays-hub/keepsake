@@ -13,7 +13,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
-import { isMenuKey, useItemMenu } from "./useItemMenu";
+import { isMenuClick, isMenuKey, useItemMenu } from "./useItemMenu";
 import { useRovingFocus } from "../a11y";
 
 const ROW = 30;
@@ -134,6 +134,7 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
                   onDoubleClick={() => onOpen(i)}
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    if (!isMenuClick(e)) return;
                     if (e.clientX === 0 && e.clientY === 0) itemMenu.openOn(i, e.currentTarget);
                     else itemMenu.open(i, e.clientX, e.clientY);
                   }}
