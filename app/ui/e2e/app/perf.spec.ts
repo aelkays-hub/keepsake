@@ -44,6 +44,12 @@ function record(what: string, ms: number, limitMs: number) {
   });
 }
 
+/** The middle value of a few timings. */
+function middle(ms: number[]): number {
+  const s = [...ms].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
 const invoke = <T>(page: Page, cmd: string) =>
   page.evaluate(
     (c) =>
@@ -127,25 +133,38 @@ test("300,000 items: start-up, search, calendar and scrolling", async () => {
         await page.getByTestId("search").fill("");
         await expect(page.getByTestId("count")).toHaveText(`${N.toLocaleString("en-US")} items`);
       }
-      times.sort((a, b) => a - b);
-      record(`search "${words}" (keystroke to results, middle of 3)`, times[1], 300);
+      record(`search "${words}" (keystroke to results, middle of 3)`, middle(times), 300);
     }
-    const camMs = await timeToCount(page, () => page.getByTestId("rating").selectOption("4"));
-    record("filter: 4 stars or more", camMs, 300);
-    await page.getByRole("button", { name: "Clear filters" }).click();
-    await expect(page.getByTestId("count")).toHaveText(`${N.toLocaleString("en-US")} items`);
+    // The filter and the calendar are also timed three times, judged on the
+    // middle time, for the same reason: "calendar: years" read 155, 265 and
+    // 887 ms on three CI runs of nearly the same code.
+    const filterMs: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      filterMs.push(await timeToCount(page, () => page.getByTestId("rating").selectOption("4")));
+      await page.getByRole("button", { name: "Clear filters" }).click();
+      await expect(page.getByTestId("count")).toHaveText(`${N.toLocaleString("en-US")} items`);
+    }
+    record("filter: 4 stars or more (middle of 3)", middle(filterMs), 300);
 
-    // Calendar: switch to it and wait for the year cells.
-    const t0 = Date.now();
-    await page.keyboard.press("Control+1");
-    await expect(page.locator('[data-testid="cal-cell"]').first()).toBeVisible();
-    record("calendar: years on screen", Date.now() - t0, 300);
-    const t1 = Date.now();
-    await page.locator('[data-testid="cal-cell"]').first().click();
-    await expect(page.locator('[data-testid="cal-cell"]').nth(5)).toBeVisible();
-    record("calendar: a year's months on screen", Date.now() - t1, 300);
-    await page.keyboard.press("Control+2");
-    await expect(page.getByTestId("grid")).toBeVisible();
+    // Calendar: switch to it and wait for the year cells, then open a year.
+    // "All items" in the sidebar resets the calendar to its years for the
+    // next round; the calendar keeps no cache, so each round asks again.
+    const yearsMs: number[] = [];
+    const monthsMs: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now();
+      await page.keyboard.press("Control+1");
+      await expect(page.locator('[data-testid="cal-cell"]').first()).toBeVisible();
+      yearsMs.push(Date.now() - t0);
+      const t1 = Date.now();
+      await page.locator('[data-testid="cal-cell"]').first().click();
+      await expect(page.locator('[data-testid="cal-cell"]').nth(5)).toBeVisible();
+      monthsMs.push(Date.now() - t1);
+      await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+      await expect(page.getByTestId("grid")).toBeVisible();
+    }
+    record("calendar: years on screen (middle of 3)", middle(yearsMs), 300);
+    record("calendar: a year's months on screen (middle of 3)", middle(monthsMs), 300);
 
     // Scrolling: 4 s of fast scrolling (60 px a frame, about 15 rows a
     // second), timing every frame. A frame is dropped when it takes more
