@@ -23,6 +23,7 @@ Manual, with a library that has photos and videos on a connected drive, and (for
 4. Select three tiles (Ctrl/⌘-click), then right-click the third. **Expected:** all three stay selected, the menu is for the third (hover over the menu: its name is that file), and Show selects that file.
 5. Click a tile, press **Shift+F10**. **Expected:** the menu opens on the tile; ↓ and ↑ move through the items; **Esc** closes it and the tile keeps focus. On a Windows keyboard with a Menu key, press it: same menu. Press Enter on Show: the folder opens.
 6. Press Ctrl+3 (details table) and right-click a row, then open the viewer (Enter) and right-click the picture, or press Shift+F10. **Expected:** the same menu in both. In the viewer, Esc closes the menu but not the viewer, and after Show the bottom line says "Shown in Explorer" ("Shown in Finder").
+6b. **macOS:** Ctrl+click two tiles. **Expected:** each Ctrl+click adds or removes the tile from the selection and no menu opens; the arrow keys still move in the grid. A two-finger click (secondary click) opens the menu.
 7. Unplug the drive holding some items, then right-click one of them (it has an "offline" badge). **Expected:** **Show in Explorer / Finder** is greyed out, the menu says **Drive not connected (drive name)**, and there are no Open in items. Esc closes it. Plug the drive back in and try again: Show works.
 8. Check the originals did not change: their modified dates and sizes are the same as before. Nothing is moved, renamed or deleted.
 
