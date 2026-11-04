@@ -764,6 +764,22 @@ export function installMock(): void {
             throw new Error(`${name(app)} is not set up in Settings for this file type`);
           return name(app);
         }
+        case "original_place": {
+          const it = all[Number(String(a.id).slice(1))];
+          return it.online
+            ? { online: true, path: `F:\\Photos\\${it.name}`, problem: null, manager: "Explorer" }
+            : {
+                online: false,
+                path: null,
+                problem: "Drive not connected (Archive)",
+                manager: "Explorer",
+              };
+        }
+        case "show_in_folder": {
+          const it = all[Number(String(a.id).slice(1))];
+          if (!it.online) throw new Error("Drive not connected (Archive)");
+          return null;
+        }
         case "time_shift_preview": {
           const ids = resolve(a.selection as Selection);
           const ref = all[Number(String(a.reference).slice(1))];

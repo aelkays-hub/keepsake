@@ -632,6 +632,18 @@ dto! {
         pub default: bool,
     }
 
+    /// Where an item's original file is, for Show in Explorer / Finder.
+    pub struct OriginalPlace {
+        /// The file is on a connected drive: it can be shown.
+        pub online: bool,
+        /// Its absolute path, while its drive is connected.
+        pub path: Option<String>,
+        /// Why it cannot be shown ("Drive not connected (Card A)"), if not.
+        pub problem: Option<String>,
+        /// The file manager's name for the menu: "Explorer", "Finder".
+        pub manager: String,
+    }
+
     /// One metadata tag: ExifTool's name (`ExposureTime`) and its value as text.
     pub struct MetaTagDto {
         pub name: String,

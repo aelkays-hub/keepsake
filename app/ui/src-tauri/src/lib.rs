@@ -10,6 +10,7 @@ mod maintenance;
 mod prefs;
 mod render;
 mod report;
+mod reveal;
 mod state;
 mod viewer;
 
@@ -113,6 +114,8 @@ pub fn run() {
             viewer::open_external,
             viewer::metadata_all,
             viewer::open_choices,
+            reveal::original_place,
+            reveal::show_in_folder,
             edit::time_shift_preview,
             edit::time_shift_apply,
             maintenance::backup_overview,

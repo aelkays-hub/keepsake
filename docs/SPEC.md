@@ -23,6 +23,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - A Keepsake library or the thumbnail cache inside the folder is left out. A folder that overlaps one already in the library is refused.
 - Progress, Stop (nothing is saved), and "Scan again" for new, changed and removed files.
 - In the sidebar's folder tree, right-click a folder (or press the Menu key or Shift+F10) for **Show** and **Scan again**. Scan again on a folder inside an added folder reads only that folder and the folders in it: new and changed files there come in, files gone from there are removed, and the rest of the added folder is left as it is. The Folders screen shows the progress and outcome.
+- Right-click an item in the grid, the details table or the viewer (or press the Menu key or Shift+F10 on the focused item) for **Show in Explorer** (Windows) or **Show in Finder** (macOS): it opens the folder holding the item's original file with the file selected. The same menu lists the item's **Open in** applications. With several items selected, it acts on the one right-clicked, and the selection stays. When the item's drive is not connected, Show is greyed out and the menu says **Drive not connected** with the drive's name. The original is only pointed at, never changed.
 
 ### Library views
 - Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.

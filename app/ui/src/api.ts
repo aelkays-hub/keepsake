@@ -31,6 +31,7 @@ import type { MaintProgress } from "./bindings/MaintProgress";
 import type { MemberDto } from "./bindings/MemberDto";
 import type { OpenApp } from "./bindings/OpenApp";
 import type { OpenChoice } from "./bindings/OpenChoice";
+import type { OriginalPlace } from "./bindings/OriginalPlace";
 import type { Preset } from "./bindings/Preset";
 import type { Query } from "./bindings/Query";
 import type { RenderSummary } from "./bindings/RenderSummary";
@@ -76,6 +77,7 @@ export type {
   MemberDto,
   OpenApp,
   OpenChoice,
+  OriginalPlace,
   Preset,
   Query,
   RenderSummary,
@@ -175,6 +177,10 @@ export const api = {
     invoke<FileMetadata>("metadata_all", { id, member }),
   openChoices: (id: string, member: MemberDto) =>
     invoke<OpenChoice[]>("open_choices", { id, member }),
+  /** Where an item's original is, for "Show in Explorer / Finder". */
+  originalPlace: (id: string) => invoke<OriginalPlace>("original_place", { id }),
+  /** Open the folder holding the original, with the file selected. */
+  showInFolder: (id: string) => invoke<null>("show_in_folder", { id }),
 
   timeShiftPreview: (selection: Selection, reference: string, correct: string) =>
     invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),

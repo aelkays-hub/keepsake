@@ -6,6 +6,7 @@
 pub mod devices;
 pub mod fake;
 pub mod power;
+pub mod reveal;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -18,3 +19,4 @@ pub use devices::{
 pub use fake::FakeDevices;
 pub use keepsake_core::devices::{DeviceEvent, VolumeIdentity};
 pub use power::{on_battery, power_source, PowerSource};
+pub use reveal::{file_manager_name, FakeReveal, FileReveal, SystemReveal};

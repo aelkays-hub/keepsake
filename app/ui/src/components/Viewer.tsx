@@ -30,6 +30,8 @@ import { LABEL_KEYS } from "../keys";
 import * as sel from "../selection";
 import { useUi } from "../state";
 import { OpenInMenu } from "./OpenInMenu";
+import { ItemMenu } from "./ItemMenu";
+import { isMenuClick, isMenuKey } from "./useItemMenu";
 import { setViewerInfo, useViewerInfo } from "../viewerInfo";
 import { ViewerInfo } from "./ViewerInfo";
 
@@ -556,6 +558,9 @@ export function Viewer() {
   const [members, setMembers] = useState<AssetMembers | null>(null);
   const [member, setMember] = useState<MemberDto>("primary");
   const [note, setNote] = useState<string | null>(null);
+  /** The item menu (right-click, Menu key, Shift+F10), where it opens. */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const main = useRef<HTMLDivElement>(null);
   const stageKey = useRef<KeyFn>(() => false);
   const info = useViewerInfo();
   const root = useRef<HTMLDivElement>(null);
@@ -637,7 +642,10 @@ export function Viewer() {
       /^(Arrow|Home$|End$|Page)/.test(e.key)
     )
       return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+    if (isMenuKey(e)) {
+      const b = main.current?.getBoundingClientRect();
+      if (row) setMenuAt({ x: b ? b.left + b.width / 2 : 0, y: b ? b.top + b.height / 2 : 0 });
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
       openElsewhere();
     } else if (e.ctrlKey || e.metaKey || e.altKey) {
       return;
@@ -736,7 +744,20 @@ export function Viewer() {
         </button>
       </header>
       <div className={`viewer-body${info ? " with-info" : ""}`}>
-        <div className="viewer-main">
+        <div
+          className="viewer-main"
+          ref={main}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!row || !isMenuClick(e)) return;
+            const b = main.current?.getBoundingClientRect();
+            setMenuAt(
+              e.clientX === 0 && e.clientY === 0 && b
+                ? { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+                : { x: e.clientX, y: e.clientY },
+            );
+          }}
+        >
           {d && row?.id === d.id ? (
             d.kind === "video" ? (
               <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
@@ -786,6 +807,20 @@ export function Viewer() {
           </span>
         )}
       </footer>
+      {menuAt && row && (
+        <ItemMenu
+          key={row.id}
+          x={menuAt.x}
+          y={menuAt.y}
+          id={row.id}
+          name={row.name ?? "Item"}
+          onNote={setNote}
+          onClose={() => {
+            setMenuAt(null);
+            root.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }
