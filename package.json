@@ -1,0 +1,14 @@
+{
+  "name": "keepsake",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter ui tauri dev",
+    "build": "pnpm --filter ui tauri build",
+    "lint:ui": "pnpm --filter ui lint",
+    "format:ui": "pnpm --filter ui format:check"
+  },
+  "workspaces": [
+    "app/ui"
+  ]
+}

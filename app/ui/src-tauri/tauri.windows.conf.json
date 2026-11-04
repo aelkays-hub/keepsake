@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../../../vendor/ffmpeg.exe": "ffmpeg.exe",
+      "../../../vendor/ffprobe.exe": "ffprobe.exe",
+      "../../../vendor/exiftool/exiftool.exe": "exiftool/exiftool.exe",
+      "../../../vendor/exiftool/exiftool_files/": "exiftool/exiftool_files/",
+      "../../../vendor/libraw/dcraw_emu.exe": "libraw/dcraw_emu.exe",
+      "../../../vendor/libraw/libraw.dll": "libraw/libraw.dll",
+      "../../../vendor/libraw/LICENSE.LGPL": "libraw/LICENSE.LGPL",
+      "../../../vendor/libraw/LICENSE.CDDL": "libraw/LICENSE.CDDL",
+      "../../../vendor/libraw/COPYRIGHT": "libraw/COPYRIGHT",
+      "../../../vendor/LICENSE-ffmpeg.txt": "licenses/FFmpeg-LICENSE.txt"
+    }
+  }
+}

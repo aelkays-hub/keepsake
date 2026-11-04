@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/keepsake-core",
+    "crates/keepsake-platform",
+    "crates/keepsake-cli",
+    "app/ui/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "UNLICENSED"
+authors = ["Keepsake Contributors"]
+
+[workspace.dependencies]
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+rusqlite = { version = "0.40", features = ["bundled"] }
+quick-xml = "0.42"
+unicode-normalization = "0.1"
+proptest = "1"
+tempfile = "3"
+indicatif = "0.18"
+ctrlc = "3"
+# Renditions (ADR-021): decode/encode JPEG, PNG, TIFF; SIMD resizing.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+fast_image_resize = { version = "6", features = ["image"] }
+twox-hash = { version = "2", default-features = false, features = ["xxhash3_64", "std"] }
+
+# Dependencies (SQLite, image decoding, BLAKE3) optimised even in debug
+# builds: the debug app stays usable on large libraries and in UI tests;
+# Keepsake's own crates stay unoptimised for debugging.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

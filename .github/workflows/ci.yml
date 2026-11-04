@@ -1,0 +1,279 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  ci:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        # macOS runs the Rust workspace in the `rust-macos` job below.
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust toolchain ──────────────────────────────────────────────────────
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # ── Node + pnpm ─────────────────────────────────────────────────────────
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      # WebView2 is pre-installed on windows-latest; no extra system deps needed.
+
+      # Real, checksum-verified FFmpeg/ffprobe/ExifTool/LibRaw from the vendor-binaries
+      # mirror (ADR-005). tauri-build needs them as bundle resources and the
+      # probe tests run them. Cached by the setup script's content.
+      - name: Cache vendor binaries
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ runner.os }}-${{ hashFiles('scripts/setup.ps1') }}
+
+      - name: Download vendor binaries
+        shell: pwsh
+        run: ./scripts/setup.ps1 -VendorOnly
+
+      # ── Rust checks ─────────────────────────────────────────────────────────
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+        # Corpus tests are skipped because KEEPSAKE_CORPUS is not set in CI.
+
+      # 300,000 synthetic items: start-up queries, searches and the calendar
+      # against the prompt-12 limits, doubled for CI machines (ADR-024).
+      - name: Scale test (300,000 items, release)
+        run: cargo test --release -p keepsake-core --test scale_tests -- --ignored --nocapture
+        env:
+          KEEPSAKE_SCALE_SLACK: "2"
+
+      # `cargo test -p keepsake-app` regenerates the TypeScript bindings.
+      - name: UI bindings are up to date
+        shell: bash
+        run: git diff --exit-code -- app/ui/src/bindings
+
+      # ── UI checks ───────────────────────────────────────────────────────────
+      - name: UI lint
+        working-directory: app/ui
+        run: pnpm lint
+
+      - name: UI format check
+        working-directory: app/ui
+        run: pnpm format:check
+
+      - name: UI type-check + build
+        working-directory: app/ui
+        run: pnpm build
+
+      - name: UI unit tests
+        working-directory: app/ui
+        run: pnpm test
+
+      - name: Install Playwright Chromium
+        working-directory: app/ui
+        run: pnpm exec playwright install chromium
+
+      - name: UI tests (mocked backend)
+        working-directory: app/ui
+        run: pnpm test:e2e
+
+      # ── Tauri + CLI release build ────────────────────────────────────────────
+      # We use plain cargo build (not tauri-action) because tauri-action is
+      # designed for publishing release installers and tries to re-initialise
+      # the project. We only need to verify the binaries compile cleanly.
+      - name: Build Tauri app (release)
+        run: cargo build --release -p keepsake-app
+
+      - name: Build CLI (release)
+        run: cargo build --release -p keepsake-cli
+
+      # The real app over WebView2's debugging port. Debug builds load the UI
+      # from the Vite dev server, which the test fixture starts; the release
+      # CLI seeds the 300,000-item library.
+      - name: Build app and CLI (debug) for UI tests
+        run: cargo build -p keepsake-app -p keepsake-cli
+
+      - name: UI tests (real app)
+        working-directory: app/ui
+        run: pnpm test:app
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-windows
+          path: |
+            app/ui/playwright-report
+            app/ui/test-results
+          retention-days: 7
+
+      # The Windows installer's resources (tauri.windows.conf.json) declare
+      # every sidecar tool and licence, laid out like vendor/ so the
+      # installed app finds them (ADR-024). The release smoke test checks
+      # the installed files themselves.
+      - name: Verify sidecar bundle resources declared
+        shell: pwsh
+        run: |
+          $conf = Get-Content app/ui/src-tauri/tauri.windows.conf.json | ConvertFrom-Json
+          $res  = $conf.bundle.resources
+          if (-not $res) {
+            Write-Error "tauri.windows.conf.json: bundle.resources is missing"
+            exit 1
+          }
+          $targets = $res.PSObject.Properties.Value
+          $want = @(
+            "ffmpeg.exe", "ffprobe.exe", "exiftool/exiftool.exe", "exiftool/exiftool_files/",
+            "libraw/dcraw_emu.exe", "libraw/libraw.dll", "libraw/LICENSE.LGPL",
+            "licenses/FFmpeg-LICENSE.txt"
+          )
+          $failed = $false
+          foreach ($t in $want) {
+            if ($targets -notcontains $t) {
+              Write-Error "bundle.resources does not install $t"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "OK: the installer declares FFmpeg, ExifTool, LibRaw and their licences"
+
+      # ── Upload build artifacts ───────────────────────────────────────────────
+      - name: Upload Tauri binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-app-${{ matrix.os }}
+          path: |
+            target/release/keepsake-app
+            target/release/keepsake-app.exe
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepsake-cli-${{ matrix.os }}
+          path: |
+            target/release/keepsake
+            target/release/keepsake.exe
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ── macOS: the Rust workspace ──────────────────────────────────────────────
+  # Builds and tests every crate except the Tauri app, whose bundle still
+  # declares only the Windows sidecars. There is no LGPL FFmpeg build for
+  # macOS yet (ADR-005), so tests that need ExifTool/ffprobe/ffmpeg skip
+  # (KEEPSAKE_SKIP_MEDIA_TOOLS) instead of failing as they do on Windows.
+  rust-macos:
+    name: macos-14 (Rust)
+    runs-on: macos-14
+    env:
+      KEEPSAKE_SKIP_MEDIA_TOOLS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --exclude keepsake-app --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --exclude keepsake-app
+
+      # The UI against the mocked backend (WKWebView cannot be automated, so
+      # the real-app suite runs on Windows only).
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: UI unit tests
+        working-directory: app/ui
+        run: pnpm test
+
+      - name: UI tests (mocked backend)
+        working-directory: app/ui
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-macos
+          path: |
+            app/ui/playwright-report
+            app/ui/test-results
+          retention-days: 7

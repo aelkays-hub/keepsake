@@ -1,0 +1,314 @@
+use rusqlite::params;
+use rusqlite::types::ToSql;
+use serde::{Deserialize, Serialize};
+
+use super::define_repo;
+use crate::catalog::error::CatalogError;
+use crate::catalog::{AssetId, EventId, ImportSessionId, MediaKind, VolumeId};
+use crate::relpath::nfc;
+
+/// A search with optional filters. Every field narrows the result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchQuery {
+    /// Words matched (as prefixes) against file names, comments and tags.
+    pub text: Option<String>,
+    /// First local capture day, `YYYY-MM-DD`, inclusive.
+    pub from: Option<String>,
+    /// Last local capture day, `YYYY-MM-DD`, inclusive.
+    pub to: Option<String>,
+    /// Camera model contains this (case-insensitive).
+    pub camera: Option<String>,
+    pub kind: Option<MediaKind>,
+    pub limit: Option<u32>,
+    /// Lens model contains this (case-insensitive).
+    #[serde(default)]
+    pub lens: Option<String>,
+    /// At least this many stars (1–5).
+    #[serde(default)]
+    pub min_rating: Option<u8>,
+    /// `Some(true)`: only assets with a RAW file; `Some(false)`: none.
+    #[serde(default)]
+    pub raw: Option<bool>,
+    /// Colour label name (e.g. `Red`).
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub event: Option<EventId>,
+    /// Assets with a file on this volume.
+    #[serde(default)]
+    pub volume: Option<VolumeId>,
+    /// With `volume`: assets whose original is in this folder of the volume
+    /// or below it (`2025/May`, `/`-separated, as the folder tree gives it).
+    #[serde(default)]
+    pub folder: Option<String>,
+    /// Assets of this import session.
+    #[serde(default)]
+    pub session: Option<ImportSessionId>,
+    /// Only assets without a capture time.
+    #[serde(default)]
+    pub undated: bool,
+    /// Camera model is exactly this (spaces around it ignored); `""`: no
+    /// camera model. As the report groups them (a report row's items).
+    #[serde(default)]
+    pub camera_is: Option<String>,
+    /// Lens model is exactly this; `""`: no lens model.
+    #[serde(default)]
+    pub lens_is: Option<String>,
+    /// Assets with a file of this extension (`JPG`, any case, no dot);
+    /// `""`: a file without one.
+    #[serde(default)]
+    pub file_type: Option<String>,
+}
+
+/// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
+/// clauses and their arguments, in order.
+pub(crate) struct FilterSql {
+    pub joins: String,
+    pub wh: Vec<String>,
+    pub args: Vec<Box<dyn ToSql>>,
+    /// The text filter matched nothing searchable: the result is empty.
+    pub empty: bool,
+    pub fts: bool,
+}
+
+impl FilterSql {
+    pub fn where_sql(&self) -> String {
+        if self.wh.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", self.wh.join(" AND "))
+        }
+    }
+}
+
+/// The filter for browsing (views sorted by their own columns): words as
+/// `a.seq IN (matches)` rather than a join, so SQLite can walk a sort index
+/// in order instead of sorting every match (a 60,000-match search at
+/// 300,000 items), or look up a few rows when the words are rare.
+pub(crate) fn filter_sql_in(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
+    let mut f = filter_sql(q)?;
+    if f.fts {
+        f.joins.clear();
+        // The words' argument is the first one, so the condition goes first.
+        f.wh.insert(
+            0,
+            "a.seq IN (SELECT rowid FROM asset_fts WHERE asset_fts MATCH ?)".into(),
+        );
+        f.fts = false;
+    }
+    Ok(f)
+}
+
+pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
+    let mut f = FilterSql {
+        joins: String::new(),
+        wh: Vec::new(),
+        args: Vec::new(),
+        empty: false,
+        fts: false,
+    };
+    if let Some(t) = q.text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        match to_fts_query(t) {
+            Some(m) => {
+                f.joins
+                    .push_str(" JOIN asset_fts ON asset_fts.rowid = a.seq AND asset_fts MATCH ?");
+                f.args.push(Box::new(m));
+                f.fts = true;
+            }
+            None => f.empty = true,
+        }
+    }
+    for (val, clause) in [
+        (&q.from, "a.capture_local_date >= ?"),
+        (&q.to, "a.capture_local_date <= ?"),
+    ] {
+        if let Some(d) = val {
+            if !valid_day(d) {
+                return Err(CatalogError::Invalid(format!(
+                    "not a date (YYYY-MM-DD): {d}"
+                )));
+            }
+            f.wh.push(clause.into());
+            f.args.push(Box::new(d.clone()));
+        }
+    }
+    for (val, col) in [(&q.camera, "a.camera_model"), (&q.lens, "a.lens_model")] {
+        if let Some(c) = val.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            f.wh.push(format!("instr(lower(ifnull({col}, '')), lower(?)) > 0"));
+            f.args.push(Box::new(c.to_owned()));
+        }
+    }
+    for (val, col) in [
+        (&q.camera_is, "a.camera_model"),
+        (&q.lens_is, "a.lens_model"),
+    ] {
+        match val.as_deref().map(str::trim) {
+            Some("") => f.wh.push(format!("nullif(trim({col}), '') IS NULL")),
+            Some(c) => {
+                f.wh.push(format!("trim({col}) = ?"));
+                f.args.push(Box::new(c.to_owned()));
+            }
+            None => {}
+        }
+    }
+    if let Some(t) = &q.file_type {
+        f.wh.push(format!(
+            "EXISTS (SELECT 1 FROM files fx WHERE fx.asset_id = a.id AND {} = ?)",
+            super::report::ext_of("fx.file_name")
+        ));
+        f.args
+            .push(Box::new(t.trim().trim_start_matches('.').to_uppercase()));
+    }
+    if let Some(k) = q.kind {
+        f.wh.push("a.media_kind = ?".into());
+        f.args.push(Box::new(k));
+    }
+    if let Some(r) = q.min_rating.filter(|r| *r > 0) {
+        f.wh.push("a.rating >= ?".into());
+        f.args.push(Box::new(i64::from(r.min(5))));
+    }
+    if let Some(raw) = q.raw {
+        f.wh.push(if raw { "a.is_raw = 1" } else { "a.is_raw = 0" }.into());
+    }
+    if let Some(l) = q.label.as_deref().filter(|l| !l.is_empty()) {
+        f.wh.push("a.label_id = (SELECT id FROM labels WHERE lower(name) = lower(?))".into());
+        f.args.push(Box::new(l.to_owned()));
+    }
+    if let Some(e) = q.event {
+        f.wh.push("a.event_id = ?".into());
+        f.args.push(Box::new(e));
+    }
+    let folder = q
+        .folder
+        .as_deref()
+        .map(|p| p.trim_matches('/'))
+        .filter(|p| !p.is_empty());
+    match (q.volume, folder) {
+        (Some(v), Some(p)) => {
+            let (lo, hi) = folder_range(p);
+            f.wh.push(
+                "EXISTS (SELECT 1 FROM files fv WHERE fv.asset_id = a.id AND fv.volume_id = ?
+                         AND fv.role = 'original' AND fv.rel_path >= ? AND fv.rel_path < ?)"
+                    .into(),
+            );
+            f.args.push(Box::new(v));
+            f.args.push(Box::new(lo));
+            f.args.push(Box::new(hi));
+        }
+        (Some(v), None) => {
+            f.wh.push(
+                "EXISTS (SELECT 1 FROM files fv WHERE fv.asset_id = a.id AND fv.volume_id = ?)"
+                    .into(),
+            );
+            f.args.push(Box::new(v));
+        }
+        (None, Some(_)) => {
+            return Err(CatalogError::Invalid("a folder needs its volume".into()));
+        }
+        (None, None) => {}
+    }
+    if let Some(s) = q.session {
+        f.wh.push(
+            "EXISTS (SELECT 1 FROM import_assets ia WHERE ia.asset_id = a.id AND ia.session_id = ?
+                     AND ia.state = 'catalogued')"
+                .into(),
+        );
+        f.args.push(Box::new(s));
+    }
+    if q.undated {
+        f.wh.push("a.capture_ts_ms IS NULL".into());
+    }
+    Ok(f)
+}
+
+/// The `rel_path` range of everything under folder `p` (no trailing `/`):
+/// `p/` up to, not including, `p0` (`0` sorts right after `/`).
+pub(crate) fn folder_range(p: &str) -> (String, String) {
+    (format!("{p}/"), format!("{p}0"))
+}
+
+fn valid_day(d: &str) -> bool {
+    chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
+}
+
+define_repo!(
+    /// Full-text search over file names, comments and tags.
+    Search
+);
+
+impl<M> Search<'_, M> {
+    /// Find assets matching every word of `query` (prefix match), best first.
+    ///
+    /// User input is never passed to FTS5 as query syntax: each word is quoted,
+    /// so characters like `"`, `*`, `-` or `NEAR` are treated as text.
+    pub fn text(&self, query: &str, limit: u32) -> Result<Vec<AssetId>, CatalogError> {
+        let Some(fts_query) = to_fts_query(query) else {
+            return Ok(Vec::new());
+        };
+        let mut st = self.conn.prepare(
+            "SELECT a.id FROM asset_fts f JOIN assets a ON a.seq = f.rowid
+              WHERE asset_fts MATCH ?1 ORDER BY bm25(asset_fts), a.id LIMIT ?2",
+        )?;
+        let rows = st
+            .query_map(params![fts_query, limit], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+}
+
+impl<M> Search<'_, M> {
+    /// Run a filtered search. With text, best matches first; without, by
+    /// capture time (undated last).
+    pub fn query(&self, q: &SearchQuery) -> Result<Vec<AssetId>, CatalogError> {
+        let mut f = filter_sql(q)?;
+        if f.empty {
+            return Ok(Vec::new());
+        }
+        let mut sql = format!("SELECT a.id FROM assets a{}{}", f.joins, f.where_sql());
+        sql.push_str(if f.fts {
+            " ORDER BY bm25(asset_fts), a.id"
+        } else {
+            " ORDER BY a.capture_ts_ms IS NULL, a.capture_ts_ms, a.id"
+        });
+        sql.push_str(" LIMIT ?");
+        f.args
+            .push(Box::new(i64::from(q.limit.unwrap_or(u32::MAX))));
+        let mut st = self.conn.prepare(&sql)?;
+        let rows = st
+            .query_map(rusqlite::params_from_iter(f.args.iter()), |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+}
+
+/// Turn free text into a safe FTS5 query: `"word1"* "word2"*`.
+pub(crate) fn to_fts_query(query: &str) -> Option<String> {
+    let terms: Vec<String> = nfc(query)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_fts_query;
+
+    #[test]
+    fn quotes_terms() {
+        assert_eq!(
+            to_fts_query("tokyo  C0001").as_deref(),
+            Some("\"tokyo\"* \"C0001\"*")
+        );
+        assert_eq!(
+            to_fts_query("a\"b NEAR(c)").as_deref(),
+            Some("\"a\"* \"b\"* \"NEAR\"* \"c\"*")
+        );
+        assert_eq!(to_fts_query("  ** "), None);
+    }
+}

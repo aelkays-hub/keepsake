@@ -1,0 +1,613 @@
+// Viewer, time shift, backup and settings against the mock backend.
+
+import { expect, test, type Page } from "@playwright/test";
+
+const calls = (page: Page, cmd: string) =>
+  page.evaluate(
+    (c) => (window.__mock?.calls ?? []).filter((x) => x.cmd === c).map((x) => x.args),
+    cmd,
+  );
+
+// The mock's item kinds (src/mock/backend.ts): video, raw or photo by a hash.
+const r = (i: number) => (i * 2654435761) % 1000;
+const kindOf = (i: number) => (r(i) < 150 ? "video" : r(i) > 850 ? "raw" : "photo");
+const online = (i: number) => i % 4 !== 3;
+const find = (f: (i: number) => boolean) => {
+  for (let i = 1; i < 2000; i++) if (f(i)) return i;
+  throw new Error("no such item");
+};
+const pad = (i: number) => String(i).padStart(5, "0");
+
+async function openLibrary(page: Page, items = 2000) {
+  await page.goto(`/?items=${items}`);
+  await expect(page.getByTestId("count")).toHaveText(`${items.toLocaleString("en-US")} items`);
+  await expect(page.getByTestId("tile").first()).toBeVisible();
+}
+
+/** Narrow the grid to one item by its name and open it in the viewer. */
+async function viewOne(page: Page, name: string) {
+  await page.getByTestId("search").fill(name);
+  await expect
+    .poll(async () => (await calls(page, "view_open")).at(-1))
+    .toMatchObject({ query: { text: name } });
+  await expect(page.getByTestId("count")).toHaveText("1 item");
+  await page.getByTestId("tile").first().dblclick();
+  await expect(page.getByTestId("viewer")).toBeVisible();
+  await expect(page.getByTestId("viewer-name")).toHaveText(new RegExp(name));
+}
+
+const tile = (page: Page, i: number) => page.locator(`[data-testid="tile"][data-index="${i}"]`);
+
+test("Enter opens the viewer; arrows move through the view, or the selection", async ({ page }) => {
+  await openLibrary(page);
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  const pos = page.getByTestId("viewer-position");
+  await expect(pos).toHaveText("1 of 2,000");
+  await page.keyboard.press("ArrowRight");
+  await expect(pos).toHaveText("2 of 2,000");
+  await page.keyboard.press("End");
+  await expect(pos).toHaveText("2,000 of 2,000");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("viewer")).toHaveCount(0);
+  // Back in the grid, on the last item the viewer showed.
+  await expect(tile(page, 1999)).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Home");
+  // Two items selected: the viewer steps between those two only.
+  await tile(page, 0).click();
+  await tile(page, 5).click({ modifiers: ["Control"] });
+  await page.keyboard.press("Enter");
+  await expect(pos).toHaveText("6 of 2,000 · 2 selected");
+  await page.keyboard.press("ArrowLeft");
+  await expect(pos).toHaveText("1 of 2,000 · 2 selected");
+  await page.keyboard.press("ArrowLeft");
+  await expect(pos).toHaveText("1 of 2,000 · 2 selected");
+  await page.keyboard.press("ArrowRight");
+  await expect(pos).toHaveText("6 of 2,000 · 2 selected");
+  // Closing keeps the selection.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("selected")).toHaveText("2 selected");
+});
+
+test("previous and next buttons on the picture's edges step without closing", async ({ page }) => {
+  await openLibrary(page, 3);
+  await tile(page, 0).dblclick();
+  const viewer = page.getByTestId("viewer");
+  const pos = page.getByTestId("viewer-position");
+  const prev = page.getByTestId("viewer-prev");
+  const next = page.getByTestId("viewer-next");
+  await expect(pos).toHaveText("1 of 3");
+  // Nothing before the first item.
+  await expect(prev).toBeDisabled();
+  await expect(next).toBeEnabled();
+  const first = await page.getByTestId("viewer-name").textContent();
+  await next.click();
+  await expect(pos).toHaveText("2 of 3");
+  await expect(viewer).toBeVisible();
+  await expect(page.getByTestId("viewer-name")).not.toHaveText(first ?? "");
+  await expect(prev).toBeEnabled();
+  await next.click();
+  await expect(pos).toHaveText("3 of 3");
+  // Nothing after the last item.
+  await expect(next).toBeDisabled();
+  await prev.click();
+  await prev.click();
+  await expect(pos).toHaveText("1 of 3");
+  await expect(page.getByTestId("viewer-name")).toHaveText(first ?? "");
+  // The arrow keys still work after clicking a button.
+  await page.keyboard.press("ArrowRight");
+  await expect(pos).toHaveText("2 of 3");
+  await expect(viewer).toBeVisible();
+});
+
+test("a photo opened without its preview has it made at once", async ({ page }) => {
+  // A full cache: background work made thumbnails only.
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await page.goto("/?items=2000&noPreview=1");
+  await expect(page.getByTestId("tile").first()).toBeVisible();
+  await viewOne(page, `DSC${pad(i)}`);
+  await expect
+    .poll(async () => (await calls(page, "render_set_visible")).at(-1))
+    .toEqual({ ids: [`a${i}`] });
+  // The viewer looks again and shows the picture.
+  await expect(page.getByTestId("viewer-image")).toBeVisible({ timeout: 5000 });
+});
+
+test("Z zooms to a full-size picture at 100% and arrows pan", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  // The preview first (the full size follows in the background).
+  await expect(img).toHaveAttribute("src", /width%3D%22256%22/);
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  await expect(img).toHaveAttribute("data-full", "1");
+  expect(await calls(page, "full_image")).toEqual([{ id: `a${i}`, member: "primary" }]);
+  // One picture pixel per screen pixel: the 4000 px picture overflows.
+  await expect
+    .poll(() =>
+      img.evaluate((e: HTMLImageElement) =>
+        Math.round(e.getBoundingClientRect().width * devicePixelRatio),
+      ),
+    )
+    .toBe(4000);
+  const left = await img.evaluate((e) => e.getBoundingClientRect().left);
+  await page.keyboard.press("ArrowRight");
+  // → shows more to the right: the picture moves left.
+  await expect
+    .poll(() => img.evaluate((e) => e.getBoundingClientRect().left))
+    .toBeLessThan(left - 50);
+  // Arrows pan while zoomed: still the same item.
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 1");
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  // A click zooms in too, and the full size is not fetched twice.
+  await img.click();
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("a moment on a photo makes its full size in the background, without a note", async ({
+  page,
+}) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  // Still at Fit, the full size replaces the preview by itself.
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  expect(await calls(page, "full_image")).toEqual([{ id: `a${i}`, member: "primary" }]);
+  // No "making the full size" note for work nobody asked for.
+  await expect(page.locator(".viewer-note")).toHaveCount(0);
+  // Zooming now needs no second fetch.
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("an item on an unplugged drive is not fetched in the background", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && !online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  await page.waitForTimeout(1200);
+  expect(await calls(page, "full_image")).toEqual([]);
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "0");
+});
+
+test("the zoom slider, + and −, Fit and 100%", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  const level = page.getByTestId("zoom-level");
+  const slider = page.getByTestId("zoom-slider");
+  /** Picture pixels per screen pixel × 100. */
+  const shownPct = () =>
+    img.evaluate((e: HTMLImageElement) =>
+      Math.round((e.getBoundingClientRect().width * devicePixelRatio * 100) / 4000),
+    );
+  await expect(level).toHaveText("Fit");
+  await expect(slider).toHaveValue("0");
+
+  // The slider's end: 400%, from the full-size picture.
+  await slider.fill("1000");
+  await expect(stage).toHaveAttribute("data-zoom", "400");
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(level).toHaveText("400%");
+  await expect.poll(shownPct).toBe(400);
+  expect(await calls(page, "full_image")).toHaveLength(1);
+
+  // − steps down; + steps up.
+  await page.getByTestId("zoom-out").click();
+  await expect(stage).toHaveAttribute("data-zoom", "320");
+  await page.keyboard.press("-");
+  await expect(stage).toHaveAttribute("data-zoom", "256");
+  await page.keyboard.press("+");
+  await expect(stage).toHaveAttribute("data-zoom", "320");
+  await expect.poll(shownPct).toBe(320);
+
+  // 100%: one picture pixel per screen pixel.
+  await page.getByTestId("zoom-100").click();
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  await expect.poll(shownPct).toBe(100);
+
+  // Fit: the whole picture in the window, with its percentage.
+  await page.getByTestId("zoom-fit").click();
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  await expect(slider).toHaveValue("0");
+  await expect(level).toHaveText(/^Fit \(\d+%\)$/);
+  const box = await stage.boundingBox();
+  const r = await img.boundingBox();
+  expect(r!.width).toBeLessThanOrEqual(box!.width + 1);
+  expect(r!.height).toBeLessThanOrEqual(box!.height + 1);
+
+  // The middle of the slider is between Fit and 400%.
+  const fit = Number((await level.textContent())?.match(/\d+/)?.[0]);
+  expect(fit).toBeLessThan(100);
+  await slider.fill("500");
+  const mid = Number(await stage.getAttribute("data-zoom"));
+  expect(mid).toBeGreaterThan(fit);
+  expect(mid).toBeLessThan(400);
+
+  // On the slider, arrows move the slider, not to another item or the picture.
+  await slider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(slider).toHaveValue("501");
+  await expect(page.getByTestId("viewer")).toBeVisible();
+  // The full size was fetched once.
+  expect(await calls(page, "full_image")).toHaveLength(1);
+});
+
+test("the wheel zooms in and out around the pointer", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const box = (await stage.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let n = 0; n < 6; n++) await page.mouse.wheel(0, -200);
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "1");
+  await expect.poll(async () => Number(await stage.getAttribute("data-zoom"))).toBeGreaterThan(0);
+  const z = Number(await stage.getAttribute("data-zoom"));
+  // Zoomed on the middle: the middle of the picture is still in the middle.
+  const r = (await page.getByTestId("viewer-image").boundingBox())!;
+  const mid = (box.x + box.width / 2 - r.x) / r.width;
+  expect(mid).toBeGreaterThan(0.4);
+  expect(mid).toBeLessThan(0.6);
+  for (let n = 0; n < 2; n++) await page.mouse.wheel(0, 200);
+  await expect.poll(async () => Number(await stage.getAttribute("data-zoom"))).toBeLessThan(z);
+  for (let n = 0; n < 30; n++) await page.mouse.wheel(0, 200);
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  // Still the same item.
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 1");
+});
+
+test("a RAW + JPEG pair is one item with a JPEG | RAW toggle", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "raw" && x % 2 === 0 && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const tabs = page.getByRole("tablist", { name: "Show" });
+  await expect(tabs.getByRole("tab", { name: "JPEG" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("r");
+  await expect(tabs.getByRole("tab", { name: "RAW" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-member", "raw");
+  await expect(page.getByTestId("viewer-image")).toHaveAttribute("data-full", "1");
+  expect(await calls(page, "full_image")).toEqual([{ id: `a${i}`, member: "raw" }]);
+  await page.keyboard.press("r");
+  await expect(tabs.getByRole("tab", { name: "JPEG" })).toHaveAttribute("aria-selected", "true");
+  // A RAW alone has no toggle.
+  const solo = find((x) => kindOf(x) === "raw" && x % 2 === 1 && online(x));
+  await page.keyboard.press("Escape");
+  await viewOne(page, `DSC${pad(solo)}`);
+  await expect(page.getByRole("tablist", { name: "Show" })).toHaveCount(0);
+});
+
+test("video: frame stepping, jumps and timecode from the start timecode", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "video" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `C${pad(i)}`);
+  const video = page.getByTestId("viewer-video");
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState))
+    .toBeGreaterThanOrEqual(1);
+  const tc = page.getByTestId("timecode");
+  await expect(tc).toHaveText("10:00:00:00");
+  await page.keyboard.press(".");
+  await expect(tc).toHaveText("10:00:00:01");
+  await expect(page.getByTestId("frame")).toHaveText("frame 1");
+  await page.keyboard.press(".");
+  await page.keyboard.press(".");
+  await expect(tc).toHaveText("10:00:00:03");
+  await page.keyboard.press(",");
+  await expect(tc).toHaveText("10:00:00:02");
+  await page.keyboard.press("l");
+  await expect(tc).toHaveText("10:00:01:02");
+  await page.keyboard.press("j");
+  await expect(tc).toHaveText("10:00:00:02");
+  // Space plays and pauses. (Headless Chromium on the macOS runner may not
+  // advance playback time, so the state is checked, not the position.)
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  // The scrub bar seeks.
+  await page.getByRole("slider", { name: "Position" }).fill("1.5");
+  await expect(tc).toHaveText("10:00:01:12");
+});
+
+test("rate, label and open the item shown in the viewer", async ({ page }) => {
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  await page.keyboard.press("4");
+  await expect
+    .poll(() => calls(page, "edit_rating"))
+    .toEqual([{ selection: { ids: [`a${i}`], view: null, ranges: [] }, rating: 4 }]);
+  await page.keyboard.press("8");
+  await expect
+    .poll(() => calls(page, "edit_label"))
+    .toEqual([{ selection: { ids: [`a${i}`], view: null, ranges: [] }, label: "Green" }]);
+  await page.keyboard.press("Control+o");
+  await expect(page.getByTestId("viewer-note")).toHaveText("Opened with the system default");
+  expect(await calls(page, "open_external")).toEqual([
+    { id: `a${i}`, member: "primary", app: null },
+  ]);
+});
+
+test("time shift: a reference photo and the correct time give the offset for all", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await tile(page, 0).click();
+  await tile(page, 4).click({ modifiers: ["Shift"] });
+  await page.keyboard.press("Control+t");
+  const d = page.getByTestId("time-shift");
+  await expect(d).toBeVisible();
+  // The focused item is the reference by default.
+  const before = (await d.getByTestId("ts-before").textContent()) ?? "";
+  await expect(d.getByTestId("ts-offset")).toHaveText("no change");
+  expect(before).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
+  const later = new Date(Date.parse(`${before.replace(" ", "T")}Z`) + 3600_000 + 90_000);
+  await d.getByTestId("ts-correct").fill(later.toISOString().slice(0, 19));
+  await expect(d.getByTestId("ts-offset")).toHaveText("+1 h 1 min 30 s");
+  const rows = d.getByTestId("ts-preview").locator("tbody tr");
+  await expect(rows).toHaveCount(5);
+  await expect(d.getByTestId("ts-apply")).toHaveText("Shift 5 items");
+  const views = (await calls(page, "view_open")).length;
+  await d.getByTestId("ts-apply").click();
+  await expect(d).toHaveCount(0);
+  const apply = await calls(page, "time_shift_apply");
+  expect(apply).toEqual([
+    { selection: { ids: [], view: expect.any(Number), ranges: [[0, 5]] }, offsetS: 3690 },
+  ]);
+  // The view is re-sorted with the new times.
+  await expect.poll(async () => (await calls(page, "view_open")).length).toBeGreaterThan(views);
+  // Escape closes without changes.
+  await tile(page, 0).click();
+  await page.keyboard.press("Control+t");
+  await expect(d).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(d).toHaveCount(0);
+  expect(await calls(page, "time_shift_apply")).toHaveLength(1);
+});
+
+test("backup: run to a folder, see it in the history, then verify it", async ({ page }) => {
+  await openLibrary(page);
+  await page.getByTestId("sidebar").getByRole("button", { name: "Backup" }).click();
+  const screen = page.getByTestId("backup-screen");
+  await expect(screen.getByText("No backups yet.")).toBeVisible();
+  await screen.getByTestId("backup-dest").fill("E:\\Keepsake backup");
+  await screen.getByTestId("backup-start").click();
+  await expect(screen.getByTestId("backup-outcome")).toContainText("Backup finished");
+  expect(await calls(page, "backup_run")).toEqual([{ dest: "E:\\Keepsake backup", label: null }]);
+  const dests = screen.getByTestId("backup-destinations").locator("li");
+  await expect(dests).toHaveCount(1);
+  await expect(dests.first()).toContainText("Keepsake backup");
+  await expect(dests.first().getByTestId("last-verified")).toHaveText("never");
+  await dests.first().getByTestId("verify-now").click();
+  await expect(screen.getByTestId("backup-outcome")).toContainText("Verification finished");
+  await expect(dests.first().getByTestId("last-verified")).not.toHaveText("never");
+  const history = screen.getByTestId("history").locator("tbody tr");
+  await expect(history).toHaveCount(2);
+  await expect(history.nth(0)).toContainText("Verify");
+  await expect(history.nth(1)).toContainText("Backup");
+});
+
+test("settings: cache, workers and Open in are saved; old cache files can be removed", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await page.keyboard.press("Control+,");
+  const screen = page.getByTestId("settings-screen");
+  await expect(screen).toBeVisible();
+  await expect(screen.getByTestId("settings-library")).toHaveText("D:\\Keepsake");
+  await screen.getByTestId("cache-dir").fill("E:\\Cache");
+  await screen.getByTestId("cache-limit").fill("50");
+  await screen.getByTestId("workers").selectOption("2");
+  await screen.getByTestId("app-ext").fill(".ARW");
+  await screen.getByTestId("app-path").fill("C:\\Apps\\Raw Editor.exe");
+  await screen.getByTestId("settings-save").click();
+  await expect(screen.getByTestId("settings-saved")).toHaveText("Saved.");
+  expect(await calls(page, "settings_set")).toEqual([
+    {
+      update: {
+        cacheDir: "E:\\Cache",
+        cacheMaxBytes: 50 * 1024 ** 3,
+        workers: 2,
+        proxyWorkers: 1,
+        pauseOnBattery: true,
+        openApps: [{ ext: ".ARW", app: "C:\\Apps\\Raw Editor.exe" }],
+        import: {
+          auto: false,
+          destination: null,
+          template: "{yyyy}/{month}/{yyyy}-{mm}-{dd}/{orig}",
+        },
+      },
+    },
+  ]);
+  await expect(screen.getByTestId("open-apps")).toContainText(".arw");
+  await screen.getByTestId("old-cache").getByRole("button", { name: "Remove old files" }).click();
+  await expect(screen.getByTestId("settings-saved")).toHaveText(
+    "Removed 2.5 GB from the old cache.",
+  );
+  // A limit below 256 MB is refused.
+  await screen.getByTestId("cache-limit").fill("0.1");
+  await screen.getByTestId("settings-save").click();
+  await expect(screen.getByRole("alert")).toContainText("at least 256 MB");
+});
+
+test("settings: import presets can be deleted and created", async ({ page }) => {
+  await openLibrary(page);
+  await page.getByTestId("sidebar").getByRole("button", { name: "Settings" }).click();
+  const presets = page.getByTestId("presets").locator("li");
+  await expect(presets).toHaveCount(1);
+  await page.getByRole("button", { name: "Delete Two drives" }).click();
+  await expect(presets).toHaveCount(0);
+  await page.getByRole("button", { name: "New preset…" }).click();
+  const ed = page.getByTestId("preset-edit");
+  await ed.getByLabel("Name", { exact: true }).fill("Travel");
+  await ed.getByLabel("First destination").fill("F:\\Travel");
+  await ed.getByRole("button", { name: "Save preset" }).click();
+  await expect(presets).toHaveCount(1);
+  await expect(presets.first()).toContainText("Travel");
+  expect(await calls(page, "preset_save")).toEqual([
+    {
+      preset: {
+        name: "Travel",
+        destinations: ["F:\\Travel"],
+        template: "{yyyy}/{yyyy}-{mm}-{dd}/{orig}",
+        event: null,
+      },
+    },
+  ]);
+  // Back to the library from the sidebar.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  await expect(page.getByTestId("grid")).toBeVisible();
+});
+
+test("the information panel: toggled with the button or I, remembered, follows the item", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 2,000");
+  const panel = page.getByTestId("viewer-info");
+  const toggle = page.getByTestId("viewer-info-toggle");
+  // Hidden at first, and nothing is read.
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(await calls(page, "metadata_all")).toEqual([]);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const facts = panel.getByTestId("viewer-facts");
+  await expect(facts).toContainText("Date and time");
+  await expect(facts).toContainText("CameraSONY");
+  await expect(facts).toContainText("Focal length35.0 mm");
+  await expect(facts).toContainText("Dimensions");
+  // Then every tag, as in the inspector.
+  await expect(panel.locator("h3").first()).toHaveText("Camera and image (IFD0)");
+  await panel.getByTestId("meta-filter").fill("lens");
+  await expect(panel.locator(".all-meta dt")).toHaveText(["Lens Model"]);
+  // Typing in the filter does not move or close the viewer.
+  await expect(page.getByTestId("viewer-position")).toHaveText("1 of 2,000");
+  const first = (await calls(page, "metadata_all")).at(-1);
+
+  // Next item: the panel follows.
+  await page.getByTestId("viewer").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("viewer-position")).toHaveText("2 of 2,000");
+  await expect.poll(async () => (await calls(page, "metadata_all")).at(-1)).not.toEqual(first);
+  await expect(panel).toBeVisible();
+
+  // I hides it, and I shows it again.
+  await page.keyboard.press("i");
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("I");
+  await expect(panel).toBeVisible();
+
+  // Remembered after a reload, open or closed.
+  await page.reload();
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer-info")).toBeVisible();
+  await page.keyboard.press("i");
+  await expect(page.getByTestId("viewer-info")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await tile(page, 0).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("viewer")).toBeVisible();
+  await expect(page.getByTestId("viewer-info")).toHaveCount(0);
+});
+
+test("with the information panel open, Fit fits the smaller area and zoom still works", async ({
+  page,
+}) => {
+  // Tall and narrow: the picture's width decides Fit.
+  await page.setViewportSize({ width: 1000, height: 900 });
+  const i = find((x) => kindOf(x) === "photo" && online(x));
+  await openLibrary(page);
+  await viewOne(page, `DSC${pad(i)}`);
+  const stage = page.getByTestId("viewer-stage");
+  const img = page.getByTestId("viewer-image");
+  const level = page.getByTestId("zoom-level");
+  await expect(img).toHaveAttribute("data-full", "1");
+  await expect(level).toHaveText(/^Fit \(\d+%\)$/);
+  const pctOf = async () => Number((await level.textContent())?.match(/\d+/)?.[0]);
+  const wide = await pctOf();
+  const before = (await stage.boundingBox())!;
+
+  await page.keyboard.press("i");
+  const panel = page.getByTestId("viewer-info");
+  await expect(panel).toBeVisible();
+  // The stage shrinks to make room, beside the panel.
+  await expect.poll(async () => (await stage.boundingBox())!.width).toBeLessThan(before.width);
+  const box = (await stage.boundingBox())!;
+  const side = (await panel.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(side.x + 1);
+  // Fit is measured again: the whole picture inside the smaller stage.
+  await expect.poll(pctOf).toBeLessThan(wide);
+  const r = (await img.boundingBox())!;
+  expect(r.x).toBeGreaterThanOrEqual(box.x - 1);
+  expect(r.x + r.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  expect(r.y + r.height).toBeLessThanOrEqual(box.y + box.height + 1);
+
+  // Zoom keeps the picture's middle in the stage's middle, then Fit again.
+  await page.keyboard.press("z");
+  await expect(stage).toHaveAttribute("data-zoom", "100");
+  const z = (await img.boundingBox())!;
+  const mid = (box.x + box.width / 2 - z.x) / z.width;
+  expect(mid).toBeGreaterThan(0.4);
+  expect(mid).toBeLessThan(0.6);
+  await page.getByTestId("zoom-fit").click();
+  await expect(stage).toHaveAttribute("data-zoom", "fit");
+  const f = (await img.boundingBox())!;
+  expect(f.x + f.width).toBeLessThanOrEqual(box.x + box.width + 1);
+});
+
+test("the information panel follows JPEG | RAW, plays with videos, and says when a drive is away", async ({
+  page,
+}) => {
+  await page.goto("/?items=2000");
+  await page.evaluate(() => localStorage.setItem("keepsake.viewer.info", "1"));
+  await openLibrary(page);
+  const panel = page.getByTestId("viewer-info");
+
+  // A pair: the RAW's tags after R.
+  const pair = find((x) => kindOf(x) === "raw" && x % 2 === 0 && online(x));
+  await viewOne(page, `DSC${pad(pair)}`);
+  await expect(panel.getByTestId("viewer-info-member")).toHaveText(/JPEG/);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("ISO200");
+  await page.keyboard.press("r");
+  await expect(panel.getByTestId("viewer-info-member")).toHaveText(/RAW/);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("ISO400");
+  expect((await calls(page, "metadata_all")).at(-1)).toEqual({ id: `a${pair}`, member: "raw" });
+  await page.keyboard.press("Escape");
+
+  // A video: its duration, no exposure.
+  const v = find((x) => kindOf(x) === "video" && online(x));
+  await viewOne(page, `C${pad(v)}`);
+  await expect(page.getByTestId("viewer-video")).toBeVisible();
+  await expect(panel.getByTestId("viewer-facts")).toContainText("Duration");
+  await expect(panel.getByTestId("viewer-facts")).not.toContainText("Exposure");
+  await page.keyboard.press("Escape");
+
+  // Unplugged: the catalog's facts and a note; the file is not read.
+  const off = find((x) => kindOf(x) === "photo" && !online(x));
+  const before = (await calls(page, "metadata_all")).length;
+  await viewOne(page, `DSC${pad(off)}`);
+  await expect(panel.getByTestId("viewer-facts")).toContainText("Camera");
+  await expect(panel).toContainText("The drive with this item is not connected");
+  expect((await calls(page, "metadata_all")).length).toBe(before);
+});

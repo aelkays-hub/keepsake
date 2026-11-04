@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.1.30">
+	<Duration value="not-a-number"/>
+	<VideoFormat>
+		<VideoFrame videoCodec="AVC_1920_1080_HP@L41" captureFps="29.97p"/>
+	</VideoFormat>
+</NonRealTimeMeta>

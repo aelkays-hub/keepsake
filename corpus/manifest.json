@@ -1,0 +1,437 @@
+{
+  "scanned_at": "2026-10-16T08:37:34.436838900+00:00",
+  "corpus_root": "C:/Users/Ahmad El-Kays/keepsake-corpus",
+  "cameras": [
+    {
+      "name": "ILCE-7M4",
+      "files": [
+        {
+          "rel_path": "AVF_INFO/AVIN0001.BNP",
+          "size_bytes": 1382400,
+          "blake3": "e7205eb6be6067af0354311cd76335c45a1f5e5bb5f3737f633cac7caf247b67",
+          "kind": "other",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "AVF_INFO/AVIN0001.INP",
+          "size_bytes": 1382400,
+          "blake3": "e7205eb6be6067af0354311cd76335c45a1f5e5bb5f3737f633cac7caf247b67",
+          "kind": "other",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "AVF_INFO/AVIN0001.INT",
+          "size_bytes": 614400,
+          "blake3": "3256a83de0b1057a47c78fef63c022ccb92549a5b0578c49da140e0ed1ceeb91",
+          "kind": "other",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404966.ARW",
+          "size_bytes": 36704256,
+          "blake3": "43b3e058d82cc1dbdfbd4027e524b41a157e0b3a5720cadcc2bc8e047b1f86a2",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404967.ARW",
+          "size_bytes": 35553280,
+          "blake3": "449cf9d8f7c837f43a3826bfca7ee5e51aed988c8dcbf0a2e7819c4e70d4f976",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404967.JPG",
+          "size_bytes": 18842228,
+          "blake3": "d407929a82729e095fb062c2b1bbd4827a09e85ee25f0d9f7f64f3cc7ec997ea",
+          "kind": "jpg",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404968.JPG",
+          "size_bytes": 19033317,
+          "blake3": "0dc1de2ccd9a524e2b96ec940e92f6eeec9f90c49e58c0d0db59008fb61d5004",
+          "kind": "jpg",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404969.ARW",
+          "size_bytes": 36773888,
+          "blake3": "e4d0be3d0af64e8609d78861b5f8dc769429f3def2afaf61342b188fe6603bba",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404970.ARW",
+          "size_bytes": 36651008,
+          "blake3": "5822fcb4dede1063cc946cd8a3a72016d3400a1612db131cab438b28d058a612",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404971.ARW",
+          "size_bytes": 36839424,
+          "blake3": "e7fb3c2c25a425fde44cbb82b9fe74247873e39251810d33c7af12962d1fdfbf",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404972.ARW",
+          "size_bytes": 36839424,
+          "blake3": "8ff3d9f9f9a219300f3ba64d41183264a485ae08fc8f91c82c31bafece6f3d5a",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404973.ARW",
+          "size_bytes": 36835328,
+          "blake3": "1a6cd6911d89fff0713d65434ff052c612e341c3e7d631e531395b49d07bc780",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404974.ARW",
+          "size_bytes": 36839424,
+          "blake3": "48aabb6545c397e6d1483557f3da4a0a79e21ce04a8e01ce273a5d063df429f8",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404975.ARW",
+          "size_bytes": 36835328,
+          "blake3": "bb80a74192311c86202d221d3b77109e0d63a7d5a18ffaf4fc8a10b989dc1da9",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404976.ARW",
+          "size_bytes": 36835328,
+          "blake3": "72e187af62d29beab71d1f68003542f0366108c105a091f3e0e802f2af2be813",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404977.ARW",
+          "size_bytes": 36831232,
+          "blake3": "157aab1b888d578e3d43d84c78cde6ed655a0087db81553a8ebc5ea37e24bfa3",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404978.ARW",
+          "size_bytes": 36835328,
+          "blake3": "9e43e83e8e02ef7e8cf0c61416deee099c0c9571a2970f8a6cff28d256a07639",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404979.ARW",
+          "size_bytes": 36831232,
+          "blake3": "8e0e583bf27fad0fb0520a908ad84082da3ee8be65e8df3f6cda8c2621690a9c",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404980.ARW",
+          "size_bytes": 36831232,
+          "blake3": "1c8e92abe8c76f94ef51cb6e62fdee13c2b415a0b1bb4e932f25407b3cbc3ff9",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404981.ARW",
+          "size_bytes": 36827136,
+          "blake3": "6a15c17ea61af043b197d22a0a693f305dfbdaf64c895f4af2097ac8bf3daa32",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404982.ARW",
+          "size_bytes": 36818944,
+          "blake3": "3c920aad8ebd92b84f245e325ad4e2d3595d7474305a509d6ca909856c87f3da",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404983.ARW",
+          "size_bytes": 36827136,
+          "blake3": "f5d11d1f36c2c9791c3767dbd2037123ce93f16a26386b2188e231cda00de5fa",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404984.ARW",
+          "size_bytes": 36823040,
+          "blake3": "607c0f82a5778af6bb243f746309a9722fb018977073c3a13f8109059093bf1a",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404985.ARW",
+          "size_bytes": 36818944,
+          "blake3": "f8dd6e28e269144ec24a58f3c96ad454a556f733268bc92f8600f9ec89274006",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404986.ARW",
+          "size_bytes": 36818944,
+          "blake3": "11e0397c9509cdf0755e6d432d1bdf5c1e71f90235949bde25b22bf416117a15",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404987.ARW",
+          "size_bytes": 36823040,
+          "blake3": "e71e802bd7b628850c6fcd3c166e8ba01e1ff78c49a93b5240d5e7198c4b050d",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404988.ARW",
+          "size_bytes": 36827136,
+          "blake3": "e567e915e723ccaaa27a8869227faed6598fcdff4a25a1660bbe06347fda367c",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404989.ARW",
+          "size_bytes": 36937728,
+          "blake3": "50c8db96e71bc1b46586b57a5898e207813725f466e0d6a113fc1b816eb17e23",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404990.ARW",
+          "size_bytes": 36925440,
+          "blake3": "6c5eeadab40f747cb879dcf5456ddd3d05e8ffe8c598df486057e7bb5a4937c1",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404991.ARW",
+          "size_bytes": 36909056,
+          "blake3": "7a826d64d9c000737fa01c0e36caa4fd485b0f0774a5ff9ae0b5bcfe86afa6ae",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404992.ARW",
+          "size_bytes": 36913152,
+          "blake3": "86b2b4aaf7e5b0d57f6c0276d52c3e7c386853a3e1ab4c6ad5bf22c53f849c79",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404993.ARW",
+          "size_bytes": 36909056,
+          "blake3": "3033c416603284a566edc7c870afa1b0bc0f8e6b5aa1b98df661a7dbb18412f4",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404994.ARW",
+          "size_bytes": 36515840,
+          "blake3": "7481935bf26a420d978c85ec952ced10846456de0cdeee6d53aaf6fb105548d0",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404995.ARW",
+          "size_bytes": 36446208,
+          "blake3": "876bee6ebd1f77ba82f7a05922d45a5d1db32f6afe0b08a421c17faea1819dba",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404996.ARW",
+          "size_bytes": 36397056,
+          "blake3": "89605ee7e4575a18d90a5cbb1c7c3356f087c07ace6ddc3e719aa5c4ca678222",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404997.ARW",
+          "size_bytes": 36339712,
+          "blake3": "664fb83837d03f1038e4a9c2118ab0fa27c1e0498c7b218b07fbf88476f53303",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404998.ARW",
+          "size_bytes": 36466688,
+          "blake3": "928ea853097ed65f31d8569ea1dd71cd8fa260b5a8b5f4bca20e3aff4de94635",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7404999.ARW",
+          "size_bytes": 36237312,
+          "blake3": "aedc8783c1fe96932859e9e98361053560909ced901f0e472d504591619468b5",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405000.ARW",
+          "size_bytes": 36626432,
+          "blake3": "940e75f064ae27a9f3be67fca201f87ae4ec1f04662ea8cea54c6b5a289787d3",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405001.ARW",
+          "size_bytes": 35962880,
+          "blake3": "02fe7d60ddb6bbf9977fa0fa4d2db9b21695a2f6e4056446ff0dc2608d6e5518",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405002.ARW",
+          "size_bytes": 35778560,
+          "blake3": "2481d648d489f7590b9ad76a146e2a48095dea3a2f0c39c8198e2ad343c178b4",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405003.ARW",
+          "size_bytes": 36020224,
+          "blake3": "64f52cbf84431ec6f78c0ed9d35876f61c8c048692ded1704da017546464a7bd",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405004.ARW",
+          "size_bytes": 36589568,
+          "blake3": "94f9e013d3dc78cc1cdc42c22cd0aa1237b76baaa9e035d6f2777846907ddc6f",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405005.ARW",
+          "size_bytes": 36315136,
+          "blake3": "b24cc448e3717ecc1c9b45f74e7913f54baa49e2e2f1b06292fcc891c7435238",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405006.ARW",
+          "size_bytes": 36323328,
+          "blake3": "3a9a8c82cc34f792cde7a0d453048db995643a7aa9993b34c189f986f0cea7d9",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405007.ARW",
+          "size_bytes": 36294656,
+          "blake3": "9bf660e6ad3477199879e2b048683eef829631630795b1059e200091dc135d16",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405008.ARW",
+          "size_bytes": 37212160,
+          "blake3": "9c5f274cefd99bd407d923ff25ee371de6d6f35e8c4a778bd8443022ce18a1da",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405009.ARW",
+          "size_bytes": 37437440,
+          "blake3": "d2cd91166d759cf9cb27f9cec5d5b5eed44f28e6a96a252218007b941a81d230",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "DCIM/10061014/A7405010.ARW",
+          "size_bytes": 37679104,
+          "blake3": "9f1617300e4f4eac2080872a0e4eb8217a60374084f7671239f928d180214a18",
+          "kind": "arw",
+          "folder_role": "dcim"
+        },
+        {
+          "rel_path": "PRIVATE/DATABASE/DATABASE.BIN",
+          "size_bytes": 9670656,
+          "blake3": "35aa6930ac4ed23e0430c10b88a67aea935113bb1e33cf3c0d91177cc0425288",
+          "kind": "other",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0006.MP4",
+          "size_bytes": 134366698,
+          "blake3": "dd3d5d16313f4209f16cf6f4164716e86ed82fc0d962a097ab3009d0ac8fe01c",
+          "kind": "mp4",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0006M01.XML",
+          "size_bytes": 2135,
+          "blake3": "0c4ff002afa9e09153632a846f8f85072f531d0e9321fbda50ae4d2b4c9e9106",
+          "kind": "xml",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0007.MP4",
+          "size_bytes": 134369058,
+          "blake3": "64d12e8e3e08b8645d01a43efb205d2588c80032709b1ecdabd487e47e12659e",
+          "kind": "mp4",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0007M01.XML",
+          "size_bytes": 2143,
+          "blake3": "bc0ef10e91aea04d9a9411be856f46f22a8f3558021a92904f69528d62b6f45e",
+          "kind": "xml",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0008.MP4",
+          "size_bytes": 67256070,
+          "blake3": "182f4f2f4402b1228c495d11a07b308255eabf44bee541ed20415d21aa6f49e4",
+          "kind": "mp4",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/CLIP/C0008M01.XML",
+          "size_bytes": 2135,
+          "blake3": "59bd0e9adf7612029883c70936afda1d49038c5d1463d3a412b4acbddb095c51",
+          "kind": "xml",
+          "folder_role": "clip"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/MEDIAPRO.XML",
+          "size_bytes": 1549,
+          "blake3": "e8dc1cb5d68b02b5d5d96708a0c47653fa5cb8bee4c5c17c6641fadccd7df682",
+          "kind": "xml",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/THMBNL/C0006T01.JPG",
+          "size_bytes": 112372,
+          "blake3": "a8e10a95006858191aef63129a1769282d2b3fe8c14113061502d8a09f380961",
+          "kind": "jpg",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/THMBNL/C0007T01.JPG",
+          "size_bytes": 103289,
+          "blake3": "eedd19446bf23b8d74c2e87c8b886a35fe999ebc7d96eb738294d97e1e791b7a",
+          "kind": "jpg",
+          "folder_role": "unknown"
+        },
+        {
+          "rel_path": "PRIVATE/M4ROOT/THMBNL/C0008T01.JPG",
+          "size_bytes": 92343,
+          "blake3": "0d89463cd8cab65a5dfda2b6bacf45efbc94457ebbb578e454a0e52b462f912f",
+          "kind": "jpg",
+          "folder_role": "unknown"
+        }
+      ],
+      "skipped": [
+        {
+          "rel_path": "PRIVATE/SONY/SONYCARD.IND",
+          "reason": "hidden"
+        }
+      ]
+    }
+  ]
+}

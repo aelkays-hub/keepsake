@@ -1,0 +1,382 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  MIRROR: https://github.com/aelkays-hub/keepsake/releases/download/vendor-binaries-v1
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Reusable steps are inlined because GitHub Actions doesn't support YAML anchors.
+# The vendor-download block appears twice (x64 and ARM64) — keep them in sync.
+# ──────────────────────────────────────────────────────────────────────────────
+
+jobs:
+
+  # ── Windows x64 installer ────────────────────────────────────────────────────
+  build-win-x64:
+    name: Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: release-win-x64
+
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      # FFmpeg, ExifTool and LibRaw, pinned by SHA-256 (same as dev and CI).
+      - name: Download vendor binaries — x64
+        shell: pwsh
+        run: ./scripts/setup.ps1 -VendorOnly -Arch AMD64
+
+      - name: Build Tauri installer — x64
+        working-directory: app/ui
+        run: pnpm tauri build --bundles msi,nsis
+
+      - name: Sign installers (skip if no certificate)
+        if: env.WINDOWS_CERTIFICATE != ''
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          $certPath  = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($certPath, $certBytes)
+          $signtool  = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+          foreach ($f in (Get-ChildItem target\release\bundle -Recurse -Include *.msi,*-setup.exe)) {
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              /t http://timestamp.digicert.com /fd sha256 $f.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed on $($f.Name)"; exit 1 }
+          }
+          Remove-Item $certPath -Force
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-win-x64-msi
+          path: target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+      - name: Upload NSIS
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-win-x64-nsis
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+      - name: Upload CLI (for smoke test)
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-win-x64
+          path: target/release/keepsake.exe
+          if-no-files-found: error
+
+  # ── Windows ARM64 installer (cross-compiled from x64 runner) ─────────────────
+  build-win-arm64:
+    name: Windows ARM64 (cross)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable + ARM64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: release-win-arm64
+
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      # ARM64 FFmpeg; ExifTool is Perl; LibRaw's x64 build runs emulated.
+      - name: Download vendor binaries — ARM64
+        shell: pwsh
+        run: ./scripts/setup.ps1 -VendorOnly -Arch ARM64
+
+      - name: Build Tauri installer — ARM64 cross
+        working-directory: app/ui
+        run: pnpm tauri build --target aarch64-pc-windows-msvc --bundles msi,nsis
+
+      - name: Sign installers (skip if no certificate)
+        if: env.WINDOWS_CERTIFICATE != ''
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          $certPath  = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($certPath, $certBytes)
+          $signtool  = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+          $bundleDir = "target\aarch64-pc-windows-msvc\release\bundle"
+          foreach ($f in (Get-ChildItem $bundleDir -Recurse -Include *.msi,*-setup.exe)) {
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              /t http://timestamp.digicert.com /fd sha256 $f.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed on $($f.Name)"; exit 1 }
+          }
+          Remove-Item $certPath -Force
+
+      - name: Upload MSI (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-win-arm64-msi
+          path: target/aarch64-pc-windows-msvc/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+      - name: Upload NSIS (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-win-arm64-nsis
+          path: target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  # ── macOS Apple Silicon DMG ───────────────────────────────────────────────────
+  # DEFERRED — pending LGPL macOS FFmpeg binary (see ADR-005).
+  # Uncomment this job once the macOS FFmpeg build is available at the mirror.
+  #
+  # build-macos-arm64:
+  #   name: macOS Apple Silicon
+  #   runs-on: macos-14
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         workspaces: ". -> target"
+  #         key: release-macos-arm64
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: "lts/*" }
+  #     - uses: pnpm/action-setup@v4
+  #       with: { version: latest, run_install: false }
+  #     - name: Install UI deps
+  #       working-directory: app/ui
+  #       run: pnpm install --frozen-lockfile
+  #     - name: Download vendor binaries (macOS)
+  #       run: |
+  #         # TODO: download macOS LGPL FFmpeg from mirror once available
+  #         # See ADR-005 for the deferred macOS build workflow
+  #         exit 1
+  #     - name: Build Tauri DMG
+  #       working-directory: app/ui
+  #       env:
+  #         APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  #         APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  #         APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+  #         APPLE_ID: ${{ secrets.APPLE_ID }}
+  #         APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+  #         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  #       run: pnpm tauri build --bundles dmg
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: installer-macos-arm64-dmg
+  #         path: target/release/bundle/dmg/*.dmg
+  #         if-no-files-found: error
+
+  # ── Smoke test: install x64 MSI headlessly, run CLI checks ───────────────────
+  smoke-test-win:
+    name: Smoke test — Windows x64
+    needs: build-win-x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download x64 MSI
+        uses: actions/download-artifact@v4
+        with:
+          name: installer-win-x64-msi
+          path: artifacts/msi
+
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-win-x64
+          path: artifacts/cli
+
+      - name: Install MSI silently
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem artifacts\msi -Filter *.msi | Select-Object -First 1).FullName
+          Write-Host "Installing: $msi"
+          $log = "$env:RUNNER_TEMP\install.log"
+          $p   = Start-Process msiexec.exe `
+                   -ArgumentList "/i `"$msi`" /quiet /norestart /l*v `"$log`"" `
+                   -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Write-Host "--- last 50 lines of install log ---"
+            Get-Content $log -Tail 50 -ErrorAction SilentlyContinue
+            Write-Error "MSI install failed (exit $($p.ExitCode))"
+          }
+          Write-Host "OK: MSI installed (exit 0)"
+
+      - name: Verify installed files
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "C:\Program Files\Keepsake\keepsake-app.exe",
+            "C:\Program Files (x86)\Keepsake\keepsake-app.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Error "keepsake-app.exe not found in expected install locations"
+          }
+          Write-Host "OK: installed at $found"
+          # Verify sidecars are present
+          $dir = Split-Path $found
+          $files = @(
+            "ffmpeg.exe", "ffprobe.exe", "exiftool\exiftool.exe",
+            "libraw\dcraw_emu.exe", "libraw\libraw.dll", "libraw\LICENSE.LGPL",
+            "licenses\FFmpeg-LICENSE.txt"
+          )
+          foreach ($f in $files) {
+            if (-not (Test-Path (Join-Path $dir $f))) {
+              Write-Error "Expected sidecar missing: $f"
+            }
+          }
+          Write-Host "OK: FFmpeg, ExifTool and LibRaw sidecars and licences present"
+          # The installed tools run (the app finds them in this folder).
+          $v = & (Join-Path $dir "ffprobe.exe") -version 2>&1 | Select-Object -First 1
+          if ("$v" -notmatch "ffprobe version") { Write-Error "installed ffprobe does not run: $v" }
+          $v = & (Join-Path $dir "exiftool\exiftool.exe") -ver 2>&1
+          if ("$v" -notmatch "^\d+\.\d+") { Write-Error "installed exiftool does not run: $v" }
+          $v = & (Join-Path $dir "libraw\dcraw_emu.exe") 2>&1 | Out-String
+          if ($v -cnotmatch "dcraw emulator") { Write-Error "installed dcraw_emu does not run" }
+          $global:LASTEXITCODE = 0
+          Write-Host "OK: installed tools run"
+          "INSTALL_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The installed app itself finds and runs every bundled tool, with no
+      # vendor/ folder or environment variables (as on a user's machine).
+      - name: App smoke — keepsake-app --self-check
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\self-check.json"
+          $p = Start-Process (Join-Path $env:INSTALL_DIR "keepsake-app.exe") `
+                 -ArgumentList "--self-check `"$out`"" -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { Write-Error "self-check failed (exit $($p.ExitCode))" }
+          Write-Host "OK: the installed app finds and runs its tools"
+
+      - name: CLI smoke — keepsake --version
+        shell: pwsh
+        run: |
+          $cli = "artifacts\cli\keepsake.exe"
+          $out = & $cli --version 2>&1
+          Write-Host "Output: $out"
+          if ($LASTEXITCODE -ne 0) { Write-Error "--version exited $LASTEXITCODE" }
+          if ($out -notmatch "keepsake") { Write-Error "Unexpected version output: $out" }
+          Write-Host "OK"
+
+      - name: CLI smoke — corpus scan fixtures
+        shell: pwsh
+        run: |
+          $cli = "artifacts\cli\keepsake.exe"
+          & $cli corpus scan tests/fixtures/
+          if ($LASTEXITCODE -ne 0) { Write-Error "corpus scan exited $LASTEXITCODE" }
+          Write-Host "OK: corpus scan completed successfully"
+
+  # ── Create GitHub Release ──────────────────────────────────────────────────────
+  release:
+    name: GitHub Release
+    needs: [build-win-x64, build-win-arm64, smoke-test-win]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: release-assets/*
+          # A draft: a person checks the assets and notes, then publishes.
+          draft: true
+          body_path: docs/RELEASE_NOTES.md
