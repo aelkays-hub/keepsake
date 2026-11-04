@@ -1,7 +1,8 @@
 // The thumbnail grid: virtualized rows of tiles, multi-select with mouse
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
-// video durations.
+// video durations. Right-click, the Menu key or Shift+F10 opens an item's
+// menu (Show in Explorer / Finder, Open in…).
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -14,6 +15,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
+import { isMenuKey, useItemMenu } from "./useItemMenu";
 import { markReady } from "../diagnostics";
 import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
@@ -153,7 +155,25 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   useRovingFocus(parent, s.sel.focus, [first, last, cols]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
   const listKeys = useListKeys(rows.count, cols, pageRows, onOpen);
+  const tileEl = (i: number) => document.getElementById(`tile-${i}`);
+  const itemMenu = useItemMenu(rows.get, (i) =>
+    (tileEl(i) ?? parent.current)?.focus({ preventScroll: true }),
+  );
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+    if (!hit) return;
+    const i = Number(hit.dataset.index);
+    // From the keyboard the browser gives no pointer position.
+    if (e.clientX === 0 && e.clientY === 0) itemMenu.openOn(i, hit);
+    else itemMenu.open(i, e.clientX, e.clientY);
+  };
   const onKey = (e: React.KeyboardEvent) => {
+    if (isMenuKey(e)) {
+      if (s.sel.focus !== null) itemMenu.openOn(s.sel.focus, tileEl(s.sel.focus));
+      e.preventDefault();
+      return;
+    }
     // + and − change the thumbnail size.
     if (
       !e.ctrlKey &&
@@ -288,55 +308,59 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     );
   }
   return (
-    <div
-      ref={parent}
-      className="grid-scroll"
-      tabIndex={0}
-      role="grid"
-      aria-label="Items"
-      aria-rowcount={rowCount}
-      aria-multiselectable
-      data-testid="grid"
-      data-count={rows.count}
-      data-size={size}
-      data-selecting={s.selecting || undefined}
-      onKeyDown={onKey}
-      onMouseDown={onMouseDown}
-    >
-      <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
-        {items.map((vr) => (
-          <div
-            key={vr.key}
-            role="row"
-            className="grid-row"
-            style={{ transform: `translateY(${vr.start}px)`, gap: GAP, paddingLeft: GAP }}
-          >
-            {Array.from({ length: cols }, (_, c) => {
-              const i = vr.index * cols + c;
-              if (i >= rows.count) return null;
-              return (
-                <Tile
-                  key={i}
-                  index={i}
-                  row={rows.get(i)}
-                  px={TILE}
-                  large={large}
-                  selected={sel.has(s.sel, i)}
-                  focused={s.sel.focus === i}
-                  onOpen={onOpen}
-                />
-              );
-            })}
-          </div>
-        ))}
-        {box && (
-          <div
-            className="marquee"
-            data-testid="marquee"
-            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
-          />
-        )}
+    <>
+      <div
+        ref={parent}
+        className="grid-scroll"
+        tabIndex={0}
+        role="grid"
+        aria-label="Items"
+        aria-rowcount={rowCount}
+        aria-multiselectable
+        data-testid="grid"
+        data-count={rows.count}
+        data-size={size}
+        data-selecting={s.selecting || undefined}
+        onKeyDown={onKey}
+        onMouseDown={onMouseDown}
+        onContextMenu={onContextMenu}
+      >
+        <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
+          {items.map((vr) => (
+            <div
+              key={vr.key}
+              role="row"
+              className="grid-row"
+              style={{ transform: `translateY(${vr.start}px)`, gap: GAP, paddingLeft: GAP }}
+            >
+              {Array.from({ length: cols }, (_, c) => {
+                const i = vr.index * cols + c;
+                if (i >= rows.count) return null;
+                return (
+                  <Tile
+                    key={i}
+                    index={i}
+                    row={rows.get(i)}
+                    px={TILE}
+                    large={large}
+                    selected={sel.has(s.sel, i)}
+                    focused={s.sel.focus === i}
+                    onOpen={onOpen}
+                  />
+                );
+              })}
+            </div>
+          ))}
+          {box && (
+            <div
+              className="marquee"
+              data-testid="marquee"
+              style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+            />
+          )}
+        </div>
       </div>
-    </div>
+      {itemMenu.element}
+    </>
   );
 }
