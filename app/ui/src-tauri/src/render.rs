@@ -21,12 +21,42 @@ use crate::state::{err, AppState, CmdResult};
 pub struct RenderState {
     cancel: Mutex<Arc<AtomicBool>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// Services stopped by a restart, finishing their current jobs.
+    retired: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl RenderState {
-    fn stop(&self) {
+    /// Ask the service to stop after its current jobs.
+    pub(crate) fn stop(&self) {
         if let Ok(c) = self.cancel.lock() {
             c.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// No service thread is running, a restarted one included (finished
+    /// ones are joined). A service's ExifTool ends with its thread.
+    pub(crate) fn finished(&self) -> bool {
+        let (Ok(mut slot), Ok(mut retired)) = (self.worker.lock(), self.retired.lock()) else {
+            return false;
+        };
+        retired.extend(slot.take());
+        let (done, running): (Vec<_>, Vec<_>) =
+            retired.drain(..).partition(JoinHandle::is_finished);
+        for h in done {
+            let _ = h.join();
+        }
+        *retired = running;
+        retired.is_empty()
+    }
+
+    /// Track `worker`, stopped by `cancel` (tests).
+    #[cfg(test)]
+    pub(crate) fn adopt(&self, cancel: Arc<AtomicBool>, worker: JoinHandle<()>) {
+        if let Ok(mut c) = self.cancel.lock() {
+            *c = cancel;
+        }
+        if let Ok(mut w) = self.worker.lock() {
+            *w = Some(worker);
         }
     }
 }
@@ -36,8 +66,10 @@ impl RenderState {
 pub fn restart_service(app: &AppHandle) -> CmdResult<bool> {
     let state = app.state::<AppState>();
     state.render.stop();
-    if let Ok(mut slot) = state.render.worker.lock() {
-        slot.take();
+    if let (Ok(mut slot), Ok(mut retired)) =
+        (state.render.worker.lock(), state.render.retired.lock())
+    {
+        retired.extend(slot.take());
     }
     start_service(app)
 }

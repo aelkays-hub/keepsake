@@ -10,6 +10,7 @@ mod maintenance;
 mod prefs;
 mod render;
 mod report;
+mod shutdown;
 mod state;
 mod viewer;
 
@@ -41,12 +42,18 @@ fn self_check(out: Option<&String>) -> i32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     diagnostics::mark_start();
+    // Before any helper starts: they join the job and end with the app,
+    // even after a crash (Windows; a no-op elsewhere).
+    let job = keepsake_platform::end_helpers_with_this_process();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-check") {
         std::process::exit(self_check(args.get(2)));
     }
     diagnostics::init();
-    let result = tauri::Builder::default()
+    if let Err(e) = job {
+        tracing::warn!("helpers may outlive the app: {e}");
+    }
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
@@ -135,10 +142,17 @@ pub fn run() {
             diagnostics::ui_ready,
             diagnostics::startup_ms,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        eprintln!("Keepsake could not start: {e}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match app {
+        Ok(app) => app.run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                shutdown::on_exit(&app.state::<state::AppState>());
+            }
+        }),
+        Err(e) => {
+            eprintln!("Keepsake could not start: {e}");
+            std::process::exit(1);
+        }
     }
 }
 
