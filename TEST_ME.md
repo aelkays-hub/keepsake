@@ -1,8 +1,26 @@
-# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Open in for photos on a network drive, Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Open in for photos on a network drive
+
+Automated:
+```
+cargo test -p keepsake-core --lib external
+```
+
+Manual, **Windows**, with a library folder on a network share (e.g. `\\MYCLOUD-92LNT0\aelkays\Photos-OldAcer`) and Photoshop / Topaz Photo set in Settings for ARW and JPG:
+1. Select a JPG from the network share, open **Open in** in the inspector and choose **Photoshop**. **Expected:** Photoshop opens that photo; the inspector says "Opened with Photoshop".
+2. Do the same with an ARW and **Topaz Photo**. **Expected:** Topaz Photo opens that RAW.
+3. Press Ctrl+O on a network photo. **Expected:** it opens in the first app set for its type.
+4. Choose **System default**. **Expected:** the photo opens in Windows' default app for that type.
+5. Repeat step 1 with a photo on a local drive (e.g. `E:\Pictures`). **Expected:** still opens as before.
+
+Manual, **macOS**, with a library on a mounted SMB share (`/Volumes/…`): choose an app from **Open in**. **Expected:** it opens the photo (macOS paths are unchanged by this fix; this checks nothing broke).
 
 ---
 
