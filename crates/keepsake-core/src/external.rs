@@ -10,8 +10,7 @@ use crate::library::LibraryError;
 
 /// The program and arguments that open `path` (with `app` if given).
 pub fn command_for(path: &Path, app: Option<&str>) -> (String, Vec<String>) {
-    let p = path.to_string_lossy().into_owned();
-    let p = p.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(p);
+    let p = plain(path);
     match app.map(str::trim).filter(|a| !a.is_empty()) {
         Some(a) if cfg!(target_os = "macos") && (a.ends_with(".app") || !a.contains('/')) => {
             ("open".into(), vec!["-a".into(), a.into(), p])
@@ -20,6 +19,21 @@ pub fn command_for(path: &Path, app: Option<&str>) -> (String, Vec<String>) {
         None if cfg!(windows) => ("explorer".into(), vec![p]),
         None if cfg!(target_os = "macos") => ("open".into(), vec![p]),
         None => ("xdg-open".into(), vec![p]),
+    }
+}
+
+/// The path as other programs understand it: Windows' verbatim prefix
+/// removed (`\\?\E:\a` → `E:\a`, and a network share `\\?\UNC\srv\x` →
+/// `\\srv\x`; dropping only `\\?\` there would leave `UNC\srv\x`, which no
+/// program can open).
+fn plain(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        s.into_owned()
     }
 }
 
@@ -90,6 +104,22 @@ mod tests {
             );
         }
         assert_eq!(command_for(f, Some("  ")).0, prog, "blank means default");
+    }
+
+    #[test]
+    fn network_share_paths_keep_their_double_backslash() {
+        let share = Path::new(r"\\?\UNC\MYCLOUD\Photos\2018\DSC1.ARW");
+        let (_, args) = command_for(share, Some(r"C:\Apps\Edit.exe"));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some(r"\\MYCLOUD\Photos\2018\DSC1.ARW")
+        );
+        let (_, args) = command_for(share, None);
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some(r"\\MYCLOUD\Photos\2018\DSC1.ARW")
+        );
+        assert_eq!(plain(Path::new(r"\\srv\x\a.jpg")), r"\\srv\x\a.jpg");
     }
 
     #[test]
