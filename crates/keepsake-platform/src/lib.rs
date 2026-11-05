@@ -3,6 +3,7 @@
 //! Platform-specific implementations live in cfg-gated modules; callers
 //! depend only on the traits and functions exposed here.
 
+pub mod children;
 pub mod devices;
 pub mod fake;
 pub mod power;
@@ -12,6 +13,7 @@ mod macos;
 #[cfg(windows)]
 mod windows;
 
+pub use children::end_helpers_with_this_process;
 pub use devices::{
     identify_volume, system_devices, volume_root, DeviceEvents, PlatformError, SystemDevices,
 };

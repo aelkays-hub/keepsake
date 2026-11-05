@@ -4,7 +4,7 @@
 //! OS launchers do it.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use crate::library::LibraryError;
 
@@ -47,15 +47,42 @@ pub fn open_folder(dir: &Path) -> Result<(), LibraryError> {
 }
 
 fn launch((prog, args): (String, Vec<String>)) -> Result<(), LibraryError> {
-    Command::new(&prog)
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    spawn_detached(&prog, &args)
         .map_err(|e| LibraryError::Invalid(format!("could not start {prog}: {e}")))?;
     Ok(())
 }
+
+/// Start `prog` so it outlives Keepsake: no pipes to it, and on Windows
+/// outside the job that ends Keepsake's helpers with it.
+pub fn spawn_detached(prog: &str, args: &[String]) -> std::io::Result<Child> {
+    let command = || {
+        let mut c = Command::new(prog);
+        c.args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        c
+    };
+    let mut cmd = command();
+    leave_job(&mut cmd);
+    match cmd.spawn() {
+        // An outer job (a terminal, a CI runner) may forbid leaving it.
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => command().spawn(),
+        r => r,
+    }
+}
+
+/// On Windows the app's helpers share a job that ends them with the app
+/// (`keepsake_platform::children`). An app opened from Keepsake leaves it.
+#[cfg(windows)]
+fn leave_job(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    cmd.creation_flags(CREATE_BREAKAWAY_FROM_JOB);
+}
+
+#[cfg(not(windows))]
+fn leave_job(_: &mut Command) {}
 
 #[cfg(test)]
 mod tests {
