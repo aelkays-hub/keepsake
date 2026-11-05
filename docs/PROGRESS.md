@@ -18,6 +18,7 @@
 | — | Select many to edit: tick-box on tiles, Select mode, drag a rectangle; inspector shows what the selection shares; comment for all | ✅ Done (Windows; macOS via CI) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
+| — | ExifTool and other helpers end with the app (exit hook; Windows job object) | ✅ Done (Windows; macOS via CI) |
 | — | Faster thumbnails on a network drive: fingerprints wait for thumbnails; camera JPEG thumbnails from the built-in preview | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
@@ -53,6 +54,33 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## ExifTool no longer outlives the app (2026-11-05)
+
+### What was asked
+- Fix the bug where closing Keepsake on Windows leaves `exiftool.exe` running forever. 13 such processes locked `target\debug\exiftool\exiftool.exe` and stopped `scripts\keepsake.bat` from building the app.
+
+### What was found
+- Tauri's `run()` ended the process without dropping app state, and the shared ExifTool is in a `static`, so `Drop for ExifTool` never ran.
+- ExifTool does not quit when its stdin closes: it polls forever (macOS too).
+
+### What was built (ADR-033)
+- `keepsake_platform::end_helpers_with_this_process`: on Windows the app joins a kill-on-close Job Object at start; its helpers end with it, even after a crash or End task. Elsewhere it does nothing.
+- `ExifTool::shutdown(&self)`: stops a handle that is never dropped.
+- `app/ui/src-tauri/src/shutdown.rs`: on `RunEvent::Exit`, stop the render service, an import and a maintenance job (up to 5 s), then the shared ExifTool.
+- `external::spawn_detached`: apps opened from Keepsake leave the job, so they stay open after it.
+
+### Tests
+- `keepsake-platform` (Windows): closing the job ends a child and the process it started; helpers are in the job and an opened app is not; the job structure has the C layout.
+- `probe_tests::exiftool_shutdown_ends_the_process`: after `shutdown` requests fail, and on Windows the ExifTool `.exe` can be deleted (it is no longer running).
+- `shutdown` tests: the exit stops the render service and drops what it owns, stops an import, and gives up after its wait.
+- Manual (Windows, test library): ExifTool started by the app was gone after closing the window (exit took 143 ms) and after `taskkill /F` on the app.
+
+### Not done
+- macOS: a crash or force-quit can still leave ExifTool running (a clean quit stops it). Not checked on a Mac yet.
+- Two old orphans from another worktree (`show-in-folder-4900a2`) were still running at the time; they predate this fix.
 
 ---
 

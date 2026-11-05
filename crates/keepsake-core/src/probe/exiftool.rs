@@ -245,7 +245,7 @@ impl Worker {
 /// across threads; requests are served one at a time in arrival order.
 pub struct ExifTool {
     tx: Mutex<mpsc::Sender<Msg>>,
-    worker: Option<JoinHandle<()>>,
+    worker: Mutex<Option<JoinHandle<()>>>,
     timeout: Duration,
     restarts: Arc<AtomicU64>,
 }
@@ -290,10 +290,28 @@ impl ExifTool {
             .map_err(|source| ProbeError::Spawn { tool: TOOL, source })?;
         Ok(Self {
             tx: Mutex::new(tx),
-            worker: Some(worker),
+            worker: Mutex::new(Some(worker)),
             timeout,
             restarts,
         })
+    }
+
+    /// Stop the process (asking it to quit, then killing it after 2 s) and
+    /// the worker, after the requests already queued. Later requests fail.
+    /// Dropping the handle does the same; this is for a handle that is
+    /// never dropped, such as one in a `static` (statics are not dropped
+    /// when the program ends, and ExifTool does not quit by itself).
+    pub fn shutdown(&self) {
+        if let Ok(tx) = self.tx.lock() {
+            let _ = tx.send(Msg::Shutdown);
+        }
+        let worker = match self.worker.lock() {
+            Ok(mut w) => w.take(),
+            Err(p) => p.into_inner().take(),
+        };
+        if let Some(w) = worker {
+            let _ = w.join();
+        }
     }
 
     /// How many times the process was killed and replaced.
@@ -498,12 +516,7 @@ pub fn groups_from_json(out: &str) -> Result<Vec<MetaGroup>, ProbeError> {
 
 impl Drop for ExifTool {
     fn drop(&mut self) {
-        if let Ok(tx) = self.tx.lock() {
-            let _ = tx.send(Msg::Shutdown);
-        }
-        if let Some(w) = self.worker.take() {
-            let _ = w.join();
-        }
+        self.shutdown();
     }
 }
 

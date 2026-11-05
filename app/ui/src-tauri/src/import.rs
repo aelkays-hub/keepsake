@@ -24,13 +24,32 @@ use crate::api::{
 use crate::convert;
 use crate::state::{err, ui_test, AppState, CmdResult};
 
+/// The app's one ExifTool process (see [`exiftool`]).
+static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
+
 /// The app's one ExifTool process (started on first use).
 pub(crate) fn exiftool() -> Option<&'static ExifTool> {
-    static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
     ET.get_or_init(|| {
         ExifTool::start(&RenderTools::discover().exiftool, Duration::from_secs(30)).ok()
     })
     .as_ref()
+}
+
+/// Stop the app's ExifTool process, if it was started. A static is never
+/// dropped, so without this it outlives the app.
+pub(crate) fn stop_exiftool() {
+    if let Some(Some(et)) = ET.get() {
+        et.shutdown();
+    }
+}
+
+/// Ask the running import, if any, to stop.
+pub(crate) fn request_stop(state: &AppState) {
+    if let Ok(g) = state.import_cancel.lock() {
+        if let Some(c) = g.as_ref() {
+            c.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 fn mount_path(mount: &str) -> CmdResult<PathBuf> {
@@ -223,11 +242,7 @@ pub fn import_check(
 
 #[tauri::command(async)]
 pub fn import_cancel(state: State<'_, AppState>) {
-    if let Ok(g) = state.import_cancel.lock() {
-        if let Some(c) = g.as_ref() {
-            c.store(true, Ordering::SeqCst);
-        }
-    }
+    request_stop(&state);
 }
 
 /// Start the import; returns at once. Progress and the result come as

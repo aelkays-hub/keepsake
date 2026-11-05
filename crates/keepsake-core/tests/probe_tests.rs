@@ -148,6 +148,52 @@ fn exiftool_reports_missing_files() {
     assert!(ExifTool::start(&dir.path().join("no-exiftool"), Duration::from_secs(1)).is_err());
 }
 
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        let dest = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_dir(&e.path(), &dest);
+        } else {
+            std::fs::copy(e.path(), &dest).unwrap();
+        }
+    }
+}
+
+/// `shutdown` ends the process even though the handle lives on (as the
+/// app's shared one does, in a `static`).
+#[test]
+fn exiftool_shutdown_ends_the_process() {
+    let Some((t, _)) = media::tools() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    // On Windows a copy of its own, so the test can tell whether it still
+    // runs: a running .exe cannot be deleted (this is what blocked builds).
+    let exe = if cfg!(windows) {
+        let own = dir.path().join("exiftool");
+        copy_dir(t.exiftool.parent().unwrap(), &own);
+        own.join(t.exiftool.file_name().unwrap())
+    } else {
+        t.exiftool.clone()
+    };
+    let et = ExifTool::start(&exe, Duration::from_secs(30)).unwrap();
+    assert!(et.execute(&["-ver".into()]).unwrap().trim().len() > 1);
+    if cfg!(windows) {
+        assert!(std::fs::remove_file(&exe).is_err(), "not running?");
+    }
+    et.shutdown();
+    assert!(matches!(
+        et.execute(&["-ver".into()]),
+        Err(ProbeError::Crashed { .. })
+    ));
+    if cfg!(windows) {
+        std::fs::remove_file(&exe).expect("ExifTool still runs after shutdown");
+    }
+    et.shutdown(); // again: nothing to do
+}
+
 /// A stand-in for ExifTool that hangs on its first start and behaves
 /// normally afterwards, to exercise timeout + restart.
 fn hanging_once_wrapper(dir: &Path, real: &Path) -> std::path::PathBuf {
