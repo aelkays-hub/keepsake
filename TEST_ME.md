@@ -1,8 +1,33 @@
-# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — ExifTool ends with the app, Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## ExifTool ends with the app
+
+Automated:
+```
+cargo test -p keepsake-platform children
+cargo test -p keepsake-core --test probe_tests exiftool_shutdown
+cargo test -p keepsake-app shutdown
+```
+
+Manual, **Windows** (PowerShell):
+1. Close every Keepsake window. Run `Get-Process exiftool -ErrorAction SilentlyContinue`. **Expected:** nothing (if old ones from before this fix are listed, end them once with `Stop-Process -Name exiftool`).
+2. Start the app (`scripts\keepsake.bat`). Open a photo and press **I** (or open All metadata in the inspector), so ExifTool runs. Run the command again. **Expected:** one or two `exiftool` processes.
+3. Close the window. Wait 5 seconds and run the command again. **Expected:** nothing.
+4. Start the app again, repeat step 2, then end it the hard way: Task Manager → keepsake-app → **End task**. **Expected:** after a few seconds, no `exiftool` process either.
+5. Start the app with `scripts\keepsake.bat` twice in a row (closing it in between). **Expected:** it builds and starts both times; no "being used by another process (os error 32)".
+6. Set an **Open in** app for JPEG (Settings), open a photo in it from the inspector, then close Keepsake. **Expected:** the other app stays open.
+
+Manual, **macOS** (Terminal):
+1. Quit Keepsake. Run `pgrep -fl exiftool`. **Expected:** nothing.
+2. Start the app, open a photo's All metadata, run `pgrep -fl exiftool`. **Expected:** one or two processes.
+3. Quit with ⌘Q (or close the last window). Wait 5 seconds, run `pgrep -fl exiftool`. **Expected:** nothing.
+4. Known gap: after a crash or **Force Quit**, ExifTool may stay; end it with `pkill -f exiftool`.
 
 ---
 

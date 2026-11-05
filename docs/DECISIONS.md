@@ -1161,3 +1161,21 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Measured.** Corpus: 59 of 1,010 JPEGs have a built-in preview (camera originals; edited exports have none), and every one matches the whole picture in shape, orientation and content (`corpus_jpeg_built_in_previews_match_the_picture`).
 
 **Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.
+
+---
+
+## ADR-033 — Helper processes end with the app
+
+**Status**: Accepted (2026-11-05, bug fix asked for after the app would not start). No new dependency: the Win32 job calls are hand-written in `keepsake-platform/src/children.rs`, as ADR-020 does.
+
+**Context.** Every close of Keepsake left its ExifTool processes running. 13 of them, days old, locked `target\debug\exiftool\exiftool.exe`, so the build could not copy the file (os error 32) and `scripts\keepsake.bat` / `pnpm tauri dev` failed. Three causes together:
+- ExifTool stopped only in `Drop for ExifTool`, and Tauri's `run()` ends the process without dropping managed state.
+- The app's shared ExifTool lives in a `static` (`import::exiftool`), which is never dropped.
+- ExifTool never quits by itself: with `-stay_open` and a closed stdin it polls every 10 ms forever (`ReadStayOpen` in `exiftool.pl`), on Windows and macOS alike. Closing stdin does not stop it.
+
+**Decision.**
+- **Clean exit (all OSes).** `lib.rs` uses `build()` + `run(|app, event| …)`. On `RunEvent::Exit`, `shutdown::on_exit` asks the render service (restarted ones too), an import and a maintenance job to stop, waits up to 5 s, then calls `ExifTool::shutdown` on the shared one (`-stay_open False`, killed after 2 s). A service's own ExifTool ends with its thread.
+- **Any exit (Windows).** At the start of `run()` the app joins a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (`keepsake_platform::end_helpers_with_this_process`). Its children (ExifTool and its Perl, ffmpeg, ffprobe, WebView2) join it. When Keepsake ends, however it ends, the kernel closes the job and ends them.
+- **Opened apps stay.** The job allows breakaway, and `external::spawn_detached` (Open in, Show log folder) starts programs with `CREATE_BREAKAWAY_FROM_JOB`, so an editor opened from Keepsake keeps running. Where an outer job forbids leaving (some terminals), it starts inside, as before.
+
+**Not done.** macOS has no equivalent of a kill-on-close job without a helper or a new dependency, so a crash or a force-quit there can still leave ExifTool running. The CLI is unchanged: Ctrl-C reaches ExifTool too (same console), and it drops its handles on a normal exit.
