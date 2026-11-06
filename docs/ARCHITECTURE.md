@@ -128,6 +128,11 @@ Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offl
   - Identical originals share renditions. A recipe change gives new names.
   - LRU eviction keeps the cache under `max_bytes`, previews and proxies before thumbnails, but never removes a rendition whose original is not on a mounted volume. The render service trims to 90% of the limit, and while the cache is above 80% its background jobs make thumbnails only; opening an item makes the rest (ADR-031). Thumbnails alone of a camera JPEG are made from its built-in MPF preview, without reading the whole file (ADR-032).
   - The root is `[render] cache_dir` in `config.toml` (default: the OS cache folder).
+- **Thumbnail backfill** (`render::backfill`, `keepsake renders thumbnails`, ADR-033): a headless walk, separate from the job queue, that makes every missing 256/1024 px thumbnail (never the preview or a proxy).
+  - It walks `assets` in `seq` order from a saved position (`library_meta` key `render.backfill.cursor`), 100 assets per batch.
+  - A batch is rendered first (files into the cache through `.tmp` and a rename; `Cache::store_bytes` and `still::make_stills` return the rows unwritten), with `workers` threads that each have their own read connection. Then one short write records all the batch's `renditions` rows and the new position, retried for up to two minutes while another writer holds the catalog. A kill loses at most the batch in progress, whose files are made again next time.
+  - A file that fails (or panics in a decoder) is reported (`BackfillEvent::ItemFailed`) and passed; only catalog errors stop the run. A batch whose media is all offline stops the run without saving a position past it, unless `skip_offline`. Ctrl-C saves the finished part of the batch.
+  - At the end the position stays on the last asset, so the next run looks only at assets added since; `restart` walks everything again, which retries failures. It does not touch `jobs`: the app's queued `render.stills` jobs for those assets finish at once for the thumbnails and still make the preview.
 
 ### VideoOps
 Wraps FFmpeg for all video operations: trim (stream copy or smart-cut re-encode), combine, rotate, frame grab, MP4 conversion, proxy generation, time-lapse assembly, deflicker. Every operation produces a new file; no in-place modification.

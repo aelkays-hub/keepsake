@@ -1161,3 +1161,21 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Measured.** Corpus: 59 of 1,010 JPEGs have a built-in preview (camera originals; edited exports have none), and every one matches the whole picture in shape, orientation and content (`corpus_jpeg_built_in_previews_match_the_picture`).
 
 **Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.
+
+---
+
+## ADR-033 — A headless thumbnail backfill in saved batches
+
+**Status**: Accepted (2026-11-05, product owner asked for a program with no UI that makes every missing thumbnail in batches of 100, commits each batch, and resumes after a crash or a bad file).
+
+**Context.** The app's render queue (ADR-021) already makes thumbnails in the background, but only while the app runs, one job per asset with a write per job, and every `render.stills` job also makes a 2560 px preview. On the product owner's network-share library many files fail (ARWs with no embedded preview, files that do not decode), and the logs show "slow catalog write" warnings while the app works.
+
+**Decision.**
+- **A `keepsake renders thumbnails` subcommand**, not a new binary: the CLI already resolves the library and settings, finds the tools, handles Ctrl-C and exit codes, and ships with the app. The logic is in `keepsake_core::render::backfill`.
+- **Its own walk, not the job queue.** It follows `assets.seq` from a position saved in `library_meta` (`render.backfill.cursor`). The queue's claims and completions are one write per job, and its order (on screen, recent, newest first) changes as the app runs; a seq walk is stable and its position is one number.
+- **One transaction per batch.** Thumbnails are written to the cache first; then a single write records the batch's rendition rows and the new position. A killed run loses at most one batch, whose files are replaced next time (the cache is content-addressed).
+- **Thumbnails only** (`Thumb1024`, `Thumb256`), using a camera JPEG's built-in preview (ADR-032); previews are left to the app.
+- **Bad files are passed** and reported; a batch where every asset is offline stops the run before its position is saved (a share that dropped would otherwise be walked past in seconds), unless `--skip-offline`. At the end the position stays put; `--restart` walks again to retry failures.
+
+**Not done.** It does not evict: the app's render service trims the cache to its limit as usual. It does not mark the app's queued `render.stills` jobs done; they find the thumbnails and make only the preview.
+

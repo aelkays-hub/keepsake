@@ -32,6 +32,7 @@ keepsake renders show <file>
 keepsake renders retry
 keepsake renders evict [--max-bytes N]
 keepsake renders bench <folder> [--per-type N] [--videos N] [--workers N] [--encoder NAME]
+keepsake renders thumbnails [--batch-size N] [--workers N] [--max-batches N] [--restart] [--skip-offline] [--failures-log FILE]
 ```
 
 ## DESCRIPTION
@@ -365,6 +366,23 @@ A RAW + JPEG pair uses the JPEG.
 `keepsake renders bench <folder>`
 : Copy a sample of `folder` (spread across sizes; `--per-type` photos per type, `--videos` clips) into a temporary library. Then time each rendition type on this machine and print a Markdown table of items per minute and proxy speed in × real time, for `docs/PERFORMANCE.md`. The folder is only read.
 
+`keepsake renders thumbnails`
+: Make every missing thumbnail (256 and 1024 px; no previews, no proxies) without the app, for example overnight. Assets are taken in the order they were added to the catalog, 100 at a time (`--batch-size`); after each batch its thumbnails and the position reached are saved in one short write, so the app can keep running. If the command is stopped, killed or the computer restarts, running it again continues after the last saved batch (at most one batch is made again). A file that cannot be rendered is printed as `FAILED <file>: <error>` (and appended to `--failures-log FILE` as `file<TAB>error`) and passed.
+
+  `--workers`
+  : Files rendered at the same time (default: the settings).
+
+  `--max-batches N`
+  : Stop after N batches.
+
+  `--restart`
+  : Start again from the first asset: retries files that failed or were offline; assets that have their thumbnails are passed quickly.
+
+  `--skip-offline`
+  : When a whole batch is offline (a drive or network share not connected), the command normally stops there, so that it is done when the media is back. This moves past it instead.
+
+  Once the end is reached, the next run looks only at assets added since.
+
 JSON:
 - `status`: `status` (`jobs` with `by_kind` and `queued_by_priority`, `running[]`, `failed[]`, `cache` with `root`/`files`/`bytes`/`max_bytes`/`kept_offline_bytes`, `paused`) and `failed_files[]`.
 - `run`: JSON Lines events, each with `event` set to `started`, `done` (with `made[]`, `ms` and `encoder`), `failed` (with `retry`), `deferred`, `paused` (with `reason`: `on_battery`/`ingesting`), `resumed`, `evicted` or `finished` (with `done`, `failed` and `cancelled`).
@@ -372,9 +390,10 @@ JSON:
 - `show`: `asset` and `renditions` (variant → path).
 - `retry`: `requeued`.
 - `evict`: `evict`.
+- `thumbnails`: JSON Lines events, each with `event` set to `started` (`from_seq`, `remaining`), `item_failed` (`asset`, `seq`, `error`), `batch_committed` (`batch`, `stats` with `items`/`made`/`already`/`no_original`/`offline`/`failed`/`cursor`), `stopped_offline` or `complete`; then one document with `report` (`batches`, `totals`, `complete`, `cancelled`, `stopped_offline`).
 - `bench`: `machine`, `workers`, `encoder`, `results[]` (`type`, `items`, `seconds`, `items_per_minute`, `note`) and `failures[]`.
 
-Exit status for `run`: 0, 2 if some jobs failed for good, 130 if stopped with Ctrl-C.
+Exit status for `run`: 0, 2 if some jobs failed for good, 130 if stopped with Ctrl-C. For `thumbnails`: 0, 2 if some files failed or it stopped at offline media, 130 if stopped with Ctrl-C.
 
 ## CTRL-C
 
