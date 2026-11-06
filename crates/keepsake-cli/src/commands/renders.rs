@@ -1,4 +1,4 @@
-//! `keepsake renders status | run | enqueue | show | retry | evict | bench`
+//! `keepsake renders status | run | enqueue | show | retry | evict | bench | thumbnails`
 
 use std::collections::BTreeMap;
 use std::io::{IsTerminal, Write};
@@ -14,6 +14,7 @@ use serde_json::json;
 
 use keepsake_core::catalog::{AssetId, JobState, MediaKind, Priority, VolumeKind};
 use keepsake_core::library::Library;
+use keepsake_core::render::backfill::{self, Backfill, BackfillEvent, BackfillOptions};
 use keepsake_core::render::service::{self, PowerCheck};
 use keepsake_core::render::{
     self, Cache, RenderEvent, RenderOptions, RenderService, RenderTools, Variant, JOB_PROXY,
@@ -52,6 +53,35 @@ pub enum RendersAction {
     /// Measure items per minute per type on this machine (writes nothing
     /// outside a temporary folder).
     Bench(BenchArgs),
+    /// Make every missing thumbnail, unattended: walks the whole library in
+    /// batches (each saved in one short write) and continues where the last
+    /// run stopped. Bad files are reported and passed.
+    Thumbnails(ThumbnailsArgs),
+}
+
+#[derive(Args)]
+pub struct ThumbnailsArgs {
+    /// Assets per batch; each batch is saved in one transaction.
+    #[arg(long, default_value_t = backfill::DEFAULT_BATCH)]
+    pub batch_size: usize,
+    /// Files rendered at the same time (default: settings, else half the
+    /// cores, 1–4).
+    #[arg(long)]
+    pub workers: Option<usize>,
+    /// Stop after this many batches.
+    #[arg(long)]
+    pub max_batches: Option<u64>,
+    /// Walk the whole library again from the first asset (retries files
+    /// that failed or were offline; assets with thumbnails are passed).
+    #[arg(long)]
+    pub restart: bool,
+    /// Move past media that is offline instead of stopping at a batch where
+    /// all of it is.
+    #[arg(long)]
+    pub skip_offline: bool,
+    /// Append each failed file and its error to this file.
+    #[arg(long, value_name = "FILE")]
+    pub failures_log: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -168,6 +198,7 @@ pub fn run(ctx: &Ctx, action: RendersAction) -> Result<u8> {
             Ok(EXIT_OK)
         }
         RendersAction::Bench(a) => bench(ctx, a),
+        RendersAction::Thumbnails(a) => thumbnails(ctx, a),
     }
 }
 
@@ -335,6 +366,114 @@ fn run_queue(ctx: &Ctx, a: RunArgs) -> Result<u8> {
     Ok(if cancelled {
         EXIT_CANCELLED
     } else if failures > 0 {
+        EXIT_PROBLEMS
+    } else {
+        EXIT_OK
+    })
+}
+
+fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
+    let e = env(ctx)?;
+    let cat = e.lib.open_catalog()?;
+    let opts = BackfillOptions {
+        batch_size: a.batch_size.max(1),
+        workers: a
+            .workers
+            .unwrap_or_else(|| e.settings.render.image_workers())
+            .max(1),
+        max_batches: a.max_batches,
+        restart: a.restart,
+        skip_offline: a.skip_offline,
+    };
+    if !ctx.json {
+        println!(
+            "Making missing thumbnails in batches of {} with {} worker(s) into {}.",
+            opts.batch_size,
+            opts.workers,
+            path_str(e.cache.root())
+        );
+    }
+    let mut log = match &a.failures_log {
+        Some(p) => Some(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .with_context(|| format!("cannot open {}", p.display()))?,
+        ),
+        None => None,
+    };
+    let job = Backfill::new(&e.lib, e.cache.clone(), e.tools.clone(), opts);
+    let cancel = cancel_flag();
+    let mut pb = ProgressBar::hidden();
+    let mut out = std::io::stdout();
+    let report = job.run(cancel, &mut |ev| {
+        if ctx.json {
+            if let Ok(line) = serde_json::to_string(ev) {
+                let _ = writeln!(out, "{line}");
+                let _ = out.flush();
+            }
+        }
+        match ev {
+            BackfillEvent::Started {
+                from_seq,
+                remaining,
+            } => {
+                pb = bar(ctx.json, *remaining);
+                if !ctx.json && *from_seq > 0 {
+                    pb.println(format!(
+                        "Continuing after asset #{from_seq}: {remaining} to look at."
+                    ));
+                }
+            }
+            BackfillEvent::ItemFailed { asset, error, .. } => {
+                let file = describe(&cat, &e.lib, *asset)
+                    .ok()
+                    .and_then(|r| r.file)
+                    .unwrap_or_else(|| asset.to_string());
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "{file}	{error}");
+                }
+                if !ctx.json {
+                    pb.println(format!("FAILED {file}: {error}"));
+                }
+            }
+            BackfillEvent::BatchCommitted { batch, stats } => {
+                pb.inc(stats.items);
+                if !ctx.json {
+                    pb.println(format!(
+                        "batch {batch} saved: {} made, {} already had them, {} failed, {} offline (position #{})",
+                        stats.made, stats.already, stats.failed, stats.offline, stats.cursor
+                    ));
+                }
+            }
+            BackfillEvent::StoppedOffline { cursor, items } => {
+                if !ctx.json {
+                    pb.println(format!(
+                        "Stopped: the next {items} asset(s) after #{cursor} are all offline.                          Connect the drive or share and run again, or pass --skip-offline."
+                    ));
+                }
+            }
+            BackfillEvent::Complete => {}
+        }
+    });
+    pb.finish_and_clear();
+    let report = report?;
+    let t = &report.totals;
+    ctx.emit(&json!({ "report": report }), || {
+        println!(
+            "{} batch(es) saved: {} asset(s) looked at, {} got thumbnails, {} already had them, {} failed, {} offline, {} with no original.",
+            report.batches, t.items, t.made, t.already, t.failed, t.offline, t.no_original
+        );
+        if report.complete {
+            println!("Reached the end of the library. New imports are picked up next time; --restart retries failed files.");
+        } else if report.cancelled {
+            println!("Stopped. Run `keepsake renders thumbnails` to continue from here.");
+        }
+    })?;
+    Ok(if report.cancelled {
+        EXIT_CANCELLED
+    } else if t.failed > 0 || report.stopped_offline {
         EXIT_PROBLEMS
     } else {
         EXIT_OK
