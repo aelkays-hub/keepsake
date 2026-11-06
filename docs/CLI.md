@@ -390,7 +390,7 @@ JSON:
 - `show`: `asset` and `renditions` (variant → path).
 - `retry`: `requeued`.
 - `evict`: `evict`.
-- `thumbnails`: JSON Lines events, each with `event` set to `started` (`from_seq`, `remaining`), `item_failed` (`asset`, `seq`, `error`), `batch_committed` (`batch`, `stats` with `items`/`made`/`already`/`no_original`/`offline`/`failed`/`cursor`), `stopped_offline` or `complete`; then one document with `report` (`batches`, `totals`, `complete`, `cancelled`, `stopped_offline`).
+- `thumbnails`: JSON Lines events, each with `event` set to `started` (`from_seq`, `remaining`), `item_failed` (`asset`, `seq`, `error`), `batch_committed` (`batch`, `stats` with `items`/`made`/`already`/`no_original`/`offline`/`failed`/`cursor`), `stopped_offline` or `complete`; then a last line with `report` (`batches`, `totals`, `complete`, `cancelled`, `stopped_offline`).
 - `bench`: `machine`, `workers`, `encoder`, `results[]` (`type`, `items`, `seconds`, `items_per_minute`, `note`) and `failures[]`.
 
 Exit status for `run`: 0, 2 if some jobs failed for good, 130 if stopped with Ctrl-C. For `thumbnails`: 0, 2 if some files failed or it stopped at offline media, 130 if stopped with Ctrl-C.

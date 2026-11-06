@@ -432,7 +432,7 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
                     .and_then(|r| r.file)
                     .unwrap_or_else(|| asset.to_string());
                 if let Some(f) = log.as_mut() {
-                    let _ = writeln!(f, "{file}	{error}");
+                    let _ = writeln!(f, "{file}\t{error}");
                 }
                 if !ctx.json {
                     pb.println(format!("FAILED {file}: {error}"));
@@ -460,7 +460,10 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
     pb.finish_and_clear();
     let report = report?;
     let t = &report.totals;
-    ctx.emit(&json!({ "report": report }), || {
+    // JSON Lines like the events: the report is the last line.
+    if ctx.json {
+        println!("{}", json!({ "report": report }));
+    } else {
         println!(
             "{} batch(es) saved: {} asset(s) looked at, {} got thumbnails, {} already had them, {} failed, {} offline, {} with no original.",
             report.batches, t.items, t.made, t.already, t.failed, t.offline, t.no_original
@@ -470,7 +473,7 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
         } else if report.cancelled {
             println!("Stopped. Run `keepsake renders thumbnails` to continue from here.");
         }
-    })?;
+    }
     Ok(if report.cancelled {
         EXIT_CANCELLED
     } else if t.failed > 0 || report.stopped_offline {
