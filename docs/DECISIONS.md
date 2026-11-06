@@ -1102,7 +1102,7 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - **Quick read on add.** A batched add (`RebuildOptions::batch_files`: the app and `keepsake add-folder`) reads only each file's quick hash (xxh3 of its size, first MiB and last MiB), about 27 GB for `2019`. The file is saved with a stand-in key, `FileHash::Pending`, made from its volume, path, size and quick hash, so it is unique and never equals a real BLAKE3.
 - **Schema v7.** `files.fingerprinted` (0 or 1, default 1, so every existing row is unchanged); `blake3` holds the stand-in key while it is 0. In code `File::hash` is a `FileHash` (`Full` or `Pending`): `key()` names renditions, and anything that checks content must use `full()`, so the compiler finds every such place.
 - **Background job.** `fingerprint::JOB_FINGERPRINT`, one job per asset on the persistent job queue, run by one extra worker in the render service (the same pauses: on battery, during an import). It checks the file is still the catalogued one (size, modification time, quick hash; before and after reading), reads it in full and stores its BLAKE3 (`Files::set_fingerprint`). A changed file is reported and left for a rescan; a disconnected drive defers the job. `render::enqueue_backlog` (app start, after every add) queues the jobs.
-- **Thumbnails.** Renditions are cached under the stand-in key from the start, and move to the real key when the fingerprint is stored (one `UPDATE` of `renditions.source_hash`; each row keeps its file path). If the same content was already rendered under the real key, that one wins and the other is left to eviction.
+- **Thumbnails.** Renditions are cached under the stand-in key from the start, and move to the real key when the fingerprint is stored (one `UPDATE` of `renditions.source_hash`). If the same content was already rendered under the real key, that one wins. *Amended by ADR-034:* the files are renamed to the new key as well, and the losers removed.
 - **Content checks.** Duplicate detection (`by_hash`, "already in the library" for card imports) only matches real fingerprints. Verify checks an unfingerprinted file by size and quick hash and reports it as "changed since added" if they differ; its report counts such files. Backup copies an unfingerprinted file only if its quick hash still matches, and stores the fingerprint it computed while copying, for the source and the copy.
 - **Unchanged:** card ingest, `rebuild-catalog` and an add without batches still read every file in full.
 
@@ -1161,3 +1161,20 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Measured.** Corpus: 59 of 1,010 JPEGs have a built-in preview (camera originals; edited exports have none), and every one matches the whole picture in shape, orientation and content (`corpus_jpeg_built_in_previews_match_the_picture`).
 
 **Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.
+
+---
+
+## ADR-034 — A re-keyed rendition's file moves with its row
+
+**Status**: Accepted (2026-11-06, bug fix; amends the Thumbnails bullet of ADR-029). No new dependency, no schema change.
+
+**Context.** ADR-029 moved a source's renditions to its real BLAKE3 with one `UPDATE` of `renditions.source_hash`, and each row kept its file path. But the cache is content-addressed: a rendition's file is named `<kind>/<aa>/<source hash>-<recipe hash>.<ext>`. The grid builds that name from the item's hash without asking the catalog (`convert::cached`, so a 300,000-item grid needs no per-tile query), so after fingerprinting it looked for a file that was never there and showed a blank tile. `Cache::find` trusted the row's `rel_path`, so it reported the thumbnail as present and nothing made it again. On the product owner's library 100,857 thumbnail rows (50,430 photos) were misnamed, with 11,919 files still to fingerprint.
+
+**Decision.**
+- **The file follows the row.** After `Files::set_fingerprint` (the catalog cannot see the cache folder), the fingerprint job calls `Cache::move_source(old, new)`: each rendition now under the new key is renamed to its content-addressed name and its row updated. If a file already has that name (the same content made under the real key), the old-named file is removed and the row points at the existing one. Rows left under the stand-in key (the `UPDATE OR IGNORE` losers) are removed with their files; before, they were never evicted (no original has the stand-in key, so they counted as offline media).
+- **Crash order.** File first, then row. A crash between the two leaves a row whose `rel_path` is not its content-addressed name, which the two checks below put right. A failed move does not fail the fingerprint.
+- **Repair.** `Cache::repair_names` finds rows whose `rel_path` is not `<kind>/<aa>/<source>-<recipe>.*` (one SQL scan), in batches of 500 by id, renames each file (or drops the row when the file is gone) and writes each batch in one short transaction, so the app keeps working meanwhile. The render service runs it before its workers start (app start, `keepsake renders run`), and `keepsake renders repair` runs it on demand. When it renamed anything the app reloads every grid page on screen (`render://thumbs` with `all: true`); a finished fingerprint job reloads its item's tiles.
+- **`find` checks the name.** A row whose `rel_path` is not the name computed from the source and recipe is moved first; if that fails it counts as missing, so the item is rendered again.
+- **Never someone else's file.** A misnamed row whose `rel_path` is another row's correctly named file is dropped without touching that file.
+
+**Trade-off.** One scan of `renditions` at each service start (milliseconds for a few hundred thousand rows when nothing is misnamed); a first repair of 100,000 files takes as long as 100,000 renames on that disk.

@@ -15,6 +15,7 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Thumbnails stay visible after background fingerprinting (cache files renamed with their rows; repair for existing libraries, `keepsake renders repair`) | ✅ Done (Windows; macOS via CI) |
 | — | Select many to edit: tick-box on tiles, Select mode, drag a rectangle; inspector shows what the selection shares; comment for all | ✅ Done (Windows; macOS via CI) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
@@ -53,6 +54,28 @@
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## Thumbnails no longer go blank after background fingerprinting (2026-11-06)
+
+### What was reported
+- About 50,000 photos showed blank tiles in the grid although their thumbnails were still in the cache.
+
+### What was found
+- When the background fingerprint (ADR-029) stored a file's real BLAKE3, its rendition rows moved to the new key but the cache files kept their old names. The grid builds the file name from the new key, found nothing and showed a blank tile; `Cache::find` trusted the row's path, so nothing was made again. On the product owner's library: 100,857 thumbnail rows (50,430 photos) misnamed, 11,919 files still to fingerprint.
+
+### What was built (ADR-034)
+- The fingerprint job renames each rendition file to its new content-addressed name (`Cache::move_source`), file first, then row. If one already has the new name, the old copy and its row go; stand-in rows that lost to an existing rendition are removed instead of kept for ever.
+- `Cache::repair_names` mends existing libraries in batches of 500 with short transactions: it runs before the render workers start (app start, `keepsake renders run`) and on demand with `keepsake renders repair`. The app reloads the grid when it renamed anything, and an item's tiles when its fingerprint finishes.
+- `Cache::find` treats a row whose path is not its computed name as misnamed: it moves the file, or counts it as missing so it is made again.
+- New write site recorded in `docs/SAFETY.md`.
+
+### Tests
+- `fingerprint_tests`: thumbnails made under the stand-in key are at the grid's computed name after fingerprinting, with the row agreeing and nothing left under the old key; a thumbnail already made under the real key wins and the leftover goes; a crash between row and file is mended by the next `find`; a misnamed row whose file is gone counts as missing; `repair_names` on 1,206 misnamed rows (more than two batches, a missing file, a taken name, a row pointing at another row's file) leaves every row naming its own file, and a second pass does nothing.
+
+### Not done
+- Not yet run against the real library (`E:\Pictures\2026`); the first repair there renames about 100,000 files, so the first app start after updating spends that long before thumbnails start.
 
 ---
 

@@ -17,7 +17,7 @@ use serde::Serialize;
 use super::recipe::Variant;
 use super::RenderError;
 use crate::catalog::{
-    AssetId, Blake3Hash, Catalog, CatalogError, Rendition, RenditionId, VolumeId,
+    AssetId, Blake3Hash, Catalog, CatalogError, Rendition, RenditionId, RenditionKind, VolumeId,
 };
 use crate::library::Library;
 use crate::relpath::RelPath;
@@ -45,6 +45,29 @@ pub struct EvictReport {
     /// Still over the limit because the rest belongs to offline media.
     pub kept_offline_bytes: u64,
 }
+
+/// What [`Cache::repair_names`] and [`Cache::move_source`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RepairReport {
+    /// Renditions now at their content-addressed name.
+    pub renamed: u64,
+    /// Renditions dropped: their file was gone, or the same rendition
+    /// already existed under the new key (made again when needed).
+    pub dropped: u64,
+}
+
+/// What to do with a misnamed rendition's row, once its file is dealt with.
+enum Fix {
+    /// The file is now at `to`.
+    Moved { to: RelPath, size: u64 },
+    /// No file: remove the row.
+    Drop,
+    /// Leave it (another row owns the file, or the disk said no).
+    Keep,
+}
+
+/// Renditions handled per write transaction by [`Cache::repair_names`].
+const REPAIR_BATCH: u32 = 500;
 
 /// The rendition cache folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,16 +110,164 @@ impl Cache {
 
     /// Where a rendition of `source` lives, relative to the root.
     pub fn rel_path(source: &Blake3Hash, variant: Variant) -> Result<RelPath, RenderError> {
-        let hex = source.to_hex();
-        let p = format!(
-            "{}/{}/{}-{}.{}",
-            variant.kind().as_str(),
-            &hex[..2],
-            hex,
-            variant.recipe_hash().to_hex(),
-            variant.ext()
-        );
-        RelPath::parse(&p).map_err(|e| RenderError::Failed(e.to_string()))
+        name_for(
+            source,
+            &variant.recipe_hash(),
+            variant.kind(),
+            variant.ext(),
+        )
+    }
+
+    /// Where a catalogued rendition should live: its content-addressed name
+    /// (keeping its extension, so renditions of older recipes work too).
+    pub fn expected_rel_path(r: &Rendition) -> Result<RelPath, RenderError> {
+        let name = r.rel_path.file_name();
+        let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+        name_for(&r.source_hash, &r.recipe_hash, r.kind, ext)
+    }
+
+    /// Move a rendition's file to its content-addressed name (its source
+    /// was re-keyed: ADR-029, ADR-034). The file moves first and the row
+    /// after, so a crash in between leaves a row that
+    /// [`Self::repair_names`] still fixes:
+    /// - the name is free: the file is renamed;
+    /// - a file already has the name (the same content, made under the new
+    ///   key): the old file is removed and the row points at that one;
+    /// - neither file exists: the row is dropped;
+    /// - the old name is another row's own file: that file is left alone.
+    fn fix_file(&self, cat: &Catalog, r: &Rendition) -> Result<Fix, RenderError> {
+        let want = Self::expected_rel_path(r)?;
+        if r.rel_path == want {
+            return Ok(Fix::Keep);
+        }
+        let from = r.rel_path.to_fs_path(&self.root);
+        let to = want.to_fs_path(&self.root);
+        let ours = !self.owned_by_other(cat, r)?;
+        if ours && !to.is_file() && from.is_file() {
+            if let Some(dir) = to.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            if let Err(e) = std::fs::rename(&from, &to) {
+                // Another process may have moved it first.
+                if !to.is_file() {
+                    tracing::warn!("rename {} -> {}: {e}", from.display(), to.display());
+                    return Ok(Fix::Keep);
+                }
+            }
+        } else if ours && to.is_file() {
+            match std::fs::remove_file(&from) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => tracing::warn!("remove {}: {e}", from.display()),
+            }
+        }
+        match std::fs::metadata(&to) {
+            Ok(m) if m.is_file() => Ok(Fix::Moved {
+                to: want,
+                size: m.len(),
+            }),
+            _ => Ok(Fix::Drop),
+        }
+    }
+
+    /// Is `r`'s current file the correctly named file of another row?
+    fn owned_by_other(&self, cat: &Catalog, r: &Rendition) -> Result<bool, RenderError> {
+        let name = r.rel_path.file_name();
+        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+        let Some((src, recipe)) = stem.split_once('-') else {
+            return Ok(false);
+        };
+        let (Some(src), Some(recipe)) = (Blake3Hash::from_hex(src), Blake3Hash::from_hex(recipe))
+        else {
+            return Ok(false);
+        };
+        let other = cat.read(|tx| tx.renditions().find(&src, &recipe, r.kind))?;
+        Ok(other.is_some_and(|o| o.id != r.id && o.rel_path == r.rel_path))
+    }
+
+    /// Record what [`Self::fix_file`] did, in one transaction.
+    fn apply_fixes(cat: &mut Catalog, fixes: &[(Rendition, Fix)]) -> Result<(), RenderError> {
+        if fixes.iter().all(|(_, f)| matches!(f, Fix::Keep)) {
+            return Ok(());
+        }
+        cat.write(|tx| -> Result<(), CatalogError> {
+            for (r, fix) in fixes {
+                match fix {
+                    Fix::Moved { to, size } => {
+                        tx.renditions().set_rel_path(r.id, &r.rel_path, to, *size)?;
+                    }
+                    Fix::Drop => tx.renditions().delete(r.id)?,
+                    Fix::Keep => {}
+                }
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// After a source was re-keyed from `old` to `new` (its fingerprint is
+    /// now known): give its renditions their new names, and remove those
+    /// left under `old` because the same rendition already existed under
+    /// `new`.
+    pub fn move_source(
+        &self,
+        cat: &mut Catalog,
+        old: &Blake3Hash,
+        new: &Blake3Hash,
+    ) -> Result<RepairReport, RenderError> {
+        let mut fixes = Vec::new();
+        for r in cat.read(|tx| tx.renditions().for_source(new))? {
+            let fix = self.fix_file(cat, &r)?;
+            fixes.push((r, fix));
+        }
+        for r in cat.read(|tx| tx.renditions().for_source(old))? {
+            let full = r.rel_path.to_fs_path(&self.root);
+            match std::fs::remove_file(&full) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    tracing::warn!("remove {}: {e}", full.display());
+                    continue;
+                }
+            }
+            fixes.push((r, Fix::Drop));
+        }
+        Self::apply_fixes(cat, &fixes)?;
+        Ok(report(&fixes))
+    }
+
+    /// Fix every rendition whose file is not at its content-addressed name
+    /// (made under a stand-in key before its fingerprint was known, by a
+    /// version without [`Self::move_source`], or left by a crash). Short
+    /// transactions of [`REPAIR_BATCH`] rows, so it can run while the app
+    /// works; one indexed scan when there is nothing to do.
+    pub fn repair_names(&self, cat: &mut Catalog) -> Result<RepairReport, RenderError> {
+        let mut total = RepairReport::default();
+        let mut after = None;
+        loop {
+            let rows = cat.read(|tx| tx.renditions().misnamed(after, REPAIR_BATCH))?;
+            let Some(last) = rows.last() else {
+                break;
+            };
+            after = Some(last.id);
+            let mut fixes = Vec::with_capacity(rows.len());
+            for r in rows {
+                let fix = self.fix_file(cat, &r)?;
+                fixes.push((r, fix));
+            }
+            Self::apply_fixes(cat, &fixes)?;
+            let rep = report(&fixes);
+            total.renamed += rep.renamed;
+            total.dropped += rep.dropped;
+        }
+        if total != RepairReport::default() {
+            tracing::info!(
+                renamed = total.renamed,
+                dropped = total.dropped,
+                "rendition names repaired"
+            );
+        }
+        Ok(total)
     }
 
     /// A fresh temporary path inside the cache (same disk, so the final
@@ -199,9 +370,26 @@ impl Cache {
             tx.renditions()
                 .find(source, &variant.recipe_hash(), variant.kind())
         })?;
-        let Some(r) = row else {
+        let Some(mut r) = row else {
             return Ok(None);
         };
+        // A row not at its content-addressed name (its source was re-keyed)
+        // is moved there first; if that fails it counts as missing, so the
+        // caller makes it again.
+        let want = Self::rel_path(source, variant)?;
+        if r.rel_path != want {
+            let fix = self.fix_file(cat, &r)?;
+            let moved = match &fix {
+                Fix::Moved { to, size } if *to == want => Some((to.clone(), *size)),
+                _ => None,
+            };
+            Self::apply_fixes(cat, &[(r.clone(), fix)])?;
+            let Some((to, size)) = moved else {
+                return Ok(None);
+            };
+            r.rel_path = to;
+            r.size_bytes = size;
+        }
         let full = r.rel_path.to_fs_path(&self.root);
         if full.is_file() {
             return Ok(Some((r, full)));
@@ -323,6 +511,37 @@ impl Cache {
         rep.bytes_after = total;
         Ok(rep)
     }
+}
+
+/// `<kind>/<aa>/<source>-<recipe>.<ext>`.
+fn name_for(
+    source: &Blake3Hash,
+    recipe: &Blake3Hash,
+    kind: RenditionKind,
+    ext: &str,
+) -> Result<RelPath, RenderError> {
+    let hex = source.to_hex();
+    let p = format!(
+        "{}/{}/{}-{}.{}",
+        kind.as_str(),
+        &hex[..2],
+        hex,
+        recipe.to_hex(),
+        ext
+    );
+    RelPath::parse(&p).map_err(|e| RenderError::Failed(e.to_string()))
+}
+
+fn report(fixes: &[(Rendition, Fix)]) -> RepairReport {
+    let mut rep = RepairReport::default();
+    for (_, f) in fixes {
+        match f {
+            Fix::Moved { .. } => rep.renamed += 1,
+            Fix::Drop => rep.dropped += 1,
+            Fix::Keep => {}
+        }
+    }
+    rep
 }
 
 /// Volumes mounted right now.
