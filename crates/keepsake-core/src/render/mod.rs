@@ -25,7 +25,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-pub use cache::{Cache, CacheStats, EvictReport};
+pub use cache::{Cache, CacheStats, EvictReport, RepairReport};
 pub use recipe::Variant;
 pub use service::{RenderEvent, RenderOptions, RenderService, RenderStatus};
 

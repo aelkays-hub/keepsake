@@ -3,4 +3,9 @@
 /**
  * `render://thumbs`: thumbnails that just became available.
  */
-export type ThumbsReady = { ids: Array<string>, };
+export type ThumbsReady = { ids: Array<string>, 
+/**
+ * Thumbnails of any item may have changed (cache names were
+ * repaired): reload every row on screen.
+ */
+all: boolean, };

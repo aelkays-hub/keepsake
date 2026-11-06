@@ -18,6 +18,8 @@
 //!   make thumbnails only (no preview, no proxy): a large library's previews
 //!   and proxies do not fit, and making them would only push out the
 //!   thumbnails the grid needs. Opening the item makes the rest;
+//! - before the workers start, renditions whose file is not at its
+//!   content-addressed name are moved there ([`Cache::repair_names`]);
 //! - the cancel flag stops workers after their current job.
 
 use std::path::PathBuf;
@@ -28,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::cache::{Cache, CacheStats, EvictReport};
+use super::cache::{Cache, CacheStats, EvictReport, RepairReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
 use crate::catalog::{
@@ -126,6 +128,10 @@ pub enum RenderEvent {
     Resumed,
     Evicted {
         report: EvictReport,
+    },
+    /// Renditions moved to their content-addressed names at start (ADR-034).
+    Repaired {
+        report: RepairReport,
     },
     Finished {
         done: u64,
@@ -225,11 +231,23 @@ impl RenderService {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(&RenderEvent),
     ) -> Result<(), RenderError> {
-        let bytes = {
+        let (bytes, repaired) = {
             let mut cat = self.lib.open_catalog()?;
             jobs::recover(&mut cat)?;
-            cat.read(|tx| tx.renditions().totals())?.1
+            // Renditions left under an old name when their source was
+            // re-keyed (ADR-034); quick when there are none.
+            let repaired = match self.cache.repair_names(&mut cat) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("repairing rendition names: {e}");
+                    RepairReport::default()
+                }
+            };
+            (cat.read(|tx| tx.renditions().totals())?.1, repaired)
         };
+        if repaired != RepairReport::default() {
+            events(&RenderEvent::Repaired { report: repaired });
+        }
         self.cache.clear_temp();
         std::fs::create_dir_all(self.cache.root())?;
         let exiftool = ExifTool::start(&self.tools.exiftool, Duration::from_secs(30)).ok();
@@ -517,12 +535,14 @@ impl RenderService {
                     None => (Vec::new(), None),
                 })
             }
-            JOB_FINGERPRINT => match fingerprint::fingerprint_asset(cat, &self.lib, job.asset_id) {
-                Ok(_) => Ok((Vec::new(), None)),
-                Err(FingerprintError::Offline) => Err(RenderError::Offline),
-                Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
-                Err(e) => Err(RenderError::Failed(e.to_string())),
-            },
+            JOB_FINGERPRINT => {
+                match fingerprint::fingerprint_asset(cat, &self.lib, &self.cache, job.asset_id) {
+                    Ok(_) => Ok((Vec::new(), None)),
+                    Err(FingerprintError::Offline) => Err(RenderError::Offline),
+                    Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
+                    Err(e) => Err(RenderError::Failed(e.to_string())),
+                }
+            }
             other => Err(RenderError::Unsupported(format!("job kind {other}"))),
         }
     }
