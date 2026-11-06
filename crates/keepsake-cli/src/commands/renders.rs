@@ -372,6 +372,16 @@ fn run_queue(ctx: &Ctx, a: RunArgs) -> Result<u8> {
     })
 }
 
+/// A line above the progress bar, or on stdout when there is no bar
+/// (output redirected to a file: a hidden bar drops its lines).
+fn say(pb: &ProgressBar, line: String) {
+    if pb.is_hidden() {
+        println!("{line}");
+    } else {
+        pb.println(line);
+    }
+}
+
 fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
     let e = env(ctx)?;
     let cat = e.lib.open_catalog()?;
@@ -421,7 +431,7 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
             } => {
                 pb = bar(ctx.json, *remaining);
                 if !ctx.json && *from_seq > 0 {
-                    pb.println(format!(
+                    say(&pb, format!(
                         "Continuing after asset #{from_seq}: {remaining} to look at."
                     ));
                 }
@@ -435,13 +445,13 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
                     let _ = writeln!(f, "{file}\t{error}");
                 }
                 if !ctx.json {
-                    pb.println(format!("FAILED {file}: {error}"));
+                    say(&pb, format!("FAILED {file}: {error}"));
                 }
             }
             BackfillEvent::BatchCommitted { batch, stats } => {
                 pb.inc(stats.items);
                 if !ctx.json {
-                    pb.println(format!(
+                    say(&pb, format!(
                         "batch {batch} saved: {} made, {} already had them, {} failed, {} offline (position #{})",
                         stats.made, stats.already, stats.failed, stats.offline, stats.cursor
                     ));
@@ -449,7 +459,7 @@ fn thumbnails(ctx: &Ctx, a: ThumbnailsArgs) -> Result<u8> {
             }
             BackfillEvent::StoppedOffline { cursor, items } => {
                 if !ctx.json {
-                    pb.println(format!(
+                    say(&pb, format!(
                         "Stopped: the next {items} asset(s) after #{cursor} are all offline.                          Connect the drive or share and run again, or pass --skip-offline."
                     ));
                 }
