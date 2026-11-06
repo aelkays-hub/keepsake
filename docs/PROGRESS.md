@@ -73,7 +73,7 @@
 - `cli_tests::renders_thumbnails_saves_batches_resumes_and_logs_failed_files`: batch size 2, `--max-batches 1`, resume, failures log, JSON Lines.
 
 ### Run on the real library
-- `E:\Pictures6` (129,127 assets, media on `\MYCLOUD-92LNT0`), with the app open. Run 1 walked to #3,700 (mostly assets that already had thumbnails) and was killed with `Stop-Process -Force`; run 2 printed "Continuing after asset #3700" and made 100 thumbnails per batch (about 130 a minute from the share), was killed at #4,300; a third run continued after #4,300. No file failed in those batches.
+- `E:\Pictures\2026` (129,127 assets, media on `\\MYCLOUD-92LNT0`), with the app open. Run 1 walked to #3,700 (mostly assets that already had thumbnails) and was killed with `Stop-Process -Force`; run 2 printed "Continuing after asset #3700" and made 100 thumbnails per batch (about 130 a minute from the share), was killed at #4,300; a third run continued after #4,300. No file failed in those batches.
 - 5 of the first ~37 batch writes took 2–3.6 s ("slow catalog write"), the rest were quick; later batches had none. The writes are 200 rows and one key, so the time is the disk (WAL checkpoint and flush on E:), not the batch size.
 
 ### Bugs found and fixed on the way
