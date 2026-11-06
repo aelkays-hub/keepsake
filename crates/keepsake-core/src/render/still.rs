@@ -30,7 +30,7 @@ use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage};
 use super::recipe::{Variant, JPEG_QUALITY};
 use super::source::{lower_ext, Source};
 use super::{Cache, RenderError, RenderTools};
-use crate::catalog::{Catalog, MediaKind};
+use crate::catalog::{Catalog, CatalogError, MediaKind, Rendition};
 use crate::probe::exiftool::path_arg;
 use crate::probe::ExifTool;
 
@@ -453,6 +453,29 @@ pub fn render_stills_of(
             missing.push(v);
         }
     }
+    let made = make_stills(cache, src, tools, exiftool, &missing)?;
+    if !made.is_empty() {
+        cat.write(|tx| {
+            for (_, _, row) in &made {
+                tx.renditions().upsert(row)?;
+            }
+            Ok::<_, CatalogError>(())
+        })?;
+    }
+    Ok(made.into_iter().map(|(v, p, _)| (v, p)).collect())
+}
+
+/// Make the renditions in `missing` (some of [`Variant::STILLS`]) and put
+/// their files in the cache, without recording them: returns the rows for
+/// the caller to write (the thumbnail backfill writes a whole batch in one
+/// transaction). Existing renditions are not looked at.
+pub fn make_stills(
+    cache: &Cache,
+    src: &Source,
+    tools: &RenderTools,
+    exiftool: Option<&ExifTool>,
+    missing: &[Variant],
+) -> Result<Vec<(Variant, PathBuf, Rendition)>, RenderError> {
     if missing.is_empty() {
         return Ok(Vec::new());
     }
@@ -481,7 +504,8 @@ pub fn render_stills_of(
     ] {
         if missing.contains(&v) {
             let bytes = encode_jpeg(img)?;
-            made.push((v, cache.put_bytes(cat, &src.hash, v, &bytes)?));
+            let (path, row) = cache.store_bytes(&src.hash, v, &bytes)?;
+            made.push((v, path, row));
         }
     }
     Ok(made)

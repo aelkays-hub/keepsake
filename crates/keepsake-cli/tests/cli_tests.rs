@@ -1357,6 +1357,70 @@ fn add_folder_catalogues_in_place_and_writes_nothing_into_the_folder() {
     assert_eq!(found["count"], 1, "{found:#}");
 }
 
+#[test]
+fn renders_thumbnails_saves_batches_resumes_and_logs_failed_files() {
+    let e = Env::new();
+    e.init();
+    e.cache_here();
+    let photos = e.p("Pictures");
+    copy_dir(&fixture("dcim"), &photos.join("January"));
+    copy_dir(&fixture("xavc"), &photos.join("February"));
+    e.json(&["add-folder", &e.s("Pictures"), "--no-probe"], 0);
+    let before = tree(&photos);
+    let log = e.s("failed.tsv");
+    // The fixtures are stubs, not pictures: every file fails and is passed.
+    let args = |more: &[&'static str]| {
+        let mut a = vec![
+            "renders",
+            "thumbnails",
+            "--batch-size",
+            "2",
+            "--workers",
+            "1",
+            "--failures-log",
+            &log,
+        ];
+        a.extend_from_slice(more);
+        a
+    };
+    let lines = e.json_lines(&args(&["--max-batches", "1"]), 2);
+    assert_eq!(
+        kinds(&lines).iter().filter(|k| *k == "item_failed").count(),
+        2
+    );
+    let saved = &first(&lines, "batch_committed")["stats"];
+    assert_eq!(
+        (saved["items"].as_u64(), saved["failed"].as_u64()),
+        (Some(2), Some(2))
+    );
+    let report = &lines.last().unwrap()["report"];
+    assert_eq!(report["complete"], false, "{report}");
+    assert_eq!(report["batches"], 1);
+
+    // The next run continues after the saved batch and reaches the end.
+    let lines = e.json_lines(&args(&[]), 2);
+    let started = first(&lines, "started");
+    assert_eq!(started["from_seq"], saved["cursor"], "{started}");
+    assert_eq!(started["remaining"], 2);
+    let report = &lines.last().unwrap()["report"];
+    assert_eq!(report["complete"], true, "{report}");
+    assert_eq!(report["totals"]["items"], 2);
+
+    // Each failed file is in the log once, with its error.
+    let text = std::fs::read_to_string(&log).unwrap();
+    let rows: Vec<&str> = text.lines().collect();
+    assert_eq!(rows.len(), 4, "{text}");
+    assert!(
+        rows.iter()
+            .all(|r| r.contains("Pictures") && r.contains('\t')),
+        "{text}"
+    );
+    // Nothing left: exit 0. Originals are untouched.
+    let lines = e.json_lines(&args(&[]), 0);
+    assert_eq!(lines.last().unwrap()["report"]["totals"]["items"], 0);
+    assert_eq!(tree(&photos), before);
+}
+
 // ── report ───────────────────────────────────────────────────────────────────
 
 #[test]
