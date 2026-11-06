@@ -1,8 +1,28 @@
-# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Making every missing thumbnail without the app, Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Making every missing thumbnail without the app
+
+Automated:
+```
+cargo test -p keepsake-core --test backfill_tests
+cargo test -p keepsake-cli --test cli_tests renders_thumbnails
+```
+
+Manual (both OSes; on macOS use `./target/release/keepsake` and a library such as `~/Pictures/Keepsake`, and stop a run with `kill -9 <pid>` instead of Task Manager). The app may stay open. Build first: `cargo build -p keepsake-cli --release`.
+1. Run `keepsake renders thumbnails`. **Expected:** "Making missing thumbnails in batches of 100 …", then one line per batch: "batch 1 saved: … made, … already had them, … failed, … offline (position #…)". Files that cannot be rendered appear as `FAILED <file>: <error>` on one line and the run goes on.
+2. After a few batches, end the process the hard way (Task Manager → End task on `keepsake.exe`, or `kill -9`). Note the last "position #N".
+3. Run the command again. **Expected:** "Continuing after asset #N" with the number from step 2 (at most one unsaved batch is redone), and the batches carry on from there.
+4. Press Ctrl-C once during a batch. **Expected:** it stops after the files in hand, prints "Stopped. Run `keepsake renders thumbnails` to continue from here." and exits with 130; the next run continues from that point.
+5. Run `keepsake renders thumbnails --failures-log failed.txt > run.log` (redirected). **Expected:** `run.log` has the batch lines, and `failed.txt` one line per failed file: path, a tab, the error.
+6. Disconnect the network share (or unplug the drive) and run it again. **Expected:** "Stopped: the next 100 asset(s) after #N are all offline …", exit status 2, and the position does not move. Reconnect and run again: it continues from #N.
+7. In the app, scroll to photos from step 1. **Expected:** their thumbnails show without waiting. No original file changed (modified dates in Explorer / Finder are the same).
+8. Once it reaches the end ("Reached the end of the library"), run it again. **Expected:** "0 asset(s) looked at" unless new photos were added. `--restart` walks the whole library again and retries the failed files.
 
 ---
 
