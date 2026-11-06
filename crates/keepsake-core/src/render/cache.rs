@@ -143,6 +143,21 @@ impl Cache {
         variant: Variant,
         bytes: &[u8],
     ) -> Result<PathBuf, RenderError> {
+        let (full, row) = self.store_bytes(source, variant, bytes)?;
+        cat.write(|tx| tx.renditions().upsert(&row))?;
+        Ok(full)
+    }
+
+    /// Write `bytes` into place as a rendition file, without recording it:
+    /// returns the row for the caller to upsert (several at once, say). Until
+    /// the row is written the file is unknown to the catalog, and is made
+    /// again (and replaced) next time.
+    pub fn store_bytes(
+        &self,
+        source: &Blake3Hash,
+        variant: Variant,
+        bytes: &[u8],
+    ) -> Result<(PathBuf, Rendition), RenderError> {
         let tmp = self.temp_path(variant.ext())?;
         {
             use std::io::Write;
@@ -150,7 +165,7 @@ impl Cache {
             f.write_all(bytes)?;
             f.sync_all()?;
         }
-        self.put_file(cat, source, variant, &tmp)
+        self.store_file(source, variant, &tmp)
     }
 
     /// Move a finished temporary file into place as a rendition.
@@ -161,6 +176,18 @@ impl Cache {
         variant: Variant,
         tmp: &Path,
     ) -> Result<PathBuf, RenderError> {
+        let (full, row) = self.store_file(source, variant, tmp)?;
+        cat.write(|tx| tx.renditions().upsert(&row))?;
+        Ok(full)
+    }
+
+    /// Move a finished temporary file into place; returns the row to record.
+    fn store_file(
+        &self,
+        source: &Blake3Hash,
+        variant: Variant,
+        tmp: &Path,
+    ) -> Result<(PathBuf, Rendition), RenderError> {
         let rel = Self::rel_path(source, variant)?;
         let full = rel.to_fs_path(&self.root);
         if let Some(dir) = full.parent() {
@@ -172,19 +199,33 @@ impl Cache {
             return Err(e.into());
         }
         let t = now();
-        cat.write(|tx| {
-            tx.renditions().upsert(&Rendition {
-                id: RenditionId::new_random(),
-                source_hash: *source,
-                recipe_hash: variant.recipe_hash(),
-                kind: variant.kind(),
-                rel_path: rel.clone(),
-                size_bytes: size,
-                created_ms: t,
-                last_used_ms: t,
-            })
+        let row = Rendition {
+            id: RenditionId::new_random(),
+            source_hash: *source,
+            recipe_hash: variant.recipe_hash(),
+            kind: variant.kind(),
+            rel_path: rel,
+            size_bytes: size,
+            created_ms: t,
+            last_used_ms: t,
+        };
+        Ok((full, row))
+    }
+
+    /// Whether a rendition is recorded and its file exists. Read-only: a
+    /// row whose file is gone is left for [`Self::find`] (or an upsert) to
+    /// replace.
+    pub fn has(
+        &self,
+        cat: &Catalog,
+        source: &Blake3Hash,
+        variant: Variant,
+    ) -> Result<bool, RenderError> {
+        let row = cat.read(|tx| {
+            tx.renditions()
+                .find(source, &variant.recipe_hash(), variant.kind())
         })?;
-        Ok(full)
+        Ok(row.is_some_and(|r| r.rel_path.to_fs_path(&self.root).is_file()))
     }
 
     /// The file of a rendition if it exists (a row whose file is gone is
