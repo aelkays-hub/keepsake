@@ -316,7 +316,7 @@ fn a_renderer_crash_on_one_file_does_not_stop_the_run() {
     let victim = walk[3].1;
     let (lib, cache) = (w.lib.clone(), w.cache.clone());
     let r: ItemRenderer = Arc::new(move |cat, asset| {
-        assert!(asset != victim, "decoder blew up");
+        assert!(asset != victim, "decoder\nblew up");
         render_item(cat, &lib, &cache, &no_tools(), None, asset)
     });
     let (rep, evs) = run(&w.backfill(opts(1)).with_renderer(r));
@@ -325,7 +325,7 @@ fn a_renderer_crash_on_one_file_does_not_stop_the_run() {
     assert!(evs.iter().any(|e| matches!(
         e,
         BackfillEvent::ItemFailed { asset, error, .. }
-            if *asset == victim && error.contains("decoder blew up")
+            if *asset == victim && error.contains("decoder | blew up") && !error.contains('\n')
     )));
 }
 

@@ -81,7 +81,8 @@ impl Default for BackfillOptions {
 pub enum BackfillEvent {
     /// The walk starts after asset `from_seq`; `remaining` assets follow it.
     Started { from_seq: i64, remaining: u64 },
-    /// An asset whose thumbnails could not be made (it is passed).
+    /// An asset whose thumbnails could not be made (it is passed). The
+    /// error is on one line.
     ItemFailed {
         asset: AssetId,
         seq: i64,
@@ -400,10 +401,22 @@ impl Backfill {
             // Busy reads are not the file's fault, but a later pass
             // (`restart`) retries it like any failure.
             Ok(Err(e)) if is_fatal(&e) => return Err(e),
-            Ok(Err(e)) => Done::Failed(e.to_string()),
-            Err(p) => Done::Failed(format!("the renderer crashed: {}", panic_text(&p))),
+            Ok(Err(e)) => Done::Failed(one_line(&e.to_string())),
+            Err(p) => Done::Failed(one_line(&format!(
+                "the renderer crashed: {}",
+                panic_text(&p)
+            ))),
         })
     }
+}
+
+/// Tool errors (FFmpeg's) span lines; a report is one line per file.
+fn one_line(s: &str) -> String {
+    s.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 fn has_fatal(f: &Mutex<Option<RenderError>>) -> bool {
