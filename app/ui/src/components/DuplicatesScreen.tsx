@@ -1,6 +1,7 @@
 // Duplicates: near-identical photos and videos taken on the same day
 // (bursts, re-shoots, the same shot saved twice), found by the on-device
-// AI. Pick the one to keep; the others are marked "not kept" and can be
+// AI for the dates the user asked about (right-click a year, month or day
+// in the sidebar → Find duplicates and tags), or every analysed day. Pick the one to keep; the others are marked "not kept" and can be
 // hidden from the library with the toolbar's "Hide not kept". Nothing is
 // moved or deleted.
 //
@@ -13,11 +14,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   fileUrl,
+  type AiRangeStatus,
   type AiStatus,
   type DuplicateGroupDto,
   type DuplicateSummaryDto,
 } from "../api";
-import { aiProgress, dayTitle, memberBadge } from "../ai";
+import { aiProgress, dayTitle, memberBadge, rangeProgress } from "../ai";
 import * as fmt from "../format";
 import { useUi } from "../state";
 
@@ -31,8 +33,10 @@ function timeOf(ms: number | null): string {
 }
 
 export function DuplicatesScreen() {
-  const { dispatch } = useUi();
+  const { s, dispatch } = useUi();
+  const range = s.dupRange;
   const [status, setStatus] = useState<AiStatus | null>(null);
+  const [rangeSt, setRangeSt] = useState<AiRangeStatus | null>(null);
   const [sum, setSum] = useState<DuplicateSummaryDto | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [groups, setGroups] = useState<DuplicateGroupDto[] | null>(null);
@@ -41,14 +45,16 @@ export function DuplicatesScreen() {
 
   const loadSummary = useCallback(() => {
     api.aiStatus().then(setStatus).catch(console.error);
+    if (range) api.aiRangeStatus(range.from, range.to).then(setRangeSt).catch(console.error);
+    else setRangeSt(null);
     api
-      .aiDuplicates()
+      .aiDuplicates(range?.from ?? null, range?.to ?? null)
       .then((s) => {
         setSum(s);
         setDay((d) => (d && s.days.some((x) => x.date === d) ? d : (s.days[0]?.date ?? null)));
       })
       .catch((e) => setProblem(String(e)));
-  }, []);
+  }, [range]);
   useEffect(loadSummary, [loadSummary]);
 
   const loadDay = useCallback(() => {
@@ -65,6 +71,16 @@ export function DuplicatesScreen() {
     setFocus({ g: 0, m: 0 });
     loadDay();
   }, [loadDay]);
+  // While the dates are being analysed, look again every few seconds.
+  const busy = (rangeSt?.pending ?? 0) > 0;
+  useEffect(() => {
+    if (!busy) return;
+    const t = window.setInterval(() => {
+      loadSummary();
+      loadDay();
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [busy, loadSummary, loadDay]);
 
   const after = (p: Promise<unknown>) => {
     setProblem(null);
@@ -120,8 +136,9 @@ export function DuplicatesScreen() {
         <h1 className="heading">Duplicates</h1>
         <div className="card">
           <p>
-            Duplicates are found by the on-device AI, which is off. Turn it on in Settings; it looks
-            at your photos in the background, on this computer.
+            Duplicates are found by the on-device AI, which is off. Turn it on in Settings, then
+            right-click a year, month or day in the sidebar and choose Find duplicates and tags. It
+            runs on this computer.
           </p>
           <button
             className="primary"
@@ -136,24 +153,37 @@ export function DuplicatesScreen() {
 
   return (
     <section className="screen" aria-label="Duplicates" data-testid="duplicates-screen">
-      <h1 className="heading">Duplicates</h1>
+      <h1 className="heading" data-testid="dup-title">
+        Duplicates{range ? ` · ${range.title}` : ""}
+      </h1>
       <p className="muted">
         Near-identical shots taken on the same day. Pick the one to keep: the others are marked “not
         kept” (the toolbar’s Hide not kept leaves them out of the library). No file is moved or
         deleted.
       </p>
-      {status && (
+      <div className="row">
         <p className="muted" role="status" data-testid="dup-ai-status">
-          {aiProgress(status)}
+          {range && rangeSt
+            ? rangeProgress(rangeSt)
+            : status
+              ? `${aiProgress(status)} Right-click a year, month or day in the sidebar → Find duplicates and tags.`
+              : ""}
         </p>
-      )}
+        {range && (
+          <button onClick={() => dispatch({ t: "duplicates", range: null })} data-testid="dup-all">
+            All analysed dates
+          </button>
+        )}
+      </div>
       {problem && (
         <p className="error" role="alert">
           {problem}
         </p>
       )}
       {sum && sum.days.length === 0 && (
-        <p data-testid="dup-none">No duplicates found{status?.pending ? " yet" : ""}.</p>
+        <p data-testid="dup-none">
+          No duplicates found{busy ? " yet" : range ? " on these dates" : ""}.
+        </p>
       )}
       {sum && sum.days.length > 0 && (
         <div className="dup-layout">

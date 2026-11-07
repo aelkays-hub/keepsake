@@ -14,8 +14,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AiStatus, AiTagDto, DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto,
-    DuplicateSummaryDto,
+    AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, DuplicateDayDto, DuplicateGroupDto,
+    DuplicateMemberDto, DuplicateSummaryDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -167,10 +167,14 @@ pub fn ai_remove_model(app: AppHandle) -> CmdResult<bool> {
 }
 
 #[tauri::command(async)]
-pub fn ai_duplicates(state: State<'_, AppState>) -> CmdResult<DuplicateSummaryDto> {
+pub fn ai_duplicates(
+    state: State<'_, AppState>,
+    from: Option<String>,
+    to: Option<String>,
+) -> CmdResult<DuplicateSummaryDto> {
     let open = state.open()?;
     let cat = open.cat()?;
-    let s = duplicates::summary(&cat).map_err(err)?;
+    let s = duplicates::summary_in(&cat, from.as_deref(), to.as_deref()).map_err(err)?;
     Ok(DuplicateSummaryDto {
         days: s
             .days
@@ -227,6 +231,49 @@ pub fn ai_duplicate_day(
         });
     }
     Ok(out)
+}
+
+fn range_dto(from: String, to: String, s: ai::analyze::RangeStatus) -> AiRangeStatus {
+    AiRangeStatus {
+        from,
+        to,
+        items: s.items,
+        analysed: s.analysed,
+        pending: s.pending,
+    }
+}
+
+/// Find duplicates and tags for the items captured from `from` to `to`
+/// (`YYYY-MM-DD`, inclusive): their analysis is queued ahead of other
+/// work and runs on the render service's AI worker.
+#[tauri::command(async)]
+pub fn ai_analyze_range(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> CmdResult<AiRangeStatus> {
+    if !Settings::load().map_err(err)?.ai.enabled {
+        return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
+    }
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let s = ai::analyze::enqueue_range(&mut cat, &from, &to).map_err(err)?;
+    // The AI worker runs in the render service.
+    crate::render::start_service(&app)?;
+    Ok(range_dto(from, to, s))
+}
+
+#[tauri::command(async)]
+pub fn ai_range_status(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> CmdResult<AiRangeStatus> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let s = ai::analyze::range_status(&cat, &from, &to).map_err(err)?;
+    Ok(range_dto(from, to, s))
 }
 
 /// Keep `keeper`; the rest of `group` become "not kept" (nothing deleted).

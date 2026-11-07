@@ -98,6 +98,19 @@ dto! {
         pub failed: u64,
     }
 
+    /// How far "Find duplicates and tags" has got for a date range.
+    pub struct AiRangeStatus {
+        /// `YYYY-MM-DD`, inclusive.
+        pub from: String,
+        pub to: String,
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub analysed: u64,
+        #[ts(type = "number")]
+        pub pending: u64,
+    }
+
     /// A day with duplicates.
     pub struct DuplicateDayDto {
         /// `YYYY-MM-DD`.

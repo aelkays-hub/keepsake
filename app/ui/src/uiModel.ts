@@ -45,6 +45,16 @@ export interface UiState {
   /** The full-screen viewer shows the focused item. */
   viewer: boolean;
   dialog: Dialog;
+  /** The dates the Duplicates screen shows (`null`: every analysed day). */
+  dupRange: DateRange | null;
+}
+
+/** A year, month or day of the calendar, as dates (`YYYY-MM-DD`, inclusive). */
+export interface DateRange {
+  from: string;
+  to: string;
+  /** "2026", "July 2026", "Sat 4 July 2026". */
+  title: string;
 }
 
 export type Msg =
@@ -61,7 +71,9 @@ export type Msg =
   | { t: "inspector"; open: boolean }
   | { t: "screen"; screen: Screen }
   | { t: "viewer"; open: boolean }
-  | { t: "dialog"; dialog: Dialog };
+  | { t: "dialog"; dialog: Dialog }
+  /** The Duplicates screen, for these dates (`null`: all). */
+  | { t: "duplicates"; range: DateRange | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -76,6 +88,7 @@ export const initial: UiState = {
   screen: "library",
   viewer: false,
   dialog: null,
+  dupRange: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -127,6 +140,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, viewer: m.open && s.sel.focus !== null };
     case "dialog":
       return { ...s, dialog: m.dialog };
+    case "duplicates":
+      return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
   }
 }
 

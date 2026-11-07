@@ -12,7 +12,9 @@
 //!   AI jobs wait too: they read the thumbnails those jobs make;
 //! - the AI worker loads the model when it starts (GPU first, else CPU);
 //!   if it cannot, it reports why and stops, and the other workers go on.
-//!   While the app runs it looks for unanalysed items every minute;
+//!   It analyses only what was asked for (a date range, `ai::enqueue_range`;
+//!   the whole library only through `keepsake ai run`): on start it drops
+//!   queued background AI jobs left by earlier builds;
 //! - before each job a worker checks the pauses (on battery, an ingest is
 //!   running) and waits while one applies;
 //! - media that is offline is deferred (not counted as an attempt); other
@@ -56,8 +58,8 @@ const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
 /// A job that is waiting (an AI job for its thumbnail) is looked at again
 /// after this long.
 const WAITING_RETRY_MS: i64 = 5 * 60 * 1000;
-/// While the app runs, the AI worker looks for unanalysed items this often.
-const AI_RESCAN: Duration = Duration::from_secs(60);
+/// An AI job whose thumbnail is being made is looked at again after this.
+const NO_THUMB_RETRY_MS: i64 = 15_000;
 /// Once over its limit, the cache is trimmed to this share of it (percent).
 pub const EVICT_TO_PCT: u64 = 90;
 /// Above this share of its limit (percent), the cache counts as full.
@@ -353,11 +355,15 @@ impl RenderService {
             .unwrap_or(true)
     }
 
-    /// A thumbnail job is ready or running: AI jobs read the thumbnails
-    /// those make (a busy catalog counts as yes).
+    /// A thumbnail job that was asked for (on screen or requested, not the
+    /// backlog) is ready or running: AI jobs read the thumbnails those make
+    /// (a busy catalog counts as yes).
     fn stills_active(cat: &Catalog) -> bool {
-        cat.read(|t| t.jobs().active(JOB_STILLS, now_ms()))
-            .unwrap_or(true)
+        cat.read(|t| {
+            t.jobs()
+                .active_up_to(JOB_STILLS, Priority::Recent, now_ms())
+        })
+        .unwrap_or(true)
     }
 
     fn sleep(cancel: &AtomicBool, d: Duration) {
@@ -377,8 +383,12 @@ impl RenderService {
     ) -> Result<(), RenderError> {
         let mut cat = self.lib.open_catalog()?;
         let mut ai_state = None;
-        let mut last_scan: Option<Instant> = None;
         if kind == JOB_AI {
+            match cat.write(|t| t.jobs().remove_queued(JOB_AI, Priority::Backlog)) {
+                Ok(n) if n > 0 => tracing::info!("AI: dropped {n} queued background jobs"),
+                Ok(_) => {}
+                Err(e) => tracing::debug!("AI: dropping background jobs: {e}"),
+            }
             match Self::load_ai(self.opts.ai_gpu) {
                 Ok(state) => {
                     let _ = tx.send(RenderEvent::AiReady {
@@ -396,12 +406,6 @@ impl RenderService {
             }
         }
         while !cancel.load(Ordering::SeqCst) {
-            if kind == JOB_AI && last_scan.is_none_or(|t| t.elapsed() >= AI_RESCAN) {
-                last_scan = Some(Instant::now());
-                if let Err(e) = ai::enqueue_missing(&mut cat) {
-                    tracing::debug!("AI: queueing unanalysed items: {e}");
-                }
-            }
             let pause = pause_reason(&cat, &self.on_battery, self.opts.pause_on_battery);
             self.note_pause(shared, pause, tx);
             if pause.is_some() {
@@ -472,8 +476,13 @@ impl RenderService {
                     });
                 }
                 Err(RenderError::Waiting(reason)) => {
+                    let wait = if kind == JOB_AI {
+                        NO_THUMB_RETRY_MS
+                    } else {
+                        WAITING_RETRY_MS
+                    };
                     Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().defer(job.id, &reason, now + WAITING_RETRY_MS)
+                        t.jobs().defer(job.id, &reason, now + wait)
                     })?;
                     let _ = tx.send(RenderEvent::Deferred {
                         job: job.id,
@@ -616,8 +625,8 @@ impl RenderService {
                 match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id) {
                     Ok(out) => Ok((out.tags.into_iter().map(|(t, _)| t).collect(), None)),
                     Err(AiError::NoThumbnail) => {
-                        // Make the thumbnail first, then try again.
-                        super::enqueue(cat, &[job.asset_id], Priority::Backlog, true)?;
+                        // Make the thumbnail first (as urgently), then again.
+                        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
                         Err(RenderError::Waiting("no thumbnail yet".into()))
                     }
                     Err(AiError::Render(e)) => Err(e),

@@ -213,7 +213,17 @@ pub fn day_groups(cat: &Catalog, date: &str) -> Result<Vec<DuplicateGroup>, AiEr
 
 /// Every day with groups, newest first.
 pub fn summary(cat: &Catalog) -> Result<DuplicateSummary, AiError> {
-    let dates = cat.read(|tx| tx.ai().days_with_pairs(MODEL_ID))?;
+    summary_in(cat, None, None)
+}
+
+/// The days from `from` to `to` (`YYYY-MM-DD`, inclusive; `None`: no
+/// bound) that have groups, newest first.
+pub fn summary_in(
+    cat: &Catalog,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<DuplicateSummary, AiError> {
+    let dates = cat.read(|tx| tx.ai().days_with_pairs(MODEL_ID, from, to))?;
     let mut out = DuplicateSummary::default();
     for date in dates {
         let groups = day_groups(cat, &date)?;

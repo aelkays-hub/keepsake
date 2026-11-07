@@ -15,12 +15,15 @@ use keepsake_core::ai::{
     self, analyze, dhash, duplicates, install, Embedding, ImageModel, LabelSet, JOB_AI, MODEL_ID,
 };
 use keepsake_core::catalog::{
-    AiAnalysis, AssetId, Catalog, DuplicateChoice, JobState, TagPath, TagSource, VolumeKind,
+    AiAnalysis, AssetId, Catalog, DuplicateChoice, JobState, Priority, TagPath, TagSource,
+    VolumeKind,
 };
 use keepsake_core::library::Library;
 use keepsake_core::metadata::MetadataService;
 use keepsake_core::rebuild::{add_volume, rebuild_catalog};
-use keepsake_core::render::{Cache, RenderEvent, RenderOptions, RenderService, RenderTools};
+use keepsake_core::render::{
+    Cache, RenderEvent, RenderOptions, RenderService, RenderTools, JOB_STILLS,
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -392,6 +395,78 @@ fn different_days_never_group() {
     assert_eq!(duplicates::summary(&w.cat).unwrap().groups, 0);
 }
 
+// ── Asking for a date range ─────────────────────────────────────────────────
+
+fn find_job(cat: &Catalog, kind: &str, id: AssetId) -> Option<keepsake_core::catalog::Job> {
+    cat.read(|tx| tx.jobs().find(kind, id)).unwrap()
+}
+
+#[test]
+fn only_the_dates_asked_for_are_queued_ahead_of_the_backlog() {
+    let names = ["a.jpg", "b.jpg", "c.jpg"];
+    let imgs: Vec<(&str, DynamicImage)> = names.iter().map(|n| (*n, scene(1, 64, 48))).collect();
+    let mut w = World::new(&imgs);
+    // a and b on 2026-07-04, c a day later.
+    w.same_day(&names, 43_200);
+    let ids: Vec<AssetId> = names.iter().map(|n| w.asset(n)).collect();
+    let labels = LabelSet::builtin().unwrap();
+    analyze::store_results(
+        &mut w.cat,
+        &labels,
+        ids[0],
+        &label_vector(&labels, "Dog"),
+        1,
+    )
+    .unwrap();
+
+    let st = analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04").unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 1, 1));
+    // b: AI and its thumbnail queued, ahead of the backlog; no video proxy.
+    let b = find_job(&w.cat, JOB_AI, ids[1]).unwrap();
+    assert_eq!((b.state, b.priority), (JobState::Queued, Priority::Recent));
+    assert_eq!(
+        find_job(&w.cat, JOB_STILLS, ids[1]).unwrap().priority,
+        Priority::Recent
+    );
+    // a is already analysed; c is outside the range.
+    assert!(find_job(&w.cat, JOB_AI, ids[0]).is_none());
+    assert!(find_job(&w.cat, JOB_AI, ids[2]).is_none());
+
+    // A month covers both days.
+    let st = analyze::range_status(&w.cat, "2026-07-01", "2026-07-31").unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (3, 1, 1));
+    assert!(analyze::enqueue_range(&mut w.cat, "2026-07-31", "2026-07-01").is_err());
+    assert!(analyze::enqueue_range(&mut w.cat, "July", "2026-07-01").is_err());
+
+    // Background AI jobs can be dropped; asked-for ones stay.
+    analyze::enqueue(&mut w.cat, &ids[2..], Priority::Backlog, false).unwrap();
+    let dropped = w
+        .cat
+        .write(|tx| tx.jobs().remove_queued(JOB_AI, Priority::Backlog))
+        .unwrap();
+    assert_eq!(dropped, 1);
+    assert!(find_job(&w.cat, JOB_AI, ids[1]).is_some());
+}
+
+#[test]
+fn the_summary_can_be_limited_to_dates() {
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let imgs: Vec<(&str, DynamicImage)> = names.iter().map(|n| (*n, scene(1, 64, 48))).collect();
+    let mut w = World::new(&imgs);
+    // Two per day: 07-04 and 07-05.
+    w.same_day(&names, 30_000);
+    let labels = LabelSet::builtin().unwrap();
+    let dog = label_vector(&labels, "Dog");
+    for n in names {
+        let id = w.asset(n);
+        put(&mut w.cat, id, &dog, 7);
+    }
+    assert_eq!(duplicates::summary(&w.cat).unwrap().days.len(), 2);
+    let one = duplicates::summary_in(&w.cat, Some("2026-07-05"), Some("2026-07-05")).unwrap();
+    assert_eq!(one.days.len(), 1);
+    assert_eq!(one.days[0].date, "2026-07-05");
+}
+
 // ── With the model ──────────────────────────────────────────────────────────
 
 #[test]
@@ -444,6 +519,11 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
         .map(|n| w.asset(n))
         .collect();
     keepsake_core::render::enqueue_backlog(&mut w.cat).unwrap();
+    // A background AI job (an earlier build's sweep) is dropped by the
+    // worker; the day asked for is analysed.
+    ai::analyze::enqueue(&mut w.cat, &ids[..1], Priority::Backlog, false).unwrap();
+    let st = ai::analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04").unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (3, 0, 3));
     let tools = RenderTools {
         exiftool: t.exiftool,
         ffprobe: t.ffprobe,
@@ -482,5 +562,7 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
     assert_eq!(groups.len(), 1, "{groups:?}");
     let members: Vec<AssetId> = groups[0].members.iter().map(|m| m.asset_id).collect();
     assert_eq!(members, ids[..2].to_vec());
+    let st = ai::analyze::range_status(&w.cat, "2026-07-04", "2026-07-04").unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (3, 3, 0));
     assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
 }

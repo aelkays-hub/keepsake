@@ -50,8 +50,10 @@ export function AiSettings() {
       <h2>On-device AI</h2>
       <p className="muted">
         Tags photos by what they show (people, beach, dog, food…) and finds near-identical shots
-        taken on the same day, so you can pick the one to keep. It runs on this computer from the
-        thumbnails; no photo leaves it, and your originals are never changed.
+        taken on the same day, so you can pick the one to keep. It looks only at the dates you ask
+        about: right-click a year, month or day in the sidebar and choose Find duplicates and tags.
+        It runs on this computer from the thumbnails; no photo leaves it, and your originals are
+        never changed.
       </p>
       <label className="check">
         <input

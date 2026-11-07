@@ -98,18 +98,46 @@ impl<M> Ai<'_, M> {
         Ok(rows)
     }
 
-    /// Days (`YYYY-MM-DD`) with at least two assets analysed with `model`,
-    /// newest first.
-    pub fn days_with_pairs(&self, model: &str) -> Result<Vec<String>, CatalogError> {
+    /// Days (`YYYY-MM-DD`) from `from` to `to` (inclusive; `None`: no
+    /// bound) with at least two assets analysed with `model`, newest first.
+    pub fn days_with_pairs(
+        &self,
+        model: &str,
+        from: Option<&str>,
+        to: Option<&str>,
+    ) -> Result<Vec<String>, CatalogError> {
         let mut st = self.conn.prepare(
             "SELECT a.capture_local_date
                FROM assets a JOIN ai_analysis x ON x.asset_id = a.id
               WHERE a.capture_local_date IS NOT NULL AND x.model = ?1
+                AND a.capture_local_date >= ifnull(?2, '')
+                AND a.capture_local_date <= ifnull(?3, '9999')
               GROUP BY a.capture_local_date HAVING count(*) >= 2
               ORDER BY a.capture_local_date DESC",
         )?;
         let rows = st
-            .query_map([model], |r| r.get(0))?
+            .query_map(params![model, from, to], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Assets captured from `from` to `to` (`YYYY-MM-DD`, local,
+    /// inclusive), newest first, and whether each is analysed with `model`.
+    pub fn in_dates(
+        &self,
+        from: &str,
+        to: &str,
+        model: &str,
+    ) -> Result<Vec<(AssetId, bool)>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT a.id, EXISTS (SELECT 1 FROM ai_analysis x
+                                   WHERE x.asset_id = a.id AND x.model = ?3)
+               FROM assets a
+              WHERE a.capture_local_date BETWEEN ?1 AND ?2
+              ORDER BY a.capture_ts_ms DESC, a.id",
+        )?;
+        let rows = st
+            .query_map(params![from, to, model], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
         Ok(rows)
     }

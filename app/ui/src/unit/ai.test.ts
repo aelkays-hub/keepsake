@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AiStatus } from "../api";
-import { aiProgress, dayTitle, memberBadge } from "../ai";
+import { aiProgress, calRange, dayTitle, memberBadge, rangeProgress } from "../ai";
 
 const status = (p: Partial<AiStatus>): AiStatus => ({
   enabled: true,
@@ -25,11 +25,42 @@ describe("AI progress", () => {
     expect(aiProgress(status({ problem: "no model" }))).toBe("Not running: no model");
     expect(aiProgress(status({ accel: null }))).toBe("Starting…");
     expect(aiProgress(status({}))).toBe(
-      "1,200 of 2,000 items analysed, 800 to go (on the graphics card (DirectML)).",
+      "Ready, on the graphics card (DirectML). 1,200 items analysed so far; 800 waiting.",
     );
-    expect(aiProgress(status({ pending: 0, analysed: 2000 }))).toBe(
-      "2,000 of 2,000 items analysed.",
+    expect(aiProgress(status({ pending: 0, analysed: 1 }))).toBe(
+      "Ready, on the graphics card (DirectML). 1 item analysed so far.",
     );
+  });
+});
+
+describe("date ranges", () => {
+  it("covers a year, a month or a day", () => {
+    expect(calRange(null, null, null)).toBeNull();
+    expect(calRange(2026, null, null)).toEqual({
+      from: "2026-01-01",
+      to: "2026-12-31",
+      title: "2026",
+    });
+    expect(calRange(2026, 7, null)).toEqual({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      title: "July 2026",
+    });
+    expect(calRange(2026, 7, 4)).toEqual({
+      from: "2026-07-04",
+      to: "2026-07-04",
+      title: "Sat 4 July 2026",
+    });
+  });
+
+  it("says how far the analysis has got", () => {
+    expect(rangeProgress({ items: 0, analysed: 0, pending: 0 })).toBe(
+      "No photos or videos on these dates.",
+    );
+    expect(rangeProgress({ items: 120, analysed: 34, pending: 86 })).toBe(
+      "Analysing: 34 of 120 done…",
+    );
+    expect(rangeProgress({ items: 120, analysed: 120, pending: 0 })).toBe("120 of 120 analysed.");
   });
 });
 

@@ -65,12 +65,56 @@ test("duplicates with AI off point to Settings", async ({ page }) => {
   await expect(ai.getByTestId("ai-progress")).toHaveText("Off.");
   await expect(ai).toContainText("downloads the model once (371.8 MB)");
   await ai.getByTestId("ai-enabled").check();
-  await expect(ai.getByTestId("ai-progress")).toContainText("items analysed");
+  await expect(ai.getByTestId("ai-progress")).toContainText("analysed so far");
   expect(await calls(page, "ai_enable")).toEqual([{ enabled: true, gpu: null }]);
   await ai.getByTestId("ai-enabled").uncheck();
   await expect(ai.getByTestId("ai-remove")).toBeVisible();
   await ai.getByTestId("ai-remove").click();
   await expect(ai.getByTestId("ai-remove")).toHaveCount(0);
+});
+
+const calNode = (page: Page, key: string) =>
+  page.getByTestId("sidebar").locator(`button[data-cal="${key}"]`);
+
+test("right-click a year: find duplicates and tags for those dates only", async ({ page }) => {
+  await open(page);
+  await calNode(page, "2015").click({ button: "right" });
+  const menu = page.getByTestId("date-menu");
+  await expect(menu.getByRole("menuitem")).toHaveText(["Show", "Find duplicates and tags"]);
+  await menu.getByTestId("date-menu-ai").click();
+  expect(await calls(page, "ai_analyze_range")).toEqual([{ from: "2015-01-01", to: "2015-12-31" }]);
+
+  const screen = page.getByTestId("duplicates-screen");
+  await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates · 2015");
+  // It shows the analysis running, then the groups of those dates.
+  await expect(screen.getByTestId("dup-ai-status")).toHaveText(/analysed\.$/, { timeout: 15_000 });
+  await expect(screen.getByTestId("dup-group").first()).toBeVisible();
+  expect((await calls(page, "ai_duplicates")).at(-1)).toEqual({
+    from: "2015-01-01",
+    to: "2015-12-31",
+  });
+
+  // Another year has none; "All analysed dates" shows every day again.
+  await calNode(page, "2016").click({ button: "right" });
+  await page.getByTestId("date-menu-ai").click();
+  await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates · 2016");
+  await expect(screen.getByTestId("dup-none")).toBeVisible({ timeout: 15_000 });
+  await screen.getByTestId("dup-all").click();
+  await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates");
+  await expect(screen.getByTestId("dup-group").first()).toBeVisible();
+});
+
+test("the date menu explains when AI is off, and works from the keyboard", async ({ page }) => {
+  await open(page, "&ai=off");
+  await calNode(page, "2015").focus();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByTestId("date-menu");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(menu.getByRole("alert")).toContainText("Turn on On-device AI in Settings");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
 });
 
 test("AI tags in the inspector: remove one, keep one as a keyword", async ({ page }) => {

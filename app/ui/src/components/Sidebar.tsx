@@ -10,6 +10,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, events, type Sidebar as SidebarData } from "../api";
 import * as fmt from "../format";
 import { useUi, type Section } from "../state";
+import { calRange } from "../ai";
+import { ContextMenu } from "./ContextMenu";
 import { FolderMenu } from "./FolderMenu";
 import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
@@ -201,8 +203,10 @@ export function Sidebar() {
   /** The open folder menu: where, and for which entry. */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; at: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  /** A year, month or day: it has a right-click menu (not "Calendar" or "No date"). */
+  const dated = (e: Entry) => (e.cal && e.cal.year !== null ? e.cal : null);
   const menuFor = (entry: Entry, at: number, x: number, y: number) => {
-    if (entry.fold) setMenu({ x, y, entry, at });
+    if (entry.fold || dated(entry)) setMenu({ x, y, entry, at });
   };
   const move = (to: number) => {
     const i = Math.max(0, Math.min(flat.length - 1, to));
@@ -238,7 +242,11 @@ export function Sidebar() {
   const onKey = (e: React.KeyboardEvent) => {
     const entry = flat[focus];
     const c = nodeOf(entry);
-    if ((e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) && entry?.fold) {
+    if (
+      (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) &&
+      entry &&
+      (entry.fold || dated(entry))
+    ) {
       const r = nav.current
         ?.querySelector<HTMLButtonElement>(`[data-entry="${focus}"]`)
         ?.getBoundingClientRect();
@@ -317,7 +325,7 @@ export function Sidebar() {
                       }}
                       onFocus={() => setFocus(i)}
                       onContextMenu={(ev) => {
-                        if (!e.fold) return;
+                        if (!e.fold && !dated(e)) return;
                         ev.preventDefault();
                         setFocus(i);
                         menuFor(e, i, ev.clientX, ev.clientY);
@@ -357,6 +365,36 @@ export function Sidebar() {
             </ul>
           </section>
         ),
+      )}
+      {menu && dated(menu.entry) && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={`${menu.entry.label} (date)`}
+          testId="date-menu"
+          items={[
+            { label: "Show", run: () => openEntry(menu.entry) },
+            {
+              label: "Find duplicates and tags",
+              title:
+                "Analyse the photos of these dates on this computer, then show their duplicates",
+              testId: "date-menu-ai",
+              run: () => {
+                const c = dated(menu.entry);
+                const r = c && calRange(c.year, c.month, c.day);
+                if (!r) return;
+                return api
+                  .aiAnalyzeRange(r.from, r.to)
+                  .then(() => dispatch({ t: "duplicates", range: r }));
+              },
+            },
+          ]}
+          onClose={() => {
+            const at = menu.at;
+            closeMenu();
+            nav.current?.querySelector<HTMLButtonElement>(`[data-entry="${at}"]`)?.focus();
+          }}
+        />
       )}
       {menu?.entry.fold && (
         <FolderMenu

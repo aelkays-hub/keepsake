@@ -88,6 +88,8 @@ export interface MockState {
   choice: Map<number, string>;
   /** AI tags removed by the user. */
   aiRejected: Map<number, string[]>;
+  /** Date ranges asked for: status polls left until they are analysed. */
+  aiRanges: Map<string, number>;
 }
 
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
@@ -224,6 +226,7 @@ export function installMock(): void {
     },
     choice: new Map(),
     aiRejected: new Map(),
+    aiRanges: new Map(),
     history: [],
     folders: [],
     settings: {
@@ -1122,7 +1125,9 @@ export function installMock(): void {
             });
           if (cmd === "ai_duplicate_day") return groups.filter((g) => g.date === a.date);
           if (!st.ai.enabled) return { days: [], groups: 0, items: 0, undecided: 0 };
-          const dates = [...new Set(groups.map((g) => g.date))].sort().reverse();
+          const inRange = (d: string) =>
+            (!a.from || d >= String(a.from)) && (!a.to || d <= String(a.to));
+          const dates = [...new Set(groups.map((g) => g.date))].filter(inRange).sort().reverse();
           const days = dates.map((date) => {
             const of = groups.filter((g) => g.date === date);
             return {
@@ -1132,12 +1137,31 @@ export function installMock(): void {
               undecided: of.filter((g) => !g.decided).length,
             };
           });
+          const shown = groups.filter((g) => inRange(g.date));
           return {
             days,
-            groups: groups.length,
-            items: groups.reduce((k, g) => k + g.members.length, 0),
-            undecided: groups.filter((g) => !g.decided).length,
+            groups: shown.length,
+            items: shown.reduce((k, g) => k + g.members.length, 0),
+            undecided: shown.filter((g) => !g.decided).length,
           };
+        }
+        case "ai_analyze_range":
+        case "ai_range_status": {
+          const key = `${a.from}|${a.to}`;
+          if (cmd === "ai_analyze_range") {
+            if (!st.ai.enabled)
+              throw "Turn on On-device AI in Settings first (it downloads the model once).";
+            if (!st.aiRanges.has(key)) st.aiRanges.set(key, 2);
+          }
+          const items = all.filter((it) => {
+            const d = day(time(it));
+            return d !== null && d >= String(a.from) && d <= String(a.to);
+          }).length;
+          const left = st.aiRanges.get(key);
+          if (left === undefined) return { from: a.from, to: a.to, items, analysed: 0, pending: 0 };
+          if (cmd === "ai_range_status" && left > 0) st.aiRanges.set(key, left - 1);
+          const pending = left > 0 ? Math.ceil((items * left) / 3) : 0;
+          return { from: a.from, to: a.to, items, analysed: items - pending, pending };
         }
         case "ai_pick_keeper": {
           const keeper = Number(String(a.keeper).slice(1));

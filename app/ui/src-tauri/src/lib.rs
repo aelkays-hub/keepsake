@@ -140,6 +140,8 @@ pub fn run() {
             ai::ai_install_cancel,
             ai::ai_remove_model,
             ai::ai_duplicates,
+            ai::ai_analyze_range,
+            ai::ai_range_status,
             ai::ai_duplicate_day,
             ai::ai_pick_keeper,
             ai::ai_set_choice,

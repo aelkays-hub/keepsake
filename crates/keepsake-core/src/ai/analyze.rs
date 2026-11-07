@@ -143,9 +143,71 @@ pub fn retag_all(cat: &mut Catalog, labels: &LabelSet) -> Result<u64, AiError> {
     Ok(n)
 }
 
+/// How far a requested date range has got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+pub struct RangeStatus {
+    /// Items captured in the range.
+    pub items: u64,
+    /// Of those, analysed with the current model.
+    pub analysed: u64,
+    /// AI jobs still to run for the range.
+    pub pending: u64,
+}
+
+fn valid_day(d: &str) -> bool {
+    let b = d.as_bytes();
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+}
+
+fn check_range(from: &str, to: &str) -> Result<(), AiError> {
+    if !valid_day(from) || !valid_day(to) || from > to {
+        return Err(AiError::Inference(format!(
+            "not a date range (YYYY-MM-DD): {from} to {to}"
+        )));
+    }
+    Ok(())
+}
+
+/// Analyse the items captured from `from` to `to` (`YYYY-MM-DD`, local,
+/// inclusive): their `ai.analyze` jobs are queued ahead of other AI work
+/// (and their missing thumbnails ahead of the backlog). Items already
+/// analysed are left alone. Returns the range's status.
+pub fn enqueue_range(cat: &mut Catalog, from: &str, to: &str) -> Result<RangeStatus, AiError> {
+    check_range(from, to)?;
+    let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
+    let todo: Vec<AssetId> = all
+        .iter()
+        .filter(|(_, done)| !done)
+        .map(|(id, _)| *id)
+        .collect();
+    // Thumbnails first: their jobs move ahead of the backlog (finished ones
+    // stay finished; a thumbnail evicted since is queued by the job itself).
+    // No video proxies: the AI does not need them.
+    enqueue_kind(cat, &todo, crate::render::JOB_STILLS, 0, false)?;
+    enqueue(cat, &todo, Priority::Recent, true)?;
+    range_status(cat, from, to)
+}
+
+/// How far the range's analysis has got.
+pub fn range_status(cat: &Catalog, from: &str, to: &str) -> Result<RangeStatus, AiError> {
+    check_range(from, to)?;
+    let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
+    let (pending, _) = cat.read(|tx| tx.jobs().in_dates(JOB_AI, from, to))?;
+    Ok(RangeStatus {
+        items: all.len() as u64,
+        analysed: all.iter().filter(|(_, d)| *d).count() as u64,
+        pending,
+    })
+}
+
 /// Queue `ai.analyze` for every asset not yet analysed with the current
-/// model (backlog priority, newest capture first). Returns how many were
-/// added.
+/// model (backlog priority, newest capture first): `keepsake ai run` only.
+/// Returns how many were added.
 pub fn enqueue_missing(cat: &mut Catalog) -> Result<u64, CatalogError> {
     let ids = cat.read(|tx| tx.ai().without_analysis(MODEL_ID))?;
     enqueue(cat, &ids, Priority::Backlog, false)
@@ -158,6 +220,28 @@ pub fn enqueue(
     priority: Priority,
     again: bool,
 ) -> Result<u64, CatalogError> {
+    let p = priority;
+    enqueue_kind_at(cat, assets, JOB_AI, 3, p, again)
+}
+
+fn enqueue_kind(
+    cat: &mut Catalog,
+    assets: &[AssetId],
+    kind: &'static str,
+    rank: i64,
+    again: bool,
+) -> Result<u64, CatalogError> {
+    enqueue_kind_at(cat, assets, kind, rank, Priority::Recent, again)
+}
+
+fn enqueue_kind_at(
+    cat: &mut Catalog,
+    assets: &[AssetId],
+    kind: &'static str,
+    rank: i64,
+    priority: Priority,
+    again: bool,
+) -> Result<u64, CatalogError> {
     let now = crate::jobs::now_ms();
     let mut n = 0;
     let size = crate::render::ENQUEUE_CHUNK;
@@ -166,9 +250,9 @@ pub fn enqueue(
             let mut jobs = Vec::with_capacity(chunk.len());
             for (i, id) in chunk.iter().enumerate() {
                 jobs.push(NewJob {
-                    kind: JOB_AI,
+                    kind,
                     asset_id: *id,
-                    rank: 3,
+                    rank,
                     // Keep the given order (newest first from the query).
                     sort_key: i64::try_from(c * size + i).unwrap_or(i64::MAX),
                 });

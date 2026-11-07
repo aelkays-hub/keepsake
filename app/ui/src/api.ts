@@ -5,6 +5,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
+import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
 import type { AppInfo } from "./bindings/AppInfo";
@@ -57,6 +58,7 @@ import type { ViewInfo } from "./bindings/ViewInfo";
 
 export type {
   AiInstallProgress,
+  AiRangeStatus,
   AiStatus,
   AiTagDto,
   AppInfo,
@@ -222,7 +224,14 @@ export const api = {
     invoke<void>("ai_enable", { enabled, gpu }),
   aiInstallCancel: () => invoke<void>("ai_install_cancel"),
   aiRemoveModel: () => invoke<boolean>("ai_remove_model"),
-  aiDuplicates: () => invoke<DuplicateSummaryDto>("ai_duplicates"),
+  /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
+  aiDuplicates: (from: string | null = null, to: string | null = null) =>
+    invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),
+  /** Find duplicates and tags for these dates: queued ahead of other work. */
+  aiAnalyzeRange: (from: string, to: string) =>
+    invoke<AiRangeStatus>("ai_analyze_range", { from, to }),
+  aiRangeStatus: (from: string, to: string) =>
+    invoke<AiRangeStatus>("ai_range_status", { from, to }),
   aiDuplicateDay: (date: string) => invoke<DuplicateGroupDto[]>("ai_duplicate_day", { date }),
   /** Keep `keeper`; the rest of `group` become "not kept" (nothing is deleted). */
   aiPickKeeper: (keeper: string, group: string[]) =>

@@ -19,7 +19,8 @@ pub enum AiAction {
     Status,
     /// Download the model into this computer's cache folder (372 MB).
     Install,
-    /// Analyse every item not yet analysed (makes missing thumbnails first).
+    /// Analyse the items of some dates (`--from`/`--to`), or every item not
+    /// yet analysed (makes missing thumbnails first).
     Run(RunArgs),
     /// Groups of same-day duplicates: every day, or one day's groups.
     Duplicates {
@@ -32,6 +33,12 @@ pub enum AiAction {
 
 #[derive(Args)]
 pub struct RunArgs {
+    /// First day, `YYYY-MM-DD` (with --to; default: the whole library).
+    #[arg(long, requires = "to")]
+    pub from: Option<String>,
+    /// Last day, `YYYY-MM-DD`, inclusive.
+    #[arg(long, requires = "from")]
+    pub to: Option<String>,
     /// Use the processor only, not the graphics card.
     #[arg(long)]
     pub cpu: bool,
@@ -120,8 +127,22 @@ fn run_all(ctx: &Ctx, a: &RunArgs) -> Result<u8> {
     let cache = Cache::new(settings.render.cache_root()?);
     {
         let mut cat = lib.open_catalog()?;
-        render::enqueue_backlog(&mut cat)?;
-        ai::enqueue_missing(&mut cat)?;
+        match (&a.from, &a.to) {
+            (Some(f), Some(t)) => {
+                ai::analyze::enqueue_range(&mut cat, f, t)?;
+            }
+            _ => {
+                render::enqueue_backlog(&mut cat)?;
+                // Asked-for priority: the worker drops background AI jobs.
+                let ids = cat.read(|tx| tx.ai().without_analysis(MODEL_ID))?;
+                ai::analyze::enqueue(
+                    &mut cat,
+                    &ids,
+                    keepsake_core::catalog::Priority::Recent,
+                    false,
+                )?;
+            }
+        }
     }
     let mut opts = RenderOptions::from_settings(&settings.render);
     opts.proxy_workers = 0;
