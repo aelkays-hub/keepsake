@@ -303,6 +303,7 @@ mod tests {
                 emb_scale,
                 dhash,
                 made_ms: 0,
+                tagged: false,
             },
             media_kind: MediaKind::Photo,
             capture_ms: Some(at_s * 1000),

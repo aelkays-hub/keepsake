@@ -1,7 +1,7 @@
 // Duplicates: near-identical photos and videos taken on the same day
 // (bursts, re-shoots, the same shot saved twice), found by the on-device
 // AI for the dates the user asked about (right-click a year, month or day
-// in the sidebar → Find duplicates and tags), or every analysed day. Pick the one to keep; the others are marked "not kept" and can be
+// in the sidebar → Find duplicates), or every analysed day. Pick the one to keep; the others are marked "not kept" and can be
 // hidden from the library with the toolbar's "Hide not kept". Nothing is
 // moved or deleted.
 //
@@ -45,7 +45,8 @@ export function DuplicatesScreen() {
 
   const loadSummary = useCallback(() => {
     api.aiStatus().then(setStatus).catch(console.error);
-    if (range) api.aiRangeStatus(range.from, range.to).then(setRangeSt).catch(console.error);
+    if (range)
+      api.aiRangeStatus(range.from, range.to, "duplicates").then(setRangeSt).catch(console.error);
     else setRangeSt(null);
     api
       .aiDuplicates(range?.from ?? null, range?.to ?? null)
@@ -137,8 +138,8 @@ export function DuplicatesScreen() {
         <div className="card">
           <p>
             Duplicates are found by the on-device AI, which is off. Turn it on in Settings, then
-            right-click a year, month or day in the sidebar and choose Find duplicates and tags. It
-            runs on this computer.
+            right-click a year, month or day in the sidebar and choose Find duplicates. It runs on
+            this computer.
           </p>
           <button
             className="primary"
@@ -167,7 +168,7 @@ export function DuplicatesScreen() {
           {range && rangeSt
             ? rangeProgress(rangeSt)
             : status
-              ? `${aiProgress(status)} Right-click a year, month or day in the sidebar → Find duplicates and tags.`
+              ? `${aiProgress(status)} Right-click a year, month or day in the sidebar → Find duplicates.`
               : ""}
         </p>
         {range && (

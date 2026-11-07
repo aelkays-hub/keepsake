@@ -5,7 +5,7 @@
 //! - `workers` threads take [`super::JOB_STILLS`] jobs, `proxy_workers`
 //!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
 //!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; with AI on, one more
-//!   takes [`crate::ai::JOB_AI`] jobs (ADR-035). Each has its own catalog
+//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035). Each has its own catalog
 //!   connection and claims one job at a time;
 //! - fingerprints wait while a thumbnail job is ready: each reads a whole
 //!   file, and on a network drive they would take the disk from thumbnails.
@@ -38,7 +38,7 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
-use crate::ai::{self, AiError, ImageModel, LabelSet, JOB_AI};
+use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_TAG};
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
 };
@@ -384,7 +384,13 @@ impl RenderService {
         let mut cat = self.lib.open_catalog()?;
         let mut ai_state = None;
         if kind == JOB_AI {
-            match cat.write(|t| t.jobs().remove_queued(JOB_AI, Priority::Backlog)) {
+            let dropped = cat.write(|t| {
+                Ok::<_, CatalogError>(
+                    t.jobs().remove_queued(JOB_AI, Priority::Backlog)?
+                        + t.jobs().remove_queued(JOB_AI_TAG, Priority::Backlog)?,
+                )
+            });
+            match dropped {
                 Ok(n) if n > 0 => tracing::info!("AI: dropped {n} queued background jobs"),
                 Ok(_) => {}
                 Err(e) => tracing::debug!("AI: dropping background jobs: {e}"),
@@ -424,7 +430,13 @@ impl RenderService {
                 Self::sleep(cancel, FINGERPRINT_WAIT);
                 continue;
             }
-            let claimed = match cat.write(|t| t.jobs().claim(&[kind], now_ms())) {
+            // The AI worker does both: finding duplicates and tagging.
+            let kinds: &[&str] = if kind == JOB_AI {
+                &[JOB_AI, JOB_AI_TAG]
+            } else {
+                std::slice::from_ref(&kind)
+            };
+            let claimed = match cat.write(|t| t.jobs().claim(kinds, now_ms())) {
                 Err(e) if e.is_busy() => {
                     Self::sleep(cancel, BUSY_RETRY);
                     continue;
@@ -618,11 +630,12 @@ impl RenderService {
                 Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
                 Err(e) => Err(RenderError::Failed(e.to_string())),
             },
-            JOB_AI => {
+            JOB_AI | JOB_AI_TAG => {
                 let Some((model, labels)) = ai_state else {
                     return Err(RenderError::Waiting("the AI model is not loaded".into()));
                 };
-                match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id) {
+                let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
+                match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id, purpose) {
                     Ok(out) => Ok((out.tags.into_iter().map(|(t, _)| t).collect(), None)),
                     Err(AiError::NoThumbnail) => {
                         // Make the thumbnail first (as urgently), then again.

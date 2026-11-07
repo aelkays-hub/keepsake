@@ -19,7 +19,7 @@ mod sidecars;
 mod tags;
 mod volumes;
 
-pub use ai::{Ai, AiCounts, DayItem};
+pub use ai::{Ai, AiCounts, DayItem, RangeItem};
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,

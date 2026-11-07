@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use keepsake_core::ai::{self, duplicates, install, JOB_AI, MODEL_ID};
+use keepsake_core::ai::{self, duplicates, install, Purpose, JOB_AI, JOB_AI_TAG, MODEL_ID};
 use keepsake_core::catalog::{AssetId, DuplicateChoice, TagPath, TagSource};
 use keepsake_core::metadata::MetadataService;
 use keepsake_core::render::{source, Variant};
@@ -53,10 +53,18 @@ impl AiState {
 pub fn ai_status(state: State<'_, AppState>) -> CmdResult<AiStatus> {
     let settings = Settings::load().map_err(err)?;
     let counts = match state.try_open() {
-        Some(open) => open
-            .cat()?
-            .read(|tx| tx.ai().counts(MODEL_ID, JOB_AI))
-            .map_err(err)?,
+        Some(open) => {
+            let cat = open.cat()?;
+            let mut c = cat
+                .read(|tx| tx.ai().counts(MODEL_ID, JOB_AI))
+                .map_err(err)?;
+            let t = cat
+                .read(|tx| tx.ai().counts(MODEL_ID, JOB_AI_TAG))
+                .map_err(err)?;
+            c.pending += t.pending;
+            c.failed += t.failed;
+            c
+        }
         None => Default::default(),
     };
     let installing = get(&state.ai.install).flatten().map(|(_, done)| done);
@@ -243,22 +251,29 @@ fn range_dto(from: String, to: String, s: ai::analyze::RangeStatus) -> AiRangeSt
     }
 }
 
-/// Find duplicates and tags for the items captured from `from` to `to`
-/// (`YYYY-MM-DD`, inclusive): their analysis is queued ahead of other
-/// work and runs on the render service's AI worker.
+fn purpose(what: &str) -> CmdResult<Purpose> {
+    Purpose::parse(what).ok_or_else(|| format!("unknown AI task: {what}"))
+}
+
+/// `what` = `duplicates` (Find duplicates: the RAW photos, analysed) or
+/// `tags` (Tag photos: every item) for the items captured from `from` to
+/// `to` (`YYYY-MM-DD`, inclusive): queued ahead of other work, run on the
+/// render service's AI worker.
 #[tauri::command(async)]
 pub fn ai_analyze_range(
     app: AppHandle,
     state: State<'_, AppState>,
     from: String,
     to: String,
+    what: String,
 ) -> CmdResult<AiRangeStatus> {
+    let purpose = purpose(&what)?;
     if !Settings::load().map_err(err)?.ai.enabled {
         return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
     }
     let open = state.open()?;
     let mut cat = open.writer()?;
-    let s = ai::analyze::enqueue_range(&mut cat, &from, &to).map_err(err)?;
+    let s = ai::analyze::enqueue_range(&mut cat, &from, &to, purpose).map_err(err)?;
     // The AI worker runs in the render service.
     crate::render::start_service(&app)?;
     Ok(range_dto(from, to, s))
@@ -269,10 +284,12 @@ pub fn ai_range_status(
     state: State<'_, AppState>,
     from: String,
     to: String,
+    what: String,
 ) -> CmdResult<AiRangeStatus> {
+    let purpose = purpose(&what)?;
     let open = state.open()?;
     let cat = open.cat()?;
-    let s = ai::analyze::range_status(&cat, &from, &to).map_err(err)?;
+    let s = ai::analyze::range_status(&cat, &from, &to, purpose).map_err(err)?;
     Ok(range_dto(from, to, s))
 }
 
@@ -319,10 +336,12 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
     let open = state.open()?;
     let id: AssetId = convert::id(&id, "asset")?;
     let cat = open.cat()?;
+    // "Analysed" here means tagged: an analysis made to find duplicates
+    // has no tags yet.
     let analysed = cat
         .read(|tx| tx.ai().analysis(id))
         .map_err(err)?
-        .is_some_and(|a| a.model == MODEL_ID);
+        .is_some_and(|a| a.model == MODEL_ID && a.tagged);
     let mut tags: Vec<AiTagDto> = cat
         .read(|tx| tx.tags().for_asset(id))
         .map_err(err)?

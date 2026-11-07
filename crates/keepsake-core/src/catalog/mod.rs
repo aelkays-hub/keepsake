@@ -29,9 +29,9 @@ pub use model::*;
 pub use repo::{
     Ai, AiCounts, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DayItem,
     DriveRow, EditFields, EventSpan, Events, Facet, FacetColumn, Files, Imports, Job, JobCounts,
-    JobState, Jobs, Labels, LibraryReport, Meta, NewJob, Priority, Recipes, Renditions, Report,
-    ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags, Volumes,
-    UNKNOWN,
+    JobState, Jobs, Labels, LibraryReport, Meta, NewJob, Priority, RangeItem, Recipes, Renditions,
+    Report, ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags,
+    Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 

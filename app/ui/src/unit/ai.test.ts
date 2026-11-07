@@ -55,12 +55,21 @@ describe("date ranges", () => {
 
   it("says how far the analysis has got", () => {
     expect(rangeProgress({ items: 0, analysed: 0, pending: 0 })).toBe(
-      "No photos or videos on these dates.",
+      "No RAW photos on these dates.",
     );
     expect(rangeProgress({ items: 120, analysed: 34, pending: 86 })).toBe(
-      "Analysing: 34 of 120 done…",
+      "Comparing: 34 of 120 done…",
     );
-    expect(rangeProgress({ items: 120, analysed: 120, pending: 0 })).toBe("120 of 120 analysed.");
+    expect(rangeProgress({ items: 120, analysed: 120, pending: 0 })).toBe(
+      "120 of 120 RAW photos compared.",
+    );
+    expect(rangeProgress({ items: 0, analysed: 0, pending: 0 }, "tags")).toBe(
+      "No photos on these dates.",
+    );
+    expect(rangeProgress({ items: 9, analysed: 4, pending: 5 }, "tags")).toBe(
+      "Tagging: 4 of 9 done…",
+    );
+    expect(rangeProgress({ items: 9, analysed: 9, pending: 0 }, "tags")).toBe("9 of 9 tagged.");
   });
 });
 

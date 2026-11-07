@@ -76,18 +76,22 @@ test("duplicates with AI off point to Settings", async ({ page }) => {
 const calNode = (page: Page, key: string) =>
   page.getByTestId("sidebar").locator(`button[data-cal="${key}"]`);
 
-test("right-click a year: find duplicates and tags for those dates only", async ({ page }) => {
+test("right-click a year: find duplicates for those dates only", async ({ page }) => {
   await open(page);
   await calNode(page, "2015").click({ button: "right" });
   const menu = page.getByTestId("date-menu");
-  await expect(menu.getByRole("menuitem")).toHaveText(["Show", "Find duplicates and tags"]);
-  await menu.getByTestId("date-menu-ai").click();
-  expect(await calls(page, "ai_analyze_range")).toEqual([{ from: "2015-01-01", to: "2015-12-31" }]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["Show", "Find duplicates", "Tag photos"]);
+  await menu.getByTestId("date-menu-dups").click();
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "duplicates" },
+  ]);
 
   const screen = page.getByTestId("duplicates-screen");
   await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates · 2015");
-  // It shows the analysis running, then the groups of those dates.
-  await expect(screen.getByTestId("dup-ai-status")).toHaveText(/analysed\.$/, { timeout: 15_000 });
+  // It shows the comparison running, then the groups of those dates.
+  await expect(screen.getByTestId("dup-ai-status")).toHaveText(/compared\.$/, {
+    timeout: 15_000,
+  });
   await expect(screen.getByTestId("dup-group").first()).toBeVisible();
   expect((await calls(page, "ai_duplicates")).at(-1)).toEqual({
     from: "2015-01-01",
@@ -96,12 +100,29 @@ test("right-click a year: find duplicates and tags for those dates only", async 
 
   // Another year has none; "All analysed dates" shows every day again.
   await calNode(page, "2016").click({ button: "right" });
-  await page.getByTestId("date-menu-ai").click();
+  await page.getByTestId("date-menu-dups").click();
   await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates · 2016");
   await expect(screen.getByTestId("dup-none")).toBeVisible({ timeout: 15_000 });
   await screen.getByTestId("dup-all").click();
   await expect(screen.getByTestId("dup-title")).toHaveText("Duplicates");
   await expect(screen.getByTestId("dup-group").first()).toBeVisible();
+});
+
+test("right-click a year: tag its photos, separately from duplicates", async ({ page }) => {
+  await open(page);
+  await calNode(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-tags").click();
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "tags" },
+  ]);
+  // It stays in the library (on that year) and the status bar follows it.
+  await expect(page.getByTestId("duplicates-screen")).toHaveCount(0);
+  const line = page.getByTestId("tagging");
+  await expect(line).toContainText("2015: Tagging:");
+  await expect(line).toHaveText(/^2015: [\d,]+ of [\d,]+ tagged\.$/, { timeout: 15_000 });
+  expect((await calls(page, "ai_range_status")).every((c) => c.what === "tags")).toBe(true);
+  // Finding duplicates was not asked for.
+  expect(await calls(page, "ai_duplicates")).toEqual([]);
 });
 
 test("the date menu explains when AI is off, and works from the keyboard", async ({ page }) => {

@@ -50,7 +50,7 @@ export function AiTags({ id }: { id: string }) {
           {!info.enabled && !info.analysed
             ? "On-device AI is off (Settings)."
             : !info.analysed
-              ? "Not analysed yet: right-click its date in the calendar and choose Find duplicates and tags."
+              ? "Not tagged yet: right-click its date in the calendar and choose Tag photos."
               : "None: the AI was not sure what this shows."}
         </p>
       )}

@@ -13,7 +13,8 @@ use std::sync::atomic::AtomicBool;
 use image::{DynamicImage, Rgb, RgbImage};
 use keepsake_core::ai::duplicates::Scope;
 use keepsake_core::ai::{
-    self, analyze, dhash, duplicates, install, Embedding, ImageModel, LabelSet, JOB_AI, MODEL_ID,
+    self, analyze, dhash, duplicates, install, Embedding, ImageModel, LabelSet, Purpose, JOB_AI,
+    JOB_AI_TAG, MODEL_ID,
 };
 use keepsake_core::catalog::{
     AiAnalysis, AssetId, Catalog, DuplicateChoice, JobState, Priority, TagPath, TagSource,
@@ -173,7 +174,7 @@ fn analyses_are_stored_and_found_by_day() {
     let labels = LabelSet::builtin().unwrap();
     analyze::store_results(
         &mut w.cat,
-        &labels,
+        Some(&labels),
         a,
         &label_vector(&labels, "Dog"),
         0xABCD,
@@ -195,13 +196,18 @@ fn analyses_are_stored_and_found_by_day() {
     let counts = w.cat.read(|tx| tx.ai().counts(MODEL_ID, JOB_AI)).unwrap();
     assert_eq!((counts.analysed, counts.assets), (1, 2));
 
-    // The unanalysed one is queued; the analysed one is not.
-    assert_eq!(ai::enqueue_missing(&mut w.cat).unwrap(), 1);
-    let job = w.cat.read(|tx| tx.jobs().find(JOB_AI, b)).unwrap().unwrap();
+    // Tagging the day queues the untagged one; the tagged one is not.
+    let st = analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04", Purpose::Tags).unwrap();
+    assert_eq!(st.pending, 1);
+    let job = w
+        .cat
+        .read(|tx| tx.jobs().find(JOB_AI_TAG, b))
+        .unwrap()
+        .unwrap();
     assert_eq!(job.state, JobState::Queued);
     assert!(w
         .cat
-        .read(|tx| tx.jobs().find(JOB_AI, a))
+        .read(|tx| tx.jobs().find(JOB_AI_TAG, a))
         .unwrap()
         .is_none());
 
@@ -217,7 +223,7 @@ fn a_removed_ai_tag_is_never_given_again() {
     let a = w.asset("a.jpg");
     let labels = LabelSet::builtin().unwrap();
     let dog = label_vector(&labels, "Dog");
-    analyze::store_results(&mut w.cat, &labels, a, &dog, 1).unwrap();
+    analyze::store_results(&mut w.cat, Some(&labels), a, &dog, 1).unwrap();
     assert!(w.ai_tags(a).contains(&"Dog".to_owned()));
 
     MetadataService::new(&w.lib, &mut w.cat)
@@ -230,7 +236,7 @@ fn a_removed_ai_tag_is_never_given_again() {
     );
 
     // Analysing again (new model run, re-tag) leaves it out.
-    analyze::store_results(&mut w.cat, &labels, a, &dog, 1).unwrap();
+    analyze::store_results(&mut w.cat, Some(&labels), a, &dog, 1).unwrap();
     assert!(!w.ai_tags(a).contains(&"Dog".to_owned()));
     analyze::retag_all(&mut w.cat, &labels).unwrap();
     assert!(!w.ai_tags(a).contains(&"Dog".to_owned()));
@@ -247,7 +253,14 @@ fn keeping_an_ai_tag_makes_it_the_users() {
     let mut w = World::new(&[("a.jpg", scene(1, 64, 48))]);
     let a = w.asset("a.jpg");
     let labels = LabelSet::builtin().unwrap();
-    analyze::store_results(&mut w.cat, &labels, a, &label_vector(&labels, "Beach"), 1).unwrap();
+    analyze::store_results(
+        &mut w.cat,
+        Some(&labels),
+        a,
+        &label_vector(&labels, "Beach"),
+        1,
+    )
+    .unwrap();
     MetadataService::new(&w.lib, &mut w.cat)
         .keep_ai_tag(a, &tag("Beach"))
         .unwrap();
@@ -268,7 +281,14 @@ fn decisions_survive_a_rebuild_and_originals_are_untouched() {
     let before = common::tree_hashes(&w.media);
     let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));
     let labels = LabelSet::builtin().unwrap();
-    analyze::store_results(&mut w.cat, &labels, a, &label_vector(&labels, "Dog"), 1).unwrap();
+    analyze::store_results(
+        &mut w.cat,
+        Some(&labels),
+        a,
+        &label_vector(&labels, "Dog"),
+        1,
+    )
+    .unwrap();
     {
         let mut svc = MetadataService::new(&w.lib, &mut w.cat);
         svc.set_duplicate_choice(a, Some(DuplicateChoice::Keeper))
@@ -325,6 +345,7 @@ fn put(cat: &mut Catalog, id: AssetId, emb: &Embedding, hash: u64) {
             emb_scale,
             dhash: hash,
             made_ms: 0,
+            tagged: false,
         })
     })
     .unwrap();
@@ -449,31 +470,37 @@ fn only_the_dates_asked_for_are_queued_ahead_of_the_backlog() {
     let labels = LabelSet::builtin().unwrap();
     analyze::store_results(
         &mut w.cat,
-        &labels,
+        Some(&labels),
         ids[0],
         &label_vector(&labels, "Dog"),
         1,
     )
     .unwrap();
 
-    let st = analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04").unwrap();
+    let st = analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04", Purpose::Tags).unwrap();
     assert_eq!((st.items, st.analysed, st.pending), (2, 1, 1));
-    // b: AI and its thumbnail queued, ahead of the backlog; no video proxy.
-    let b = find_job(&w.cat, JOB_AI, ids[1]).unwrap();
+    // b: tagging and its thumbnail queued, ahead of the backlog; no proxy.
+    let b = find_job(&w.cat, JOB_AI_TAG, ids[1]).unwrap();
     assert_eq!((b.state, b.priority), (JobState::Queued, Priority::Recent));
     assert_eq!(
         find_job(&w.cat, JOB_STILLS, ids[1]).unwrap().priority,
         Priority::Recent
     );
-    // a is already analysed; c is outside the range.
-    assert!(find_job(&w.cat, JOB_AI, ids[0]).is_none());
-    assert!(find_job(&w.cat, JOB_AI, ids[2]).is_none());
+    // a is already tagged; c is outside the range; nothing for duplicates.
+    assert!(find_job(&w.cat, JOB_AI_TAG, ids[0]).is_none());
+    assert!(find_job(&w.cat, JOB_AI_TAG, ids[2]).is_none());
+    assert!(find_job(&w.cat, JOB_AI, ids[1]).is_none());
 
     // A month covers both days.
-    let st = analyze::range_status(&w.cat, "2026-07-01", "2026-07-31").unwrap();
+    let st = analyze::range_status(&w.cat, "2026-07-01", "2026-07-31", Purpose::Tags).unwrap();
     assert_eq!((st.items, st.analysed, st.pending), (3, 1, 1));
-    assert!(analyze::enqueue_range(&mut w.cat, "2026-07-31", "2026-07-01").is_err());
-    assert!(analyze::enqueue_range(&mut w.cat, "July", "2026-07-01").is_err());
+    // Finding duplicates covers RAW photos only: none here.
+    let st =
+        analyze::range_status(&w.cat, "2026-07-01", "2026-07-31", Purpose::Duplicates).unwrap();
+    assert_eq!(st.items, 0);
+    for bad in [("2026-07-31", "2026-07-01"), ("July", "2026-07-01")] {
+        assert!(analyze::enqueue_range(&mut w.cat, bad.0, bad.1, Purpose::Tags).is_err());
+    }
 
     // Background AI jobs can be dropped; asked-for ones stay.
     analyze::enqueue(&mut w.cat, &ids[2..], Priority::Backlog, false).unwrap();
@@ -482,7 +509,82 @@ fn only_the_dates_asked_for_are_queued_ahead_of_the_backlog() {
         .write(|tx| tx.jobs().remove_queued(JOB_AI, Priority::Backlog))
         .unwrap();
     assert_eq!(dropped, 1);
+    assert!(find_job(&w.cat, JOB_AI_TAG, ids[1]).is_some());
+}
+
+#[test]
+fn finding_duplicates_and_tagging_are_separate() {
+    let names = ["DSC001.ARW", "DSC002.ARW", "DSC003.JPG"];
+    let imgs: Vec<(&str, DynamicImage)> = names.iter().map(|n| (*n, scene(1, 64, 48))).collect();
+    let mut w = World::new(&imgs);
+    w.same_day(&names, 20);
+    let ids: Vec<AssetId> = names.iter().map(|n| w.asset(n)).collect();
+    let day = "2026-07-04";
+
+    // Find duplicates: the two RAWs, analysed only (no tag jobs).
+    let st = analyze::enqueue_range(&mut w.cat, day, day, Purpose::Duplicates).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 0, 2));
+    assert!(find_job(&w.cat, JOB_AI, ids[0]).is_some());
     assert!(find_job(&w.cat, JOB_AI, ids[1]).is_some());
+    assert!(
+        find_job(&w.cat, JOB_AI, ids[2]).is_none(),
+        "a JPEG is not compared"
+    );
+    assert!(ids
+        .iter()
+        .all(|id| find_job(&w.cat, JOB_AI_TAG, *id).is_none()));
+
+    // Their analysis is stored without tags.
+    let labels = LabelSet::builtin().unwrap();
+    let dog = label_vector(&labels, "Dog");
+    for id in &ids[..2] {
+        analyze::store_results(&mut w.cat, None, *id, &dog, 7).unwrap();
+    }
+    assert!(w.ai_tags(ids[0]).is_empty());
+    assert!(
+        !w.cat
+            .read(|tx| tx.ai().analysis(ids[0]))
+            .unwrap()
+            .unwrap()
+            .tagged
+    );
+    let st = analyze::range_status(&w.cat, day, day, Purpose::Duplicates).unwrap();
+    assert_eq!(st.analysed, 2);
+
+    // Tag photos: all three; the analysed RAWs need no new thumbnail.
+    let thumbs_before: Vec<bool> = ids
+        .iter()
+        .map(|id| find_job(&w.cat, JOB_STILLS, *id).is_some())
+        .collect();
+    let st = analyze::enqueue_range(&mut w.cat, day, day, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.analysed), (3, 0));
+    assert!(ids
+        .iter()
+        .all(|id| find_job(&w.cat, JOB_AI_TAG, *id).is_some()));
+    assert!(
+        thumbs_before[0] && thumbs_before[1],
+        "queued by Find duplicates"
+    );
+    assert!(
+        find_job(&w.cat, JOB_STILLS, ids[2]).is_some(),
+        "the JPEG needs one"
+    );
+
+    // Tagging an analysed photo keeps it analysed for duplicates, now tagged.
+    analyze::store_results(&mut w.cat, Some(&labels), ids[0], &dog, 7).unwrap();
+    assert!(w.ai_tags(ids[0]).contains(&"Dog".to_owned()));
+    // Finding duplicates again leaves the tags alone.
+    analyze::store_results(&mut w.cat, None, ids[0], &dog, 7).unwrap();
+    assert!(w.ai_tags(ids[0]).contains(&"Dog".to_owned()));
+    assert!(
+        w.cat
+            .read(|tx| tx.ai().analysis(ids[0]))
+            .unwrap()
+            .unwrap()
+            .tagged
+    );
+    let st = analyze::range_status(&w.cat, day, day, Purpose::Tags).unwrap();
+    assert_eq!(st.analysed, 1);
 }
 
 #[test]
@@ -566,7 +668,8 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
     // A background AI job (an earlier build's sweep) is dropped by the
     // worker; the day asked for is analysed.
     ai::analyze::enqueue(&mut w.cat, &ids[..1], Priority::Backlog, false).unwrap();
-    let st = ai::analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04").unwrap();
+    let st =
+        ai::analyze::enqueue_range(&mut w.cat, "2026-07-04", "2026-07-04", Purpose::Tags).unwrap();
     assert_eq!((st.items, st.analysed, st.pending), (3, 0, 3));
     let tools = RenderTools {
         exiftool: t.exiftool,
@@ -596,17 +699,20 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
     for id in &ids {
         let job = w
             .cat
-            .read(|tx| tx.jobs().find(JOB_AI, *id))
+            .read(|tx| tx.jobs().find(JOB_AI_TAG, *id))
             .unwrap()
             .unwrap();
         assert_eq!(job.state, JobState::Done, "{job:?} {evs:?}");
-        assert!(w.cat.read(|tx| tx.ai().analysis(*id)).unwrap().is_some());
+        let a = w.cat.read(|tx| tx.ai().analysis(*id)).unwrap().unwrap();
+        assert!(a.tagged);
     }
+    // The stale background job was dropped, not run.
+    assert!(find_job(&w.cat, JOB_AI, ids[0]).is_none());
     let groups = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
     assert_eq!(groups.len(), 1, "{groups:?}");
     let members: Vec<AssetId> = groups[0].members.iter().map(|m| m.asset_id).collect();
     assert_eq!(members, ids[..2].to_vec());
-    let st = ai::analyze::range_status(&w.cat, "2026-07-04", "2026-07-04").unwrap();
+    let st = ai::analyze::range_status(&w.cat, "2026-07-04", "2026-07-04", Purpose::Tags).unwrap();
     assert_eq!((st.items, st.analysed, st.pending), (3, 3, 0));
     assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
 }

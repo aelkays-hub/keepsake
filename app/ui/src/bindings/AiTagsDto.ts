@@ -10,7 +10,7 @@ export type AiTagsDto = {
  */
 enabled: boolean, 
 /**
- * The item has been analysed.
+ * The item has been tagged ("Tag photos").
  */
 analysed: boolean, 
 /**

@@ -31,14 +31,16 @@ use thiserror::Error;
 use crate::catalog::CatalogError;
 use crate::render::RenderError;
 
-pub use analyze::{analyze_asset, enqueue_missing, AnalyzeOutcome};
+pub use analyze::{analyze_asset, enqueue_range, range_status, AnalyzeOutcome, Purpose};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
 pub use labels::LabelSet;
 pub use model::{Accel, ImageModel};
 
-/// The job kind that analyses one asset.
+/// The job kind that analyses one asset to find duplicates (no tags).
 pub const JOB_AI: &str = "ai.analyze";
+/// The job kind that gives one asset its AI tags.
+pub const JOB_AI_TAG: &str = "ai.tag";
 
 /// Model id stored with each analysis. Bump the version after `@` when the
 /// model file or preprocessing changes: every asset is then analysed again.

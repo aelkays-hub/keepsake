@@ -594,4 +594,7 @@ pub struct AiAnalysis {
     /// 64-bit difference hash of the thumbnail.
     pub dhash: u64,
     pub made_ms: i64,
+    /// AI tags were given from it ("Tag photos"); an analysis made only to
+    /// find duplicates has none.
+    pub tagged: bool,
 }

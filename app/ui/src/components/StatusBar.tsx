@@ -1,11 +1,54 @@
-// Status bar: item count, selection, renders, offline drives, edits.
+// Status bar: item count, selection, renders, offline drives, edits, and
+// how far "Tag photos" has got.
 
 import { useEffect, useState } from "react";
 
-import { api, events, type EditProgress, type RenderSummary } from "../api";
+import { rangeProgress } from "../ai";
+import { api, events, type AiRangeStatus, type EditProgress, type RenderSummary } from "../api";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
+
+/** "Tagging July 2026: 34 of 120 done…", polled while it runs. When it is
+ * done the library refreshes (tags appear in the inspector) and the line
+ * goes after a few seconds. */
+function Tagging() {
+  const { s, dispatch } = useUi();
+  const range = s.tagging;
+  const [st, setSt] = useState<AiRangeStatus | null>(null);
+  useEffect(() => {
+    if (!range) {
+      setSt(null);
+      return;
+    }
+    let live = true;
+    let timer = 0;
+    const poll = () =>
+      api
+        .aiRangeStatus(range.from, range.to, "tags")
+        .then((x) => {
+          if (!live) return;
+          setSt(x);
+          if (x.pending > 0) timer = window.setTimeout(poll, 3000);
+          else {
+            dispatch({ t: "edited" });
+            timer = window.setTimeout(() => live && dispatch({ t: "tagging", range: null }), 8000);
+          }
+        })
+        .catch(() => live && dispatch({ t: "tagging", range: null }));
+    poll();
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [range, dispatch]);
+  if (!range || !st) return null;
+  return (
+    <span data-testid="tagging" role="status">
+      {range.title}: {rangeProgress(st, "tags")}
+    </span>
+  );
+}
 
 export function StatusBar() {
   const { s, view, dispatch } = useUi();
@@ -46,6 +89,7 @@ export function StatusBar() {
         </span>
       )}
       <span className="spacer" />
+      <Tagging />
       {card && <span className="card">💾 {card}</span>}
       {r && (
         <span

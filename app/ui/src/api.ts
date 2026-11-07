@@ -110,6 +110,9 @@ export type {
   ViewInfo,
 };
 
+/** The two separate AI tasks for a date range. */
+export type AiTask = "duplicates" | "tags";
+
 export const emptyQuery: Query = {
   text: null,
   from: null,
@@ -229,11 +232,12 @@ export const api = {
   /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
   aiDuplicates: (from: string | null = null, to: string | null = null) =>
     invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),
-  /** Find duplicates and tags for these dates: queued ahead of other work. */
-  aiAnalyzeRange: (from: string, to: string) =>
-    invoke<AiRangeStatus>("ai_analyze_range", { from, to }),
-  aiRangeStatus: (from: string, to: string) =>
-    invoke<AiRangeStatus>("ai_range_status", { from, to }),
+  /** Find duplicates (the RAW photos) or tag the photos of these dates:
+   * queued ahead of other work. */
+  aiAnalyzeRange: (from: string, to: string, what: AiTask) =>
+    invoke<AiRangeStatus>("ai_analyze_range", { from, to, what }),
+  aiRangeStatus: (from: string, to: string, what: AiTask) =>
+    invoke<AiRangeStatus>("ai_range_status", { from, to, what }),
   aiDuplicateDay: (date: string) => invoke<DuplicateGroupDto[]>("ai_duplicate_day", { date }),
   /** Keep `keeper`; the rest of `group` become "not kept" (nothing is deleted). */
   aiPickKeeper: (keeper: string, group: string[]) =>

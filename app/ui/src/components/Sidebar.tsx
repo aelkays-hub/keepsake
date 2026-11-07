@@ -375,17 +375,31 @@ export function Sidebar() {
           items={[
             { label: "Show", run: () => openEntry(menu.entry) },
             {
-              label: "Find duplicates and tags",
+              label: "Find duplicates",
               title:
-                "Analyse the photos of these dates on this computer, then show their duplicates",
-              testId: "date-menu-ai",
+                "Compare the RAW photos of these dates on this computer, then show the duplicates",
+              testId: "date-menu-dups",
               run: () => {
                 const c = dated(menu.entry);
                 const r = c && calRange(c.year, c.month, c.day);
                 if (!r) return;
                 return api
-                  .aiAnalyzeRange(r.from, r.to)
+                  .aiAnalyzeRange(r.from, r.to, "duplicates")
                   .then(() => dispatch({ t: "duplicates", range: r }));
+              },
+            },
+            {
+              label: "Tag photos",
+              title: "Tag the photos of these dates by what they show, on this computer",
+              testId: "date-menu-tags",
+              run: () => {
+                const c = dated(menu.entry);
+                const r = c && calRange(c.year, c.month, c.day);
+                if (!r) return;
+                return api.aiAnalyzeRange(r.from, r.to, "tags").then(() => {
+                  openEntry(menu.entry);
+                  dispatch({ t: "tagging", range: r });
+                });
               },
             },
           ]}

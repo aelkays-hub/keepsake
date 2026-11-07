@@ -96,6 +96,15 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### Changed the same day: Find duplicates and Tag photos are separate
+- **Asked:** "let us separate finding duplicates from tags, they should be separate functions runs seperatly".
+- **Built:**
+  - The date menu has **Find duplicates** (RAW photos, `ai.analyze`, no tags; opens Duplicates) and **Tag photos** (every photo, `ai.tag`; progress in the status bar).
+  - Tagging an already-analysed photo reuses its stored embedding.
+  - Schema v10 adds `ai_analysis.tagged`.
+  - `keepsake ai run --tags`.
+- **Tests:** `finding_duplicates_and_tagging_are_separate`. The range and worker tests now use Tag photos, and the mocked UI covers both menu items and the status-bar progress.
+
 ### Changed the same day: duplicates among RAW photos only
 - **Asked:** "Only determine duplicates in RAW format, a picture that as the same name as a raw file with a jpg extension is not a duplicate it is an edited copy of the picture".
 - **Built:** only items with a RAW file are compared (`duplicates::Scope::Raw`, `assets.is_raw`). JPEG-only photos, edited copies and videos are never grouped. Tags are unchanged.

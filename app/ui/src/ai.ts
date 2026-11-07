@@ -46,9 +46,15 @@ export function calRange(
   return { from: d, to: d, title: dayTitle(d) };
 }
 
-/** "Analysing 34 of 120…" or "120 analysed" for a range. */
-export function rangeProgress(st: { items: number; analysed: number; pending: number }): string {
-  if (st.items === 0) return "No photos or videos on these dates.";
-  if (st.pending > 0) return `Analysing: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
-  return `${fmt.count(st.analysed)} of ${fmt.count(st.items)} analysed.`;
+/** How far Find duplicates (`duplicates`) or Tag photos (`tags`) has got. */
+export function rangeProgress(
+  st: { items: number; analysed: number; pending: number },
+  what: "duplicates" | "tags" = "duplicates",
+): string {
+  const verb = what === "tags" ? "Tagging" : "Comparing";
+  if (st.items === 0)
+    return what === "tags" ? "No photos on these dates." : "No RAW photos on these dates.";
+  if (st.pending > 0) return `${verb}: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
+  const n = `${fmt.count(st.analysed)} of ${fmt.count(st.items)}`;
+  return what === "tags" ? `${n} tagged.` : `${n} RAW photos compared.`;
 }

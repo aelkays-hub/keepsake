@@ -22,6 +22,18 @@ pub struct DayItem {
     pub choice: Option<DuplicateChoice>,
 }
 
+/// One asset of a date range, for "Find duplicates" and "Tag photos".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeItem {
+    pub id: AssetId,
+    /// It has a RAW file (only those are compared for duplicates).
+    pub raw: bool,
+    /// Analysed with the current model.
+    pub analysed: bool,
+    /// AI tags were given.
+    pub tagged: bool,
+}
+
 /// How far the analysis has got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct AiCounts {
@@ -53,10 +65,12 @@ fn analysis_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<AiAnalysis
         emb_scale: scale as f32,
         dhash: u64::from_ne_bytes(dhash.to_ne_bytes()),
         made_ms: r.get(at + 5)?,
+        tagged: r.get(at + 6)?,
     })
 }
 
-const ANALYSIS_COLS: &str = "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms";
+const ANALYSIS_COLS: &str =
+    "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tagged";
 
 impl<M> Ai<'_, M> {
     pub fn analysis(&self, asset: AssetId) -> Result<Option<AiAnalysis>, CatalogError> {
@@ -92,11 +106,11 @@ impl<M> Ai<'_, M> {
             .query_map(params![date, model, raw_only], |r| {
                 Ok(DayItem {
                     analysis: analysis_row(r, 0)?,
-                    media_kind: r.get(6)?,
-                    capture_ms: r.get(7)?,
-                    rating: r.get(8)?,
-                    sequence: r.get(9)?,
-                    choice: r.get(10)?,
+                    media_kind: r.get(7)?,
+                    capture_ms: r.get(8)?,
+                    rating: r.get(9)?,
+                    sequence: r.get(10)?,
+                    choice: r.get(11)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -130,22 +144,30 @@ impl<M> Ai<'_, M> {
     }
 
     /// Assets captured from `from` to `to` (`YYYY-MM-DD`, local,
-    /// inclusive), newest first, and whether each is analysed with `model`.
+    /// inclusive), newest first.
     pub fn in_dates(
         &self,
         from: &str,
         to: &str,
         model: &str,
-    ) -> Result<Vec<(AssetId, bool)>, CatalogError> {
+    ) -> Result<Vec<RangeItem>, CatalogError> {
         let mut st = self.conn.prepare(
-            "SELECT a.id, EXISTS (SELECT 1 FROM ai_analysis x
-                                   WHERE x.asset_id = a.id AND x.model = ?3)
+            "SELECT a.id, a.is_raw, x.tagged
                FROM assets a
+               LEFT JOIN ai_analysis x ON x.asset_id = a.id AND x.model = ?3
               WHERE a.capture_local_date BETWEEN ?1 AND ?2
               ORDER BY a.capture_ts_ms DESC, a.id",
         )?;
         let rows = st
-            .query_map(params![from, to, model], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(params![from, to, model], |r| {
+                let tagged: Option<bool> = r.get(2)?;
+                Ok(RangeItem {
+                    id: r.get(0)?,
+                    raw: r.get(1)?,
+                    analysed: tagged.is_some(),
+                    tagged: tagged.unwrap_or(false),
+                })
+            })?
             .collect::<Result<_, _>>()?;
         Ok(rows)
     }
@@ -164,11 +186,11 @@ impl<M> Ai<'_, M> {
         Ok(rows)
     }
 
-    /// Assets analysed with `model`.
+    /// Assets analysed with `model` and tagged from it.
     pub fn analysed(&self, model: &str) -> Result<Vec<AssetId>, CatalogError> {
-        let mut st = self
-            .conn
-            .prepare("SELECT asset_id FROM ai_analysis WHERE model = ?1 ORDER BY asset_id")?;
+        let mut st = self.conn.prepare(
+            "SELECT asset_id FROM ai_analysis WHERE model = ?1 AND tagged = 1 ORDER BY asset_id",
+        )?;
         let rows = st
             .query_map([model], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
@@ -226,18 +248,20 @@ impl Ai<'_, Rw> {
     /// Store (or replace) an asset's analysis.
     pub fn put_analysis(&self, a: &AiAnalysis) -> Result<(), CatalogError> {
         self.conn.execute(
-            "INSERT INTO ai_analysis (asset_id, model, embedding, emb_scale, dhash, made_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO ai_analysis (asset_id, model, embedding, emb_scale, dhash, made_ms, tagged)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(asset_id) DO UPDATE SET model = excluded.model,
                embedding = excluded.embedding, emb_scale = excluded.emb_scale,
-               dhash = excluded.dhash, made_ms = excluded.made_ms",
+               dhash = excluded.dhash, made_ms = excluded.made_ms,
+               tagged = excluded.tagged",
             params![
                 a.asset_id,
                 a.model,
                 i8_blob(&a.embedding),
                 f64::from(a.emb_scale),
                 i64::from_ne_bytes(a.dhash.to_ne_bytes()),
-                a.made_ms
+                a.made_ms,
+                a.tagged
             ],
         )?;
         Ok(())

@@ -98,7 +98,7 @@ dto! {
         pub failed: u64,
     }
 
-    /// How far "Find duplicates and tags" has got for a date range.
+    /// How far "Find duplicates" or "Tag photos" has got for a date range.
     pub struct AiRangeStatus {
         /// `YYYY-MM-DD`, inclusive.
         pub from: String,
@@ -162,7 +162,7 @@ dto! {
     pub struct AiTagsDto {
         /// On-device AI is turned on.
         pub enabled: bool,
-        /// The item has been analysed.
+        /// The item has been tagged ("Tag photos").
         pub analysed: bool,
         /// Most likely first.
         pub tags: Vec<AiTagDto>,

@@ -1147,7 +1147,7 @@ export function installMock(): void {
         }
         case "ai_analyze_range":
         case "ai_range_status": {
-          const key = `${a.from}|${a.to}`;
+          const key = `${a.what}|${a.from}|${a.to}`;
           if (cmd === "ai_analyze_range") {
             if (!st.ai.enabled)
               throw "Turn on On-device AI in Settings first (it downloads the model once).";

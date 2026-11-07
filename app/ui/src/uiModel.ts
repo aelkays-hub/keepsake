@@ -47,6 +47,8 @@ export interface UiState {
   dialog: Dialog;
   /** The dates the Duplicates screen shows (`null`: every analysed day). */
   dupRange: DateRange | null;
+  /** Dates being tagged (the status bar shows how far it has got). */
+  tagging: DateRange | null;
 }
 
 /** A year, month or day of the calendar, as dates (`YYYY-MM-DD`, inclusive). */
@@ -73,7 +75,9 @@ export type Msg =
   | { t: "viewer"; open: boolean }
   | { t: "dialog"; dialog: Dialog }
   /** The Duplicates screen, for these dates (`null`: all). */
-  | { t: "duplicates"; range: DateRange | null };
+  | { t: "duplicates"; range: DateRange | null }
+  /** Show tagging progress for these dates (`null`: stop showing it). */
+  | { t: "tagging"; range: DateRange | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -89,6 +93,7 @@ export const initial: UiState = {
   viewer: false,
   dialog: null,
   dupRange: null,
+  tagging: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -142,6 +147,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, dialog: m.dialog };
     case "duplicates":
       return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
+    case "tagging":
+      return { ...s, tagging: m.range };
   }
 }
 

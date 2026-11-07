@@ -1,5 +1,7 @@
-//! The `ai.analyze` job: one asset's thumbnail in; its embedding,
-//! difference hash and AI tags out.
+//! The AI jobs: `ai.analyze` ("Find duplicates") takes one asset's
+//! thumbnail and stores its embedding and difference hash; `ai.tag` ("Tag
+//! photos") gives its AI tags, from the stored embedding when there is one
+//! (else it analyses first). They are separate: one never does the other.
 //!
 //! It reads the 1024 px thumbnail from the render cache (else the 256 px
 //! one), never the original, so a network drive is not read again. Without
@@ -13,9 +15,9 @@
 
 use image::DynamicImage;
 
-use super::{dhash, AiError, ImageModel, LabelSet, JOB_AI, MODEL_ID};
+use super::{dhash, AiError, ImageModel, LabelSet, JOB_AI, JOB_AI_TAG, MODEL_ID};
 use crate::catalog::{
-    AiAnalysis, AssetId, AssetTag, Catalog, CatalogError, NewJob, Priority, TagSource,
+    AiAnalysis, AssetId, AssetTag, Catalog, CatalogError, NewJob, Priority, RangeItem, TagSource,
 };
 use crate::render::{Cache, Variant};
 
@@ -47,11 +49,12 @@ pub fn thumbnail(
     Ok(image::load_from_memory(&bytes)?)
 }
 
-/// Analyse an image and store the results for `asset`.
+/// Analyse an image and store the results for `asset`; with `labels`, give
+/// its AI tags too.
 pub fn store_analysis(
     cat: &mut Catalog,
     model: &mut ImageModel,
-    labels: &LabelSet,
+    labels: Option<&LabelSet>,
     asset: AssetId,
     img: &DynamicImage,
 ) -> Result<AnalyzeOutcome, AiError> {
@@ -60,10 +63,11 @@ pub fn store_analysis(
     store_results(cat, labels, asset, &emb, hash)
 }
 
-/// Store an embedding and hash for `asset` and give its AI tags.
+/// Store an embedding and hash for `asset`; with `labels`, give its AI
+/// tags from it (without, any tags it already has stay as they are).
 pub fn store_results(
     cat: &mut Catalog,
-    labels: &LabelSet,
+    labels: Option<&LabelSet>,
     asset: AssetId,
     emb: &super::Embedding,
     hash: u64,
@@ -71,11 +75,10 @@ pub fn store_results(
     let (embedding, emb_scale) = emb.quantize();
     let now = crate::jobs::now_ms();
     let rejected = cat.read(|tx| tx.ai().rejections(asset))?;
-    let tags = labels.tags_for(emb, &rejected);
-    let rows: Vec<AssetTag> = tags
-        .iter()
-        .map(|(p, c)| AssetTag::ai(p.clone(), *c))
-        .collect();
+    let was_tagged = cat
+        .read(|tx| tx.ai().analysis(asset))?
+        .is_some_and(|a| a.tagged && a.model == MODEL_ID);
+    let tags = labels.map(|l| l.tags_for(emb, &rejected));
     cat.write(|tx| {
         if tx.assets().get(asset)?.is_none() {
             return Ok(());
@@ -87,28 +90,86 @@ pub fn store_results(
             emb_scale,
             dhash: hash,
             made_ms: now,
+            tagged: tags.is_some() || was_tagged,
         })?;
-        tx.tags().set_for_asset(asset, TagSource::Ai, &rows)?;
-        tx.tags().prune_unused()?;
+        if let Some(tags) = &tags {
+            let rows: Vec<AssetTag> = tags
+                .iter()
+                .map(|(p, c)| AssetTag::ai(p.clone(), *c))
+                .collect();
+            tx.tags().set_for_asset(asset, TagSource::Ai, &rows)?;
+            tx.tags().prune_unused()?;
+        }
         Ok::<_, CatalogError>(())
     })?;
     Ok(AnalyzeOutcome {
         tags: tags
+            .unwrap_or_default()
             .into_iter()
             .map(|(p, c)| (p.to_lightroom(), c))
             .collect(),
     })
 }
 
-/// Run one `ai.analyze` job.
+/// What a date range is analysed for. They are separate: finding
+/// duplicates gives no tags, and tagging leaves duplicates alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Purpose {
+    /// "Find duplicates": the range's RAW photos, analysed (no tags).
+    Duplicates,
+    /// "Tag photos": every item of the range gets AI tags.
+    Tags,
+}
+
+impl Purpose {
+    /// Its job kind.
+    pub fn job(self) -> &'static str {
+        match self {
+            Purpose::Duplicates => JOB_AI,
+            Purpose::Tags => JOB_AI_TAG,
+        }
+    }
+
+    pub fn of_job(kind: &str) -> Option<Self> {
+        match kind {
+            JOB_AI => Some(Purpose::Duplicates),
+            JOB_AI_TAG => Some(Purpose::Tags),
+            _ => None,
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "duplicates" => Some(Purpose::Duplicates),
+            "tags" => Some(Purpose::Tags),
+            _ => None,
+        }
+    }
+}
+
+/// Run one AI job. An item already analysed is not analysed again: to tag
+/// it, its stored embedding is scored (no thumbnail, no model).
 pub fn analyze_asset(
     cat: &mut Catalog,
     cache: &Cache,
     model: &mut ImageModel,
     labels: &LabelSet,
     asset: AssetId,
+    purpose: Purpose,
 ) -> Result<AnalyzeOutcome, AiError> {
+    let stored = cat
+        .read(|tx| tx.ai().analysis(asset))?
+        .filter(|a| a.model == MODEL_ID);
+    if let Some(a) = stored {
+        if purpose == Purpose::Duplicates {
+            return Ok(AnalyzeOutcome { tags: Vec::new() });
+        }
+        let emb = super::Embedding::from_quantized(&a.embedding, a.emb_scale)?;
+        return store_results(cat, Some(labels), asset, &emb, a.dhash);
+    }
     let img = thumbnail(cat, cache, asset)?;
+    let labels = (purpose == Purpose::Tags).then_some(labels);
     store_analysis(cat, model, labels, asset, &img)
 }
 
@@ -146,11 +207,12 @@ pub fn retag_all(cat: &mut Catalog, labels: &LabelSet) -> Result<u64, AiError> {
 /// How far a requested date range has got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct RangeStatus {
-    /// Items captured in the range.
+    /// Items the purpose covers in the range: its RAW photos for
+    /// duplicates, every item for tags.
     pub items: u64,
-    /// Of those, analysed with the current model.
+    /// Of those, done (analysed for duplicates; tagged for tags).
     pub analysed: u64,
-    /// AI jobs still to run for the range.
+    /// Jobs of the purpose still to run for the range.
     pub pending: u64,
 }
 
@@ -173,55 +235,85 @@ fn check_range(from: &str, to: &str) -> Result<(), AiError> {
     Ok(())
 }
 
-/// Analyse the items captured from `from` to `to` (`YYYY-MM-DD`, local,
-/// inclusive): their `ai.analyze` jobs are queued ahead of other AI work
-/// (and their missing thumbnails ahead of the backlog). Items already
-/// analysed are left alone. Returns the range's status.
-pub fn enqueue_range(cat: &mut Catalog, from: &str, to: &str) -> Result<RangeStatus, AiError> {
+fn covers(purpose: Purpose, it: &RangeItem) -> bool {
+    purpose == Purpose::Tags || it.raw
+}
+
+fn done(purpose: Purpose, it: &RangeItem) -> bool {
+    match purpose {
+        Purpose::Duplicates => it.analysed,
+        Purpose::Tags => it.tagged,
+    }
+}
+
+/// Do `purpose` for the items captured from `from` to `to` (`YYYY-MM-DD`,
+/// local, inclusive): their jobs are queued ahead of other AI work, and
+/// the thumbnails of items not yet analysed ahead of the backlog. Items
+/// already done are left alone. Returns the range's status.
+pub fn enqueue_range(
+    cat: &mut Catalog,
+    from: &str,
+    to: &str,
+    purpose: Purpose,
+) -> Result<RangeStatus, AiError> {
     check_range(from, to)?;
     let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
-    let todo: Vec<AssetId> = all
+    let todo: Vec<&RangeItem> = all
         .iter()
-        .filter(|(_, done)| !done)
-        .map(|(id, _)| *id)
+        .filter(|it| covers(purpose, it) && !done(purpose, it))
         .collect();
+    let need_thumbs: Vec<AssetId> = todo
+        .iter()
+        .filter(|it| !it.analysed)
+        .map(|it| it.id)
+        .collect();
+    let ids: Vec<AssetId> = todo.iter().map(|it| it.id).collect();
     // Thumbnails first: their jobs move ahead of the backlog (finished ones
     // stay finished; a thumbnail evicted since is queued by the job itself).
     // No video proxies: the AI does not need them.
-    enqueue_kind(cat, &todo, crate::render::JOB_STILLS, 0, false)?;
-    enqueue(cat, &todo, Priority::Recent, true)?;
-    range_status(cat, from, to)
+    enqueue_kind(cat, &need_thumbs, crate::render::JOB_STILLS, 0, false)?;
+    enqueue_for(cat, &ids, purpose, Priority::Recent, true)?;
+    range_status(cat, from, to, purpose)
 }
 
-/// How far the range's analysis has got.
-pub fn range_status(cat: &Catalog, from: &str, to: &str) -> Result<RangeStatus, AiError> {
+/// How far `purpose` has got for the range.
+pub fn range_status(
+    cat: &Catalog,
+    from: &str,
+    to: &str,
+    purpose: Purpose,
+) -> Result<RangeStatus, AiError> {
     check_range(from, to)?;
     let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
-    let (pending, _) = cat.read(|tx| tx.jobs().in_dates(JOB_AI, from, to))?;
+    let (pending, _) = cat.read(|tx| tx.jobs().in_dates(purpose.job(), from, to))?;
+    let mine: Vec<&RangeItem> = all.iter().filter(|it| covers(purpose, it)).collect();
     Ok(RangeStatus {
-        items: all.len() as u64,
-        analysed: all.iter().filter(|(_, d)| *d).count() as u64,
+        items: mine.len() as u64,
+        analysed: mine.iter().filter(|it| done(purpose, it)).count() as u64,
         pending,
     })
 }
 
-/// Queue `ai.analyze` for every asset not yet analysed with the current
-/// model (backlog priority, newest capture first): `keepsake ai run` only.
-/// Returns how many were added.
-pub fn enqueue_missing(cat: &mut Catalog) -> Result<u64, CatalogError> {
-    let ids = cat.read(|tx| tx.ai().without_analysis(MODEL_ID))?;
-    enqueue(cat, &ids, Priority::Backlog, false)
+/// Queue `purpose`'s jobs for these assets. `again`: also re-run finished
+/// ones.
+pub fn enqueue_for(
+    cat: &mut Catalog,
+    assets: &[AssetId],
+    purpose: Purpose,
+    priority: Priority,
+    again: bool,
+) -> Result<u64, CatalogError> {
+    enqueue_kind_at(cat, assets, purpose.job(), 3, priority, again)
 }
 
-/// Queue `ai.analyze` for these assets. `again`: also re-run finished ones.
+/// Queue duplicate analysis (`ai.analyze`) for these assets.
 pub fn enqueue(
     cat: &mut Catalog,
     assets: &[AssetId],
     priority: Priority,
     again: bool,
 ) -> Result<u64, CatalogError> {
-    let p = priority;
-    enqueue_kind_at(cat, assets, JOB_AI, 3, p, again)
+    enqueue_for(cat, assets, Purpose::Duplicates, priority, again)
 }
 
 fn enqueue_kind(

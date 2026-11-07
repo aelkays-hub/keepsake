@@ -7,8 +7,10 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use serde_json::json;
 
-use keepsake_core::ai::{self, duplicates, install, LabelSet, JOB_AI, MODEL_ID};
-use keepsake_core::render::{self, Cache, RenderEvent, RenderOptions, RenderService, RenderTools};
+use keepsake_core::ai::{
+    self, duplicates, install, LabelSet, Purpose, JOB_AI, JOB_AI_TAG, MODEL_ID,
+};
+use keepsake_core::render::{Cache, RenderEvent, RenderOptions, RenderService, RenderTools};
 use keepsake_core::settings::Settings;
 
 use super::common::{cancel_flag, describe, human_bytes, path_str, Ctx, EXIT_CANCELLED, EXIT_OK};
@@ -19,8 +21,9 @@ pub enum AiAction {
     Status,
     /// Download the model into this computer's cache folder (372 MB).
     Install,
-    /// Analyse the items of some dates (`--from`/`--to`), or every item not
-    /// yet analysed (makes missing thumbnails first).
+    /// Find duplicates among the RAW photos of some dates (`--from`/`--to`,
+    /// default every dated item), or tag them all (`--tags`). Makes missing
+    /// thumbnails first.
     Run(RunArgs),
     /// Groups of same-day duplicates: every day, or one day's groups.
     Duplicates {
@@ -39,6 +42,9 @@ pub struct RunArgs {
     /// Last day, `YYYY-MM-DD`, inclusive.
     #[arg(long, requires = "from")]
     pub to: Option<String>,
+    /// Tag the photos instead of finding duplicates.
+    #[arg(long)]
+    pub tags: bool,
     /// Use the processor only, not the graphics card.
     #[arg(long)]
     pub cpu: bool,
@@ -127,22 +133,14 @@ fn run_all(ctx: &Ctx, a: &RunArgs) -> Result<u8> {
     let cache = Cache::new(settings.render.cache_root()?);
     {
         let mut cat = lib.open_catalog()?;
-        match (&a.from, &a.to) {
-            (Some(f), Some(t)) => {
-                ai::analyze::enqueue_range(&mut cat, f, t)?;
-            }
-            _ => {
-                render::enqueue_backlog(&mut cat)?;
-                // Asked-for priority: the worker drops background AI jobs.
-                let ids = cat.read(|tx| tx.ai().without_analysis(MODEL_ID))?;
-                ai::analyze::enqueue(
-                    &mut cat,
-                    &ids,
-                    keepsake_core::catalog::Priority::Recent,
-                    false,
-                )?;
-            }
-        }
+        let purpose = if a.tags {
+            Purpose::Tags
+        } else {
+            Purpose::Duplicates
+        };
+        let from = a.from.as_deref().unwrap_or("0000-01-01");
+        let to = a.to.as_deref().unwrap_or("9999-12-31");
+        ai::analyze::enqueue_range(&mut cat, from, to, purpose)?;
     }
     let mut opts = RenderOptions::from_settings(&settings.render);
     opts.proxy_workers = 0;
@@ -161,7 +159,7 @@ fn run_all(ctx: &Ctx, a: &RunArgs) -> Result<u8> {
             }
         }
         RenderEvent::AiUnavailable { reason } => problem = Some(reason.clone()),
-        RenderEvent::Done { kind, .. } if kind == JOB_AI => {
+        RenderEvent::Done { kind, .. } if kind == JOB_AI || kind == JOB_AI_TAG => {
             analysed += 1;
             if !ctx.json && analysed.is_multiple_of(100) {
                 eprintln!("{analysed} analysed…");
