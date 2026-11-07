@@ -86,6 +86,16 @@
 - **Setup:** `setup.ps1` installs ONNX Runtime + DirectML (x64 or ARM64), and `-WithAi` adds the model. `setup.sh` does the same for ONNX Runtime 1.31.1 on Apple Silicon, with `--with-ai`.
 - **Label vectors:** `scripts/make-label-vectors.py` (developer tool).
 
+### Changed the same day: only the dates you ask about
+- **Asked:** "why is keepsake so slow in finding duplicates", then "it should not try to seek the whole catalogue to find them, I should be able to go to a specific date and right click to select find duplicated and tag".
+- **Found:** 144 of 129,127 items had been analysed, at 1.5 s each. Each result waited 2–3.5 s for the catalog on the USB drive (its write-ahead log was 247 MB) while background thumbnails and proxies wrote too. The model took 80 ms, and on a copy of the catalog a save took under 1 ms.
+- **Built:**
+  - Turning AI on analyses nothing by itself.
+  - Right-click a year, month or day in the sidebar's calendar tree → **Find duplicates and tags** (also the Menu key or Shift+F10). It queues that range ahead of other work (thumbnails too, no proxies) and opens Duplicates on it, with "Analysing: n of m done…", refreshing every 3 s. "All analysed dates" goes back to every day.
+  - The worker drops the old background AI jobs and waits only for requested thumbnail jobs.
+  - `keepsake ai run --from --to` analyses a range from the CLI.
+- **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
+
 ### Tests
 - **keepsake-core unit tests:** embedding round trip; difference hash (re-encoded copy matches, a different picture does not); label file checks (mismatch refused, CRLF checkout fine); SigLIP probability; grouping (hash and cosine links, burst bar, photos and videos never mixed, "not duplicates", keeper choice, big-day window); preprocessing; download checks (bad hash not kept, cancel leaves nothing).
 - **`ai_tests`:**

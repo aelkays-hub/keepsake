@@ -127,7 +127,8 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
 - Import GPX track file and correlate with assets by timestamp.
 
 ### On-device AI
-- **Done early (ADR-035), off until turned on in Settings → On-device AI**, which downloads the model once (372 MB, SigLIP 2 base, Apache-2.0) into this computer's cache folder. It runs on the graphics card where it can, else the processor, in the background from the thumbnails; no photo leaves the computer and no original is changed.
+- **Done early (ADR-035), off until turned on in Settings → On-device AI**, which downloads the model once (372 MB, SigLIP 2 base, Apache-2.0) into this computer's cache folder. It runs on the graphics card where it can, else the processor, from the thumbnails; no photo leaves the computer and no original is changed.
+- **Only the dates you ask about:** right-click a year, month or day in the sidebar's calendar tree (or press the Menu key or Shift+F10) and choose **Find duplicates and tags**. Those photos are analysed ahead of other work, and the Duplicates screen opens on those dates, showing how far it has got. Nothing is analysed in the background otherwise.
 - Auto-tagging: up to 6 tags per photo from a built-in list of 102 (people, beach, dog, food, sunset, …), shown in the inspector as AI tags. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
 - Same-day duplicates (Sidebar → Duplicates): near-identical photos (or videos) taken on one calendar day, grouped: bursts, re-shoots, the same picture saved twice. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
 - `keepsake ai status | install | run | duplicates [DAY] | retag`.

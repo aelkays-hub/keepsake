@@ -20,13 +20,19 @@ Without the model, the three `ai_tests` that run it print "skipping" and pass.
 
 Manual (both OSes), with a library that has some bursts or repeated shots:
 1. Open **Settings**. **Expected:** an "On-device AI" card says "Off." and that turning it on downloads the model once (371.8 MB).
-2. Tick **Tag photos and find duplicates**. **Expected:** a progress bar counts up to 371.8 MB. Afterwards the card says "Starting…", then "N of M items analysed, K to go (on the graphics card (DirectML))". On a Mac it says CoreML; without a usable GPU it says processor (CPU). The model is in `%LOCALAPPDATA%\keepsake\models\siglip2-b16-224\` (Windows) or `~/Library/Caches/keepsake/models/siglip2-b16-224/` (macOS). Nothing is written next to your photos.
+2. Tick **Tag photos and find duplicates**. **Expected:** a progress bar counts up to 371.8 MB. Afterwards the card says "Starting…", then "Ready, on the graphics card (DirectML). 0 items analysed so far." Nothing is analysed yet: it waits until you ask (step 4). On a Mac it says CoreML; without a usable GPU it says processor (CPU). The model is in `%LOCALAPPDATA%\keepsake\models\siglip2-b16-224\` (Windows) or `~/Library/Caches/keepsake/models/siglip2-b16-224/` (macOS). Nothing is written next to your photos.
 3. Start the download again on a fresh profile and press **Cancel**. **Expected:** the bar goes away, AI stays off, and no `vision_model.part` is left in that folder.
-4. Leave it running for a few minutes, or run `keepsake ai run` with the app closed. `keepsake ai status` shows the counts. Thumbnails are made first; AI work waits while they are made, and pauses on battery and during a card import.
+4. In the sidebar's calendar tree (By date), right-click a day with a burst of photos (or select it and press the Menu key or Shift+F10), then choose **Find duplicates and tags**. **Expected:**
+   - Duplicates opens as "Duplicates · Sat 4 July 2026" (that day).
+   - It shows "Analysing: n of m done…", counting up every few seconds, then "m of m analysed." For a day of a few hundred photos with thumbnails, that takes well under a minute.
+   - Its groups appear. Only that day was analysed: `keepsake ai status` shows that day's count, not the whole library.
+   - The same works on a month or a year (longer).
+   - With AI off, the menu says to turn it on in Settings first.
+   - Thumbnails missing for that day are made first. AI work pauses on battery and during a card import.
 5. Select one analysed photo. **Expected:** the inspector shows **AI tags** under Keywords (dotted chips, e.g. "Beach", "People"); hover shows how sure it is.
 6. Type one of those tags in the search box. **Expected:** the photo is found.
 7. Press ✕ on an AI tag. **Expected:** it goes. Run `keepsake ai retag`, or wait for the photo to be analysed again. **Expected:** it does not come back. Press ✓ on another. **Expected:** it moves to Keywords.
-8. Open **Duplicates** in the sidebar. **Expected:** days with groups, newest first, each with "n of m" left to decide. A day shows its groups: near-identical shots, the suggested one ("Suggested", best rated, else earliest) outlined. The others say "96% alike" or "Same picture".
+8. On the Duplicates screen, press **All analysed dates** (or open Duplicates from the sidebar). **Expected:** every analysed day with groups, newest first, each with "n of m" left to decide. A day shows its groups: near-identical shots, the suggested one ("Suggested", best rated, else earliest) outlined. The others say "96% alike" or "Same picture".
 9. Click a photo in a group. **Expected:** it says "Kept" and the others "Not kept"; the day's count drops by one.
 10. Click in the groups area and use the keys: arrows move, **K** keeps the focused photo, **N** marks the group "Not duplicates" (it goes away), and **U** undoes a group's decision.
 11. Go to **All items** and tick **Hide not kept** in the toolbar. **Expected:** the item count drops by the number of "not kept" photos; untick to see them again.
