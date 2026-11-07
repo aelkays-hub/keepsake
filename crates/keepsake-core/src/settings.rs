@@ -10,6 +10,10 @@
 //! workers = 4                      # thumbnails/previews in parallel
 //! proxy_workers = 1                # video proxies in parallel
 //! pause_on_battery = true
+//!
+//! [ai]
+//! enabled = true                   # tags and duplicates (ADR-035)
+//! gpu = true
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -179,6 +183,26 @@ impl ImportSettings {
     }
 }
 
+/// On-device AI (ADR-035).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiSettings {
+    /// Tag photos and find duplicates in the background. Off until the
+    /// user turns it on (which downloads the model).
+    pub enabled: bool,
+    /// Use the graphics card when it can (DirectML / CoreML).
+    pub gpu: bool,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gpu: true,
+        }
+    }
+}
+
 /// Everything in `config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -188,6 +212,7 @@ pub struct Settings {
     pub render: RenderSettings,
     pub open: OpenSettings,
     pub import: ImportSettings,
+    pub ai: AiSettings,
 }
 
 impl Settings {

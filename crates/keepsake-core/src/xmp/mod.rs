@@ -23,8 +23,8 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use thiserror::Error;
 
 use crate::catalog::{
-    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, Event, EventId, FileRole,
-    GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
+    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, DuplicateChoice, Event, EventId,
+    FileRole, GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
 };
 use crate::relpath::{path_key, CaseSensitivity, RelPath};
 use packet::{field, Field, ReadField};
@@ -117,6 +117,10 @@ pub struct AssetXmp {
     pub comment: Option<String>,
     pub user_tags: Vec<TagPath>,
     pub ai_tags: Vec<(TagPath, f64)>,
+    /// AI tags the user removed (never given again), sorted.
+    pub ai_tags_rejected: Vec<TagPath>,
+    /// The user's decision in a group of duplicates.
+    pub duplicate_choice: Option<DuplicateChoice>,
     pub capture: Option<CaptureTime>,
     pub capture_shift_s: i64,
     pub duration_ms: Option<i64>,
@@ -332,6 +336,16 @@ impl AssetXmp {
             .collect();
         x.ai_tags.sort_by(|a, b| a.0.cmp(&b.0));
         x.ai_tags.dedup_by(|a, b| a.0 == b.0);
+        x.ai_tags_rejected = p
+            .array(ns::KEEPSAKE, "AITagsRejected")
+            .iter()
+            .filter_map(|v| TagPath::parse_lightroom(v).ok())
+            .collect();
+        x.ai_tags_rejected.sort();
+        x.ai_tags_rejected.dedup();
+        x.duplicate_choice = p
+            .simple(ns::KEEPSAKE, "DuplicateChoice")
+            .and_then(|v| DuplicateChoice::parse(v.trim()));
 
         x.event = p
             .structure(ns::KEEPSAKE, "Event")
@@ -447,6 +461,22 @@ impl AssetXmp {
             })
             .collect();
         p.set_struct_array(ns::KEEPSAKE, "AITags", ArrayKind::Bag, &ai);
+        p.set_array(
+            ns::KEEPSAKE,
+            "AITagsRejected",
+            ArrayKind::Bag,
+            &self
+                .ai_tags_rejected
+                .iter()
+                .map(TagPath::to_lightroom)
+                .collect::<Vec<_>>(),
+        );
+        set_opt(
+            p,
+            ns::KEEPSAKE,
+            "DuplicateChoice",
+            self.duplicate_choice.map(|c| c.as_str().to_owned()),
+        );
 
         // Capture time and camera.
         let date = self.capture.map(format_date);

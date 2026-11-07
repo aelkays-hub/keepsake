@@ -36,6 +36,9 @@ pub struct AssetSnapshot {
     pub sidecars: Vec<SidecarRecord>,
     /// `(sequence, kind, position)` when the asset is part of a run.
     pub sequence: Option<(SequenceId, SequenceKind, u32)>,
+    /// AI tags the user removed, and their duplicate decision (ADR-035).
+    pub ai_rejected: Vec<super::TagPath>,
+    pub duplicate_choice: Option<super::DuplicateChoice>,
 }
 
 /// One row of the full-text index.
@@ -105,6 +108,8 @@ pub(crate) fn take(conn: &rusqlite::Connection) -> Result<CatalogSnapshot, Catal
             recipes,
             sidecars,
             sequence,
+            ai_rejected: super::repo::Ai::<Ro>::new(conn).rejections(id)?,
+            duplicate_choice: super::repo::Ai::<Ro>::new(conn).choice(id)?,
         });
     }
 

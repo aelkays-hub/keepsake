@@ -1,0 +1,105 @@
+# Keepsake AI tags (ADR-035). One tag per line: name<TAB>prompt phrases separated by |.
+# Each phrase becomes "a photo of <phrase>." and the phrases' text vectors are averaged.
+# After editing, run scripts/make-label-vectors.py to rebuild labels-siglip2-b16-224.bin.
+People	people|a person|a group of people
+Portrait	a portrait of a person|a close-up of a face
+Group photo	a group photo of people posing
+Selfie	a selfie
+Baby	a baby|an infant
+Child	a child|kids playing
+Crowd	a crowd of people
+Wedding	a wedding|a bride and groom
+Birthday	a birthday party|a birthday cake with candles
+Party	a party|people celebrating
+Concert	a concert|a band playing on stage
+Graduation	a graduation ceremony
+Christmas	christmas decorations|a christmas tree
+Halloween	halloween costumes|carved pumpkins
+Fireworks	fireworks in the night sky
+Dog	a dog|a puppy
+Cat	a cat|a kitten
+Bird	a bird
+Horse	a horse
+Cow	a cow|cattle in a field
+Sheep	sheep
+Fish	fish|an aquarium
+Insect	an insect|a butterfly|a bee
+Wildlife	wild animals|wildlife
+Zoo	animals at a zoo
+Beach	a beach|sand and sea
+Sea	the sea|the ocean|waves
+Lake	a lake
+River	a river|a stream
+Waterfall	a waterfall
+Mountain	mountains|a mountain landscape
+Hills	rolling hills|countryside
+Forest	a forest|trees in the woods
+Desert	a desert|sand dunes
+Snow	snow|a snowy landscape
+Field	a field|a meadow
+Garden	a garden|a park
+Flower	a flower|flowers
+Tree	a tree
+Sunset	a sunset|a sunrise|golden sky at dusk
+Night	a night scene|a city at night
+Sky	the sky|clouds
+Rain	rain|a rainy day
+Landscape	a landscape|scenery
+Cityscape	a cityscape|a city skyline
+Street	a street|people walking on a street
+Building	a building|architecture
+House	a house|a home exterior
+Church	a church|a cathedral
+Castle	a castle
+Bridge	a bridge
+Monument	a monument|a statue
+Interior	the inside of a room|an interior
+Kitchen	a kitchen
+Restaurant	a restaurant|a cafe
+Shop	a shop|a market
+Museum	a museum|an art gallery
+Stadium	a stadium|a sports arena
+Airport	an airport|an airplane at the gate
+Road	a road|a highway
+Car	a car
+Motorcycle	a motorcycle
+Bicycle	a bicycle|cycling
+Bus	a bus
+Train	a train|a railway
+Boat	a boat|a ship|sailing
+Airplane	an airplane|a plane in the sky
+Food	food|a meal on a plate
+Dessert	a dessert|cake|ice cream
+Drink	a drink|coffee|a glass of wine
+Fruit	fruit
+Barbecue	a barbecue|grilling food
+Pizza	a pizza
+Sport	people playing sport
+Football	football|soccer
+Basketball	basketball
+Tennis	tennis
+Golf	golf
+Swimming	swimming|a swimming pool
+Skiing	skiing|snowboarding
+Surfing	surfing
+Running	running|a running race
+Hiking	hiking|a hiking trail
+Camping	camping|a tent outdoors
+Fishing	fishing
+Dancing	people dancing
+Playground	a playground
+Toy	toys
+Book	books|reading a book
+Computer	a computer|a laptop
+Phone	a mobile phone
+Musical instrument	a musical instrument|a guitar|a piano
+Art	a painting|artwork
+Document	a document|text on paper|a receipt
+Screenshot	a screenshot of a screen
+Sign	a sign|a street sign
+Map	a map
+Vehicle interior	the inside of a car
+Underwater	an underwater scene
+Aerial view	an aerial view from a drone
+Macro	a macro close-up photo
+Black and white	a black and white photo

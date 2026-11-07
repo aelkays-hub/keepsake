@@ -217,6 +217,16 @@ impl<M> Jobs<'_, M> {
         }
         Ok(self.conn.query_row(&sql, args.as_slice(), map).optional()?)
     }
+
+    /// Is a job of `kind` running, or queued and ready to run?
+    pub fn active(&self, kind: &str, now_ms: i64) -> Result<bool, CatalogError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = ?1 AND (state = 'running'
+                 OR (state = 'queued' AND not_before_ms <= ?2)))",
+            params![kind, now_ms],
+            |r| r.get(0),
+        )?)
+    }
 }
 
 impl Jobs<'_, Rw> {
