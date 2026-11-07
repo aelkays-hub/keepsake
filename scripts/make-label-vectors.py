@@ -9,10 +9,10 @@ onnx-community/siglip2-base-patch16-224-ONNX (revision ba1f3b08):
 Usage: python make-label-vectors.py <dir with text_model.onnx and tokenizer.json>
 
 Output format (little-endian), read by keepsake_core::ai::labels:
-  b"KSLV1\\0\\0\\0"   magic
+  b"KSLV2\\0\\0\\0"   magic
   u32 n, [n]u8     labels.tsv with \\r removed (a test checks it against the source)
   u32 count, u32 dim
-  count x (f32 scale, [dim]i8)   unit vector = i8 * scale
+  count x (u32 phrases, phrases x (f32 scale, [dim]i8))   unit vector = i8 * scale
 """
 import pathlib
 import struct
@@ -34,7 +34,7 @@ def parse(text):
     for line in text.splitlines():
         if not line.strip() or line.startswith("#"):
             continue
-        name, prompts = line.split("\t")
+        name, prompts = line.split("\t")[:2]
         out.append((name, [p.strip() for p in prompts.split("|") if p.strip()]))
     return out
 
@@ -53,14 +53,14 @@ def main():
             ids.append(e + [PAD_ID] * (MAX_LEN - len(e)))
         out = sess.run(["pooler_output"], {"input_ids": np.array(ids, dtype=np.int64)})[0]
         out = out / np.linalg.norm(out, axis=1, keepdims=True)
-        v = out.mean(axis=0)
-        v = v / np.linalg.norm(v)
-        scale = float(np.abs(v).max()) / 127.0
-        q = np.clip(np.round(v / scale), -127, 127).astype(np.int8)
-        body += struct.pack("<f", scale) + q.tobytes()
+        body += struct.pack("<I", len(out))
+        for v in out:
+            scale = float(np.abs(v).max()) / 127.0
+            q = np.clip(np.round(v / scale), -127, 127).astype(np.int8)
+            body += struct.pack("<f", scale) + q.tobytes()
         print(f"{name}: {len(prompts)} prompt(s)")
     dim = 768
-    head = b"KSLV1\0\0\0" + struct.pack("<I", len(raw)) + raw + struct.pack("<II", len(labels), dim)
+    head = b"KSLV2\0\0\0" + struct.pack("<I", len(raw)) + raw + struct.pack("<II", len(labels), dim)
     OUT.write_bytes(head + bytes(body))
     print(f"wrote {OUT} ({len(labels)} labels)")
 

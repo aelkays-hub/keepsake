@@ -1161,7 +1161,10 @@ export function installMock(): void {
           if (left === undefined) return { from: a.from, to: a.to, items, analysed: 0, pending: 0 };
           if (cmd === "ai_range_status" && left > 0) st.aiRanges.set(key, left - 1);
           const pending = left > 0 ? Math.ceil((items * left) / 3) : 0;
-          return { from: a.from, to: a.to, items, analysed: items - pending, pending };
+          const reply = { from: a.from, to: a.to, items, analysed: items - pending, pending };
+          // ?queueing=<ms>: queueing the work takes that long (a busy drive).
+          const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
+          return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
         case "ai_pick_keeper": {
           const keeper = Number(String(a.keeper).slice(1));

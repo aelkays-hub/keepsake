@@ -64,10 +64,15 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/0010_ai_tagged.sql"),
         rebuilds_tables: false,
     },
+    Migration {
+        version: 11,
+        sql: include_str!("migrations/0011_ai_tag_list.sql"),
+        rebuilds_tables: false,
+    },
 ];
 
 /// The schema version this build creates and understands.
-pub const LATEST_VERSION: i64 = 10;
+pub const LATEST_VERSION: i64 = 11;
 
 pub(crate) fn apply(conn: &mut Connection) -> Result<(), CatalogError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;

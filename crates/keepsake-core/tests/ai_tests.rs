@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicBool;
 
 use image::{DynamicImage, Rgb, RgbImage};
 use keepsake_core::ai::duplicates::Scope;
+use keepsake_core::ai::labels::LIST_VERSION;
 use keepsake_core::ai::{
     self, analyze, dhash, duplicates, install, Embedding, ImageModel, LabelSet, Purpose, JOB_AI,
     JOB_AI_TAG, MODEL_ID,
@@ -147,7 +148,7 @@ fn label_vector(set: &LabelSet, name: &str) -> Embedding {
         .iter()
         .find(|l| l.name == name)
         .unwrap()
-        .vector
+        .vector()
         .clone()
 }
 
@@ -345,7 +346,7 @@ fn put(cat: &mut Catalog, id: AssetId, emb: &Embedding, hash: u64) {
             emb_scale,
             dhash: hash,
             made_ms: 0,
-            tagged: false,
+            tag_list: 0,
         })
     })
     .unwrap();
@@ -541,12 +542,13 @@ fn finding_duplicates_and_tagging_are_separate() {
         analyze::store_results(&mut w.cat, None, *id, &dog, 7).unwrap();
     }
     assert!(w.ai_tags(ids[0]).is_empty());
-    assert!(
-        !w.cat
+    assert_eq!(
+        w.cat
             .read(|tx| tx.ai().analysis(ids[0]))
             .unwrap()
             .unwrap()
-            .tagged
+            .tag_list,
+        0
     );
     let st = analyze::range_status(&w.cat, day, day, Purpose::Duplicates).unwrap();
     assert_eq!(st.analysed, 2);
@@ -576,15 +578,44 @@ fn finding_duplicates_and_tagging_are_separate() {
     // Finding duplicates again leaves the tags alone.
     analyze::store_results(&mut w.cat, None, ids[0], &dog, 7).unwrap();
     assert!(w.ai_tags(ids[0]).contains(&"Dog".to_owned()));
-    assert!(
+    assert_eq!(
         w.cat
             .read(|tx| tx.ai().analysis(ids[0]))
             .unwrap()
             .unwrap()
-            .tagged
+            .tag_list,
+        LIST_VERSION
     );
     let st = analyze::range_status(&w.cat, day, day, Purpose::Tags).unwrap();
     assert_eq!(st.analysed, 1);
+}
+
+#[test]
+fn photos_tagged_with_an_older_tag_list_are_tagged_again() {
+    let mut w = World::new(&[("a.jpg", scene(1, 640, 480)), ("b.jpg", scene(2, 640, 480))]);
+    let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));
+    w.same_day(&["a.jpg", "b.jpg"], 60);
+    let labels = LabelSet::builtin().unwrap();
+    let dog = label_vector(&labels, "Dog");
+    for id in [a, b] {
+        analyze::store_results(&mut w.cat, Some(&labels), id, &dog, 7).unwrap();
+    }
+    // a was tagged by an older build (list 1).
+    w.cat
+        .write(|tx| tx.ai().set_tag_list(a, LIST_VERSION - 1))
+        .unwrap();
+    let day = "2026-07-04";
+    let st = analyze::range_status(&w.cat, day, day, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.analysed), (2, 1));
+    analyze::enqueue_range(&mut w.cat, day, day, Purpose::Tags).unwrap();
+    assert!(find_job(&w.cat, JOB_AI_TAG, a).is_some());
+    assert!(find_job(&w.cat, JOB_AI_TAG, b).is_none());
+    // It has an analysis, so it needs no thumbnail.
+    assert!(find_job(&w.cat, JOB_STILLS, a).is_none());
+    // "keepsake ai retag" brings every tagged photo up to date.
+    assert_eq!(analyze::retag_all(&mut w.cat, &labels).unwrap(), 2);
+    let st = analyze::range_status(&w.cat, day, day, Purpose::Tags).unwrap();
+    assert_eq!(st.analysed, 2);
 }
 
 #[test]
@@ -704,7 +735,7 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
             .unwrap();
         assert_eq!(job.state, JobState::Done, "{job:?} {evs:?}");
         let a = w.cat.read(|tx| tx.ai().analysis(*id)).unwrap().unwrap();
-        assert!(a.tagged);
+        assert_eq!(a.tag_list, LIST_VERSION);
     }
     // The stale background job was dropped, not run.
     assert!(find_job(&w.cat, JOB_AI, ids[0]).is_none());

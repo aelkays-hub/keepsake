@@ -1,4 +1,4 @@
-//! `keepsake ai status | install | run | duplicates | retag` (ADR-035)
+//! `keepsake ai status | install | run | duplicates | retag | explain` (ADR-035)
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -32,6 +32,18 @@ pub enum AiAction {
     },
     /// Give AI tags again from the stored analyses (no model needed).
     Retag,
+    /// Every tag's score for one picture file, best first (to check why a
+    /// tag was or was not given).
+    Explain {
+        /// A JPEG, PNG or other picture the app can read.
+        file: std::path::PathBuf,
+        /// How many tags to list.
+        #[arg(long, default_value_t = 15)]
+        top: usize,
+        /// Use the processor only, not the graphics card.
+        #[arg(long)]
+        cpu: bool,
+    },
 }
 
 #[derive(Args)]
@@ -77,6 +89,7 @@ pub fn run(ctx: &Ctx, action: AiAction) -> Result<u8> {
         }
         AiAction::Run(a) => run_all(ctx, &a),
         AiAction::Duplicates { date } => dups(ctx, date.as_deref()),
+        AiAction::Explain { file, top, cpu } => explain(ctx, &file, top, !cpu),
         AiAction::Retag => {
             let lib = ctx.library()?;
             let mut cat = lib.open_catalog()?;
@@ -240,5 +253,42 @@ fn dups(ctx: &Ctx, date: Option<&str>) -> Result<u8> {
             })?;
         }
     }
+    Ok(EXIT_OK)
+}
+
+fn explain(ctx: &Ctx, file: &std::path::Path, top: usize, gpu: bool) -> Result<u8> {
+    let img = image::open(file).with_context(|| format!("reading {}", file.display()))?;
+    let mut model = ai::ImageModel::load_installed(gpu)?;
+    let emb = model.embed(&img)?;
+    let labels = LabelSet::builtin()?;
+    let given: Vec<String> = labels
+        .tags_for(&emb, &[])
+        .into_iter()
+        .map(|(t, _)| t.to_string())
+        .collect();
+    let rows: Vec<(String, f32, f32)> = labels
+        .labels()
+        .iter()
+        .map(|l| {
+            let c = l.cosine(&emb);
+            (l.name.clone(), c, ai::labels::probability(c))
+        })
+        .collect::<Vec<_>>();
+    let mut rows = rows;
+    rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+    rows.truncate(top);
+    ctx.emit(
+        &json!({
+            "file": path_str(file),
+            "given": given,
+            "scores": rows.iter().map(|(n, c, p)| json!({"tag": n, "cosine": c, "probability": p})).collect::<Vec<_>>(),
+        }),
+        || {
+            println!("Tags given: {}", if given.is_empty() { "none".to_string() } else { given.join(", ") });
+            for (n, c, p) in &rows {
+                println!("{p:>8.4}  cos {c:>7.4}  {n}");
+            }
+        },
+    )?;
     Ok(EXIT_OK)
 }

@@ -132,7 +132,7 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
   - **Find duplicates** compares that period's RAW photos and opens the Duplicates screen on it, showing how far it has got.
   - **Tag photos** tags all of that period's photos and shows its progress in the status bar.
   - The two are separate, and nothing is analysed in the background otherwise.
-- Auto-tagging: up to 6 tags per photo from a built-in list of 102 (people, beach, dog, food, sunset, …), shown in the inspector as AI tags. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
+- Auto-tagging: up to 6 tags per photo from a built-in list of 106 (people, beach, dog, food, sunset, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
 - Same-day duplicates (Sidebar → Duplicates): near-identical **RAW** photos taken on one calendar day, grouped: bursts, re-shoots, the same shot twice. A JPEG with the same name as a RAW is an edited copy, so JPEG-only photos (and videos) are never grouped. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
 - `keepsake ai status | install | run | duplicates [DAY] | retag`.
 - Still to come (v2):

@@ -96,6 +96,21 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### 7 Nov 2026: people are tagged, and Tag photos shows it has started
+- **Asked:** "when menu is selected, there is no indication of anything happening, there needs to be some feedback...like tagging", and "a simple picture contains a person or face and your AI model is failing maybe we need to change the model with a better one".
+- **Found:**
+  - No feedback: the menu waited for the work to be queued, which takes seconds on the USB drive.
+  - People: the model was fine, but each tag averaged its phrases. On 48 of the library's photos, none of 15 with people got People.
+- **Built:**
+  - Tag photos closes the menu at once. The status bar shows "Getting ready to tag…" with a spinner, then the progress; a failure stays until dismissed. Find duplicates shows "Working…" in the menu.
+  - Tags score their best phrase, with many more phrases for people; Baby, Child, Portrait, Group photo, Selfie, Crowd and Police also give People. 106 tags (Climbing, Cave, Coin, Police added). Vector file format 2.
+  - Result: 12 of the 15 people photos get People, and none of the 33 others does.
+  - Schema v11: `ai_analysis.tag_list`. Photos tagged with the old list are re-tagged from their stored analysis when Tag photos runs on their dates (quick, no model).
+  - `keepsake ai explain <picture>` prints every tag's score for one picture.
+- **Tests:**
+  - New tests: `photos_tagged_with_an_older_tag_list_are_tagged_again`, `a_tag_scores_its_best_phrase_and_gives_the_tag_it_implies`, `the_list_is_checked`.
+  - Mocked UI: "Getting ready to tag…" with slow queueing, the AI-off message in the status bar, and "Working…" for Find duplicates.
+
 ### Changed the same day: Find duplicates and Tag photos are separate
 - **Asked:** "let us separate finding duplicates from tags, they should be separate functions runs seperatly".
 - **Built:**

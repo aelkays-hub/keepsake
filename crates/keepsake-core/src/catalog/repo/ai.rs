@@ -30,8 +30,8 @@ pub struct RangeItem {
     pub raw: bool,
     /// Analysed with the current model.
     pub analysed: bool,
-    /// AI tags were given.
-    pub tagged: bool,
+    /// The tag list version its AI tags came from (0: not tagged).
+    pub tag_list: u32,
 }
 
 /// How far the analysis has got.
@@ -65,12 +65,12 @@ fn analysis_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<AiAnalysis
         emb_scale: scale as f32,
         dhash: u64::from_ne_bytes(dhash.to_ne_bytes()),
         made_ms: r.get(at + 5)?,
-        tagged: r.get(at + 6)?,
+        tag_list: r.get(at + 6)?,
     })
 }
 
 const ANALYSIS_COLS: &str =
-    "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tagged";
+    "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
     pub fn analysis(&self, asset: AssetId) -> Result<Option<AiAnalysis>, CatalogError> {
@@ -152,7 +152,7 @@ impl<M> Ai<'_, M> {
         model: &str,
     ) -> Result<Vec<RangeItem>, CatalogError> {
         let mut st = self.conn.prepare(
-            "SELECT a.id, a.is_raw, x.tagged
+            "SELECT a.id, a.is_raw, x.tag_list
                FROM assets a
                LEFT JOIN ai_analysis x ON x.asset_id = a.id AND x.model = ?3
               WHERE a.capture_local_date BETWEEN ?1 AND ?2
@@ -160,12 +160,12 @@ impl<M> Ai<'_, M> {
         )?;
         let rows = st
             .query_map(params![from, to, model], |r| {
-                let tagged: Option<bool> = r.get(2)?;
+                let list: Option<u32> = r.get(2)?;
                 Ok(RangeItem {
                     id: r.get(0)?,
                     raw: r.get(1)?,
-                    analysed: tagged.is_some(),
-                    tagged: tagged.unwrap_or(false),
+                    analysed: list.is_some(),
+                    tag_list: list.unwrap_or(0),
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -189,7 +189,7 @@ impl<M> Ai<'_, M> {
     /// Assets analysed with `model` and tagged from it.
     pub fn analysed(&self, model: &str) -> Result<Vec<AssetId>, CatalogError> {
         let mut st = self.conn.prepare(
-            "SELECT asset_id FROM ai_analysis WHERE model = ?1 AND tagged = 1 ORDER BY asset_id",
+            "SELECT asset_id FROM ai_analysis WHERE model = ?1 AND tag_list > 0 ORDER BY asset_id",
         )?;
         let rows = st
             .query_map([model], |r| r.get(0))?
@@ -248,12 +248,13 @@ impl Ai<'_, Rw> {
     /// Store (or replace) an asset's analysis.
     pub fn put_analysis(&self, a: &AiAnalysis) -> Result<(), CatalogError> {
         self.conn.execute(
-            "INSERT INTO ai_analysis (asset_id, model, embedding, emb_scale, dhash, made_ms, tagged)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO ai_analysis
+               (asset_id, model, embedding, emb_scale, dhash, made_ms, tagged, tag_list)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7 > 0, ?7)
              ON CONFLICT(asset_id) DO UPDATE SET model = excluded.model,
                embedding = excluded.embedding, emb_scale = excluded.emb_scale,
                dhash = excluded.dhash, made_ms = excluded.made_ms,
-               tagged = excluded.tagged",
+               tagged = excluded.tagged, tag_list = excluded.tag_list",
             params![
                 a.asset_id,
                 a.model,
@@ -261,8 +262,17 @@ impl Ai<'_, Rw> {
                 f64::from(a.emb_scale),
                 i64::from_ne_bytes(a.dhash.to_ne_bytes()),
                 a.made_ms,
-                a.tagged
+                a.tag_list
             ],
+        )?;
+        Ok(())
+    }
+
+    /// Record that an asset's AI tags now come from tag list `list`.
+    pub fn set_tag_list(&self, asset: AssetId, list: u32) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "UPDATE ai_analysis SET tagged = ?2 > 0, tag_list = ?2 WHERE asset_id = ?1",
+            params![asset, list],
         )?;
         Ok(())
     }

@@ -396,10 +396,10 @@ export function Sidebar() {
                 const c = dated(menu.entry);
                 const r = c && calRange(c.year, c.month, c.day);
                 if (!r) return;
-                return api.aiAnalyzeRange(r.from, r.to, "tags").then(() => {
-                  openEntry(menu.entry);
-                  dispatch({ t: "tagging", range: r });
-                });
+                // At once: the status bar shows it getting ready, queues
+                // the work and follows it.
+                openEntry(menu.entry);
+                dispatch({ t: "tagging", range: r });
               },
             },
           ]}

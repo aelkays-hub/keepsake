@@ -247,6 +247,45 @@ textarea {
   color: var(--muted);
   font-size: 12px;
 }
+/* Tag photos in progress: easy to spot. */
+.statusbar [data-testid="tagging"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.statusbar [data-testid="tagging"].error {
+  color: var(--bad);
+}
+.statusbar button.link {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.spinner[hidden] {
+  display: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
 
 /* ── Grid ──────────────────────────────────────────────────────────── */
 .grid-scroll {
@@ -1239,6 +1278,9 @@ pre.report {
 .context-menu p {
   margin: 4px 8px;
   font-size: 12px;
+}
+.context-menu p.busy {
+  color: var(--muted);
 }
 
 /* Open in… menu */

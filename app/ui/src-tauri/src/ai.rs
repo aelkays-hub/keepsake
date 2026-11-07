@@ -341,7 +341,7 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
     let analysed = cat
         .read(|tx| tx.ai().analysis(id))
         .map_err(err)?
-        .is_some_and(|a| a.model == MODEL_ID && a.tagged);
+        .is_some_and(|a| a.model == MODEL_ID && a.tag_list > 0);
     let mut tags: Vec<AiTagDto> = cat
         .read(|tx| tx.tags().for_asset(id))
         .map_err(err)?

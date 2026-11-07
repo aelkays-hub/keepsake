@@ -100,6 +100,11 @@ export function ContextMenu({ x, y, label, items, onClose, testId }: ContextMenu
           {item.label}
         </button>
       ))}
+      {busy && (
+        <p className="busy" role="status" data-testid="menu-busy">
+          Working…
+        </p>
+      )}
       {problem && (
         <p className="error" role="alert">
           {problem}

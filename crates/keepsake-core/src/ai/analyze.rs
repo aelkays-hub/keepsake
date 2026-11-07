@@ -75,9 +75,10 @@ pub fn store_results(
     let (embedding, emb_scale) = emb.quantize();
     let now = crate::jobs::now_ms();
     let rejected = cat.read(|tx| tx.ai().rejections(asset))?;
-    let was_tagged = cat
+    let tagged_with = cat
         .read(|tx| tx.ai().analysis(asset))?
-        .is_some_and(|a| a.tagged && a.model == MODEL_ID);
+        .filter(|a| a.model == MODEL_ID)
+        .map_or(0, |a| a.tag_list);
     let tags = labels.map(|l| l.tags_for(emb, &rejected));
     cat.write(|tx| {
         if tx.assets().get(asset)?.is_none() {
@@ -90,7 +91,11 @@ pub fn store_results(
             emb_scale,
             dhash: hash,
             made_ms: now,
-            tagged: tags.is_some() || was_tagged,
+            tag_list: if tags.is_some() {
+                super::labels::LIST_VERSION
+            } else {
+                tagged_with
+            },
         })?;
         if let Some(tags) = &tags {
             let rows: Vec<AssetTag> = tags
@@ -195,6 +200,7 @@ pub fn retag_all(cat: &mut Catalog, labels: &LabelSet) -> Result<u64, AiError> {
                     .map(|(p, c)| AssetTag::ai(p, c))
                     .collect();
                 tx.tags().set_for_asset(*id, TagSource::Ai, &rows)?;
+                tx.ai().set_tag_list(*id, super::labels::LIST_VERSION)?;
                 n += 1;
             }
             tx.tags().prune_unused()?;
@@ -242,7 +248,7 @@ fn covers(purpose: Purpose, it: &RangeItem) -> bool {
 fn done(purpose: Purpose, it: &RangeItem) -> bool {
     match purpose {
         Purpose::Duplicates => it.analysed,
-        Purpose::Tags => it.tagged,
+        Purpose::Tags => it.tag_list >= super::labels::LIST_VERSION,
     }
 }
 

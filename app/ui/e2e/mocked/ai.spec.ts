@@ -109,15 +109,19 @@ test("right-click a year: find duplicates for those dates only", async ({ page }
 });
 
 test("right-click a year: tag its photos, separately from duplicates", async ({ page }) => {
-  await open(page);
+  // Queueing takes a while (a busy drive): the menu closes at once and the
+  // status bar says it is getting ready.
+  await open(page, "&queueing=1500");
   await calNode(page, "2015").click({ button: "right" });
   await page.getByTestId("date-menu-tags").click();
+  await expect(page.getByTestId("date-menu")).toHaveCount(0);
+  const line = page.getByTestId("tagging");
+  await expect(line).toHaveText("2015: Getting ready to tag…");
   expect(await calls(page, "ai_analyze_range")).toEqual([
     { from: "2015-01-01", to: "2015-12-31", what: "tags" },
   ]);
   // It stays in the library (on that year) and the status bar follows it.
   await expect(page.getByTestId("duplicates-screen")).toHaveCount(0);
-  const line = page.getByTestId("tagging");
   await expect(line).toContainText("2015: Tagging:");
   await expect(line).toHaveText(/^2015: [\d,]+ of [\d,]+ tagged\.$/, { timeout: 15_000 });
   expect((await calls(page, "ai_range_status")).every((c) => c.what === "tags")).toBe(true);
@@ -138,6 +142,24 @@ test("the date menu explains when AI is off, and works from the keyboard", async
   await expect(menu.getByRole("alert")).toContainText("Turn on On-device AI in Settings");
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
+
+  // Tag photos says why in the status bar, until dismissed.
+  await calNode(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-tags").click();
+  const line = page.getByTestId("tagging");
+  await expect(line).toHaveAttribute("role", "alert");
+  await expect(line).toContainText("2015: Could not tag: Turn on On-device AI in Settings");
+  await page.getByTestId("tagging-dismiss").click();
+  await expect(line).toHaveCount(0);
+});
+
+test("Find duplicates says it is working while the dates are queued", async ({ page }) => {
+  await open(page, "&queueing=1500");
+  await calNode(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-dups").click();
+  await expect(page.getByTestId("menu-busy")).toHaveText("Working…");
+  await expect(page.getByTestId("duplicates-screen")).toBeVisible();
+  await expect(page.getByTestId("date-menu")).toHaveCount(0);
 });
 
 test("AI tags in the inspector: remove one, keep one as a keyword", async ({ page }) => {
