@@ -141,6 +141,18 @@ export function Toolbar() {
           </option>
         ))}
       </select>
+      <label
+        className="filter"
+        title="Leave out items you marked “not kept” on the Duplicates screen"
+      >
+        <input
+          type="checkbox"
+          checked={!!s.filters.hideNotKept}
+          onChange={(e) => set({ hideNotKept: e.target.checked || undefined })}
+          data-testid="hide-not-kept"
+        />
+        Hide not kept
+      </label>
       {active && (
         <button
           className="clear"

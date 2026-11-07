@@ -7,6 +7,7 @@ import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
 import { CrashBanner } from "./components/CrashBanner";
 import { DetailsView } from "./components/DetailsView";
+import { DuplicatesScreen } from "./components/DuplicatesScreen";
 import { FirstRun } from "./components/FirstRun";
 import { FoldersScreen } from "./components/FoldersScreen";
 import { GridView } from "./components/GridView";
@@ -76,6 +77,12 @@ function Main() {
     return (
       <main className="main screen-main" aria-label="Folders">
         <FoldersScreen />
+      </main>
+    );
+  if (s.screen === "duplicates")
+    return (
+      <main className="main screen-main" aria-label="Duplicates">
+        <DuplicatesScreen />
       </main>
     );
   if (s.screen === "backup")

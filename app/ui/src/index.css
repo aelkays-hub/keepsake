@@ -1354,3 +1354,62 @@ pre.report {
 .all-meta dd {
   white-space: pre-wrap;
 }
+
+/* On-device AI (ADR-035) */
+.chips.ai li {
+  border-style: dotted;
+  background: transparent;
+}
+.dup-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.dup-days ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dup-days button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  text-align: left;
+}
+.dup-days button[aria-current="true"] {
+  background: var(--sel);
+}
+.dup-groups {
+  overflow: auto;
+  min-height: 0;
+}
+.dup-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+.dup-group.decided {
+  opacity: 0.8;
+}
+.dup-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dup-tiles .card-tile {
+  padding: 0;
+  text-align: left;
+}
+.dup-tiles .card-tile.focused {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.dup-badge {
+  color: var(--ok);
+}
