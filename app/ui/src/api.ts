@@ -4,6 +4,11 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { AiInstallProgress } from "./bindings/AiInstallProgress";
+import type { AiRangeStatus } from "./bindings/AiRangeStatus";
+import type { AiStatus } from "./bindings/AiStatus";
+import type { AiTagDto } from "./bindings/AiTagDto";
+import type { AiTagsDto } from "./bindings/AiTagsDto";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -13,6 +18,9 @@ import type { CardNotice } from "./bindings/CardNotice";
 import type { CardScan } from "./bindings/CardScan";
 import type { CrashNotice } from "./bindings/CrashNotice";
 import type { Details } from "./bindings/Details";
+import type { DuplicateGroupDto } from "./bindings/DuplicateGroupDto";
+import type { DuplicateMemberDto } from "./bindings/DuplicateMemberDto";
+import type { DuplicateSummaryDto } from "./bindings/DuplicateSummaryDto";
 import type { EditProgress } from "./bindings/EditProgress";
 import type { EditResult } from "./bindings/EditResult";
 import type { Facets } from "./bindings/Facets";
@@ -50,6 +58,11 @@ import type { VideoInfo } from "./bindings/VideoInfo";
 import type { ViewInfo } from "./bindings/ViewInfo";
 
 export type {
+  AiInstallProgress,
+  AiRangeStatus,
+  AiStatus,
+  AiTagDto,
+  AiTagsDto,
   AppInfo,
   AssetMembers,
   BackupOverview,
@@ -59,6 +72,9 @@ export type {
   CardScan,
   CrashNotice,
   Details,
+  DuplicateGroupDto,
+  DuplicateMemberDto,
+  DuplicateSummaryDto,
   EditProgress,
   Facets,
   FileMetadata,
@@ -203,6 +219,32 @@ export const api = {
   crashNotice: () => invoke<CrashNotice | null>("crash_notice"),
   crashDismiss: () => invoke<void>("crash_dismiss"),
   uiReady: (what: string) => invoke<number>("ui_ready", { what }),
+
+  aiStatus: () => invoke<AiStatus>("ai_status"),
+  /** Turn AI on (downloads the model first if needed) or off. */
+  aiEnable: (enabled: boolean, gpu: boolean | null = null) =>
+    invoke<void>("ai_enable", { enabled, gpu }),
+  aiInstallCancel: () => invoke<void>("ai_install_cancel"),
+  aiRemoveModel: () => invoke<boolean>("ai_remove_model"),
+  /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
+  aiDuplicates: (from: string | null = null, to: string | null = null) =>
+    invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),
+  /** Find duplicates and tags for these dates: queued ahead of other work. */
+  aiAnalyzeRange: (from: string, to: string) =>
+    invoke<AiRangeStatus>("ai_analyze_range", { from, to }),
+  aiRangeStatus: (from: string, to: string) =>
+    invoke<AiRangeStatus>("ai_range_status", { from, to }),
+  aiDuplicateDay: (date: string) => invoke<DuplicateGroupDto[]>("ai_duplicate_day", { date }),
+  /** Keep `keeper`; the rest of `group` become "not kept" (nothing is deleted). */
+  aiPickKeeper: (keeper: string, group: string[]) =>
+    invoke<void>("ai_pick_keeper", { keeper, group }),
+  /** `keeper`, `not_kept`, `not_duplicate`, or null to clear. */
+  aiSetChoice: (ids: string[], choice: string | null) =>
+    invoke<void>("ai_set_choice", { ids, choice }),
+  aiTags: (id: string) => invoke<AiTagsDto>("ai_tags", { id }),
+  /** Remove an AI tag for good, or (`keep`) make it your own keyword. */
+  aiTagDecide: (id: string, tag: string, keep: boolean) =>
+    invoke<void>("ai_tag_decide", { id, tag, keep }),
 };
 
 export const events = {
@@ -224,6 +266,9 @@ export const events = {
     listen<FolderDone>("folder://done", (e) => f(e.payload)),
   folderSaved: (f: (e: FolderSaved) => void): Promise<UnlistenFn> =>
     listen<FolderSaved>("folder://saved", (e) => f(e.payload)),
+  aiInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("ai://install", (e) => f(e.payload)),
+  aiStatus: (f: () => void): Promise<UnlistenFn> => listen("ai://status", () => f()),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

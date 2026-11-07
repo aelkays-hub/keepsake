@@ -16,6 +16,7 @@ import {
 import { copyDiagnosticReport } from "../diagnostics";
 import { LAYOUTS, layoutExample } from "../importLayouts";
 import * as fmt from "../format";
+import { AiSettings } from "./AiSettings";
 
 const GB = 1024 ** 3;
 
@@ -380,6 +381,7 @@ export function SettingsScreen() {
     <section className="screen" aria-label="Settings" data-testid="settings-screen">
       <h1 className="heading">Settings</h1>
       <Library info={info} />
+      <AiSettings />
       <CardImport value={imp} onChange={setImp} />
 
       <div className="card">

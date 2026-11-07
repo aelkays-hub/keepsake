@@ -51,8 +51,63 @@
 | 18 | Image adjustments (crop, resize, red-eye, auto-levels) | ⬜ Pending |
 | 19 | Flickr export connector | ⬜ Pending |
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
-| 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
+| 21 | On-device AI: tagging, face clustering, semantic search | 🟡 Tagging and same-day duplicates done (ADR-035); faces and semantic search pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
+
+---
+
+## On-device AI: content tags and same-day duplicates (2026-11-07)
+
+### What was asked
+- A small model running on the product owner's own computer to (1) find exact and near-identical photos taken on the same day and pick a keeper, without touching originals, and (2) tag photos by content (people, beach, dog, food), searchable and removable. Design first, then build after approval.
+
+### What was decided (ADR-035, approved)
+- **Model:** SigLIP 2 base (Apache-2.0), with the image encoder only. **Runtime:** ONNX Runtime via `ort` (load-dynamic), using DirectML on Windows and CoreML on macOS, else the CPU.
+- **Tags:** a fixed list of 102. **Duplicates:** non-keepers are marked "not kept" and nothing is deleted.
+- **Measured** on the product owner's laptop: 80 ms a photo on the integrated Radeon (fp32), so 100k photos take about 2.2 h once.
+
+### What was built
+- **Core** (`keepsake_core::ai`):
+  - the model wrapper, with GPU first and CPU fallback, and preprocessing;
+  - the int8 embedding store and the 64-bit difference hash;
+  - the label set and its SigLIP scoring;
+  - same-day grouping (union of hash and cosine links, burst-aware);
+  - the `ai.analyze` job on the render service's new AI worker;
+  - model install (curl + BLAKE3) and re-tagging from stored vectors.
+- **Catalog:** schema v9 (`ai_analysis`, `ai_tag_rejections`, `duplicate_choices`); `SearchQuery::hide_not_kept`; the snapshot includes the new decisions.
+- **Edits:** `MetadataService::{reject_ai_tag, keep_ai_tag, set_duplicate_choice, pick_keeper}`. The XMP fields `keepsake:AITagsRejected` and `keepsake:DuplicateChoice` are read and written, and restored by rebuild.
+- **App:**
+  - Duplicates screen;
+  - Settings → On-device AI (download with progress, GPU switch, delete model);
+  - AI tags in the inspector;
+  - Hide not kept in the toolbar;
+  - ONNX Runtime and DirectML in the Windows installer.
+- **CLI:** `keepsake ai status | install | run | duplicates | retag`.
+- **Setup:** `setup.ps1` installs ONNX Runtime + DirectML (x64 or ARM64), and `-WithAi` adds the model. `setup.sh` does the same for ONNX Runtime 1.31.1 on Apple Silicon, with `--with-ai`.
+- **Label vectors:** `scripts/make-label-vectors.py` (developer tool).
+
+### Changed the same day: only the dates you ask about
+- **Asked:** "why is keepsake so slow in finding duplicates", then "it should not try to seek the whole catalogue to find them, I should be able to go to a specific date and right click to select find duplicated and tag".
+- **Found:** 144 of 129,127 items had been analysed, at 1.5 s each. Each result waited 2–3.5 s for the catalog on the USB drive (its write-ahead log was 247 MB) while background thumbnails and proxies wrote too. The model took 80 ms, and on a copy of the catalog a save took under 1 ms.
+- **Built:**
+  - Turning AI on analyses nothing by itself.
+  - Right-click a year, month or day in the sidebar's calendar tree → **Find duplicates and tags** (also the Menu key or Shift+F10). It queues that range ahead of other work (thumbnails too, no proxies) and opens Duplicates on it, with "Analysing: n of m done…", refreshing every 3 s. "All analysed dates" goes back to every day.
+  - The worker drops the old background AI jobs and waits only for requested thumbnail jobs.
+  - `keepsake ai run --from --to` analyses a range from the CLI.
+- **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
+
+### Tests
+- **keepsake-core unit tests:** embedding round trip; difference hash (re-encoded copy matches, a different picture does not); label file checks (mismatch refused, CRLF checkout fine); SigLIP probability; grouping (hash and cosine links, burst bar, photos and videos never mixed, "not duplicates", keeper choice, big-day window); preprocessing; download checks (bad hash not kept, cancel leaves nothing).
+- **`ai_tests`:**
+  - **Without the model:** analyses stored and found by day; unanalysed items queued; AI tags searchable; a removed tag is never given again and is in the XMP; keep turns a tag into a keyword; decisions survive a catalog rebuild and originals are byte-for-byte unchanged; same-day groups, keeper and summary; different days never group.
+  - **With the model** (skipped if absent): a re-encoded copy is the same picture and a different one is not; GPU and CPU agree; the full render-service run makes thumbnails, then analyses, then groups the two identical photos.
+- **UI:** unit tests for the helpers, plus `e2e/mocked/ai.spec.ts` (pick a keeper, keyboard N, Undo, Hide not kept; AI off → Settings → on and off, delete model; inspector remove and keep).
+
+### Not done
+- Faces, semantic search, your own tag words, a sharpness-based keeper suggestion.
+- Mirroring the new downloads on `vendor-binaries`.
+- macOS was not run (no Mac in this session), and the ARM64 installer was not tried.
+- Per-tag thresholds tuned on a labelled sample.
 
 ---
 

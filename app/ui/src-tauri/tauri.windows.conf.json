@@ -11,7 +11,13 @@
       "../../../vendor/libraw/LICENSE.LGPL": "libraw/LICENSE.LGPL",
       "../../../vendor/libraw/LICENSE.CDDL": "libraw/LICENSE.CDDL",
       "../../../vendor/libraw/COPYRIGHT": "libraw/COPYRIGHT",
-      "../../../vendor/LICENSE-ffmpeg.txt": "licenses/FFmpeg-LICENSE.txt"
+      "../../../vendor/LICENSE-ffmpeg.txt": "licenses/FFmpeg-LICENSE.txt",
+      "../../../vendor/onnxruntime/onnxruntime.dll": "onnxruntime/onnxruntime.dll",
+      "../../../vendor/onnxruntime/onnxruntime_providers_shared.dll": "onnxruntime/onnxruntime_providers_shared.dll",
+      "../../../vendor/onnxruntime/DirectML.dll": "onnxruntime/DirectML.dll",
+      "../../../vendor/onnxruntime/LICENSE-onnxruntime.txt": "licenses/onnxruntime-LICENSE.txt",
+      "../../../vendor/onnxruntime/ThirdPartyNotices.txt": "licenses/onnxruntime-ThirdPartyNotices.txt",
+      "../../../vendor/onnxruntime/LICENSE-DirectML.txt": "licenses/DirectML-LICENSE.txt"
     }
   }
 }

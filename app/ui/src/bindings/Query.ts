@@ -24,4 +24,8 @@ lensIs?: string,
 /**
  * Has a file of this extension (`JPG`); `""`: one without.
  */
-fileType?: string, };
+fileType?: string, 
+/**
+ * Leave out items marked "not kept" among duplicates.
+ */
+hideNotKept?: boolean, };

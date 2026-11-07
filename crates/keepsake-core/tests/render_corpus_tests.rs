@@ -109,6 +109,8 @@ fn corpus_arw_and_avchd_render() {
             until_empty: true,
             forced_encoder: None,
             evict_every: 100,
+            ai: false,
+            ai_gpu: false,
         },
     );
     let mut evs = Vec::new();
