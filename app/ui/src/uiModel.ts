@@ -1,7 +1,7 @@
 // The UI state model: pure types, the reducer and the effective query
 // (unit-tested). The React provider lives in state.tsx.
 
-import { emptyQuery, type Query, type SortSpec } from "./api";
+import { emptyQuery, type AiTask, type Query, type SortSpec } from "./api";
 import * as sel from "./selection";
 
 export type Section =
@@ -49,6 +49,18 @@ export interface UiState {
   dupRange: DateRange | null;
   /** Dates being tagged (the status bar shows how far it has got). */
   tagging: DateRange | null;
+  /** A folder being tagged or searched for duplicates (a window shows it). */
+  aiJob: AiFolderJob | null;
+}
+
+/** Find duplicates or Tag photos for a folder and the folders in it. */
+export interface AiFolderJob {
+  volume: string;
+  /** On the volume, `2025/May` (`""`: all of it). */
+  folder: string;
+  /** "Pictures › 2025 › May". */
+  title: string;
+  what: AiTask;
 }
 
 /** A year, month or day of the calendar, as dates (`YYYY-MM-DD`, inclusive). */
@@ -77,7 +89,9 @@ export type Msg =
   /** The Duplicates screen, for these dates (`null`: all). */
   | { t: "duplicates"; range: DateRange | null }
   /** Show tagging progress for these dates (`null`: stop showing it). */
-  | { t: "tagging"; range: DateRange | null };
+  | { t: "tagging"; range: DateRange | null }
+  /** Start (or, `null`, close) a folder's AI job. */
+  | { t: "aiJob"; job: AiFolderJob | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -94,6 +108,7 @@ export const initial: UiState = {
   dialog: null,
   dupRange: null,
   tagging: null,
+  aiJob: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -149,6 +164,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
     case "tagging":
       return { ...s, tagging: m.range };
+    case "aiJob":
+      return { ...s, aiJob: m.job };
   }
 }
 

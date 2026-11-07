@@ -40,8 +40,13 @@ Manual (both OSes), with a library that has some bursts or repeated shots:
 13. Untick **Tag photos and find duplicates**, then press **Delete the downloaded model**. **Expected:** the model file is gone; AI tags and your keeper choices stay. Duplicates now says the AI is off, with a button to Settings.
 14. In the toolbar, open the **Tag** list (after Lens). **Expected:** "Any tag", then every keyword and AI tag with its count, most used first (e.g. "People (412)"). Choose one. **Expected:** only items with that tag show, and the count in the status bar drops. Press **✕ Clear**. **Expected:** the list is back on "Any tag" and every item shows. On both OSes.
 15. Tag a day whose photos have few obvious subjects (a building, the moon, flowers). **Expected:** nearly every photo gets one or two tags; hover shows they are less sure. ✕ removes a wrong one for good.
-16. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
-17. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
+16. In the sidebar choose **By folder**, open a drive, and right-click a year folder. **Expected:** the menu has Show, Scan again, **Find duplicates** and **Tag photos**. Choose **Tag photos**. **Expected:** the menu closes, and a window in the bottom-right corner reads "Tagging <drive> › <year>", then "Getting ready…". Then a progress bar and "n of m done…" count up every 2 s. The library can still be used.
+    - Press **Hide**. **Expected:** the window goes and a small "Tagging · 40%" button stays in the corner; click it to bring the window back.
+    - Press **Stop**. **Expected:** "Stopped: n of m done. What was done stays." Run Tag photos again on the same folder. **Expected:** it carries on from there.
+    - Let one finish. **Expected:** "m of m photos tagged." and a **Close** button. With **Find duplicates** it shows "m of m RAW photos compared." and **Show duplicates**, which opens the Duplicates screen.
+    - Speed: tagging a folder of a few hundred photos that already have thumbnails takes minutes, not an hour, even on the USB drive. On both OSes.
+17. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
+18. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
 
 macOS notes: CoreML is tried first, then the CPU. The installer does not bundle ONNX Runtime yet (no macOS app bundle of the sidecars), so on a Mac test from source.
 

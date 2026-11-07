@@ -96,6 +96,16 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### 7 Nov 2026 (evening): whole folders, a progress window, quicker saves
+- **Asked:** "I want to be able to run it at a top level folder tree and it traverses the tree and tags, I would like to see a window showing progress", and to speed it up. Before that: "Keepsake started and now everything is hung". The app was busy, not hung. On start it caught up on thumbnails and proxies, and catalog writes on the USB drive took up to 12 s. By the time it was checked nothing was queued.
+- **Built:**
+  - Folder menu: **Find duplicates** and **Tag photos** for a folder and all below it.
+  - A progress window in the corner with Stop, Hide (a corner button brings it back), Close and Show duplicates.
+  - The AI worker claims and saves 32 jobs at a time: two catalog writes per 32 photos instead of 96.
+  - Core: `ai::Target`, `enqueue_target`, `target_status`, `stop_target`, `Ai::matching`, `Jobs::pending_matching`, `Jobs::remove_queued_for`, `ai::analyze::{prepare, save}`.
+  - App: `ai_analyze_folder`, `ai_folder_status`, `ai_folder_stop`.
+- **Tests:** `a_folder_and_the_folders_in_it_can_be_tagged_and_stopped`; the worker and range tests run through the batched worker; the mocked UI covers tagging a folder (window, Hide, done) and stopping a folder's duplicate search.
+
 ### 7 Nov 2026 (later): best-guess tags and a tag list in the toolbar
 - **Asked:** "tagging is still very poor we need a stronger AI … I am getting less than 50% of pics tagged", and "would be good to have a dropdown of tags at top of screen".
 - **Measured:** SigLIP 2 Large (approved for a trial) on 300 random library photos.

@@ -172,6 +172,40 @@ impl<M> Ai<'_, M> {
         Ok(rows)
     }
 
+    /// Assets matching `q` (a date range, a folder, …), newest first.
+    pub fn matching(
+        &self,
+        q: &crate::catalog::SearchQuery,
+        model: &str,
+    ) -> Result<Vec<RangeItem>, CatalogError> {
+        let mut f = super::search::filter_sql_in(q)?;
+        if f.empty {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT a.id, a.is_raw, x.tag_list
+               FROM assets a
+               LEFT JOIN ai_analysis x ON x.asset_id = a.id AND x.model = ?{}{}
+              ORDER BY a.capture_ts_ms DESC, a.id",
+            f.joins,
+            f.where_sql()
+        );
+        f.args.insert(0, Box::new(model.to_owned()));
+        let mut st = self.conn.prepare(&sql)?;
+        let rows = st
+            .query_map(rusqlite::params_from_iter(f.args.iter()), |r| {
+                let list: Option<u32> = r.get(2)?;
+                Ok(RangeItem {
+                    id: r.get(0)?,
+                    raw: r.get(1)?,
+                    analysed: list.is_some(),
+                    tag_list: list.unwrap_or(0),
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// Assets not yet analysed with `model`.
     pub fn without_analysis(&self, model: &str) -> Result<Vec<AssetId>, CatalogError> {
         let mut st = self.conn.prepare(

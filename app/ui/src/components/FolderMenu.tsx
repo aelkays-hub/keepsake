@@ -15,10 +15,21 @@ export interface FolderMenuProps {
   onShow: () => void;
   /** Start the scan; rejects with why it could not start. */
   onScan: () => Promise<void>;
+  /** Find duplicates or tag the photos of the folder and those in it. */
+  onAi: (what: "duplicates" | "tags") => void;
   onClose: () => void;
 }
 
-export function FolderMenu({ x, y, label, online, onShow, onScan, onClose }: FolderMenuProps) {
+export function FolderMenu({
+  x,
+  y,
+  label,
+  online,
+  onShow,
+  onScan,
+  onAi,
+  onClose,
+}: FolderMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -71,7 +82,7 @@ export function FolderMenu({ x, y, label, online, onShow, onScan, onClose }: Fol
 
   // Kept inside the window.
   const left = Math.min(x, window.innerWidth - 240);
-  const top = Math.min(y, window.innerHeight - 120);
+  const top = Math.min(y, window.innerHeight - 190);
   return (
     <div
       ref={root}
@@ -104,6 +115,28 @@ export function FolderMenu({ x, y, label, online, onShow, onScan, onClose }: Fol
         data-testid="folder-menu-rescan"
       >
         Scan again
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          onAi("duplicates");
+          onClose();
+        }}
+        title="Compare the RAW photos of this folder and the folders in it, on this computer"
+        data-testid="folder-menu-dups"
+      >
+        Find duplicates
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          onAi("tags");
+          onClose();
+        }}
+        title="Tag the photos of this folder and the folders in it by what they show, on this computer"
+        data-testid="folder-menu-tags"
+      >
+        Tag photos
       </button>
       {!online && <p className="muted">The drive is not connected.</p>}
       {problem && (

@@ -1184,6 +1184,32 @@ export function installMock(): void {
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
+        case "ai_analyze_folder":
+        case "ai_folder_status":
+        case "ai_folder_stop": {
+          const key = `${a.what}|folder|${a.volume}|${a.folder}`;
+          if (cmd === "ai_analyze_folder") {
+            if (!st.ai.enabled)
+              throw "Turn on On-device AI in Settings first (it downloads the model once).";
+            st.aiRanges.set(key, 3);
+          }
+          const q = { volume: a.volume, folder: a.folder || undefined } as unknown as Query;
+          const items = all
+            .filter(matches(q))
+            .filter((it) => a.what === "tags" || it.kind === "raw").length;
+          const left = st.aiRanges.get(key) ?? 0;
+          if (cmd === "ai_folder_stop") {
+            // What was done stays: a third, say.
+            st.aiRanges.set(key, -Math.ceil(items / 3));
+            return null;
+          }
+          if (left < 0) return { items, analysed: -left, pending: 0 };
+          if (cmd === "ai_folder_status" && left > 0) st.aiRanges.set(key, left - 1);
+          const pending = left > 0 ? Math.ceil((items * left) / 4) : 0;
+          const reply = { items, analysed: items - pending, pending };
+          const ms = cmd === "ai_analyze_folder" ? Number(params.get("queueing") ?? 0) : 0;
+          return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
         case "ai_pick_keeper": {
           const keeper = Number(String(a.keeper).slice(1));
           for (const id of a.group as string[]) {

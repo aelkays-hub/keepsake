@@ -258,7 +258,51 @@ impl<M> Jobs<'_, M> {
     }
 }
 
+impl<M> Jobs<'_, M> {
+    /// Jobs of `kind` still to run (queued or running) for assets matching
+    /// `q`.
+    pub fn pending_matching(
+        &self,
+        kind: &str,
+        q: &crate::catalog::SearchQuery,
+    ) -> Result<u64, CatalogError> {
+        let mut f = super::search::filter_sql_in(q)?;
+        if f.empty {
+            return Ok(0);
+        }
+        let sql = format!(
+            "SELECT count(*) FROM jobs j
+               JOIN assets a ON a.id = j.asset_id AND j.kind = ? AND j.state IN ('queued','running'){}{}",
+            f.joins,
+            f.where_sql()
+        );
+        f.args.insert(0, Box::new(kind.to_owned()));
+        let n: i64 = self
+            .conn
+            .query_row(&sql, rusqlite::params_from_iter(f.args.iter()), |r| {
+                r.get(0)
+            })?;
+        super::to_u64(n, "count")
+    }
+}
+
 impl Jobs<'_, Rw> {
+    /// Delete queued jobs of `kind` for these assets (not running or
+    /// finished ones): "Stop". Returns how many.
+    pub fn remove_queued_for(&self, kind: &str, assets: &[AssetId]) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        for chunk in assets.chunks(500) {
+            let sql = format!(
+                "DELETE FROM jobs WHERE kind = ? AND state = 'queued' AND asset_id IN ({})",
+                vec!["?"; chunk.len()].join(",")
+            );
+            let mut args: Vec<&dyn rusqlite::ToSql> = vec![&kind];
+            args.extend(chunk.iter().map(|a| a as &dyn rusqlite::ToSql));
+            n += self.conn.execute(&sql, args.as_slice())? as u64;
+        }
+        Ok(n)
+    }
+
     /// Delete queued jobs of `kind` whose class is `class` (not running or
     /// finished ones). Returns how many.
     pub fn remove_queued(&self, kind: &str, class: Priority) -> Result<u64, CatalogError> {

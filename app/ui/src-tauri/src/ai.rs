@@ -14,8 +14,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagsDto, DuplicateDayDto,
-    DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
+    AiFolderStatus, AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagsDto,
+    DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -291,6 +291,75 @@ pub fn ai_range_status(
     let cat = open.cat()?;
     let s = ai::analyze::range_status(&cat, &from, &to, purpose).map_err(err)?;
     Ok(range_dto(from, to, s))
+}
+
+fn folder_target(volume: &str, folder: String) -> CmdResult<ai::Target> {
+    Ok(ai::Target::Folder {
+        volume: convert::id(volume, "volume")?,
+        folder,
+    })
+}
+
+fn folder_dto(s: ai::analyze::RangeStatus) -> AiFolderStatus {
+    AiFolderStatus {
+        items: s.items,
+        analysed: s.analysed,
+        pending: s.pending,
+    }
+}
+
+/// Find duplicates (`what` = `"duplicates"`) or tag the photos (`"tags"`)
+/// of a folder and the folders in it (`""`: the whole drive).
+#[tauri::command(async)]
+pub fn ai_analyze_folder(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    volume: String,
+    folder: String,
+    what: String,
+) -> CmdResult<AiFolderStatus> {
+    let purpose = purpose(&what)?;
+    if !Settings::load().map_err(err)?.ai.enabled {
+        return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
+    }
+    let target = folder_target(&volume, folder)?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let s = ai::enqueue_target(&mut cat, &target, purpose).map_err(err)?;
+    crate::render::start_service(&app)?;
+    Ok(folder_dto(s))
+}
+
+#[tauri::command(async)]
+pub fn ai_folder_status(
+    state: State<'_, AppState>,
+    volume: String,
+    folder: String,
+    what: String,
+) -> CmdResult<AiFolderStatus> {
+    let purpose = purpose(&what)?;
+    let target = folder_target(&volume, folder)?;
+    let open = state.open()?;
+    let cat = open.cat()?;
+    Ok(folder_dto(
+        ai::target_status(&cat, &target, purpose).map_err(err)?,
+    ))
+}
+
+/// Stop: drop the folder's queued jobs of `what` (what was done stays).
+#[tauri::command(async)]
+pub fn ai_folder_stop(
+    state: State<'_, AppState>,
+    volume: String,
+    folder: String,
+    what: String,
+) -> CmdResult<()> {
+    let purpose = purpose(&what)?;
+    let target = folder_target(&volume, folder)?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    ai::stop_target(&mut cat, &target, purpose).map_err(err)?;
+    Ok(())
 }
 
 /// Keep `keeper`; the rest of `group` become "not kept" (nothing deleted).

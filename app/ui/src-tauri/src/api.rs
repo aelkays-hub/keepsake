@@ -115,6 +115,19 @@ dto! {
         pub pending: u64,
     }
 
+    /// How far "Find duplicates" or "Tag photos" has got for a folder.
+    pub struct AiFolderStatus {
+        /// Items it covers (RAW photos for duplicates, all for tags).
+        #[ts(type = "number")]
+        pub items: u64,
+        /// Of those, done.
+        #[ts(type = "number")]
+        pub analysed: u64,
+        /// Jobs still to run.
+        #[ts(type = "number")]
+        pub pending: u64,
+    }
+
     /// A day with duplicates.
     pub struct DuplicateDayDto {
         /// `YYYY-MM-DD`.

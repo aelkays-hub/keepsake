@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type AppInfo } from "./api";
+import { AiJobWindow } from "./components/AiJobWindow";
 import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
 import { CrashBanner } from "./components/CrashBanner";
@@ -168,6 +169,7 @@ function Shell() {
       <CrashBanner />
       {s.viewer && <Viewer />}
       {s.dialog === "timeShift" && <TimeShiftDialog />}
+      <AiJobWindow />
     </div>
   );
 }

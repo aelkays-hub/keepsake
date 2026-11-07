@@ -31,7 +31,10 @@ use thiserror::Error;
 use crate::catalog::CatalogError;
 use crate::render::RenderError;
 
-pub use analyze::{analyze_asset, enqueue_range, range_status, AnalyzeOutcome, Purpose};
+pub use analyze::{
+    analyze_asset, enqueue_range, enqueue_target, range_status, stop_target, target_status,
+    AnalyzeOutcome, Purpose, Target,
+};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
 pub use labels::LabelSet;

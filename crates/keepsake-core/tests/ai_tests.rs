@@ -747,3 +747,54 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
     assert_eq!((st.items, st.analysed, st.pending), (3, 3, 0));
     assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
 }
+
+#[test]
+fn a_folder_and_the_folders_in_it_can_be_tagged_and_stopped() {
+    let mut w = World::new(&[
+        ("2025/May/a.jpg", scene(1, 640, 480)),
+        ("2025/May/Trip/b.jpg", scene(2, 640, 480)),
+        ("2025/June/c.jpg", scene(3, 640, 480)),
+    ]);
+    let (a, b, c) = (
+        w.asset("2025/May/a.jpg"),
+        w.asset("2025/May/Trip/b.jpg"),
+        w.asset("2025/June/c.jpg"),
+    );
+    let volume = w.cat.read(|tx| tx.volumes().list()).unwrap()[0].id;
+    let may = analyze::Target::Folder {
+        volume,
+        folder: "2025/May".into(),
+    };
+    // Tag "2025/May": a and the one in May/Trip, not June.
+    let st = analyze::enqueue_target(&mut w.cat, &may, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 0, 2));
+    assert!(find_job(&w.cat, JOB_AI_TAG, a).is_some());
+    assert!(find_job(&w.cat, JOB_AI_TAG, b).is_some());
+    assert!(find_job(&w.cat, JOB_AI_TAG, c).is_none());
+    // One is done; then Stop drops the rest, and what was done stays.
+    let labels = LabelSet::builtin().unwrap();
+    let dog = label_vector(&labels, "Dog");
+    analyze::store_results(&mut w.cat, Some(&labels), a, &dog, 7).unwrap();
+    w.cat
+        .write(|tx| {
+            let j = tx.jobs().find(JOB_AI_TAG, a)?.unwrap();
+            tx.jobs().complete(j.id, 0)
+        })
+        .unwrap();
+    let st = analyze::target_status(&w.cat, &may, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 1, 1));
+    assert_eq!(
+        analyze::stop_target(&mut w.cat, &may, Purpose::Tags).unwrap(),
+        1
+    );
+    let st = analyze::target_status(&w.cat, &may, Purpose::Tags).unwrap();
+    assert_eq!((st.analysed, st.pending), (1, 0));
+    assert!(w.ai_tags(a).contains(&"Dog".to_owned()));
+    // The whole volume ("") has all three.
+    let all = analyze::Target::Folder {
+        volume,
+        folder: String::new(),
+    };
+    let st = analyze::target_status(&w.cat, &all, Purpose::Tags).unwrap();
+    assert_eq!(st.items, 3);
+}

@@ -60,6 +60,8 @@ const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
 const WAITING_RETRY_MS: i64 = 5 * 60 * 1000;
 /// An AI job whose thumbnail is being made is looked at again after this.
 const NO_THUMB_RETRY_MS: i64 = 15_000;
+/// AI jobs claimed and saved together.
+const AI_BATCH: usize = 32;
 /// Once over its limit, the cache is trimmed to this share of it (percent).
 pub const EVICT_TO_PCT: u64 = 90;
 /// Above this share of its limit (percent), the cache counts as full.
@@ -430,6 +432,17 @@ impl RenderService {
                 Self::sleep(cancel, FINGERPRINT_WAIT);
                 continue;
             }
+            // The AI worker does both, a batch at a time.
+            if let Some(state) = ai_state.as_mut() {
+                match self.ai_batch(&mut cat, cancel, tx, shared, state) {
+                    Ok(true) => {}
+                    Ok(false) if self.opts.until_empty => break,
+                    Ok(false) => Self::sleep(cancel, Duration::from_secs(1)),
+                    Err(e) if e.is_busy() => Self::sleep(cancel, BUSY_RETRY),
+                    Err(e) => return Err(e),
+                }
+                continue;
+            }
             // The AI worker does both: finding duplicates and tagging.
             let kinds: &[&str] = if kind == JOB_AI {
                 &[JOB_AI, JOB_AI_TAG]
@@ -474,72 +487,175 @@ impl RenderService {
                     });
                     self.maybe_evict(&mut cat, shared, tx);
                 }
-                Err(e) if e.is_busy() => {
-                    // Not the job's fault: again soon, attempt not counted.
-                    let reason = e.to_string();
-                    let at = now + BUSY_RETRY.as_millis() as i64;
-                    Self::write_busy(&mut cat, cancel, |t| t.jobs().defer(job.id, &reason, at))?;
-                    tracing::debug!(job = job.id, kind = %job.kind, "catalog busy; job deferred");
-                    let _ = tx.send(RenderEvent::Deferred {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        reason,
-                    });
-                }
-                Err(RenderError::Waiting(reason)) => {
-                    let wait = if kind == JOB_AI {
-                        NO_THUMB_RETRY_MS
-                    } else {
-                        WAITING_RETRY_MS
-                    };
-                    Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().defer(job.id, &reason, now + wait)
-                    })?;
-                    let _ = tx.send(RenderEvent::Deferred {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        reason,
-                    });
-                }
-                Err(RenderError::Offline) => {
-                    let reason = RenderError::Offline.to_string();
-                    Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS)
-                    })?;
-                    let _ = tx.send(RenderEvent::Deferred {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        reason,
-                    });
-                }
-                Err(e) => {
-                    let retry = if e.is_permanent() {
-                        None
-                    } else {
-                        jobs::retry_at(job.attempts, now)
-                    };
-                    let msg = e.to_string();
-                    Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().fail(job.id, &msg, retry, now)
-                    })?;
-                    if retry.is_none() {
-                        shared.failed.fetch_add(1, Ordering::SeqCst);
-                    }
-                    tracing::warn!(job = job.id, kind = %job.kind, "render failed: {msg}");
-                    let _ = tx.send(RenderEvent::Failed {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        error: msg,
-                        retry: retry.is_some(),
-                    });
-                }
+                Err(e) => self.settle_err(&mut cat, cancel, tx, shared, kind, &job, e)?,
             }
         }
         Ok(())
+    }
+
+    /// Record a job that did not succeed: deferred (catalog busy, waiting
+    /// for something, drive offline) or failed.
+    #[allow(clippy::too_many_arguments)]
+    fn settle_err(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        kind: &'static str,
+        job: &Job,
+        e: RenderError,
+    ) -> Result<(), RenderError> {
+        let now = now_ms();
+        match e {
+            e if e.is_busy() => {
+                // Not the job's fault: again soon, attempt not counted.
+                let reason = e.to_string();
+                let at = now + BUSY_RETRY.as_millis() as i64;
+                Self::write_busy(cat, cancel, |t| t.jobs().defer(job.id, &reason, at))?;
+                tracing::debug!(job = job.id, kind = %job.kind, "catalog busy; job deferred");
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            RenderError::Waiting(reason) => {
+                let wait = if kind == JOB_AI {
+                    NO_THUMB_RETRY_MS
+                } else {
+                    WAITING_RETRY_MS
+                };
+                Self::write_busy(cat, cancel, |t| t.jobs().defer(job.id, &reason, now + wait))?;
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            RenderError::Offline => {
+                let reason = RenderError::Offline.to_string();
+                Self::write_busy(cat, cancel, |t| {
+                    t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS)
+                })?;
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            e => {
+                let retry = if e.is_permanent() {
+                    None
+                } else {
+                    jobs::retry_at(job.attempts, now)
+                };
+                let msg = e.to_string();
+                Self::write_busy(cat, cancel, |t| t.jobs().fail(job.id, &msg, retry, now))?;
+                if retry.is_none() {
+                    shared.failed.fetch_add(1, Ordering::SeqCst);
+                }
+                tracing::warn!(job = job.id, kind = %job.kind, "render failed: {msg}");
+                let _ = tx.send(RenderEvent::Failed {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    error: msg,
+                    retry: retry.is_some(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// The AI worker's turn: claim up to [`AI_BATCH`] jobs in one write,
+    /// work out their results, then save them all and mark them done in
+    /// one more write. On a USB drive a write can take seconds, so this is
+    /// far quicker than three writes per photo. Returns whether there was
+    /// work.
+    fn ai_batch(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        state: &mut (ImageModel, LabelSet),
+    ) -> Result<bool, RenderError> {
+        let now = now_ms();
+        let jobs: Vec<Job> = cat.write(|t| {
+            let mut v = Vec::new();
+            while v.len() < AI_BATCH {
+                match t.jobs().claim(&[JOB_AI, JOB_AI_TAG], now)? {
+                    Some(j) => v.push(j),
+                    None => break,
+                }
+            }
+            Ok::<_, CatalogError>(v)
+        })?;
+        if jobs.is_empty() {
+            return Ok(false);
+        }
+        let mut ready = Vec::new();
+        let mut failed = Vec::new();
+        for job in jobs {
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
+            let (model, labels) = (&mut state.0, &state.1);
+            match ai::analyze::prepare(cat, &self.cache, model, labels, job.asset_id, purpose) {
+                Ok(p) => ready.push((job, p, t0.elapsed())),
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    failed.push((job, e));
+                }
+            }
+        }
+        let at = now_ms();
+        Self::write_busy(cat, cancel, |t| {
+            for (job, p, _) in &ready {
+                ai::analyze::save(t, p, at)?;
+                t.jobs().complete(job.id, at)?;
+            }
+            t.tags().prune_unused()?;
+            Ok(())
+        })?;
+        for (job, p, took) in ready {
+            shared.done.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(RenderEvent::Done {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+                ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                made: p.outcome().tags.into_iter().map(|(t, _)| t).collect(),
+                encoder: None,
+            });
+        }
+        for (job, e) in failed {
+            self.settle_err(cat, cancel, tx, shared, JOB_AI, &job, e)?;
+        }
+        Ok(true)
+    }
+
+    /// An AI job's error as a render error. Without a thumbnail, it is made
+    /// first (as urgently) and the job waits.
+    fn ai_error(cat: &mut Catalog, job: &Job, e: AiError) -> Result<RenderError, RenderError> {
+        Ok(match e {
+            AiError::NoThumbnail => {
+                super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
+                RenderError::Waiting("no thumbnail yet".into())
+            }
+            AiError::Render(e) => e,
+            AiError::Catalog(e) => RenderError::Catalog(e),
+            AiError::Image(m) => RenderError::Image(m),
+            e => RenderError::Failed(e.to_string()),
+        })
     }
 
     fn maybe_evict(&self, cat: &mut Catalog, shared: &Shared, tx: &Sender<RenderEvent>) {

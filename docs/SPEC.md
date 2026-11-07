@@ -133,7 +133,8 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
   - **Tag photos** tags all of that period's photos and shows its progress in the status bar.
   - The two are separate, and nothing is analysed in the background otherwise.
 - Auto-tagging: up to 6 tags per photo from a built-in list of 110 (people, beach, dog, food, sunset, moon, mosque, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. A photo with no sure tag gets the model's best guess (one or two).
-- The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
+- The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it.
+- Find duplicates and Tag photos also work on a folder and every folder below it: right-click it in the folder tree. A window shows the progress, with Stop and Hide. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
 - Same-day duplicates (Sidebar → Duplicates): near-identical **RAW** photos taken on one calendar day, grouped: bursts, re-shoots, the same shot twice. A JPEG with the same name as a RAW is an edited copy, so JPEG-only photos (and videos) are never grouped. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
 - `keepsake ai status | install | run | duplicates [DAY] | retag`.
 - Still to come (v2):

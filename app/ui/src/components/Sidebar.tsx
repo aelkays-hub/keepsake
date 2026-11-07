@@ -429,6 +429,19 @@ export function Sidebar() {
               .folderRescan(f.volume, f.path)
               .then(() => dispatch({ t: "screen", screen: "folders" }));
           }}
+          onAi={(what) => {
+            const f = menu.entry.fold;
+            if (!f) return;
+            dispatch({
+              t: "aiJob",
+              job: {
+                volume: f.volume,
+                folder: f.path ?? "",
+                title: folderTitle(data?.volumes ?? [], f.volume, f.path ?? ""),
+                what,
+              },
+            });
+          }}
           onClose={() => {
             const at = menu.at;
             closeMenu();

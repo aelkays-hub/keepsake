@@ -5,6 +5,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
+import type { AiFolderStatus } from "./bindings/AiFolderStatus";
 import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
@@ -59,6 +60,7 @@ import type { ViewInfo } from "./bindings/ViewInfo";
 
 export type {
   AiInstallProgress,
+  AiFolderStatus,
   AiRangeStatus,
   AiStatus,
   AiTagDto,
@@ -238,6 +240,15 @@ export const api = {
     invoke<AiRangeStatus>("ai_analyze_range", { from, to, what }),
   aiRangeStatus: (from: string, to: string, what: AiTask) =>
     invoke<AiRangeStatus>("ai_range_status", { from, to, what }),
+  /** Find duplicates or tag the photos of a folder and the folders in it
+   * (`""`: the whole drive). */
+  aiAnalyzeFolder: (volume: string, folder: string, what: AiTask) =>
+    invoke<AiFolderStatus>("ai_analyze_folder", { volume, folder, what }),
+  aiFolderStatus: (volume: string, folder: string, what: AiTask) =>
+    invoke<AiFolderStatus>("ai_folder_status", { volume, folder, what }),
+  /** Stop: its queued work is dropped; what was done stays. */
+  aiFolderStop: (volume: string, folder: string, what: AiTask) =>
+    invoke<void>("ai_folder_stop", { volume, folder, what }),
   aiDuplicateDay: (date: string) => invoke<DuplicateGroupDto[]>("ai_duplicate_day", { date }),
   /** Keep `keeper`; the rest of `group` become "not kept" (nothing is deleted). */
   aiPickKeeper: (keeper: string, group: string[]) =>

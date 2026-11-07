@@ -1014,6 +1014,58 @@ textarea {
   letter-spacing: 0.5px;
 }
 
+/* A folder's AI job: a window in the corner (the library stays usable). */
+.ai-job {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 55;
+  width: min(380px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.ai-job h2 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+.ai-job p {
+  margin: 4px 0;
+}
+.ai-job progress {
+  width: 100%;
+  height: 10px;
+  margin: 8px 0 2px;
+  accent-color: var(--accent);
+}
+.ai-job [role="status"],
+.ai-job [role="alert"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-job [role="alert"] {
+  color: var(--bad);
+}
+.ai-job-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
 /* ── Dialogs ───────────────────────────────────────────────────────── */
 .modal-back {
   position: fixed;

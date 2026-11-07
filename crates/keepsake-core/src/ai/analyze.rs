@@ -17,8 +17,10 @@ use image::DynamicImage;
 
 use super::{dhash, AiError, ImageModel, LabelSet, JOB_AI, JOB_AI_TAG, MODEL_ID};
 use crate::catalog::{
-    AiAnalysis, AssetId, AssetTag, Catalog, CatalogError, NewJob, Priority, RangeItem, TagSource,
+    AiAnalysis, AssetId, AssetTag, Catalog, CatalogError, NewJob, Priority, RangeItem, SearchQuery,
+    TagSource, VolumeId,
 };
+use crate::catalog::{TagPath, WriteTx};
 use crate::render::{Cache, Variant};
 
 /// What one job did.
@@ -63,6 +65,102 @@ pub fn store_analysis(
     store_results(cat, labels, asset, &emb, hash)
 }
 
+/// A job's result, worked out but not saved yet: the AI worker saves a
+/// batch of them in one catalog write, since a write can take seconds on a
+/// USB drive.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Prepared {
+    pub asset: AssetId,
+    /// `None`: nothing to save (already analysed, finding duplicates).
+    result: Option<Analysed>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Analysed {
+    embedding: Vec<i8>,
+    emb_scale: f32,
+    dhash: u64,
+    /// `None`: no tags asked for; any it has stay as they are.
+    tags: Option<Vec<(TagPath, f64)>>,
+}
+
+impl Prepared {
+    /// What the job did, for its event.
+    pub fn outcome(&self) -> AnalyzeOutcome {
+        AnalyzeOutcome {
+            tags: self
+                .result
+                .as_ref()
+                .and_then(|r| r.tags.as_ref())
+                .map(|t| t.iter().map(|(p, c)| (p.to_lightroom(), *c)).collect())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// The result for an embedding and hash; with `labels`, its AI tags too.
+fn prepared(
+    cat: &Catalog,
+    labels: Option<&LabelSet>,
+    asset: AssetId,
+    emb: &super::Embedding,
+    hash: u64,
+) -> Result<Prepared, AiError> {
+    let (embedding, emb_scale) = emb.quantize();
+    let tags = match labels {
+        Some(l) => {
+            let rejected = cat.read(|tx| tx.ai().rejections(asset))?;
+            Some(l.tags_for(emb, &rejected))
+        }
+        None => None,
+    };
+    Ok(Prepared {
+        asset,
+        result: Some(Analysed {
+            embedding,
+            emb_scale,
+            dhash: hash,
+            tags,
+        }),
+    })
+}
+
+/// Save a result (inside a write; the asset may have gone meanwhile).
+pub fn save(tx: &WriteTx<'_>, p: &Prepared, now_ms: i64) -> Result<(), CatalogError> {
+    let Some(r) = &p.result else {
+        return Ok(());
+    };
+    if tx.assets().get(p.asset)?.is_none() {
+        return Ok(());
+    }
+    let tagged_with = tx
+        .ai()
+        .analysis(p.asset)?
+        .filter(|a| a.model == MODEL_ID)
+        .map_or(0, |a| a.tag_list);
+    tx.ai().put_analysis(&AiAnalysis {
+        asset_id: p.asset,
+        model: MODEL_ID.to_owned(),
+        embedding: r.embedding.clone(),
+        emb_scale: r.emb_scale,
+        dhash: r.dhash,
+        made_ms: now_ms,
+        tag_list: if r.tags.is_some() {
+            super::labels::LIST_VERSION
+        } else {
+            tagged_with
+        },
+    })?;
+    if let Some(tags) = &r.tags {
+        let rows: Vec<AssetTag> = tags
+            .iter()
+            .map(|(p, c)| AssetTag::ai(p.clone(), *c))
+            .collect();
+        tx.tags().set_for_asset(p.asset, TagSource::Ai, &rows)?;
+    }
+    Ok(())
+}
+
 /// Store an embedding and hash for `asset`; with `labels`, give its AI
 /// tags from it (without, any tags it already has stay as they are).
 pub fn store_results(
@@ -72,48 +170,14 @@ pub fn store_results(
     emb: &super::Embedding,
     hash: u64,
 ) -> Result<AnalyzeOutcome, AiError> {
-    let (embedding, emb_scale) = emb.quantize();
+    let p = prepared(cat, labels, asset, emb, hash)?;
     let now = crate::jobs::now_ms();
-    let rejected = cat.read(|tx| tx.ai().rejections(asset))?;
-    let tagged_with = cat
-        .read(|tx| tx.ai().analysis(asset))?
-        .filter(|a| a.model == MODEL_ID)
-        .map_or(0, |a| a.tag_list);
-    let tags = labels.map(|l| l.tags_for(emb, &rejected));
     cat.write(|tx| {
-        if tx.assets().get(asset)?.is_none() {
-            return Ok(());
-        }
-        tx.ai().put_analysis(&AiAnalysis {
-            asset_id: asset,
-            model: MODEL_ID.to_owned(),
-            embedding: embedding.clone(),
-            emb_scale,
-            dhash: hash,
-            made_ms: now,
-            tag_list: if tags.is_some() {
-                super::labels::LIST_VERSION
-            } else {
-                tagged_with
-            },
-        })?;
-        if let Some(tags) = &tags {
-            let rows: Vec<AssetTag> = tags
-                .iter()
-                .map(|(p, c)| AssetTag::ai(p.clone(), *c))
-                .collect();
-            tx.tags().set_for_asset(asset, TagSource::Ai, &rows)?;
-            tx.tags().prune_unused()?;
-        }
+        save(tx, &p, now)?;
+        tx.tags().prune_unused()?;
         Ok::<_, CatalogError>(())
     })?;
-    Ok(AnalyzeOutcome {
-        tags: tags
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(p, c)| (p.to_lightroom(), c))
-            .collect(),
-    })
+    Ok(p.outcome())
 }
 
 /// What a date range is analysed for. They are separate: finding
@@ -153,8 +217,9 @@ impl Purpose {
     }
 }
 
-/// Run one AI job. An item already analysed is not analysed again: to tag
-/// it, its stored embedding is scored (no thumbnail, no model).
+/// Run one AI job and save its result. An item already analysed is not
+/// analysed again: to tag it, its stored embedding is scored (no
+/// thumbnail, no model).
 pub fn analyze_asset(
     cat: &mut Catalog,
     cache: &Cache,
@@ -163,19 +228,43 @@ pub fn analyze_asset(
     asset: AssetId,
     purpose: Purpose,
 ) -> Result<AnalyzeOutcome, AiError> {
+    let p = prepare(cat, cache, model, labels, asset, purpose)?;
+    let now = crate::jobs::now_ms();
+    cat.write(|tx| {
+        save(tx, &p, now)?;
+        tx.tags().prune_unused()?;
+        Ok::<_, CatalogError>(())
+    })?;
+    Ok(p.outcome())
+}
+
+/// Work out one AI job's result without saving it (see [`save`]).
+pub fn prepare(
+    cat: &mut Catalog,
+    cache: &Cache,
+    model: &mut ImageModel,
+    labels: &LabelSet,
+    asset: AssetId,
+    purpose: Purpose,
+) -> Result<Prepared, AiError> {
     let stored = cat
         .read(|tx| tx.ai().analysis(asset))?
         .filter(|a| a.model == MODEL_ID);
     if let Some(a) = stored {
         if purpose == Purpose::Duplicates {
-            return Ok(AnalyzeOutcome { tags: Vec::new() });
+            return Ok(Prepared {
+                asset,
+                result: None,
+            });
         }
         let emb = super::Embedding::from_quantized(&a.embedding, a.emb_scale)?;
-        return store_results(cat, Some(labels), asset, &emb, a.dhash);
+        return prepared(cat, Some(labels), asset, &emb, a.dhash);
     }
     let img = thumbnail(cat, cache, asset)?;
+    let hash = dhash::dhash(&img)?;
+    let emb = model.embed(&img)?;
     let labels = (purpose == Purpose::Tags).then_some(labels);
-    store_analysis(cat, model, labels, asset, &img)
+    prepared(cat, labels, asset, &emb, hash)
 }
 
 /// Give AI tags again from the stored embeddings (after the tag list or
@@ -252,18 +341,61 @@ fn done(purpose: Purpose, it: &RangeItem) -> bool {
     }
 }
 
+/// What "Find duplicates" or "Tag photos" is run on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// Items captured from `from` to `to` (`YYYY-MM-DD`, local, inclusive).
+    Dates { from: String, to: String },
+    /// Items with an original in this folder of the volume or below it
+    /// (`""`: the whole volume).
+    Folder { volume: VolumeId, folder: String },
+}
+
+impl Target {
+    fn query(&self) -> Result<SearchQuery, AiError> {
+        Ok(match self {
+            Target::Dates { from, to } => {
+                check_range(from, to)?;
+                SearchQuery {
+                    from: Some(from.clone()),
+                    to: Some(to.clone()),
+                    ..Default::default()
+                }
+            }
+            Target::Folder { volume, folder } => SearchQuery {
+                volume: Some(*volume),
+                folder: Some(folder.trim_matches('/').to_owned()).filter(|f| !f.is_empty()),
+                ..Default::default()
+            },
+        })
+    }
+}
+
 /// Do `purpose` for the items captured from `from` to `to` (`YYYY-MM-DD`,
-/// local, inclusive): their jobs are queued ahead of other AI work, and
-/// the thumbnails of items not yet analysed ahead of the backlog. Items
-/// already done are left alone. Returns the range's status.
+/// local, inclusive): see [`enqueue_target`].
 pub fn enqueue_range(
     cat: &mut Catalog,
     from: &str,
     to: &str,
     purpose: Purpose,
 ) -> Result<RangeStatus, AiError> {
-    check_range(from, to)?;
-    let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
+    let t = Target::Dates {
+        from: from.to_owned(),
+        to: to.to_owned(),
+    };
+    enqueue_target(cat, &t, purpose)
+}
+
+/// Do `purpose` for a target's items: their jobs are queued ahead of other
+/// AI work, and the thumbnails of items not yet analysed ahead of the
+/// backlog. Items already done are left alone. Returns its status.
+pub fn enqueue_target(
+    cat: &mut Catalog,
+    target: &Target,
+    purpose: Purpose,
+) -> Result<RangeStatus, AiError> {
+    let q = target.query()?;
+    let all = cat.read(|tx| tx.ai().matching(&q, MODEL_ID))?;
     let todo: Vec<&RangeItem> = all
         .iter()
         .filter(|it| covers(purpose, it) && !done(purpose, it))
@@ -279,7 +411,7 @@ pub fn enqueue_range(
     // No video proxies: the AI does not need them.
     enqueue_kind(cat, &need_thumbs, crate::render::JOB_STILLS, 0, false)?;
     enqueue_for(cat, &ids, purpose, Priority::Recent, true)?;
-    range_status(cat, from, to, purpose)
+    target_status(cat, target, purpose)
 }
 
 /// How far `purpose` has got for the range.
@@ -289,9 +421,34 @@ pub fn range_status(
     to: &str,
     purpose: Purpose,
 ) -> Result<RangeStatus, AiError> {
-    check_range(from, to)?;
-    let all = cat.read(|tx| tx.ai().in_dates(from, to, MODEL_ID))?;
-    let (pending, _) = cat.read(|tx| tx.jobs().in_dates(purpose.job(), from, to))?;
+    let t = Target::Dates {
+        from: from.to_owned(),
+        to: to.to_owned(),
+    };
+    target_status(cat, &t, purpose)
+}
+
+/// Stop `purpose` for a target: its queued jobs are dropped (one already
+/// running finishes). What was done stays. Returns how many were dropped.
+pub fn stop_target(cat: &mut Catalog, target: &Target, purpose: Purpose) -> Result<u64, AiError> {
+    let q = target.query()?;
+    let ids: Vec<AssetId> = cat
+        .read(|tx| tx.ai().matching(&q, MODEL_ID))?
+        .into_iter()
+        .map(|it| it.id)
+        .collect();
+    Ok(cat.write(|tx| tx.jobs().remove_queued_for(purpose.job(), &ids))?)
+}
+
+/// How far `purpose` has got for a target.
+pub fn target_status(
+    cat: &Catalog,
+    target: &Target,
+    purpose: Purpose,
+) -> Result<RangeStatus, AiError> {
+    let q = target.query()?;
+    let all = cat.read(|tx| tx.ai().matching(&q, MODEL_ID))?;
+    let pending = cat.read(|tx| tx.jobs().pending_matching(purpose.job(), &q))?;
     let mine: Vec<&RangeItem> = all.iter().filter(|it| covers(purpose, it)).collect();
     Ok(RangeStatus {
         items: mine.len() as u64,
