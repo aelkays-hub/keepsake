@@ -246,6 +246,9 @@ export const api = {
     invoke<AiFolderStatus>("ai_analyze_folder", { volume, folder, what }),
   aiFolderStatus: (volume: string, folder: string, what: AiTask) =>
     invoke<AiFolderStatus>("ai_folder_status", { volume, folder, what }),
+  /** Stop a date range's work: queued jobs are dropped; what was done stays. */
+  aiRangeStop: (from: string, to: string, what: AiTask) =>
+    invoke<void>("ai_range_stop", { from, to, what }),
   /** Stop: its queued work is dropped; what was done stays. */
   aiFolderStop: (volume: string, folder: string, what: AiTask) =>
     invoke<void>("ai_folder_stop", { volume, folder, what }),

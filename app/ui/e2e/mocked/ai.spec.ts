@@ -110,23 +110,39 @@ test("right-click a year: find duplicates for those dates only", async ({ page }
 
 test("right-click a year: tag its photos, separately from duplicates", async ({ page }) => {
   // Queueing takes a while (a busy drive): the menu closes at once and the
-  // status bar says it is getting ready.
+  // progress window says it is getting ready.
   await open(page, "&queueing=1500");
   await calNode(page, "2015").click({ button: "right" });
   await page.getByTestId("date-menu-tags").click();
   await expect(page.getByTestId("date-menu")).toHaveCount(0);
-  const line = page.getByTestId("tagging");
-  await expect(line).toHaveText("2015: Getting ready to tag…");
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Tagging 2015");
+  await expect(win.getByTestId("ai-job-status")).toHaveText("Getting ready…");
   expect(await calls(page, "ai_analyze_range")).toEqual([
     { from: "2015-01-01", to: "2015-12-31", what: "tags" },
   ]);
-  // It stays in the library (on that year) and the status bar follows it.
+  // It stays in the library (on that year); the window has a progress bar.
   await expect(page.getByTestId("duplicates-screen")).toHaveCount(0);
-  await expect(line).toContainText("2015: Tagging:");
-  await expect(line).toHaveText(/^2015: [\d,]+ of [\d,]+ tagged\.$/, { timeout: 15_000 });
+  await expect(win.getByTestId("ai-job-bar")).toBeVisible();
+  await expect(win.getByTestId("ai-job-status")).toContainText(/done…$/);
+  await expect(win.getByTestId("ai-job-status")).toHaveText(/^[\d,]+ of [\d,]+ photos tagged\.$/, {
+    timeout: 15_000,
+  });
   expect((await calls(page, "ai_range_status")).every((c) => c.what === "tags")).toBe(true);
   // Finding duplicates was not asked for.
   expect(await calls(page, "ai_duplicates")).toEqual([]);
+});
+
+test("Tag photos on dates can be stopped", async ({ page }) => {
+  await open(page);
+  await calNode(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-tags").click();
+  const win = page.getByTestId("ai-job");
+  await win.getByTestId("ai-job-stop").click();
+  await expect(win.getByTestId("ai-job-status")).toContainText("Stopped:");
+  expect(await calls(page, "ai_range_stop")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "tags" },
+  ]);
 });
 
 test("the date menu explains when AI is off, and works from the keyboard", async ({ page }) => {
@@ -143,14 +159,15 @@ test("the date menu explains when AI is off, and works from the keyboard", async
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
-  // Tag photos says why in the status bar, until dismissed.
+  // Tag photos says why in its window, until closed.
   await calNode(page, "2015").click({ button: "right" });
   await page.getByTestId("date-menu-tags").click();
-  const line = page.getByTestId("tagging");
-  await expect(line).toHaveAttribute("role", "alert");
-  await expect(line).toContainText("2015: Could not tag: Turn on On-device AI in Settings");
-  await page.getByTestId("tagging-dismiss").click();
-  await expect(line).toHaveCount(0);
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("alert")).toContainText(
+    "Could not start: Turn on On-device AI in Settings",
+  );
+  await win.getByTestId("ai-job-close").click();
+  await expect(win).toHaveCount(0);
 });
 
 test("Find duplicates says it is working while the dates are queued", async ({ page }) => {

@@ -47,21 +47,25 @@ export interface UiState {
   dialog: Dialog;
   /** The dates the Duplicates screen shows (`null`: every analysed day). */
   dupRange: DateRange | null;
-  /** Dates being tagged (the status bar shows how far it has got). */
-  tagging: DateRange | null;
-  /** A folder being tagged or searched for duplicates (a window shows it). */
-  aiJob: AiFolderJob | null;
+  /** Tag photos or Find duplicates running for a folder or dates (a
+   * window shows how far it has got). */
+  aiJob: AiJob | null;
 }
 
-/** Find duplicates or Tag photos for a folder and the folders in it. */
-export interface AiFolderJob {
-  volume: string;
-  /** On the volume, `2025/May` (`""`: all of it). */
-  folder: string;
-  /** "Pictures › 2025 › May". */
+/** Find duplicates or Tag photos for a folder and the folders in it, or
+ * for a year, month or day. */
+export type AiJob = (
+  | {
+      volume: string;
+      /** On the volume, `2025/May` (`""`: all of it). */
+      folder: string;
+    }
+  | { range: DateRange }
+) & {
+  /** "Pictures › 2025 › May", "July 2026". */
   title: string;
   what: AiTask;
-}
+};
 
 /** A year, month or day of the calendar, as dates (`YYYY-MM-DD`, inclusive). */
 export interface DateRange {
@@ -88,10 +92,8 @@ export type Msg =
   | { t: "dialog"; dialog: Dialog }
   /** The Duplicates screen, for these dates (`null`: all). */
   | { t: "duplicates"; range: DateRange | null }
-  /** Show tagging progress for these dates (`null`: stop showing it). */
-  | { t: "tagging"; range: DateRange | null }
-  /** Start (or, `null`, close) a folder's AI job. */
-  | { t: "aiJob"; job: AiFolderJob | null };
+  /** Start (or, `null`, close) an AI job. */
+  | { t: "aiJob"; job: AiJob | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -107,7 +109,6 @@ export const initial: UiState = {
   viewer: false,
   dialog: null,
   dupRange: null,
-  tagging: null,
   aiJob: null,
 };
 
@@ -162,8 +163,6 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, dialog: m.dialog };
     case "duplicates":
       return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
-    case "tagging":
-      return { ...s, tagging: m.range };
     case "aiJob":
       return { ...s, aiJob: m.job };
   }

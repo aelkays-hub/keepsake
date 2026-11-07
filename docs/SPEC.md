@@ -130,7 +130,7 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
 - **Done early (ADR-035), off until turned on in Settings → On-device AI**, which downloads the model once (372 MB, SigLIP 2 base, Apache-2.0) into this computer's cache folder. It runs on the graphics card where it can, else the processor, from the thumbnails; no photo leaves the computer and no original is changed.
 - **Only the dates you ask about, one task at a time:** right-click a year, month or day in the sidebar's calendar tree (or press the Menu key or Shift+F10).
   - **Find duplicates** compares that period's RAW photos and opens the Duplicates screen on it, showing how far it has got.
-  - **Tag photos** tags all of that period's photos and shows its progress in the status bar.
+  - **Tag photos** tags all of that period's photos and shows its progress in a window, with Stop and Hide.
   - The two are separate, and nothing is analysed in the background otherwise.
 - Auto-tagging: up to 6 tags per photo from a built-in list of 110 (people, beach, dog, food, sunset, moon, mosque, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. A photo with no sure tag gets the model's best guess (one or two).
 - The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it.

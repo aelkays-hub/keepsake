@@ -1,13 +1,31 @@
-// Find duplicates or Tag photos for a folder and the folders in it, from
-// the folder tree's right-click menu: a window shows how far it has got,
-// with Stop and Hide. Hidden, a small button in the corner brings it back.
-// The work runs in the AI worker either way.
+// Tag photos (a year, month, day or folder) and Find duplicates (a
+// folder): a window in the corner shows how far it has got, with Stop and
+// Hide. Hidden, a small button in the corner brings it back. The work runs
+// in the AI worker either way.
 
 import { useEffect, useState } from "react";
 
 import { api, type AiFolderStatus } from "../api";
 import * as fmt from "../format";
 import { useUi } from "../state";
+import type { AiJob } from "../uiModel";
+
+/** The job's three calls, for a folder or for dates. */
+function calls(job: AiJob) {
+  if ("range" in job) {
+    const { from, to } = job.range;
+    return {
+      start: () => api.aiAnalyzeRange(from, to, job.what),
+      status: () => api.aiRangeStatus(from, to, job.what),
+      stop: () => api.aiRangeStop(from, to, job.what),
+    };
+  }
+  return {
+    start: () => api.aiAnalyzeFolder(job.volume, job.folder, job.what),
+    status: () => api.aiFolderStatus(job.volume, job.folder, job.what),
+    stop: () => api.aiFolderStop(job.volume, job.folder, job.what),
+  };
+}
 
 export function AiJobWindow() {
   const { s, dispatch } = useUi();
@@ -25,9 +43,10 @@ export function AiJobWindow() {
     if (!job) return;
     let live = true;
     let timer = 0;
+    const c = calls(job);
     const poll = () =>
-      api
-        .aiFolderStatus(job.volume, job.folder, job.what)
+      c
+        .status()
         .then((x) => {
           if (!live) return;
           setSt(x);
@@ -36,8 +55,7 @@ export function AiJobWindow() {
         })
         .catch((e) => live && setProblem(String(e)));
     // Queueing can take a few seconds on a busy drive: the window says so.
-    api
-      .aiAnalyzeFolder(job.volume, job.folder, job.what)
+    c.start()
       .then((x) => {
         if (!live) return;
         setSt(x);
@@ -74,7 +92,7 @@ export function AiJobWindow() {
   if (problem) line = `Could not start: ${problem}`;
   else if (!st) line = "Getting ready…";
   else if (st.items === 0)
-    line = tags ? "No photos in this folder." : "No RAW photos in this folder.";
+    line = `No ${tags ? "" : "RAW "}photos ${"range" in job ? "on these dates" : "in this folder"}.`;
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
@@ -88,7 +106,9 @@ export function AiJobWindow() {
       <h2>
         {what} {job.title}
       </h2>
-      <p className="muted">This folder and the folders in it.</p>
+      <p className="muted">
+        {"range" in job ? "Photos taken on these dates." : "This folder and the folders in it."}
+      </p>
       <progress
         max={100}
         value={st && st.items > 0 ? pct : undefined}
@@ -96,16 +116,17 @@ export function AiJobWindow() {
         data-testid="ai-job-bar"
       />
       <p role={problem ? "alert" : "status"} data-testid="ai-job-status">
-        {running && <span className="spinner" aria-hidden={true} />} {line}
+        {running && <span className="spinner" aria-hidden={true} />}
+        {line}
       </p>
       <footer className="modal-foot">
         {running && st && (
           <button
             onClick={() =>
-              api
-                .aiFolderStop(job.volume, job.folder, job.what)
+              calls(job)
+                .stop()
                 .then(() => setStopped(true))
-                .then(() => api.aiFolderStatus(job.volume, job.folder, job.what))
+                .then(() => calls(job).status())
                 .then(setSt)
                 .catch((e) => setProblem(String(e)))
             }

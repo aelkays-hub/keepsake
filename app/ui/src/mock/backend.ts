@@ -1184,6 +1184,10 @@ export function installMock(): void {
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
+        case "ai_range_stop": {
+          st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);
+          return null;
+        }
         case "ai_analyze_folder":
         case "ai_folder_status":
         case "ai_folder_stop": {

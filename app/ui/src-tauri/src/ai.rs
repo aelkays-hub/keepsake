@@ -346,6 +346,22 @@ pub fn ai_folder_status(
     ))
 }
 
+/// Stop: drop the date range's queued jobs of `what` (what was done stays).
+#[tauri::command(async)]
+pub fn ai_range_stop(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+    what: String,
+) -> CmdResult<()> {
+    let purpose = purpose(&what)?;
+    let target = ai::Target::Dates { from, to };
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    ai::stop_target(&mut cat, &target, purpose).map_err(err)?;
+    Ok(())
+}
+
 /// Stop: drop the folder's queued jobs of `what` (what was done stays).
 #[tauri::command(async)]
 pub fn ai_folder_stop(

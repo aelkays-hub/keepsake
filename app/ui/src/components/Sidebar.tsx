@@ -396,10 +396,10 @@ export function Sidebar() {
                 const c = dated(menu.entry);
                 const r = c && calRange(c.year, c.month, c.day);
                 if (!r) return;
-                // At once: the status bar shows it getting ready, queues
-                // the work and follows it.
+                // At once: the progress window shows it getting ready,
+                // queues the work and follows it.
                 openEntry(menu.entry);
-                dispatch({ t: "tagging", range: r });
+                dispatch({ t: "aiJob", job: { range: r, title: r.title, what: "tags" } });
               },
             },
           ]}

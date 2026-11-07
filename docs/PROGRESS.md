@@ -96,6 +96,11 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### 7 Nov 2026 (evening): one progress window, and the launcher updates itself
+- **Asked:** "I do not see the tagging progress bar?" Tag photos on a date showed only a line in the status bar; the progress window was for folders. Now Tag photos on a year, month or day opens the same window, with its bar, Stop (`ai_range_stop`) and Hide. The status-bar line is gone.
+- **Asked:** "update my script in keepsake/scripts". `scripts/keepsake.bat` now gets the latest changes of its branch (`git pull --ff-only`) before it starts or builds the app. It skips this when files there were changed, and carries on with the copy it has if it is offline.
+- **Tests:** the mocked UI's date tagging uses the window (getting ready, bar, done), Stop on dates, and AI off in the window.
+
 ### 7 Nov 2026 (evening): an app icon
 - **Asked:** "how about we create an icon for the app!" The product owner chose a modern camera (from a camera and a lens, after three first concepts).
 - **Built:** a mirrorless camera, front view, dark grey on an orange rounded square. The source is `app/ui/src-tauri/icons/icon.svg`. It was rendered to a 1024 px PNG (Edge, headless), and `pnpm tauri icon` made the `.ico` (Windows), the `.icns` (macOS) and the PNGs; only the desktop files are kept. This replaces the blank placeholders. No new dependency.
