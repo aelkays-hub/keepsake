@@ -71,8 +71,13 @@ impl<M> Ai<'_, M> {
     }
 
     /// Analysed assets captured on `date` (`YYYY-MM-DD`, local time) with
-    /// `model`, in capture order.
-    pub fn day_items(&self, date: &str, model: &str) -> Result<Vec<DayItem>, CatalogError> {
+    /// `model`, in capture order; with `raw_only`, only those with a RAW file.
+    pub fn day_items(
+        &self,
+        date: &str,
+        model: &str,
+        raw_only: bool,
+    ) -> Result<Vec<DayItem>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
             "SELECT {ANALYSIS_COLS}, a.media_kind, a.capture_ts_ms, a.rating,
                     s.sequence_id, c.choice
@@ -80,11 +85,11 @@ impl<M> Ai<'_, M> {
                JOIN ai_analysis x ON x.asset_id = a.id
                LEFT JOIN asset_sequences s ON s.asset_id = a.id
                LEFT JOIN duplicate_choices c ON c.asset_id = a.id
-              WHERE a.capture_local_date = ?1 AND x.model = ?2
+              WHERE a.capture_local_date = ?1 AND x.model = ?2 AND (?3 = 0 OR a.is_raw = 1)
               ORDER BY a.capture_ts_ms, a.id"
         ))?;
         let rows = st
-            .query_map(params![date, model], |r| {
+            .query_map(params![date, model, raw_only], |r| {
                 Ok(DayItem {
                     analysis: analysis_row(r, 0)?,
                     media_kind: r.get(6)?,
@@ -99,12 +104,14 @@ impl<M> Ai<'_, M> {
     }
 
     /// Days (`YYYY-MM-DD`) from `from` to `to` (inclusive; `None`: no
-    /// bound) with at least two assets analysed with `model`, newest first.
+    /// bound) with at least two assets analysed with `model` (with a RAW
+    /// file, if `raw_only`), newest first.
     pub fn days_with_pairs(
         &self,
         model: &str,
         from: Option<&str>,
         to: Option<&str>,
+        raw_only: bool,
     ) -> Result<Vec<String>, CatalogError> {
         let mut st = self.conn.prepare(
             "SELECT a.capture_local_date
@@ -112,11 +119,12 @@ impl<M> Ai<'_, M> {
               WHERE a.capture_local_date IS NOT NULL AND x.model = ?1
                 AND a.capture_local_date >= ifnull(?2, '')
                 AND a.capture_local_date <= ifnull(?3, '9999')
+                AND (?4 = 0 OR a.is_raw = 1)
               GROUP BY a.capture_local_date HAVING count(*) >= 2
               ORDER BY a.capture_local_date DESC",
         )?;
         let rows = st
-            .query_map(params![model, from, to], |r| r.get(0))?
+            .query_map(params![model, from, to, raw_only], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         Ok(rows)
     }

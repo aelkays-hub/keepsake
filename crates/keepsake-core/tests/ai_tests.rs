@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 use image::{DynamicImage, Rgb, RgbImage};
+use keepsake_core::ai::duplicates::Scope;
 use keepsake_core::ai::{
     self, analyze, dhash, duplicates, install, Embedding, ImageModel, LabelSet, JOB_AI, MODEL_ID,
 };
@@ -73,7 +74,11 @@ impl World {
         let media = root.join("media");
         std::fs::create_dir_all(&media).unwrap();
         for (name, img) in photos {
-            std::fs::write(media.join(name), jpeg(img)).unwrap();
+            // JPEG bytes whatever the extension: the catalog goes by name
+            // (an `.ARW` here is a RAW to it), and these tests never decode.
+            let path = media.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, jpeg(img)).unwrap();
         }
         add_volume(
             &mut cat,
@@ -184,7 +189,7 @@ fn analyses_are_stored_and_found_by_day() {
 
     let day = w
         .cat
-        .read(|tx| tx.ai().day_items("2026-07-04", MODEL_ID))
+        .read(|tx| tx.ai().day_items("2026-07-04", MODEL_ID, false))
         .unwrap();
     assert_eq!(day.len(), 1, "only analysed items");
     let counts = w.cat.read(|tx| tx.ai().counts(MODEL_ID, JOB_AI)).unwrap();
@@ -355,7 +360,7 @@ fn same_day_copies_are_grouped_and_the_choice_is_shown() {
         0x1234_5678_0000_0000,
     );
 
-    let groups = duplicates::day_groups(&w.cat, "2026-07-04").unwrap();
+    let groups = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
     assert_eq!(groups.len(), 1);
     let members: Vec<AssetId> = groups[0].members.iter().map(|m| m.asset_id).collect();
     assert_eq!(members, ids[..3].to_vec());
@@ -366,11 +371,11 @@ fn same_day_copies_are_grouped_and_the_choice_is_shown() {
     MetadataService::new(&w.lib, &mut w.cat)
         .set_duplicate_choice(ids[1], Some(DuplicateChoice::Keeper))
         .unwrap();
-    let groups = duplicates::day_groups(&w.cat, "2026-07-04").unwrap();
+    let groups = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
     assert_eq!(groups[0].keeper, ids[1]);
     assert!(groups[0].decided);
 
-    let sum = duplicates::summary(&w.cat).unwrap();
+    let sum = duplicates::summary_of(&w.cat, None, None, Scope::All).unwrap();
     assert_eq!((sum.groups, sum.items, sum.undecided), (1, 3, 0));
     assert_eq!(sum.days[0].date, "2026-07-04");
 
@@ -378,8 +383,35 @@ fn same_day_copies_are_grouped_and_the_choice_is_shown() {
     MetadataService::new(&w.lib, &mut w.cat)
         .set_duplicate_choice(ids[2], Some(DuplicateChoice::NotDuplicate))
         .unwrap();
-    let groups = duplicates::day_groups(&w.cat, "2026-07-04").unwrap();
+    let groups = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
     assert_eq!(groups[0].members.len(), 2);
+}
+
+#[test]
+fn only_raw_photos_are_duplicates_and_an_edited_jpeg_is_not_one() {
+    let names = ["DSC001.ARW", "DSC002.ARW", "DSC003.JPG", "Edits/DSC001.JPG"];
+    let imgs: Vec<(&str, DynamicImage)> = names.iter().map(|n| (*n, scene(1, 64, 48))).collect();
+    let mut w = World::new(&imgs);
+    w.same_day(&names, 20);
+    let ids: Vec<AssetId> = names.iter().map(|n| w.asset(n)).collect();
+    let labels = LabelSet::builtin().unwrap();
+    let dog = label_vector(&labels, "Dog");
+    // All four are the same picture.
+    for id in &ids {
+        put(&mut w.cat, *id, &dog, 7);
+    }
+    // Every photo: one group of four.
+    let all = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].members.len(), 4);
+    // What the app shows: the two RAWs only; the JPEG-only shot and the
+    // edited copy named like the RAW are left out.
+    let groups = duplicates::day_groups(&w.cat, "2026-07-04").unwrap();
+    assert_eq!(groups.len(), 1);
+    let members: Vec<AssetId> = groups[0].members.iter().map(|m| m.asset_id).collect();
+    assert_eq!(members, ids[..2].to_vec());
+    let sum = duplicates::summary_in(&w.cat, None, None).unwrap();
+    assert_eq!((sum.groups, sum.items), (1, 2));
 }
 
 #[test]
@@ -392,7 +424,12 @@ fn different_days_never_group() {
         let id = w.asset(n);
         put(&mut w.cat, id, &dog, 7);
     }
-    assert_eq!(duplicates::summary(&w.cat).unwrap().groups, 0);
+    assert_eq!(
+        duplicates::summary_of(&w.cat, None, None, Scope::All)
+            .unwrap()
+            .groups,
+        0
+    );
 }
 
 // ── Asking for a date range ─────────────────────────────────────────────────
@@ -461,8 +498,15 @@ fn the_summary_can_be_limited_to_dates() {
         let id = w.asset(n);
         put(&mut w.cat, id, &dog, 7);
     }
-    assert_eq!(duplicates::summary(&w.cat).unwrap().days.len(), 2);
-    let one = duplicates::summary_in(&w.cat, Some("2026-07-05"), Some("2026-07-05")).unwrap();
+    assert_eq!(
+        duplicates::summary_of(&w.cat, None, None, Scope::All)
+            .unwrap()
+            .days
+            .len(),
+        2
+    );
+    let one =
+        duplicates::summary_of(&w.cat, Some("2026-07-05"), Some("2026-07-05"), Scope::All).unwrap();
     assert_eq!(one.days.len(), 1);
     assert_eq!(one.days[0].date, "2026-07-05");
 }
@@ -558,7 +602,7 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
         assert_eq!(job.state, JobState::Done, "{job:?} {evs:?}");
         assert!(w.cat.read(|tx| tx.ai().analysis(*id)).unwrap().is_some());
     }
-    let groups = duplicates::day_groups(&w.cat, "2026-07-04").unwrap();
+    let groups = duplicates::day_groups_of(&w.cat, "2026-07-04", Scope::All).unwrap();
     assert_eq!(groups.len(), 1, "{groups:?}");
     let members: Vec<AssetId> = groups[0].members.iter().map(|m| m.asset_id).collect();
     assert_eq!(members, ids[..2].to_vec());

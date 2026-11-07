@@ -157,9 +157,10 @@ export function DuplicatesScreen() {
         Duplicates{range ? ` · ${range.title}` : ""}
       </h1>
       <p className="muted">
-        Near-identical shots taken on the same day. Pick the one to keep: the others are marked “not
-        kept” (the toolbar’s Hide not kept leaves them out of the library). No file is moved or
-        deleted.
+        Near-identical RAW photos taken on the same day (a JPEG with the same name as a RAW is an
+        edited copy, so JPEG-only photos and videos are not compared). Pick the one to keep: the
+        others are marked “not kept” (the toolbar’s Hide not kept leaves them out of the library).
+        No file is moved or deleted.
       </p>
       <div className="row">
         <p className="muted" role="status" data-testid="dup-ai-status">

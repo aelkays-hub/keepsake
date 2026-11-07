@@ -1,7 +1,12 @@
 //! Same-day duplicates: bursts, re-shoots and copies of one picture.
 //!
 //! Found on demand, one calendar day (capture local date) at a time, from
-//! the stored analyses; nothing about the groups is stored. Two items of
+//! the stored analyses; nothing about the groups is stored.
+//!
+//! **RAW photos only** ([`Scope::Raw`], what the app and CLI use): a JPEG
+//! that has the same name as a RAW file is an edited copy, not a duplicate,
+//! so JPEG-only photos (and videos) are never put in a group. A RAW + JPEG
+//! pair is one item and takes part as a RAW. Two items of
 //! the same kind (photo with photo, video with video) are linked when
 //! - their difference hashes are within [`dhash::NEAR`] bits (the same
 //!   picture, re-encoded or resized), or
@@ -18,6 +23,15 @@ use serde::Serialize;
 use super::dhash;
 use super::{AiError, MODEL_ID};
 use crate::catalog::{AssetId, Catalog, DayItem, DuplicateChoice, MediaKind};
+
+/// Which items are compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Items with a RAW file (product owner: edited JPEGs are not duplicates).
+    Raw,
+    /// Every analysed photo and video.
+    All,
+}
 
 /// Cosine at or above which two items count as the same shot.
 pub const COSINE_SAME: f32 = 0.93;
@@ -204,7 +218,17 @@ fn make_group(date: &str, items: &[DayItem], idx: &[usize]) -> Option<DuplicateG
 
 /// The groups of one day.
 pub fn day_groups(cat: &Catalog, date: &str) -> Result<Vec<DuplicateGroup>, AiError> {
-    let items = cat.read(|tx| tx.ai().day_items(date, MODEL_ID))?;
+    day_groups_of(cat, date, Scope::Raw)
+}
+
+/// The groups of one day among the items of `scope`.
+pub fn day_groups_of(
+    cat: &Catalog,
+    date: &str,
+    scope: Scope,
+) -> Result<Vec<DuplicateGroup>, AiError> {
+    let raw = scope == Scope::Raw;
+    let items = cat.read(|tx| tx.ai().day_items(date, MODEL_ID, raw))?;
     Ok(group_indexes(&items)
         .iter()
         .filter_map(|g| make_group(date, &items, g))
@@ -223,10 +247,21 @@ pub fn summary_in(
     from: Option<&str>,
     to: Option<&str>,
 ) -> Result<DuplicateSummary, AiError> {
-    let dates = cat.read(|tx| tx.ai().days_with_pairs(MODEL_ID, from, to))?;
+    summary_of(cat, from, to, Scope::Raw)
+}
+
+/// As [`summary_in`], among the items of `scope`.
+pub fn summary_of(
+    cat: &Catalog,
+    from: Option<&str>,
+    to: Option<&str>,
+    scope: Scope,
+) -> Result<DuplicateSummary, AiError> {
+    let raw = scope == Scope::Raw;
+    let dates = cat.read(|tx| tx.ai().days_with_pairs(MODEL_ID, from, to, raw))?;
     let mut out = DuplicateSummary::default();
     for date in dates {
-        let groups = day_groups(cat, &date)?;
+        let groups = day_groups_of(cat, &date, scope)?;
         if groups.is_empty() {
             continue;
         }
