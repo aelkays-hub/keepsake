@@ -38,8 +38,10 @@ Manual (both OSes), with a library that has some bursts or repeated shots:
 11. Go to **All items** and tick **Hide not kept** in the toolbar. **Expected:** the item count drops by the number of "not kept" photos; untick to see them again.
 12. Check the originals: in Explorer / Finder their modified dates and sizes are unchanged and none was moved or deleted. Only the library's XMP sidecars changed (they now hold `keepsake:DuplicateChoice` / `keepsake:AITagsRejected`).
 13. Untick **Tag photos and find duplicates**, then press **Delete the downloaded model**. **Expected:** the model file is gone; AI tags and your keeper choices stay. Duplicates now says the AI is off, with a button to Settings.
-14. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
-15. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
+14. In the toolbar, open the **Tag** list (after Lens). **Expected:** "Any tag", then every keyword and AI tag with its count, most used first (e.g. "People (412)"). Choose one. **Expected:** only items with that tag show, and the count in the status bar drops. Press **✕ Clear**. **Expected:** the list is back on "Any tag" and every item shows. On both OSes.
+15. Tag a day whose photos have few obvious subjects (a building, the moon, flowers). **Expected:** nearly every photo gets one or two tags; hover shows they are less sure. ✕ removes a wrong one for good.
+16. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
+17. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
 
 macOS notes: CoreML is tried first, then the CPU. The installer does not bundle ONNX Runtime yet (no macOS app bundle of the sidecars), so on a Mac test from source.
 

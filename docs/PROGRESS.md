@@ -96,6 +96,18 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### 7 Nov 2026 (later): best-guess tags and a tag list in the toolbar
+- **Asked:** "tagging is still very poor we need a stronger AI … I am getting less than 50% of pics tagged", and "would be good to have a dropdown of tags at top of screen".
+- **Measured:** SigLIP 2 Large (approved for a trial) on 300 random library photos.
+  - It was no better than the base model: 233 photos with a sure tag against 247, and about 20 of 24 right best guesses against 21.
+  - It was three times slower, so it was not adopted.
+  - The base model's best guess was usually right but under the 0.02 cut-off.
+- **Built:**
+  - A photo with no sure tag gets its best guess (two if close), down to 0.002. 296 of the 300 now get a tag, against 247.
+  - New tags: Moon, Mosque, Helicopter and Squirrel (110 in all). Tag list version 3, so older tags are redone quickly on the next Tag photos.
+  - The toolbar's **Tag** list ("Any tag", then every tag with its count, most used first) filters the library to that tag and the tags below it.
+- **Tests:** `a_photo_with_no_sure_tag_gets_its_best_guess`, tag counts and the tag filter in `hierarchical_tags_and_search`, and the mocked UI's tag list.
+
 ### 7 Nov 2026: people are tagged, and Tag photos shows it has started
 - **Asked:** "when menu is selected, there is no indication of anything happening, there needs to be some feedback...like tagging", and "a simple picture contains a person or face and your AI model is failing maybe we need to change the model with a better one".
 - **Found:**

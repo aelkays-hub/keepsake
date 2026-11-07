@@ -162,6 +162,22 @@ test("Find duplicates says it is working while the dates are queued", async ({ p
   await expect(page.getByTestId("date-menu")).toHaveCount(0);
 });
 
+test("the toolbar's tag list shows only items with that tag", async ({ page }) => {
+  await open(page);
+  const tag = page.getByTestId("tag");
+  await expect(tag.locator("option").first()).toHaveText("Any tag");
+  // Each of the 6 mock AI tags is on a third of the items.
+  await expect(tag.locator("option")).toHaveCount(7);
+  await expect(tag.locator("option", { hasText: "Dog" })).toHaveText("Dog (334)");
+  await tag.selectOption("Dog");
+  await expect(page.getByTestId("count")).toHaveText("334 items");
+  expect((await calls(page, "view_open")).at(-1)).toMatchObject({ query: { tag: "Dog" } });
+  // ✕ Clear shows everything again.
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(tag).toHaveValue("");
+  await expect(page.getByTestId("count")).toHaveText("1,000 items");
+});
+
 test("AI tags in the inspector: remove one, keep one as a keyword", async ({ page }) => {
   await open(page);
   await page.getByTestId("tile").first().click();

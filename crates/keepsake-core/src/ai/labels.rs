@@ -24,8 +24,9 @@ const MAGIC: &[u8; 8] = b"KSLV2\0\0\0";
 /// The version of the tag list. Photos tagged with an older list are
 /// tagged again (from their stored analysis) when Tag photos is next run
 /// on their dates. 1: one averaged vector per tag; 2: best phrase, more
-/// phrases for people, implied tags.
-pub const LIST_VERSION: u32 = 2;
+/// phrases for people, implied tags; 3: best guesses when nothing is
+/// sure, and Moon, Mosque, Helicopter and Squirrel.
+pub const LIST_VERSION: u32 = 3;
 
 /// `exp(logit_scale)` of google/siglip2-base-patch16-224.
 pub const LOGIT_SCALE: f32 = 112.668_9;
@@ -39,6 +40,13 @@ pub const MIN_PROB: f32 = 0.02;
 /// At most this many tags per item, most likely first (implied ones
 /// included).
 pub const MAX_TAGS: usize = 6;
+/// A photo with no tag at [`MIN_PROB`] still gets its best guess when it
+/// scores at least this. On 300 of the product owner's photos only 247
+/// had a sure tag, yet the best guess was right for about 21 of 24 of the
+/// others; with guesses 296 of 300 get a tag.
+pub const GUESS_MIN_PROB: f32 = 0.002;
+/// At most this many best guesses.
+const GUESSES: usize = 2;
 
 /// One tag and its phrases' text vectors.
 #[derive(Debug, Clone)]
@@ -218,15 +226,21 @@ impl LabelSet {
         out.into_iter().map(|(n, c)| (n, probability(c))).collect()
     }
 
-    /// The tags to give an image: at least [`MIN_PROB`], each followed by
-    /// the tag it implies (at the same probability, unless that scored
-    /// higher itself), at most [`MAX_TAGS`], leaving out `rejected` ones.
+    /// The tags to give an image: those at least [`MIN_PROB`]; when there
+    /// are none, its best guess (and the second, if at least half as
+    /// likely), down to [`GUESS_MIN_PROB`]. Each is followed by the tag it
+    /// implies (at the same probability, unless that scored higher
+    /// itself); at most [`MAX_TAGS`], leaving out `rejected` ones.
     pub fn tags_for(&self, image: &Embedding, rejected: &[TagPath]) -> Vec<(TagPath, f64)> {
+        let not_rejected = |name: &str| TagPath::new([name]).is_ok_and(|t| !rejected.contains(&t));
+        let ranked: Vec<(&str, f32)> = self
+            .probabilities(image)
+            .into_iter()
+            .filter(|(n, _)| not_rejected(n))
+            .collect();
+        let probs: Vec<f32> = ranked.iter().map(|(_, p)| *p).collect();
         let mut out: Vec<(String, f32)> = Vec::new();
-        for (name, p) in self.probabilities(image) {
-            if p < MIN_PROB {
-                break;
-            }
+        for (name, p) in ranked.into_iter().take(how_many(&probs)) {
             let implied = self
                 .labels
                 .iter()
@@ -244,6 +258,21 @@ impl LabelSet {
             .take(MAX_TAGS)
             .collect()
     }
+}
+
+/// How many of the best tags to give, from their probabilities (most
+/// likely first): every sure one; with none, up to [`GUESSES`] guesses at
+/// [`GUESS_MIN_PROB`] or more and at least half as likely as the best.
+fn how_many(probs: &[f32]) -> usize {
+    let best = probs.first().copied().unwrap_or(0.0);
+    if best >= MIN_PROB {
+        return probs.iter().take_while(|p| **p >= MIN_PROB).count();
+    }
+    probs
+        .iter()
+        .take(GUESSES)
+        .take_while(|p| **p >= GUESS_MIN_PROB && **p * 2.0 >= best)
+        .count()
 }
 
 /// SigLIP's probability for a cosine similarity.
@@ -339,6 +368,20 @@ mod tests {
             .tags_for(image, &[people])
             .iter()
             .all(|(t, _)| t.to_lightroom() != "People"));
+    }
+
+    #[test]
+    fn a_photo_with_no_sure_tag_gets_its_best_guess() {
+        // Sure tags: all of them, no guesses.
+        assert_eq!(how_many(&[0.5, 0.03, 0.019, 0.01]), 2);
+        // None sure: the best guess, and the second if at least half as
+        // likely.
+        assert_eq!(how_many(&[0.012, 0.007, 0.006]), 2);
+        assert_eq!(how_many(&[0.012, 0.005]), 1);
+        assert_eq!(how_many(&[0.0021, 0.0011]), 1);
+        // Too unsure, or nothing: no tag.
+        assert_eq!(how_many(&[0.0015, 0.001]), 0);
+        assert_eq!(how_many(&[]), 0);
     }
 
     #[test]

@@ -68,6 +68,10 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub hide_not_kept: Option<bool>,
+        /// Has this tag (keyword or AI tag) or one below it (`Places|Lake`).
+        #[serde(default)]
+        #[ts(optional)]
+        pub tag: Option<String>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).
@@ -252,6 +256,8 @@ dto! {
     pub struct Facets {
         pub cameras: Vec<FacetItem>,
         pub lenses: Vec<FacetItem>,
+        /// Tags (keywords and AI tags), most used first.
+        pub tags: Vec<FacetItem>,
     }
 
     pub struct VolumeItem {

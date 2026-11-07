@@ -367,6 +367,39 @@ fn hierarchical_tags_and_search() {
     .unwrap();
     assert_eq!(cat.read(|tx| tx.tags().all_paths()).unwrap().len(), 4);
 
+    // The toolbar's tag list: every tag with its items (a parent counts
+    // those below it), most used first; filtering takes a tag and below.
+    let counts: Vec<(String, u64)> = cat
+        .read(|tx| tx.tags().counts())
+        .unwrap()
+        .into_iter()
+        .map(|(p, n)| (p.to_lightroom(), n))
+        .collect();
+    assert_eq!(
+        counts,
+        [
+            ("Travel".to_owned(), 2),
+            ("Travel|Japan".to_owned(), 2),
+            ("Beach".to_owned(), 1),
+            ("Travel|Japan|Tokyo".to_owned(), 1),
+        ]
+    );
+    let with = |t: &str| {
+        let q = keepsake_core::catalog::SearchQuery {
+            tag: Some(t.into()),
+            ..Default::default()
+        };
+        let mut ids = cat.read(|tx| tx.search().query(&q)).unwrap();
+        ids.sort();
+        ids
+    };
+    let mut both = vec![a.id, b.id];
+    both.sort();
+    assert_eq!(with("Travel"), both);
+    assert_eq!(with("Travel|Japan|Tokyo"), vec![a.id]);
+    assert_eq!(with("Beach"), vec![b.id], "AI tags too");
+    assert!(with("Trav").is_empty(), "whole names only");
+
     // Removing tags and pruning empties the branch.
     cat.write(|tx| {
         tx.tags().set_for_asset(a.id, TagSource::User, &[])?;

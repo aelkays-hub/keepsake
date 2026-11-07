@@ -300,6 +300,15 @@ export function installMock(): void {
   /** An item's file extensions, as the report counts them. */
   const typesOf = (it: Item) =>
     it.kind === "video" ? ["MP4"] : it.kind === "raw" ? ["ARW", "JPG"] : ["JPG"];
+  /** An item's AI tags: two of AI_LABELS, less the ones removed. */
+  const aiTagsOf = (i: number) =>
+    st.ai.enabled
+      ? [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]].filter(
+          (t) => !(st.aiRejected.get(i) ?? []).includes(t),
+        )
+      : [];
+  /** Its keywords and AI tags. */
+  const tagsOf = (i: number) => [...new Set([...(st.keywords.get(i) ?? []), ...aiTagsOf(i)])];
   const matches = (q: Query) => (it: Item) => {
     const d = day(it.t);
     if (q.undated && it.t !== null) return false;
@@ -313,6 +322,7 @@ export function installMock(): void {
     if (q.kind && it.kind !== q.kind && !(q.kind === "photo" && it.kind === "raw")) return false;
     if (q.minRating && rating(it) < q.minRating) return false;
     if (q.hideNotKept && st.choice.get(it.i) === "not_kept") return false;
+    if (q.tag && !tagsOf(it.i).some((t) => t === q.tag || t.startsWith(`${q.tag}|`))) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -478,6 +488,14 @@ export function installMock(): void {
           return {
             cameras: CAMERAS.map((c) => ({ value: c, count: Math.round(n / 4) })),
             lenses: LENSES.map((c) => ({ value: c, count: Math.round(n / 4) })),
+            tags: (() => {
+              const counts = new Map<string, number>();
+              for (const it of all)
+                for (const t of tagsOf(it.i)) counts.set(t, (counts.get(t) ?? 0) + 1);
+              return [...counts.entries()]
+                .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+                .map(([value, count]) => ({ value, count }));
+            })(),
           };
         case "sidebar":
           return {

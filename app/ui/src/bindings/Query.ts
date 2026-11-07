@@ -28,4 +28,8 @@ fileType?: string,
 /**
  * Leave out items marked "not kept" among duplicates.
  */
-hideNotKept?: boolean, };
+hideNotKept?: boolean, 
+/**
+ * Has this tag (keyword or AI tag) or one below it (`Places|Lake`).
+ */
+tag?: string, };
