@@ -46,7 +46,8 @@ Manual (both OSes), with a library that has some bursts or repeated shots:
     - Let one finish. **Expected:** "m of m photos tagged." and a **Close** button. With **Find duplicates** it shows "m of m RAW photos compared." and **Show duplicates**, which opens the Duplicates screen.
     - Speed: tagging a folder of a few hundred photos that already have thumbnails takes minutes, not an hour, even on the USB drive. On both OSes.
 17. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
-18. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
+18. The app icon: after installing, look at the Start menu entry, the desktop shortcut, the taskbar while Keepsake runs, and the installer file itself. **Expected:** each shows a dark camera on an orange rounded square, not a blank square. On macOS, the Dock and Finder show the same icon.
+19. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
 
 macOS notes: CoreML is tried first, then the CPU. The installer does not bundle ONNX Runtime yet (no macOS app bundle of the sidecars), so on a Mac test from source.
 

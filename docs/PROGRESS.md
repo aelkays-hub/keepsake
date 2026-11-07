@@ -96,6 +96,10 @@
   - `keepsake ai run --from --to` analyses a range from the CLI.
 - **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
 
+### 7 Nov 2026 (evening): an app icon
+- **Asked:** "how about we create an icon for the app!" The product owner chose a modern camera (from a camera and a lens, after three first concepts).
+- **Built:** a mirrorless camera, front view, dark grey on an orange rounded square. The source is `app/ui/src-tauri/icons/icon.svg`. It was rendered to a 1024 px PNG (Edge, headless), and `pnpm tauri icon` made the `.ico` (Windows), the `.icns` (macOS) and the PNGs; only the desktop files are kept. This replaces the blank placeholders. No new dependency.
+
 ### 7 Nov 2026 (evening): whole folders, a progress window, quicker saves
 - **Asked:** "I want to be able to run it at a top level folder tree and it traverses the tree and tags, I would like to see a window showing progress", and to speed it up. Before that: "Keepsake started and now everything is hung". The app was busy, not hung. On start it caught up on thumbnails and proxies, and catalog writes on the USB drive took up to 12 s. By the time it was checked nothing was queued.
 - **Built:**
