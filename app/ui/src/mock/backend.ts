@@ -1180,12 +1180,13 @@ export function installMock(): void {
           return null;
         case "ai_tags": {
           const i = Number(String(a.id).slice(1));
-          if (!st.ai.enabled) return [];
+          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [] };
           const gone = st.aiRejected.get(i) ?? [];
           const mine = st.keywords.get(i) ?? [];
-          return [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]]
+          const tags = [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]]
             .filter((t) => !gone.includes(t) && !mine.includes(t))
             .map((tag, k) => ({ tag, confidence: k === 0 ? 61 : 23 }));
+          return { enabled: true, analysed: true, tags };
         }
         case "ai_tag_decide": {
           const i = Number(String(a.id).slice(1));

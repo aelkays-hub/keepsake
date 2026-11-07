@@ -14,8 +14,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, DuplicateDayDto, DuplicateGroupDto,
-    DuplicateMemberDto, DuplicateSummaryDto,
+    AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagsDto, DuplicateDayDto,
+    DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -313,13 +313,17 @@ pub fn ai_set_choice(
     Ok(())
 }
 
-/// AI tags on an item, most likely first.
+/// AI tags on an item, most likely first, and whether it was analysed.
 #[tauri::command(async)]
-pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<Vec<AiTagDto>> {
+pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
     let open = state.open()?;
     let id: AssetId = convert::id(&id, "asset")?;
-    let mut tags: Vec<AiTagDto> = open
-        .cat()?
+    let cat = open.cat()?;
+    let analysed = cat
+        .read(|tx| tx.ai().analysis(id))
+        .map_err(err)?
+        .is_some_and(|a| a.model == MODEL_ID);
+    let mut tags: Vec<AiTagDto> = cat
         .read(|tx| tx.tags().for_asset(id))
         .map_err(err)?
         .into_iter()
@@ -330,7 +334,11 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<Vec<AiTagDto
         })
         .collect();
     tags.sort_by(|a, b| b.confidence.cmp(&a.confidence).then(a.tag.cmp(&b.tag)));
-    Ok(tags)
+    Ok(AiTagsDto {
+        enabled: Settings::load().map_err(err)?.ai.enabled,
+        analysed,
+        tags,
+    })
 }
 
 /// Remove an AI tag for good (`keep: false`) or make it the user's own

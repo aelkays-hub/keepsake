@@ -106,6 +106,8 @@ test("right-click a year: find duplicates and tags for those dates only", async 
 
 test("the date menu explains when AI is off, and works from the keyboard", async ({ page }) => {
   await open(page, "&ai=off");
+  await page.getByTestId("tile").first().click();
+  await expect(page.getByTestId("ai-tags-none")).toHaveText("On-device AI is off (Settings).");
   await calNode(page, "2015").focus();
   await page.keyboard.press("Shift+F10");
   const menu = page.getByTestId("date-menu");
@@ -127,7 +129,8 @@ test("AI tags in the inspector: remove one, keep one as a keyword", async ({ pag
   await tags.getByRole("button", { name: `Remove AI tag ${first}` }).click();
   await expect(chips).toHaveCount(1);
   await tags.getByRole("button", { name: `Keep ${second} as a keyword` }).click();
-  await expect(page.getByTestId("ai-tags")).toHaveCount(0);
+  // None left: the section says so instead of vanishing.
+  await expect(page.getByTestId("ai-tags-none")).toHaveText(/None/);
   await expect(page.getByRole("list", { name: "Keywords" })).toContainText(second);
   const decided = (await calls(page, "ai_tag_decide")) as { tag: string; keep: boolean }[];
   expect(decided.map((d) => [d.tag, d.keep])).toEqual([

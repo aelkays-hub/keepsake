@@ -158,6 +158,16 @@ dto! {
         pub members: Vec<DuplicateMemberDto>,
     }
 
+    /// An item's AI tags, and why there may be none.
+    pub struct AiTagsDto {
+        /// On-device AI is turned on.
+        pub enabled: bool,
+        /// The item has been analysed.
+        pub analysed: bool,
+        /// Most likely first.
+        pub tags: Vec<AiTagDto>,
+    }
+
     /// An AI tag on an item.
     pub struct AiTagDto {
         /// Lightroom-style path.

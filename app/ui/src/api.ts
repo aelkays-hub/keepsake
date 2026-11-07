@@ -8,6 +8,7 @@ import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
+import type { AiTagsDto } from "./bindings/AiTagsDto";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -61,6 +62,7 @@ export type {
   AiRangeStatus,
   AiStatus,
   AiTagDto,
+  AiTagsDto,
   AppInfo,
   AssetMembers,
   BackupOverview,
@@ -239,7 +241,7 @@ export const api = {
   /** `keeper`, `not_kept`, `not_duplicate`, or null to clear. */
   aiSetChoice: (ids: string[], choice: string | null) =>
     invoke<void>("ai_set_choice", { ids, choice }),
-  aiTags: (id: string) => invoke<AiTagDto[]>("ai_tags", { id }),
+  aiTags: (id: string) => invoke<AiTagsDto>("ai_tags", { id }),
   /** Remove an AI tag for good, or (`keep`) make it your own keyword. */
   aiTagDecide: (id: string, tag: string, keep: boolean) =>
     invoke<void>("ai_tag_decide", { id, tag, keep }),
