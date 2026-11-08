@@ -56,11 +56,17 @@
 
 ---
 
-## People: name a face and find that person — plan (2026-11-08)
+## People: name a face and find that person — plan and step 1 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
 - **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
-- **Next:** the product owner approves or changes the five "To approve" choices; then step 1. Nothing is built yet.
+- **Approved** ("Approve, start step 1"): all five choices as proposed.
+- **Step 1 built — models and the face pipeline (core, no UI yet):**
+  - `ai::faces`: `FaceModels` (`find`, `describe`, `find_and_describe`), `detect` (YuNet input and decoding, merging overlaps), `align` (five-point straightening), `install` (the two pinned models, BLAKE3-checked, `KEEPSAKE_FACE_DETECTOR` / `KEEPSAKE_FACE_RECOGNIZER`).
+  - `model::open_session` shared by the image encoder and the face models.
+  - Setup scripts: `-WithAi` / `--with-ai` also fetch the two face models (SHA-256 pinned).
+- **Tests, run here:** 16 unit tests (`ai::faces`: decoding, merging, fitting, alignment, input order, pins); `face_tests` with the real models (load, a blank picture has no faces, 128 unit numbers, the same each time, the graphics card and the processor agree); the corpus test on the product owner's photos: 49 photos read, 25 with faces, 56 faces, each found again at 768 px and matching itself (lowest 0.939; same person from 0.363). The model and corpus tests skip in CI (no models there), like the image encoder's.
+- **Next:** step 2, scanning and storing faces (schema v13, `ai.faces` jobs, the setting, Delete all face data).
 
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 

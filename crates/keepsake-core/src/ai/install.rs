@@ -39,7 +39,7 @@ pub fn user_model_path() -> Option<PathBuf> {
     user_models_dir().map(|d| d.join(MODEL_DIR).join(MODEL_FILE))
 }
 
-fn non_empty(p: &Path) -> bool {
+pub(crate) fn non_empty(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 

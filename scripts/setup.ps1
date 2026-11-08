@@ -5,7 +5,7 @@
 # (used by CI; skips installing Rust, Node and pnpm).
 # -Arch ARM64|AMD64: fetch binaries for another architecture (the ARM64
 # release is built on an x64 runner). Default: this machine's.
-# -WithAi: also download the AI model (372 MB) into vendor\models (ADR-035).
+# -WithAi: also download the AI models (372 MB, and 39 MB for faces) into vendor\models (ADR-035, ADR-040).
 param([switch]$VendorOnly, [ValidateSet("", "AMD64", "ARM64")][string]$Arch = "", [switch]$WithAi)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -339,6 +339,27 @@ if ($WithAi) {
             -OutFile $ModelFile -ExpectedSHA256 $ModelSHA
     } else {
         Write-Info "  AI model already present, skipping download."
+    }
+    # Face models (ADR-040): YuNet (MIT) and SFace (Apache-2.0), OpenCV Zoo
+    # on Hugging Face at pinned revisions.
+    $Faces = @(
+        @{ Dir = "yunet-2023mar"; File = "face_detection_yunet_2023mar.onnx";
+           Url = "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx";
+           SHA = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4" },
+        @{ Dir = "sface-2021dec"; File = "face_recognition_sface_2021dec.onnx";
+           Url = "https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx";
+           SHA = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79" }
+    )
+    foreach ($m in $Faces) {
+        $Dir  = Join-Path $Vendor ("models\" + $m.Dir)
+        $File = Join-Path $Dir $m.File
+        $ok = (Test-Path $File) -and ((Get-FileHash -Algorithm SHA256 $File).Hash.ToLower() -eq $m.SHA)
+        if (-not $ok) {
+            New-Item -ItemType Directory -Force $Dir | Out-Null
+            Invoke-PinnedDownload -Url $m.Url -OutFile $File -ExpectedSHA256 $m.SHA
+        } else {
+            Write-Info "  $($m.File) already present, skipping download."
+        }
     }
 }
 

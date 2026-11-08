@@ -24,6 +24,7 @@ pub mod cloud;
 pub mod dhash;
 pub mod duplicates;
 pub mod embedding;
+pub mod faces;
 pub mod install;
 pub mod labels;
 pub mod model;

@@ -131,27 +131,51 @@ fn gpu_session(_env: &Environment, _model: &Path) -> Result<(Session, Accel), Ai
     Err(AiError::Inference("no GPU support on this platform".into()))
 }
 
+/// A session for the model at `model`, with ONNX Runtime from `runtime`:
+/// on the graphics card if `gpu` and it works, else on the CPU. Shared by
+/// the image encoder and the face models (ADR-040).
+pub(crate) fn open_session(
+    model: &Path,
+    runtime: &Path,
+    gpu: bool,
+) -> Result<(Session, Accel), AiError> {
+    if !model.is_file() {
+        return Err(AiError::ModelMissing(model.to_path_buf()));
+    }
+    if !runtime.is_file() {
+        return Err(AiError::Runtime(format!("{} not found", runtime.display())));
+    }
+    let env = environment(runtime)?;
+    if gpu {
+        match gpu_session(&env, model) {
+            Ok(s) => return Ok(s),
+            Err(e) => tracing::warn!("AI: GPU not used, falling back to the CPU: {e}"),
+        }
+    }
+    Ok((cpu_session(&env, model)?, Accel::Cpu))
+}
+
+/// ONNX Runtime from the app's own folders, or why it is missing.
+pub(crate) fn installed_runtime() -> Result<std::path::PathBuf, AiError> {
+    super::install::find_runtime().ok_or_else(|| {
+        AiError::Runtime(format!(
+            "{} not found in vendor/onnxruntime",
+            super::install::runtime_file_name()
+        ))
+    })
+}
+
+/// An inference error from ONNX Runtime.
+pub(crate) fn ort_err(e: impl Display) -> AiError {
+    err(e)
+}
+
 impl ImageModel {
     /// Load the model at `model` with ONNX Runtime from `runtime`.
     /// `gpu`: try the graphics card first.
     pub fn load(model: &Path, runtime: &Path, gpu: bool) -> Result<Self, AiError> {
-        if !model.is_file() {
-            return Err(AiError::ModelMissing(model.to_path_buf()));
-        }
-        if !runtime.is_file() {
-            return Err(AiError::Runtime(format!("{} not found", runtime.display())));
-        }
-        let env = environment(runtime)?;
-        if gpu {
-            match gpu_session(&env, model) {
-                Ok((session, accel)) => return Ok(Self { session, accel }),
-                Err(e) => tracing::warn!("AI: GPU not used, falling back to the CPU: {e}"),
-            }
-        }
-        Ok(Self {
-            session: cpu_session(&env, model)?,
-            accel: Accel::Cpu,
-        })
+        let (session, accel) = open_session(model, runtime, gpu)?;
+        Ok(Self { session, accel })
     }
 
     /// Load the installed model and runtime ([`super::install`]).
@@ -159,13 +183,7 @@ impl ImageModel {
         let model = super::install::find_model().ok_or_else(|| {
             AiError::ModelMissing(super::install::user_model_path().unwrap_or_default())
         })?;
-        let runtime = super::install::find_runtime().ok_or_else(|| {
-            AiError::Runtime(format!(
-                "{} not found in vendor/onnxruntime",
-                super::install::runtime_file_name()
-            ))
-        })?;
-        Self::load(&model, &runtime, gpu)
+        Self::load(&model, &installed_runtime()?, gpu)
     }
 
     pub fn accel(&self) -> Accel {

@@ -143,6 +143,12 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
 - Face clustering and semantic search are not built yet.
 
+### Faces (ADR-040)
+`keepsake_core::ai::faces`, on this computer only. Step 1 (models and pipeline) is built; storing faces, Name and find, sidecars and the screens come next.
+- `FaceModels::find(picture)`: the picture is fitted into YuNet's fixed 640 × 640 input (blue, green, red, 0–255, black padding right and bottom). Its three grids (8, 16, 32 px cells) are decoded as OpenCV does (score √(cls·obj), box from centre offsets and log size, 5 landmarks), faces scoring under 0.8 dropped and overlapping ones merged (IoU 0.3). Boxes come back in the picture's pixels.
+- `FaceModels::describe(picture, face)`: the face is straightened onto SFace's 112 × 112 five-point template (closest similarity transform, bilinear) and SFace gives 128 numbers, made unit length (`Embedding`). A cosine similarity of 0.363 or more: likely the same person.
+- Both sessions come from `model::open_session` (DirectML / Core ML, else the CPU), like the image encoder. Models: `faces::install` (pinned, BLAKE3-checked, user cache or `vendor/models/`).
+
 ### Cloud tagger
 Tag with AI (`keepsake_core::ai::cloud`, ADR-036, ADR-038): Claude, ChatGPT or Gemini.
 - There is one job per photo the user picked and provider: `ai.claude`, `ai.openai` or `ai.gemini`. One worker in the render service claims all three when the service has a tagger (`RenderService::with_cloud`); the app always gives it one.

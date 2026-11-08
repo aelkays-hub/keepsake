@@ -1,8 +1,26 @@
-# Manual Test Steps — Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faces, step 1: the face models (ADR-040)
+
+Nothing shows in the app yet: this step adds the face models and the code that finds and describes faces. Name and find comes in a later step.
+
+Automated (run here; the model tests skip where the models are not installed, as in CI):
+```
+cargo test -p keepsake-core --lib ai::faces
+cargo test -p keepsake-core --test face_tests -- --include-ignored corpus
+```
+
+Manual (both OSes):
+1. Run `scripts\setup.ps1 -WithAi` (Windows) or `scripts/setup.sh --with-ai` (macOS). **Expected:** besides the SigLIP model, it downloads `face_detection_yunet_2023mar.onnx` (about 230 KB) into `vendor/models/yunet-2023mar/` and `face_recognition_sface_2021dec.onnx` (about 39 MB) into `vendor/models/sface-2021dec/`, and says the checksums matched. Run it again. **Expected:** "already present, skipping download" for each.
+2. Change one byte of a face model file (or replace it with any small file) and run the setup again. **Expected:** the setup notices the checksum is wrong and downloads it again.
+3. Run `cargo test -p keepsake-core --test face_tests -- --include-ignored --nocapture` with `KEEPSAKE_CORPUS` set. **Expected:** 4 tests pass and a line like "corpus: 49 photos read, 25 with faces, 56 faces; lowest self-match 0.939". Without the models, the tests print "skipping" and pass.
+4. **macOS:** the same test reports the faces found with Core ML (the GPU test compares Core ML with the CPU and passes).
 
 ---
 

@@ -6,7 +6,7 @@
 # A future prompt will add a CI workflow that compiles an LGPL FFmpeg/ffprobe
 # for Apple Silicon (VideoToolbox enabled, no GPL components).
 #
-# --with-ai: also download the AI model (372 MB) into vendor/models (ADR-035).
+# --with-ai: also download the AI models (372 MB, and 39 MB for faces) into vendor/models (ADR-035, ADR-040).
 set -euo pipefail
 
 WITH_AI=0
@@ -245,6 +245,17 @@ if [[ "$WITH_AI" == 1 ]]; then
     else
         info "  AI model already present, skipping download."
     fi
+    # Face models (ADR-040): YuNet (MIT) and SFace (Apache-2.0), OpenCV Zoo
+    # on Hugging Face at pinned revisions.
+    for spec in         "yunet-2023mar|face_detection_yunet_2023mar.onnx|https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx|8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"         "sface-2021dec|face_recognition_sface_2021dec.onnx|https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx|0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"; do
+        IFS='|' read -r dir file url sha <<< "$spec"
+        if [[ ! -f "$VENDOR/models/$dir/$file" ]]; then
+            mkdir -p "$VENDOR/models/$dir"
+            download_pinned "$url" "$VENDOR/models/$dir/$file" "$sha"
+        else
+            info "  $file already present, skipping download."
+        fi
+    done
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
