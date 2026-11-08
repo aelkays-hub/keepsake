@@ -115,6 +115,48 @@ dto! {
         pub pending: u64,
     }
 
+    /// Tag with Claude (ADR-036): one model the user can choose.
+    pub struct ClaudeModelDto {
+        /// The API id, `claude-opus-5-5`.
+        pub id: String,
+        /// "Claude Opus 5.5".
+        pub name: String,
+        /// About what one photo costs, in US cents.
+        pub cents_per_photo: f64,
+    }
+
+    /// Tag with Claude: whether a key is saved, and the model chosen.
+    pub struct ClaudeInfo {
+        pub has_key: bool,
+        /// The chosen model's id.
+        pub model: String,
+        pub models: Vec<ClaudeModelDto>,
+    }
+
+    /// Tag with Claude started: the photos it covers (to follow and stop
+    /// it) and how far it has got.
+    pub struct ClaudeStarted {
+        pub ids: Vec<String>,
+        pub status: ClaudeStatusDto,
+    }
+
+    /// How far tagging some photos with Claude has got.
+    pub struct ClaudeStatusDto {
+        #[ts(type = "number")]
+        pub items: u64,
+        /// Tagged.
+        #[ts(type = "number")]
+        pub analysed: u64,
+        /// Still to send.
+        #[ts(type = "number")]
+        pub pending: u64,
+        /// Not tagged, for good.
+        #[ts(type = "number")]
+        pub failed: u64,
+        /// The latest problem (a failed photo's, or one being retried).
+        pub problem: Option<String>,
+    }
+
     /// How far "Find duplicates" or "Tag photos" has got for a folder.
     pub struct AiFolderStatus {
         /// Items it covers (RAW photos for duplicates, all for tags).
