@@ -722,13 +722,13 @@ export function Viewer() {
             onClick={() =>
               dispatch({
                 t: "aiJob",
-                job: { claude: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+                job: { cloud: only, count: 1, title: row.name ?? "this photo", what: "tags" },
               })
             }
-            title="Send this photo to Claude to be tagged (asks first)"
-            data-testid="viewer-claude"
+            title="Send this photo to Claude, ChatGPT or Gemini to be tagged (asks first)"
+            data-testid="viewer-cloud"
           >
-            Tag with Claude
+            Tag with AI
           </button>
         )}
         <OpenInMenu id={row?.id ?? null} member={member} onOpened={setNote} />

@@ -12,8 +12,9 @@
 //! - [`analyze`]: the `ai.analyze` job: one asset's thumbnail in, its
 //!   embedding, hash and AI tags out. Originals are never read or changed.
 //! - [`duplicates`]: groups of near-identical items within one day.
-//! - [`cloud`]: Tag with Claude (ADR-036): photos the user picks are sent
-//!   to the Claude API, and what it gives becomes their keywords.
+//! - [`cloud`]: Tag with AI (ADR-036, ADR-038): photos the user picks are
+//!   sent to Claude, ChatGPT or Gemini, and what it gives becomes their
+//!   keywords.
 //!
 //! The user's decisions (removed AI tags, keepers) are kept by
 //! [`crate::metadata::MetadataService`], in the catalog and XMP sidecars.
@@ -38,7 +39,7 @@ pub use analyze::{
     analyze_asset, enqueue_range, enqueue_target, range_status, stop_target, target_status,
     AnalyzeOutcome, Purpose, Target,
 };
-pub use cloud::{ClaudeModel, JOB_AI_CLAUDE};
+pub use cloud::{CloudModel, Provider, CLOUD_JOBS, JOB_AI_CLAUDE, JOB_AI_GEMINI, JOB_AI_OPENAI};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
 pub use labels::LabelSet;
@@ -81,10 +82,10 @@ pub enum AiError {
     Download(String),
     #[error("cancelled")]
     Cancelled,
-    /// Tag with Claude: no API key is saved.
-    #[error("no Claude API key: add one in Settings")]
-    NoApiKey,
-    /// Tag with Claude: the request failed; `retry` if trying again later
+    /// Tag with AI: no API key is saved for this provider.
+    #[error("no {0} API key: add one in Settings")]
+    NoApiKey(cloud::Provider),
+    /// Tag with AI: the request failed; `retry` if trying again later
     /// may help.
     #[error("{message}")]
     Cloud { message: String, retry: bool },

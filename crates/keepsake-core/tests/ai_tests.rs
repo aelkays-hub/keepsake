@@ -799,17 +799,28 @@ fn a_folder_and_the_folders_in_it_can_be_tagged_and_stopped() {
     assert_eq!(st.items, 3);
 }
 
-// ── Tag with Claude (ADR-036) ──────────────────────────────────────────────
+// ── Tag with AI (ADR-036, ADR-038) ─────────────────────────────────────────
 
-/// Stands in for Claude: the answer is fixed; what was sent is kept.
-struct FakeClaude {
-    answer: Result<ai::cloud::ClaudeTags, (String, bool)>,
-    sent: std::sync::Mutex<Vec<(usize, usize)>>,
+use keepsake_core::ai::Provider;
+
+/// Stands in for the AI providers: the answer is fixed; what was sent (and
+/// to whom) is kept.
+struct FakeCloud {
+    answer: Result<ai::cloud::CloudTags, (String, bool)>,
+    sent: std::sync::Mutex<Vec<(Provider, usize, usize)>>,
 }
 
-impl ai::cloud::Tagger for FakeClaude {
-    fn tag(&self, jpeg: &[u8], names: &[String]) -> Result<ai::cloud::ClaudeTags, ai::AiError> {
-        self.sent.lock().unwrap().push((jpeg.len(), names.len()));
+impl ai::cloud::Tagger for FakeCloud {
+    fn tag(
+        &self,
+        provider: Provider,
+        jpeg: &[u8],
+        names: &[String],
+    ) -> Result<ai::cloud::CloudTags, ai::AiError> {
+        self.sent
+            .lock()
+            .unwrap()
+            .push((provider, jpeg.len(), names.len()));
         assert_eq!(&jpeg[..2], &[0xff, 0xd8], "a JPEG is sent");
         self.answer
             .clone()
@@ -817,7 +828,7 @@ impl ai::cloud::Tagger for FakeClaude {
     }
 }
 
-fn claude_service(w: &World, tagger: std::sync::Arc<FakeClaude>) -> RenderService {
+fn cloud_service(w: &World, tagger: std::sync::Arc<FakeCloud>) -> RenderService {
     let tools = RenderTools {
         exiftool: PathBuf::from("none"),
         ffprobe: PathBuf::from("none"),
@@ -835,7 +846,7 @@ fn claude_service(w: &World, tagger: std::sync::Arc<FakeClaude>) -> RenderServic
         ai: false,
         ai_gpu: false,
     };
-    RenderService::new(&w.lib, tools, w.cache.clone(), opts).with_claude(tagger)
+    RenderService::new(&w.lib, tools, w.cache.clone(), opts).with_cloud(tagger)
 }
 
 fn keywords(w: &mut World, id: AssetId) -> Vec<String> {
@@ -850,7 +861,7 @@ fn keywords(w: &mut World, id: AssetId) -> Vec<String> {
 }
 
 #[test]
-fn claude_tags_become_keywords_from_the_thumbnail_only() {
+fn cloud_tags_become_keywords_from_the_thumbnail_only() {
     let mut w = World::new(&[("a.jpg", scene(1, 800, 600)), ("b.jpg", scene(2, 800, 600))]);
     let before = common::tree_hashes(&w.media);
     let a = w.asset("a.jpg");
@@ -870,19 +881,22 @@ fn claude_tags_become_keywords_from_the_thumbnail_only() {
     MetadataService::new(&w.lib, &mut w.cat)
         .set_user_tags(a, &[tag("Holiday")])
         .unwrap();
-    assert_eq!(ai::cloud::enqueue(&mut w.cat, &[a, b]).unwrap(), 2);
-    let (st, _) = ai::cloud::status(&w.cat, &[a, b]).unwrap();
+    assert_eq!(
+        ai::cloud::enqueue(&mut w.cat, Provider::Claude, &[a, b]).unwrap(),
+        2
+    );
+    let (st, _) = ai::cloud::status(&w.cat, Provider::Claude, &[a, b]).unwrap();
     assert_eq!((st.items, st.done, st.pending), (2, 0, 2));
 
-    let fake = std::sync::Arc::new(FakeClaude {
-        answer: Ok(ai::cloud::ClaudeTags {
+    let fake = std::sync::Arc::new(FakeCloud {
+        answer: Ok(ai::cloud::CloudTags {
             tags: vec!["Portrait".into(), "Beach".into()],
             new_tags: vec!["Sand Castle".into()],
             model: "claude-opus-5-5".into(),
         }),
         sent: Default::default(),
     });
-    let svc = claude_service(&w, fake.clone());
+    let svc = cloud_service(&w, fake.clone());
     svc.run(&AtomicBool::new(false), &mut |_| {}).unwrap();
 
     assert_eq!(
@@ -891,9 +905,10 @@ fn claude_tags_become_keywords_from_the_thumbnail_only() {
     );
     let sent = fake.sent.lock().unwrap().clone();
     assert_eq!(sent.len(), 1, "only the photo with a thumbnail so far");
-    assert!(sent[0].1 > 100, "the whole tag list is sent");
+    assert_eq!(sent[0].0, Provider::Claude);
+    assert!(sent[0].2 > 100, "the whole tag list is sent");
     // b waits for its thumbnail, which was queued.
-    let (st, problem) = ai::cloud::status(&w.cat, &[a, b]).unwrap();
+    let (st, problem) = ai::cloud::status(&w.cat, Provider::Claude, &[a, b]).unwrap();
     assert_eq!((st.done, st.pending, st.failed), (1, 1, 0), "{problem:?}");
     assert!(find_job(&w.cat, JOB_STILLS, b).is_some());
     // The keywords are in a's sidecar too, so they survive a rebuild.
@@ -906,10 +921,13 @@ fn claude_tags_become_keywords_from_the_thumbnail_only() {
     w.cat = w.lib.open_catalog().unwrap();
     rebuild_catalog(&mut w.cat, &w.lib, vol, &w.media).unwrap();
     // (Asset ids are kept in the sidecars.)
-    ai::cloud::enqueue(&mut w.cat, &[b]).unwrap();
+    ai::cloud::enqueue(&mut w.cat, Provider::Claude, &[b]).unwrap();
     assert!(keywords(&mut w, a).contains(&"AI|Sand Castle".to_owned()));
     // Stop drops what is still queued.
-    assert_eq!(ai::cloud::stop(&mut w.cat, &[b]).unwrap(), 1);
+    assert_eq!(
+        ai::cloud::stop(&mut w.cat, Provider::Claude, &[b]).unwrap(),
+        1
+    );
     assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
 }
 
@@ -928,21 +946,69 @@ fn a_refused_key_fails_the_photo_and_says_why() {
             &jpeg(&scene(1, 1024, 768)),
         )
         .unwrap();
-    ai::cloud::enqueue(&mut w.cat, &[a]).unwrap();
-    let fake = std::sync::Arc::new(FakeClaude {
-        answer: Err(("Claude did not accept the API key".into(), false)),
+    ai::cloud::enqueue(&mut w.cat, Provider::Gemini, &[a]).unwrap();
+    let fake = std::sync::Arc::new(FakeCloud {
+        answer: Err(("Gemini did not accept the API key".into(), false)),
         sent: Default::default(),
     });
-    claude_service(&w, fake)
+    cloud_service(&w, fake)
         .run(&AtomicBool::new(false), &mut |_| {})
         .unwrap();
-    let (st, problem) = ai::cloud::status(&w.cat, &[a]).unwrap();
+    let (st, problem) = ai::cloud::status(&w.cat, Provider::Gemini, &[a]).unwrap();
     assert_eq!((st.done, st.pending, st.failed), (0, 0, 1));
     assert_eq!(
         problem.as_deref(),
-        Some("Claude did not accept the API key")
+        Some("Gemini did not accept the API key")
     );
     assert!(keywords(&mut w, a).is_empty());
     // Asked again (e.g. after a new key), it is queued again.
-    assert_eq!(ai::cloud::enqueue(&mut w.cat, &[a]).unwrap(), 1);
+    assert_eq!(
+        ai::cloud::enqueue(&mut w.cat, Provider::Gemini, &[a]).unwrap(),
+        1
+    );
+}
+
+#[test]
+fn each_provider_has_its_own_jobs_and_one_worker_runs_them_all() {
+    let mut w = World::new(&[("a.jpg", scene(1, 800, 600))]);
+    let a = w.asset("a.jpg");
+    let hash = keepsake_core::render::source::source_hash(&w.cat, a)
+        .unwrap()
+        .unwrap();
+    w.cache
+        .put_bytes(
+            &mut w.cat,
+            &hash,
+            keepsake_core::render::Variant::Thumb1024,
+            &jpeg(&scene(1, 1024, 768)),
+        )
+        .unwrap();
+    // The same photo, sent to ChatGPT and to Gemini.
+    ai::cloud::enqueue(&mut w.cat, Provider::OpenAi, &[a]).unwrap();
+    ai::cloud::enqueue(&mut w.cat, Provider::Gemini, &[a]).unwrap();
+    let (claude, _) = ai::cloud::status(&w.cat, Provider::Claude, &[a]).unwrap();
+    assert_eq!(claude.pending, 0, "Claude was not asked");
+    let fake = std::sync::Arc::new(FakeCloud {
+        answer: Ok(ai::cloud::CloudTags {
+            tags: vec!["Dog".into()],
+            new_tags: vec![],
+            model: "m".into(),
+        }),
+        sent: Default::default(),
+    });
+    cloud_service(&w, fake.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    let mut to: Vec<Provider> = fake.sent.lock().unwrap().iter().map(|s| s.0).collect();
+    to.sort_by_key(|p| p.id());
+    assert_eq!(to, [Provider::Gemini, Provider::OpenAi]);
+    for p in [Provider::OpenAi, Provider::Gemini] {
+        let (st, problem) = ai::cloud::status(&w.cat, p, &[a]).unwrap();
+        assert_eq!(
+            (st.done, st.pending, st.failed),
+            (1, 0, 0),
+            "{p}: {problem:?}"
+        );
+    }
+    assert_eq!(keywords(&mut w, a), ["Dog"], "a keyword once, not twice");
 }

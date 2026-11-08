@@ -63,8 +63,8 @@ pub enum RenderError {
     Waiting(String),
     #[error("{0}")]
     Failed(String),
-    /// Refused for a reason that trying again will not fix (e.g. Claude
-    /// did not accept the API key; not retried).
+    /// Refused for a reason that trying again will not fix (e.g. the AI
+    /// provider did not accept the API key; not retried).
     #[error("{0}")]
     Refused(String),
 }

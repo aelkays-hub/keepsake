@@ -17,10 +17,11 @@ import type { Bucket } from "./bindings/Bucket";
 import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { CardNotice } from "./bindings/CardNotice";
 import type { CardScan } from "./bindings/CardScan";
-import type { ClaudeInfo } from "./bindings/ClaudeInfo";
-import type { ClaudeModelDto } from "./bindings/ClaudeModelDto";
-import type { ClaudeStarted } from "./bindings/ClaudeStarted";
-import type { ClaudeStatusDto } from "./bindings/ClaudeStatusDto";
+import type { CloudInfo } from "./bindings/CloudInfo";
+import type { CloudModelDto } from "./bindings/CloudModelDto";
+import type { CloudProviderDto } from "./bindings/CloudProviderDto";
+import type { CloudStarted } from "./bindings/CloudStarted";
+import type { CloudStatusDto } from "./bindings/CloudStatusDto";
 import type { CrashNotice } from "./bindings/CrashNotice";
 import type { Details } from "./bindings/Details";
 import type { DuplicateGroupDto } from "./bindings/DuplicateGroupDto";
@@ -106,10 +107,11 @@ export type {
   Row,
   Selection,
   SelectionSummary,
-  ClaudeInfo,
-  ClaudeModelDto,
-  ClaudeStarted,
-  ClaudeStatusDto,
+  CloudInfo,
+  CloudModelDto,
+  CloudProviderDto,
+  CloudStarted,
+  CloudStatusDto,
   SettingsInfo,
   SettingsSaved,
   SettingsUpdate,
@@ -254,14 +256,21 @@ export const api = {
     invoke<AiFolderStatus>("ai_analyze_folder", { volume, folder, what }),
   aiFolderStatus: (volume: string, folder: string, what: AiTask) =>
     invoke<AiFolderStatus>("ai_folder_status", { volume, folder, what }),
-  /** Tag with Claude (ADR-036): the key, the model, the photos. */
-  aiClaudeInfo: () => invoke<ClaudeInfo>("ai_claude_info"),
-  /** Save the API key (`null`: remove it). */
-  aiClaudeSetKey: (key: string | null) => invoke<ClaudeInfo>("ai_claude_set_key", { key }),
-  aiClaudeSetModel: (model: string) => invoke<ClaudeInfo>("ai_claude_set_model", { model }),
-  aiClaudeTag: (selection: Selection) => invoke<ClaudeStarted>("ai_claude_tag", { selection }),
-  aiClaudeStatus: (ids: string[]) => invoke<ClaudeStatusDto>("ai_claude_status", { ids }),
-  aiClaudeStop: (ids: string[]) => invoke<void>("ai_claude_stop", { ids }),
+  /** Tag with AI (ADR-036, ADR-038): each provider's key and model, the
+   * provider offered first, and the photos sent to one. */
+  aiCloudInfo: () => invoke<CloudInfo>("ai_cloud_info"),
+  /** `null`: remove the key. */
+  aiCloudSetKey: (providerId: string, key: string | null) =>
+    invoke<CloudInfo>("ai_cloud_set_key", { providerId, key }),
+  aiCloudSetModel: (model: string) => invoke<CloudInfo>("ai_cloud_set_model", { model }),
+  aiCloudSetDefault: (providerId: string) =>
+    invoke<CloudInfo>("ai_cloud_set_default", { providerId }),
+  aiCloudTag: (selection: Selection, providerId: string) =>
+    invoke<CloudStarted>("ai_cloud_tag", { selection, providerId }),
+  aiCloudStatus: (ids: string[], providerId: string) =>
+    invoke<CloudStatusDto>("ai_cloud_status", { ids, providerId }),
+  aiCloudStop: (ids: string[], providerId: string) =>
+    invoke<void>("ai_cloud_stop", { ids, providerId }),
   /** Stop a date range's work: queued jobs are dropped; what was done stays. */
   aiRangeStop: (from: string, to: string, what: AiTask) =>
     invoke<void>("ai_range_stop", { from, to, what }),

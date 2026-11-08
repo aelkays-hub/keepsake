@@ -2,7 +2,7 @@
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
 // video durations. Right-click (or the Menu key) opens a menu for the
-// selection: Open, Tag with Claude.
+// selection: Open, Tag with AI.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -376,16 +376,16 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
               },
             },
             {
-              label: "Tag with Claude…",
-              title: "Send these photos to Claude to be tagged (asks first)",
-              testId: "tile-menu-claude",
+              label: "Tag with AI…",
+              title: "Send these photos to Claude, ChatGPT or Gemini to be tagged (asks first)",
+              testId: "tile-menu-cloud",
               run: () => {
                 const n = menu.sel.ranges.length ? sel.size(menu.sel) : 1;
                 const one = n === 1 && menu.sel.focus !== null ? rows.get(menu.sel.focus) : null;
                 dispatch({
                   t: "aiJob",
                   job: {
-                    claude: selectionPayload(view?.view ?? null, menu.sel),
+                    cloud: selectionPayload(view?.view ?? null, menu.sel),
                     count: n,
                     title: one?.name ?? fmt.plural(n, "photo"),
                     what: "tags",

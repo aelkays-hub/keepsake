@@ -90,12 +90,62 @@ export interface MockState {
   aiRejected: Map<number, string[]>;
   /** Date ranges asked for: status polls left until they are analysed. */
   aiRanges: Map<string, number>;
-  /** Tag with Claude (`?claude=key` starts with a key saved; `?claude=bad`
-   * with one Claude refuses). Photos asked for: status polls left. */
-  claude: { key: string | null; model: string; asked: Map<string, number> };
+  /** Tag with AI (`?claude=key`, `?openai=key`, `?gemini=key` start with
+   * that provider's key saved; `=bad`: with one it refuses). The provider
+   * offered first, each one's model, and the photos asked for (by provider):
+   * status polls left. */
+  cloud: {
+    keys: Record<string, string | null>;
+    models: Record<string, string>;
+    def: string;
+    asked: Map<string, number>;
+  };
 }
 
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
+
+/** Tag with AI: the providers, as the backend describes them. */
+const CLOUD = [
+  {
+    id: "claude",
+    name: "Claude",
+    company: "Anthropic",
+    prefix: "sk-ant-",
+    key: /^sk-ant-[A-Za-z0-9_-]{13,}$/,
+    hint: " (they start with sk-ant-)",
+    models: [
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
+      { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
+      { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
+    ],
+  },
+  {
+    id: "openai",
+    name: "ChatGPT",
+    company: "OpenAI",
+    prefix: "sk-",
+    key: /^sk-(?!ant-)[A-Za-z0-9_-]{17,}$/,
+    hint: " (they start with sk-)",
+    models: [
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", centsPerPhoto: 1 },
+      { id: "gpt-6-astra", name: "GPT-6 Astra", centsPerPhoto: 5 },
+      { id: "gpt-6-luna", name: "GPT-6 Luna", centsPerPhoto: 0.05 },
+    ],
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    company: "Google",
+    prefix: "AIza",
+    key: /^(?!sk-)[A-Za-z0-9_-]{20,100}$/,
+    hint: "",
+    models: [
+      { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", centsPerPhoto: 0.8 },
+      { id: "gemini-4-argon", name: "Gemini 4 Argon", centsPerPhoto: 2 },
+      { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash-Lite", centsPerPhoto: 0.2 },
+    ],
+  },
+];
 /** Groups of duplicates among the first items, all shown on item 0's day. */
 const DUP_GROUPS = [
   [0, 1, 2],
@@ -230,9 +280,12 @@ export function installMock(): void {
     choice: new Map(),
     aiRejected: new Map(),
     aiRanges: new Map(),
-    claude: {
-      key: params.get("claude") ? `sk-ant-mock-${params.get("claude")}` : null,
-      model: "claude-opus-5-5",
+    cloud: {
+      keys: Object.fromEntries(
+        CLOUD.map((c) => [c.id, params.get(c.id) ? `${c.prefix}mock-${params.get(c.id)}` : null]),
+      ),
+      models: Object.fromEntries(CLOUD.map((c) => [c.id, c.models[0].id])),
+      def: params.get("ai-default") ?? "claude",
       asked: new Map(),
     },
     history: [],
@@ -1192,44 +1245,56 @@ export function installMock(): void {
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
-        case "ai_claude_info":
-        case "ai_claude_set_key":
-        case "ai_claude_set_model": {
-          if (cmd === "ai_claude_set_key") {
+        case "ai_cloud_info":
+        case "ai_cloud_set_key":
+        case "ai_cloud_set_model":
+        case "ai_cloud_set_default": {
+          const c = st.cloud;
+          if (cmd === "ai_cloud_set_key") {
+            const p = CLOUD.find((x) => x.id === a.providerId);
+            if (!p) throw `unknown AI provider ${String(a.providerId)}`;
             const k = typeof a.key === "string" ? a.key.trim() : "";
-            if (k && !/^sk-ant-[A-Za-z0-9_-]{13,}$/.test(k))
-              throw "That does not look like a Claude API key (they start with sk-ant-).";
-            st.claude.key = k || null;
+            if (k && !p.key.test(k)) throw `That does not look like a ${p.name} API key${p.hint}.`;
+            c.keys[p.id] = k || null;
           }
-          if (cmd === "ai_claude_set_model") st.claude.model = String(a.model);
+          if (cmd === "ai_cloud_set_model") {
+            const p = CLOUD.find((x) => x.models.some((m) => m.id === a.model));
+            if (!p) throw `unknown model ${String(a.model)}`;
+            c.models[p.id] = String(a.model);
+          }
+          if (cmd === "ai_cloud_set_default") c.def = String(a.providerId);
           return {
-            hasKey: st.claude.key !== null,
-            model: st.claude.model,
-            models: [
-              { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
-              { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
-              { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
-            ],
+            defaultProvider: c.def,
+            providers: CLOUD.map((p) => ({
+              id: p.id,
+              name: p.name,
+              company: p.company,
+              hasKey: c.keys[p.id] !== null,
+              model: c.models[p.id],
+              models: p.models,
+            })),
           };
         }
-        case "ai_claude_tag":
-        case "ai_claude_status":
-        case "ai_claude_stop": {
+        case "ai_cloud_tag":
+        case "ai_cloud_status":
+        case "ai_cloud_stop": {
+          const p = CLOUD.find((x) => x.id === a.providerId);
+          if (!p) throw `unknown AI provider ${String(a.providerId)}`;
           let ids = (a.ids ?? []) as string[];
-          if (cmd === "ai_claude_tag") {
-            if (!st.claude.key) throw "Add your Claude API key in Settings first.";
+          if (cmd === "ai_cloud_tag") {
+            if (!st.cloud.keys[p.id]) throw `Add your ${p.name} API key in Settings first.`;
             ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
-            st.claude.asked.set(ids.join(","), 2);
+            st.cloud.asked.set(`${p.id}|${ids.join(",")}`, 2);
           }
-          const key = ids.join(",");
-          const left = st.claude.asked.get(key) ?? 0;
-          if (cmd === "ai_claude_stop") {
-            st.claude.asked.set(key, 0);
+          const key = `${p.id}|${ids.join(",")}`;
+          const left = st.cloud.asked.get(key) ?? 0;
+          if (cmd === "ai_cloud_stop") {
+            st.cloud.asked.set(key, 0);
             return null;
           }
-          const bad = st.claude.key?.endsWith("bad") ?? false;
-          if (cmd === "ai_claude_status" && left > 0) {
-            st.claude.asked.set(key, left - 1);
+          const bad = st.cloud.keys[p.id]?.endsWith("bad") ?? false;
+          if (cmd === "ai_cloud_status" && left > 0) {
+            st.cloud.asked.set(key, left - 1);
             if (left === 1 && !bad)
               for (const id of ids) {
                 const i = Number(id.slice(1));
@@ -1245,9 +1310,9 @@ export function installMock(): void {
             analysed: pending || bad ? 0 : items,
             pending,
             failed,
-            problem: bad ? "Claude did not accept the API key: check it in Settings" : null,
+            problem: bad ? `${p.name} did not accept the API key: check it in Settings` : null,
           };
-          return cmd === "ai_claude_tag" ? { ids, status } : status;
+          return cmd === "ai_cloud_tag" ? { provider: p.id, ids, status } : status;
         }
         case "ai_range_stop": {
           st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);

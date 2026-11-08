@@ -192,17 +192,58 @@ pub struct AiSettings {
     pub enabled: bool,
     /// Use the graphics card when it can (DirectML / CoreML).
     pub gpu: bool,
-    /// Tag with Claude (ADR-036): the model's API id. The API key is in
-    /// the OS's credential store, never here.
+    /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
+    /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
+    pub openai_model: String,
+    pub gemini_model: String,
+    /// The provider offered first (the one used last): `claude`, `openai`
+    /// or `gemini`.
+    pub cloud_provider: String,
+}
+
+impl AiSettings {
+    /// The provider offered first (Claude if the setting names none known).
+    pub fn cloud_provider(&self) -> crate::ai::Provider {
+        crate::ai::Provider::parse(&self.cloud_provider).unwrap_or_default()
+    }
+
+    /// `provider`'s chosen model (its default if the setting names none of
+    /// its models).
+    pub fn cloud_model(&self, provider: crate::ai::Provider) -> crate::ai::CloudModel {
+        use crate::ai::Provider;
+        let id = match provider {
+            Provider::Claude => &self.claude_model,
+            Provider::OpenAi => &self.openai_model,
+            Provider::Gemini => &self.gemini_model,
+        };
+        crate::ai::CloudModel::parse(id)
+            .filter(|m| m.provider() == provider)
+            .unwrap_or_else(|| provider.default_model())
+    }
+
+    /// Choose a model (for its provider).
+    pub fn set_cloud_model(&mut self, model: crate::ai::CloudModel) {
+        use crate::ai::Provider;
+        let slot = match model.provider() {
+            Provider::Claude => &mut self.claude_model,
+            Provider::OpenAi => &mut self.openai_model,
+            Provider::Gemini => &mut self.gemini_model,
+        };
+        *slot = model.id().to_owned();
+    }
 }
 
 impl Default for AiSettings {
     fn default() -> Self {
+        use crate::ai::Provider;
         Self {
             enabled: false,
             gpu: true,
-            claude_model: crate::ai::ClaudeModel::default().id().to_owned(),
+            claude_model: Provider::Claude.default_model().id().to_owned(),
+            openai_model: Provider::OpenAi.default_model().id().to_owned(),
+            gemini_model: Provider::Gemini.default_model().id().to_owned(),
+            cloud_provider: Provider::default().id().to_owned(),
         }
     }
 }
@@ -261,6 +302,28 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::{CloudModel, Provider};
+
+    #[test]
+    fn each_provider_keeps_its_own_model() {
+        // A file from before ChatGPT and Gemini: Claude's model stays.
+        let s: Settings = toml::from_str("[ai]\nclaude_model = 'claude-haiku-5-5'\n").unwrap();
+        assert_eq!(
+            s.ai.cloud_model(Provider::Claude),
+            CloudModel::ClaudeHaiku55
+        );
+        assert_eq!(s.ai.cloud_model(Provider::OpenAi), CloudModel::Gpt61Sol);
+        assert_eq!(s.ai.cloud_provider(), Provider::Claude);
+        let mut a = s.ai;
+        a.set_cloud_model(CloudModel::Gemini35FlashLite);
+        assert_eq!(a.gemini_model, "gemini-3.5-flash-lite");
+        assert_eq!(a.cloud_model(Provider::Claude), CloudModel::ClaudeHaiku55);
+        // A model of another provider, or an unknown one, is not used.
+        a.openai_model = "claude-opus-5-5".into();
+        assert_eq!(a.cloud_model(Provider::OpenAi), CloudModel::Gpt61Sol);
+        a.cloud_provider = "nobody".into();
+        assert_eq!(a.cloud_provider(), Provider::Claude);
+    }
 
     #[test]
     fn old_files_and_partial_sections_load_with_defaults() {

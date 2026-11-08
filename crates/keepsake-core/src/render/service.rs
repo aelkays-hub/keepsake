@@ -38,7 +38,10 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
-use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_CLAUDE, JOB_AI_TAG};
+use crate::ai::{
+    self, AiError, ImageModel, LabelSet, Purpose, CLOUD_JOBS, JOB_AI, JOB_AI_CLAUDE, JOB_AI_GEMINI,
+    JOB_AI_OPENAI, JOB_AI_TAG,
+};
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
 };
@@ -220,8 +223,9 @@ pub struct RenderService {
     cache: Cache,
     opts: RenderOptions,
     on_battery: PowerCheck,
-    /// Tag with Claude (ADR-036): with it, a worker runs `ai.claude` jobs.
-    claude: Option<Arc<dyn ai::cloud::Tagger>>,
+    /// Tag with AI (ADR-036, ADR-038): with it, a worker runs the cloud
+    /// jobs of every provider (`ai.claude`, `ai.openai`, `ai.gemini`).
+    cloud: Option<Arc<dyn ai::cloud::Tagger>>,
 }
 
 struct Shared {
@@ -242,13 +246,13 @@ impl RenderService {
             cache,
             opts,
             on_battery: Arc::new(|| false),
-            claude: None,
+            cloud: None,
         }
     }
 
-    /// Run `ai.claude` jobs with this tagger (ADR-036).
-    pub fn with_claude(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
-        self.claude = Some(tagger);
+    /// Run the cloud tagging jobs with this tagger (ADR-036, ADR-038).
+    pub fn with_cloud(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
+        self.cloud = Some(tagger);
         self
     }
 
@@ -294,7 +298,8 @@ impl RenderService {
                 .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
                 .chain(std::iter::once(JOB_FINGERPRINT))
                 .chain(self.opts.ai.then_some(JOB_AI))
-                .chain(self.claude.is_some().then_some(JOB_AI_CLAUDE));
+                // One worker sends the photos of every provider.
+                .chain(self.cloud.is_some().then_some(JOB_AI_CLAUDE));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -453,9 +458,12 @@ impl RenderService {
                 }
                 continue;
             }
-            // The AI worker does both: finding duplicates and tagging.
+            // The AI worker does both: finding duplicates and tagging. The
+            // cloud worker does every provider.
             let kinds: &[&str] = if kind == JOB_AI {
                 &[JOB_AI, JOB_AI_TAG]
+            } else if kind == JOB_AI_CLAUDE {
+                &CLOUD_JOBS
             } else {
                 std::slice::from_ref(&kind)
             };
@@ -665,7 +673,7 @@ impl RenderService {
             AiError::Catalog(e) => RenderError::Catalog(e),
             AiError::Image(m) => RenderError::Image(m),
             AiError::Cloud { message, retry } if !retry => RenderError::Refused(message),
-            e @ AiError::NoApiKey => RenderError::Refused(e.to_string()),
+            e @ AiError::NoApiKey(_) => RenderError::Refused(e.to_string()),
             e => RenderError::Failed(e.to_string()),
         })
     }
@@ -776,11 +784,21 @@ impl RenderService {
                     Err(e) => Err(RenderError::Failed(e.to_string())),
                 }
             }
-            JOB_AI_CLAUDE => {
-                let Some(tagger) = self.claude.as_deref() else {
-                    return Err(RenderError::Waiting("Claude is not set up".into()));
+            JOB_AI_CLAUDE | JOB_AI_OPENAI | JOB_AI_GEMINI => {
+                let Some(provider) = ai::Provider::of_job(&job.kind) else {
+                    return Err(RenderError::Unsupported(format!("job kind {}", job.kind)));
                 };
-                match ai::cloud::tag_asset(cat, &self.lib, &self.cache, tagger, job.asset_id) {
+                let Some(tagger) = self.cloud.as_deref() else {
+                    return Err(RenderError::Waiting(format!("{provider} is not set up")));
+                };
+                match ai::cloud::tag_asset(
+                    cat,
+                    &self.lib,
+                    &self.cache,
+                    tagger,
+                    provider,
+                    job.asset_id,
+                ) {
                     Ok(added) => Ok((added, None)),
                     Err(e) => Err(Self::ai_error(cat, job, e)?),
                 }

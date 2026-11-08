@@ -1,7 +1,7 @@
 mod ai;
 pub mod api;
 mod background;
-mod claude;
+mod cloud;
 mod commands;
 mod convert;
 mod diagnostics;
@@ -157,12 +157,13 @@ pub fn run() {
             ai::ai_set_choice,
             ai::ai_tags,
             ai::ai_tag_decide,
-            claude::ai_claude_info,
-            claude::ai_claude_set_key,
-            claude::ai_claude_set_model,
-            claude::ai_claude_tag,
-            claude::ai_claude_status,
-            claude::ai_claude_stop,
+            cloud::ai_cloud_info,
+            cloud::ai_cloud_set_key,
+            cloud::ai_cloud_set_model,
+            cloud::ai_cloud_set_default,
+            cloud::ai_cloud_tag,
+            cloud::ai_cloud_status,
+            cloud::ai_cloud_stop,
         ])
         .build(tauri::generate_context!());
     let app = match result {

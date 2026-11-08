@@ -115,33 +115,47 @@ dto! {
         pub pending: u64,
     }
 
-    /// Tag with Claude (ADR-036): one model the user can choose.
-    pub struct ClaudeModelDto {
-        /// The API id, `claude-opus-5-5`.
+    /// Tag with AI (ADR-036, ADR-038): one model the user can choose.
+    pub struct CloudModelDto {
+        /// The API id, `gpt-6.1-sol`.
         pub id: String,
-        /// "Claude Opus 5.5".
+        /// "GPT-6.1 Sol".
         pub name: String,
         /// About what one photo costs, in US cents.
         pub cents_per_photo: f64,
     }
 
-    /// Tag with Claude: whether a key is saved, and the model chosen.
-    pub struct ClaudeInfo {
+    /// One AI provider: whether a key is saved, and the model chosen.
+    pub struct CloudProviderDto {
+        /// `claude`, `openai` or `gemini`.
+        pub id: String,
+        /// "ChatGPT".
+        pub name: String,
+        /// Who runs it and charges for it: "OpenAI".
+        pub company: String,
         pub has_key: bool,
         /// The chosen model's id.
         pub model: String,
-        pub models: Vec<ClaudeModelDto>,
+        pub models: Vec<CloudModelDto>,
     }
 
-    /// Tag with Claude started: the photos it covers (to follow and stop
-    /// it) and how far it has got.
-    pub struct ClaudeStarted {
+    /// Tag with AI: every provider, and the one offered first.
+    pub struct CloudInfo {
+        /// The id of the provider offered first (the one used last).
+        pub default_provider: String,
+        pub providers: Vec<CloudProviderDto>,
+    }
+
+    /// Tag with AI started: the provider, the photos it covers (to follow
+    /// and stop it) and how far it has got.
+    pub struct CloudStarted {
+        pub provider: String,
         pub ids: Vec<String>,
-        pub status: ClaudeStatusDto,
+        pub status: CloudStatusDto,
     }
 
-    /// How far tagging some photos with Claude has got.
-    pub struct ClaudeStatusDto {
+    /// How far tagging some photos with one provider has got.
+    pub struct CloudStatusDto {
         #[ts(type = "number")]
         pub items: u64,
         /// Tagged.

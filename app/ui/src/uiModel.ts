@@ -61,8 +61,8 @@ export type AiJob = (
       folder: string;
     }
   | { range: DateRange }
-  /** Tag with Claude: the photos picked, and how many. */
-  | { claude: Selection; count: number }
+  /** Tag with AI: the photos picked, and how many. */
+  | { cloud: Selection; count: number }
 ) & {
   /** "Pictures › 2025 › May", "July 2026". */
   title: string;
