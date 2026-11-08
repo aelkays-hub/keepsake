@@ -143,11 +143,12 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
 - Face clustering and semantic search are not built yet.
 
-### Claude tagger
-Tag with Claude (`keepsake_core::ai::cloud`, ADR-036).
-- There is one `ai.claude` job per photo the user picked. Its own worker in the render service runs them when the service has a tagger (`RenderService::with_claude`); the app always gives it one.
-- The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it to the Claude Messages API through a `Tagger` (`Claude`, over `Http` = `UreqHttp`).
-- The key comes from `keepsake_platform::secrets` (the OS credential store), and the model from `config.toml`. Both are looked up for each photo.
+### Cloud tagger
+Tag with AI (`keepsake_core::ai::cloud`, ADR-036, ADR-038): Claude, ChatGPT or Gemini.
+- There is one job per photo the user picked and provider: `ai.claude`, `ai.openai` or `ai.gemini`. One worker in the render service claims all three when the service has a tagger (`RenderService::with_cloud`); the app always gives it one.
+- The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it through a `Tagger` (`CloudTagger`, over `Http` = `UreqHttp`), which builds the provider's request and reads its answer (`cloud::{claude, openai, gemini}`).
+- The shared parts are in `cloud`: the prompt, the tag schema, tidying the answer (`tidy`) and what an HTTP status means (`http_error`).
+- Each provider's key comes from `keepsake_platform::secrets` (the OS credential store, account `<id>-api-key`), and its model from `config.toml` (`[ai] claude_model`, `openai_model`, `gemini_model`). Both are looked up for each photo.
 - The tags in the answer are added to the photo's keywords through `MetadataService` (catalog and XMP).
 - Permanent problems fail the job (`RenderError::Refused`); others are retried.
 

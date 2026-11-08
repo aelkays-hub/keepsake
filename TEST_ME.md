@@ -1,10 +1,44 @@
-# Manual Test Steps — Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
 
 ---
+
+## Tag with AI (Claude, ChatGPT or Gemini, for the photos you pick)
+
+You need an API key from at least one: console.anthropic.com (Claude), platform.openai.com (ChatGPT), aistudio.google.com (Gemini; use a project with billing turned on). Each company charges for each photo; Claude Haiku 5.5, GPT-6 Luna and Gemini 3.5 Flash-Lite are the cheapest for trying it.
+
+Automated (run in CI; local test runs are turned off on this computer):
+```
+cargo test -p keepsake-core --lib ai::cloud
+cargo test -p keepsake-core --lib settings
+cargo test -p keepsake-core --test ai_tests cloud refused each_provider
+cargo test -p keepsake-platform secrets
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/cloud.spec.ts
+```
+
+Manual (both OSes):
+1. Open **Settings**. **Expected:** below On-device AI, a "Tag with AI" card with three sections: Claude (Anthropic), ChatGPT (OpenAI) and Gemini (Google). Each says "No API key is saved yet. Get one at …" and has a model list with the cost a photo: Claude Opus 5.5, GPT-6.1 Sol and Gemini 3.6 Flash are selected.
+   - **Expected:** the ChatGPT section says OpenAI keeps photos up to 30 days to check for abuse; the Gemini section says to use a key from a project with billing.
+2. In the ChatGPT section type `hello` and press **Save key**. **Expected:** a red message says it does not look like a ChatGPT API key. Paste a Claude key there. **Expected:** the same message. Paste your OpenAI key and save. **Expected:** the field empties and that section says "An API key is saved in this computer's credential store." The other sections still say no key.
+   - **Windows:** Credential Manager → Windows Credentials. **Expected:** an entry for `openai-api-key` (and `claude-api-key` if you had one, which still works).
+   - **macOS:** Keychain Access, search Keepsake. **Expected:** items with accounts `openai-api-key` and so on.
+   - `config.toml` has `openai_model`, `gemini_model` and `cloud_provider`, but no key.
+3. Save a Gemini key too. Change Gemini's model to **Gemini 3.5 Flash-Lite**, close and reopen Settings. **Expected:** still selected; the other providers' models did not change.
+4. In the grid, right-click a photo of something recognisable. **Expected:** a menu with **Open** and **Tag with AI…**. Choose it. **Expected:** a window "Tagging with …" with an **AI** list showing only the providers with a key, e.g. "ChatGPT (GPT-6.1 Sol)" and "Gemini (Gemini 3.5 Flash-Lite)".
+5. Pick **Gemini**. **Expected:** the heading says "Tagging with Gemini: …", the line says "Send 1 photo to Gemini 3.5 Flash-Lite to be tagged? It costs under 1¢, charged by Google.", and the billing note shows. Pick **ChatGPT**: the line says "charged by OpenAI" and the 30-days note shows. Nothing is sent yet.
+6. Press **Send**. **Expected:** within about 10 seconds "1 of 1 photos tagged." The inspector shows new keywords (list tags, maybe some under AI); old ones are still there. No person is named.
+7. Tag another photo. **Expected:** the AI list now starts at the one you used last (ChatGPT).
+8. Tag the same photo again with the other AI. **Expected:** it finishes; keywords both gave appear once.
+9. Select 3 photos, **Tag with AI…**, **Send**, then **Hide**: a small "ChatGPT · n%" (or Gemini) button stays in the corner. **Stop** on a larger selection: photos done keep their tags.
+10. Open a photo in the viewer. **Expected:** the top bar has **Tag with AI**; it works as in step 4.
+11. Remove all keys but one. **Tag with AI…**. **Expected:** no AI list, the one with a key is used. Remove the last key. **Expected:** "Add an API key for Claude, ChatGPT or Gemini in Settings first" with **Open Settings**.
+12. Save a wrong key that still looks right (change its last letters) for Gemini and tag a photo with it. **Expected:** "0 of 1 photos tagged. 1 photo could not be: Gemini did not accept the API key: check it in Settings". Put the right key back.
+13. Unplug the network and tag a photo. **Expected:** "could not reach ChatGPT: …" (or the AI chosen), retried after 30 s and 60 s; plug back in within a minute and it finishes.
+14. Originals: a tagged photo's file is unchanged (size and modified time); the keywords are in its `.xmp` sidecar.
+15. Claude still works as before (ADR-036): a Claude key saved before this change is still there and tags photos.
 
 ## Helpers end with the app
 
@@ -20,35 +54,6 @@ Manual:
 3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
 4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
 5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
-
-## Tag with Claude (cloud tagging for the photos you pick)
-
-You need a Claude API key from console.anthropic.com (Anthropic charges for each photo; Haiku is the cheapest for trying it).
-
-Automated:
-```
-cargo test -p keepsake-core --lib ai::cloud
-cargo test -p keepsake-core --test ai_tests claude refused
-cargo test -p keepsake-platform secrets
-cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/claude.spec.ts
-```
-
-Manual (both OSes):
-1. Open **Settings**. **Expected:** below On-device AI, a "Tag with Claude" card says "No API key is saved yet." and the model list shows Claude Opus 5.5 (selected), Claude Fable 5.1 and Claude Haiku 5.5, each with its cost a photo.
-2. Type `hello` in the key field and press **Save key**. **Expected:** a red message says it does not look like a Claude API key. Paste your real key and press **Save key**. **Expected:** the field empties (the key is never shown again) and the card says "An API key is saved in this computer's credential store."
-   - **Windows:** open Credential Manager → Windows Credentials. **Expected:** an entry for `claude-api-key.Keepsake` (or similar, under Generic Credentials).
-   - **macOS:** open Keychain Access and search for Keepsake. **Expected:** an item `Keepsake` with account `claude-api-key`.
-   - Check `config.toml` in the settings folder. **Expected:** it has `claude_model` but no key.
-3. Choose **Claude Haiku 5.5** for a cheap test. Close and reopen Settings. **Expected:** Haiku is still selected.
-4. In the grid, click a photo of something recognisable (a landmark, a pet, a beach), then right-click it. **Expected:** a menu with **Open** and **Tag with Claude…**. Choose **Tag with Claude…**. **Expected:** a window in the bottom-right corner, "Tagging with Claude: DSC01234.JPG", asks "Send 1 photo to Claude Haiku 5.5 to be tagged? It costs under 1¢, charged by Anthropic." Nothing is sent yet.
-5. Press **Send**. **Expected:** a progress bar, then within about 10 seconds "1 of 1 photos tagged." In the inspector, the photo's keywords now include list tags (e.g. Beach, People) and maybe some under AI (e.g. `AI › Sand Castle`). Keywords it already had are still there. It never names a person.
-6. Select 3 photos (Shift-click), right-click one of them and choose **Tag with Claude…**. **Expected:** "Send 3 photos…" with a cost for three. Press **Send**, then **Hide**: a small "Claude · n%" button stays in the corner; click it to get the window back. Try **Stop** on a larger selection: photos already done keep their tags.
-7. Open a photo in the viewer (double-click). **Expected:** the top bar has **Tag with Claude**; it works as in step 4, and the window shows above the viewer.
-8. Keyboard: select a photo, press **Shift+F10** (or the Menu key). **Expected:** the menu opens at the photo with Open focused; arrows move, Escape closes.
-9. In Settings, paste a wrong key that still starts with `sk-ant-` (e.g. your key with the last letters changed) and save. Tag a photo. **Expected:** "0 of 1 photos tagged. 1 photo could not be: Claude did not accept the API key: check it in Settings". Put the right key back.
-10. Press **Remove key**. **Expected:** "No API key is saved yet.", and the credential is gone from Credential Manager / Keychain Access. Tag with Claude… now shows "Add your Claude API key in Settings first" with **Open Settings**, and nothing is sent.
-11. Unplug the network and tag a photo. **Expected:** the window stays at "0 of 1 done…" with a note "could not reach Claude: …". It tries again after 30 s and then 60 s: plug the network back in within a minute and it finishes by itself. Left unplugged, after the third try it says "1 photo could not be: could not reach Claude: …"; tag it again once you are online.
-12. Originals: compare a tagged photo's file before and after (size and modified time). **Expected:** unchanged; the keywords are in its `.xmp` sidecar.
 
 ## On-device AI: tags and same-day duplicates
 

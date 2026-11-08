@@ -56,6 +56,32 @@
 
 ---
 
+## Tag with AI: Claude, ChatGPT or Gemini (2026-11-08)
+
+- **Asked:** "give the user the ability to select which AI to use when tagging a single picture, Gemini, ChatGPT, CoPilot,...". The product owner chose Claude, ChatGPT and Gemini; Copilot has no public API for this (ADR-038).
+- **Built:**
+  - **Core, `ai::cloud`:**
+    - `Provider` and `CloudModel` (three models each), `CloudTagger`, and `Tagger::tag(provider, …)`.
+    - `cloud::openai` (Responses API, strict Structured Outputs, `store: false`) and `cloud::gemini` (`generateContent`, `responseJsonSchema`, key in a header). `cloud::claude` is ADR-036's code, moved.
+    - Shared: the prompt, schema, tidying and HTTP errors. Key checks per provider.
+    - Jobs `ai.openai` and `ai.gemini` beside `ai.claude`; one worker runs all three (`with_cloud`).
+  - **Settings:** `[ai] openai_model`, `gemini_model`, `cloud_provider`.
+  - **Platform, `secrets`:** `api_key(id)` / `set_api_key(id, …)`, one entry per provider; Claude's stays.
+  - **App:** `ai_cloud_info`, `ai_cloud_set_key`, `ai_cloud_set_model`, `ai_cloud_set_default`, `ai_cloud_tag`, `ai_cloud_status`, `ai_cloud_stop` (the `ai_claude_*` commands are gone).
+  - **UI:**
+    - **Tag with AI…** in the photo menu and the viewer.
+    - The ask-first window has an AI list (providers with a key) and the provider's privacy note; the AI used is offered first next time.
+    - Settings → Tag with AI: a section per provider with model, key and note.
+- **Tests (run in CI only; local test runs are turned off on this computer):**
+  - Unit: `ai::cloud` (providers, models, keys, tidying, errors, a missing key, a model of another provider, no network), and `claude`, `openai`, `gemini` (request, answer, problems, headers).
+  - `each_provider_keeps_its_own_model` (settings) and the `secrets` tests.
+  - `each_provider_has_its_own_jobs_and_one_worker_runs_them_all`, plus the two ADR-036 worker tests moved to the new API.
+  - 7 mocked UI tests (`e2e/mocked/cloud.spec.ts`).
+- **Checked here:** `cargo build`, `cargo clippy --workspace --all-targets -D warnings`, `cargo fmt`, ESLint, Prettier, `tsc` and `vite build`.
+- **Not verified:**
+  - No test was run on this computer, and no real call to OpenAI or Google was made (no keys).
+  - The TypeScript bindings were written by hand; CI regenerates them and fails if they differ.
+
 ## Helpers end with the app (2026-11-08)
 
 - **Asked:** "got an error on install". The installer could not replace `exiftool.exe`: two ExifTool processes from earlier sessions were still running. Then "Yes, fix it" (ADR-037).

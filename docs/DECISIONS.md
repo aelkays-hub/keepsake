@@ -1241,7 +1241,7 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 
 ## ADR-036 — Tag with Claude: an optional cloud tagger for the photos the user picks
 
-**Status**: Accepted (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
+**Status**: Accepted, extended by ADR-038 (ChatGPT and Gemini too) (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
 
 **Context.** On-device tagging (ADR-035) covers 110 fixed tags and is sometimes wrong. The product owner wants a stronger tagger for single photos, accepting that the photo leaves the computer and that it costs money. Keepsake is local-first, so this must be opt-in, per photo, and never touch originals.
 
@@ -1320,3 +1320,48 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 No new dependencies.
 
 **Not done.** A macOS safety net for crashes (e.g. ExifTool watching for its parent). A render job running at exit (a long video proxy) is not cut short: after 5 s the app exits anyway; on Windows the job then ends its FFmpeg.
+
+
+## ADR-038 — Tag with AI: Claude, ChatGPT or Gemini
+
+**Status**: Accepted (2026-11-08, product owner: "give the user the ability to select which AI to use when tagging a single picture, Gemini, ChatGPT, CoPilot,..."; then chose "Yes, those three": Claude, ChatGPT and Gemini, without Copilot). Extends ADR-036.
+
+**Context.** ADR-036 sends the photos the user picks to Claude. The product owner wants to choose the AI. Copilot was left out: Microsoft has no public API for consumer Copilot, and GitHub Copilot is for code. The nearest option, Azure OpenAI, needs an Azure subscription, a deployment and an endpoint.
+
+**Decision.**
+- **Three providers, each with the user's own API key**, called over HTTPS with plain JSON (no SDKs), in `keepsake_core::ai::cloud`:
+  - **Claude (Anthropic)**: the Messages API, unchanged from ADR-036.
+  - **ChatGPT (OpenAI)**: the Responses API, `POST https://api.openai.com/v1/responses`, key as `Authorization: Bearer`.
+    - The photo is an `input_image` data URL (`detail: auto`).
+    - The answer is held to the schema with Structured Outputs (`text.format`, `json_schema`, `strict: true`).
+    - `reasoning.effort: low`, `store: false`.
+  - **Gemini (Google)**: `generateContent`, `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`, key in `x-goog-api-key`, never in the URL.
+    - The photo is `inlineData`, the prompt a `systemInstruction`.
+    - The answer is held to the schema with `responseMimeType: application/json` and `responseJsonSchema` (without `additionalProperties`, which Google's docs do not list for answers).
+    - `thinkingConfig.thinkingLevel: LOW`.
+    - Google recommends its newer Interactions API for new work, but says `generateContent` "remains fully supported". It is the documented, stable one; moving later only touches `gemini.rs`.
+- **Models, chosen per provider in Settings** (prices checked on the providers' pages, November 2026):
+
+| Provider | Model (default first) | About a photo |
+|---|---|---|
+| Claude | Claude Opus 5.5, Claude Fable 5.1, Claude Haiku 5.5 | 2¢, 6¢, 0.1¢ |
+| ChatGPT | GPT-6.1 Sol (`gpt-6.1-sol`), GPT-6 Astra (`gpt-6-astra`), GPT-6 Luna (`gpt-6-luna`) | 1¢, 5¢, 0.05¢ |
+| Gemini | Gemini 3.6 Flash (`gemini-3.6-flash`), Gemini 4 Argon (`gemini-4-argon`), Gemini 3.5 Flash-Lite (`gemini-3.5-flash-lite`) | 0.8¢, 2¢, 0.2¢ |
+
+  - The defaults are each provider's middle tier.
+  - Gemini's estimates use the prices from 1 December 2026 (Argon) and 1 January 2027 (Flash), when the introductory prices end.
+- **The same prompt, schema and tidying for all**: tags from the list, up to 5 new ones under `AI`, never naming people. Each provider's module only builds its request and reads its answer (`call`, `parse_response`).
+- **Errors mean the same everywhere** (`http_error`): a refused key (401, 403, or Gemini's 400 `API_KEY_INVALID`), a refusal (Claude `stop_reason: refusal`, OpenAI `refusal` or `content_filter`, Gemini `blockReason` or a safety `finishReason`) and other 4xx fail the photo for good. 429, 529, 5xx, a cut-short answer and network errors are retried. An OpenAI 429 for an empty or over-limit account (`insufficient_quota` and the like) is not retried.
+- **Choosing the AI.** The grid's right-click menu and the viewer say **Tag with AI…**. The window that asks first has an **AI** list of the providers with a saved key (none listed when only one has a key). Sending makes that provider the one offered first next time (`[ai] cloud_provider`). With no key at all it points to Settings.
+- **Jobs: one kind per provider**, `ai.claude` (as before, so queued jobs keep working), `ai.openai`, `ai.gemini`. One worker in the render service claims all three (`RenderService::with_cloud`); a photo can be sent to two providers and each is followed on its own.
+- **Keys: one credential-store entry per provider**, account `<id>-api-key` under service "Keepsake" (`claude-api-key` stays), with `KEEPSAKE_<ID>_KEY` overriding it. `keepsake_platform::secrets::{api_key, set_api_key}`. Pasting a Claude key in the ChatGPT box (or the other way round) is caught.
+- **Privacy, said where the user chooses.**
+  - OpenAI does not train on API data; it keeps it up to 30 days for abuse checks.
+  - On Gemini's free tier, Google may use what is sent, and people may review it, to improve its products, except in the European Economic Area, Switzerland and the UK. Paid (billing on) it does not. Settings and the ask-first window say to use a key from a project with billing.
+
+**Dependencies.** None new: `ureq` and `keyring` (ADR-036) cover it.
+
+**Not done.**
+- Copilot / Azure OpenAI.
+- Sending one photo to several AIs at once and comparing.
+- A real call to OpenAI or Google is not in CI (no keys there); requests and answers are tested with a stand-in, against the documented shapes.
