@@ -97,7 +97,8 @@ export function NameFindWindow() {
           setFaces(r.faces);
           setSearched(r.searched);
           if (r.faces.length > 0) {
-            setPicked((p) => p ?? (r.faces.find((f) => !f.person) ?? r.faces[0]).id);
+            const asked = r.faces.find((f) => f.id === job.face);
+            setPicked((p) => p ?? (asked ?? r.faces.find((f) => !f.person) ?? r.faces[0]).id);
           }
           if (!r.searched) timer = window.setTimeout(look, 1500);
         })

@@ -179,6 +179,8 @@ pub fn run() {
             faces::faces_suggest,
             faces::faces_review,
             faces::faces_decide,
+            faces::faces_not_person,
+            faces::faces_not_face,
         ])
         .build(tauri::generate_context!());
     let app = match result {

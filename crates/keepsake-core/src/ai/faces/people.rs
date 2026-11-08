@@ -214,6 +214,32 @@ pub fn decide(
     Ok(n)
 }
 
+/// "Not this person": the face's person is taken off it, and it is not
+/// suggested for them again. Returns whether it had one.
+pub fn not_this_person(lib: &Library, cat: &mut Catalog, face: i64) -> Result<bool, AiError> {
+    let Some(f) = cat.read(|tx| tx.faces().get(face))? else {
+        return Ok(false);
+    };
+    let Some(person) = f.person else {
+        return Ok(false);
+    };
+    cat.write(|tx| tx.faces().reject(face, person))?;
+    sync(lib, cat, &[f.asset_id])?;
+    Ok(true)
+}
+
+/// "Not a face": hidden for good (a new search does not find it again).
+pub fn not_a_face(lib: &Library, cat: &mut Catalog, face: i64) -> Result<(), AiError> {
+    let Some(f) = cat.read(|tx| tx.faces().get(face))? else {
+        return Ok(());
+    };
+    cat.write(|tx| tx.faces().hide(face))?;
+    if f.person.is_some() {
+        sync(lib, cat, &[f.asset_id])?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

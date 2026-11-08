@@ -1,8 +1,26 @@
-# Manual Test Steps — Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faces, step 5: People in the Inspector, faces in the viewer (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/people.spec.ts
+```
+
+Manual (both OSes), with Recognise faces on and someone named (step 3):
+1. Select a photo of that person. **Expected:** the Inspector has **People** with their name, "N faces with no name." if others are in it, and **Name and find…**. A photo not searched yet says "Not searched for faces yet." and selecting it does not start a search. Videos have no People.
+2. Double-click it, then press **P** (or the **Faces** button). **Expected:** a yellow box on each named face with the name under it (a suggestion shows "Name?"), a dashed white box on each face with no name. Zoom in and pan: the boxes stay on the faces and the names stay readable. **F** is still full screen.
+3. Click (or right-click) a named box. **Expected:** a menu: **Name…**, **Not <name>**, **Not a face**. Choose **Not <name>**. **Expected:** the name goes from the box and from the Inspector, the People › <name> keyword goes from the photo, and Find more never suggests that face for them again.
+4. Click a dashed box → **Not a face** (e.g. a face on a poster). **Expected:** the box goes and does not come back after Settings → Search all photos. (Limit: "not a face" is not written to the sidecar, so a catalog rebuild forgets it.)
+5. Click a box → **Name…**. **Expected:** the Name and find window with that face picked.
+6. Press **P** again. **Expected:** the boxes go.
 
 ---
 

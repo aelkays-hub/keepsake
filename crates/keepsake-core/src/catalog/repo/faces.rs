@@ -20,6 +20,9 @@ pub enum FaceState {
     Suggested,
     /// The user said who it is.
     Confirmed,
+    /// The user said it is not a face: never shown, suggested or found
+    /// again.
+    Hidden,
 }
 
 impl FaceState {
@@ -28,13 +31,19 @@ impl FaceState {
             Self::Unknown => "unknown",
             Self::Suggested => "suggested",
             Self::Confirmed => "confirmed",
+            Self::Hidden => "hidden",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        [Self::Unknown, Self::Suggested, Self::Confirmed]
-            .into_iter()
-            .find(|v| v.as_str() == s)
+        [
+            Self::Unknown,
+            Self::Suggested,
+            Self::Confirmed,
+            Self::Hidden,
+        ]
+        .into_iter()
+        .find(|v| v.as_str() == s)
     }
 }
 
@@ -282,10 +291,13 @@ impl<M> Faces<'_, M> {
                 &[&model],
             )?,
             with_faces: n(
-                "SELECT count(DISTINCT asset_id) FROM faces WHERE model = ?1",
+                "SELECT count(DISTINCT asset_id) FROM faces WHERE model = ?1 AND state != 'hidden'",
                 &[&model],
             )?,
-            faces: n("SELECT count(*) FROM faces WHERE model = ?1", &[&model])?,
+            faces: n(
+                "SELECT count(*) FROM faces WHERE model = ?1 AND state != 'hidden'",
+                &[&model],
+            )?,
             people: n("SELECT count(*) FROM people", &[])?,
             pending: super::to_u64(pending, "count")?,
             failed: super::to_u64(failed, "count")?,
@@ -450,10 +462,11 @@ impl<M> Faces<'_, M> {
 
 impl Faces<'_, Rw> {
     /// Store the result of searching `asset`'s picture (`width` × `height`)
-    /// for faces with `model`. Faces with no person are replaced; faces the
-    /// user named (or that were suggested) stay, and a new face on top of
-    /// one of them (overlapping more than [`SAME_FACE_IOU`]) is the same
-    /// face, so it is not added again. Returns how many faces were added.
+    /// for faces with `model`. Faces with no person are replaced; faces with
+    /// a decision stay (named, suggested, hidden as "not a face", or with a
+    /// "not this person"), and a new face on top of one of them
+    /// (overlapping more than [`SAME_FACE_IOU`]) is the same face, so it is
+    /// not added again. Returns how many faces were added.
     pub fn save_scan(
         &self,
         asset: AssetId,
@@ -464,7 +477,10 @@ impl Faces<'_, Rw> {
         now_ms: i64,
     ) -> Result<u64, CatalogError> {
         self.conn.execute(
-            "DELETE FROM faces WHERE asset_id = ?1 AND state = 'unknown'",
+            // A face with no person is replaced, unless it holds a "not
+            // this person".
+            "DELETE FROM faces WHERE asset_id = ?1 AND state = 'unknown'
+               AND NOT EXISTS (SELECT 1 FROM face_rejections r WHERE r.face_id = faces.id)",
             [asset],
         )?;
         let kept = self.for_asset(asset)?;
@@ -705,7 +721,7 @@ impl Faces<'_, Rw> {
         person: Option<(i64, FaceState)>,
     ) -> Result<(), CatalogError> {
         let (person, state) = match person {
-            Some((_, FaceState::Unknown)) => {
+            Some((_, FaceState::Unknown | FaceState::Hidden)) => {
                 return Err(CatalogError::Invalid(
                     "a face with a person is suggested or confirmed".into(),
                 ))
@@ -735,6 +751,15 @@ impl Faces<'_, Rw> {
         self.conn.execute(
             "DELETE FROM face_rejections WHERE face_id = ?1 AND person_id = ?2",
             params![face, person],
+        )?;
+        Ok(())
+    }
+
+    /// "Not a face": hidden for good (and no one's).
+    pub fn hide(&self, face: i64) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "UPDATE faces SET person_id = NULL, state = 'hidden', likeness = NULL WHERE id = ?1",
+            [face],
         )?;
         Ok(())
     }

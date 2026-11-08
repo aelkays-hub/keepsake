@@ -11,6 +11,7 @@ import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
 import { AiTags } from "./AiTags";
+import { PeopleBlock } from "./PeopleBlock";
 import { AllMetadata } from "./AllMetadata";
 import { OpenInMenu } from "./OpenInMenu";
 import { LabelPicker, Stars } from "./Stars";
@@ -234,6 +235,7 @@ export function Inspector() {
         </datalist>
       </div>
       {!multi && <AiTags id={d.id} />}
+      {!multi && d.kind !== "video" && <PeopleBlock id={d.id} title={d.name ?? "this photo"} />}
       <details className="files">
         <summary>Files ({d.files.length})</summary>
         <ul>

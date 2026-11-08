@@ -1563,6 +1563,44 @@ pre.report {
   width: 100%;
 }
 
+/* Faces over a photo in the viewer (ADR-040) */
+.face-layer {
+  pointer-events: none;
+}
+.viewer .face-layer .face-box {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid #ffd54a;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.viewer .face-layer .face-box.unknown {
+  border-style: dashed;
+  border-color: #ffffff;
+}
+.viewer .face-layer .face-box.suggested {
+  border-style: dotted;
+}
+.viewer .face-layer .face-box:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.face-label {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: rgb(0 0 0 / 0.7);
+  color: #ffffff;
+}
+
 /* Delete all face data (ADR-040) */
 button.danger {
   border-color: var(--bad);

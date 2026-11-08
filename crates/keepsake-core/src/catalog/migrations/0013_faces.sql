@@ -45,11 +45,13 @@ CREATE TABLE faces (
   emb_scale REAL NOT NULL CHECK (emb_scale >= 0),
   -- A person is removed only after their faces are made 'unknown' again.
   person_id INTEGER REFERENCES people(id),
+  -- 'hidden': the user said it is not a face; never shown, suggested or
+  -- found again.
   state     TEXT NOT NULL DEFAULT 'unknown'
-            CHECK (state IN ('unknown', 'suggested', 'confirmed')),
+            CHECK (state IN ('unknown', 'suggested', 'confirmed', 'hidden')),
   -- A suggestion's likeness to the person's confirmed faces (cosine).
   likeness  REAL,
-  CHECK ((person_id IS NULL) = (state = 'unknown'))
+  CHECK ((person_id IS NULL) = (state IN ('unknown', 'hidden')))
 ) STRICT;
 CREATE INDEX faces_asset ON faces(asset_id);
 CREATE INDEX faces_person ON faces(person_id, state) WHERE person_id IS NOT NULL;

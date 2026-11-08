@@ -275,13 +275,15 @@ fn suggest_dto(o: people::SuggestOutcome) -> SuggestDto {
     }
 }
 
-/// The faces in a photo. One not searched yet is searched now, ahead of
-/// the rest (`searched` false until it is: ask again).
+/// The faces in a photo (not those hidden as "not a face"). One not
+/// searched yet is searched now, ahead of the rest (`searched` false until
+/// it is: ask again), unless `search` is false (the Inspector, the viewer).
 #[tauri::command(async)]
 pub fn faces_of_photo(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    search: Option<bool>,
 ) -> CmdResult<PhotoFacesDto> {
     faces_on()?;
     let open = state.open()?;
@@ -297,7 +299,7 @@ pub fn faces_of_photo(
             cat.read(|tx| tx.faces().for_asset(asset)).map_err(err)?,
         )
     };
-    if !searched {
+    if !searched && search.unwrap_or(true) {
         {
             let mut cat = open.writer()?;
             scan::search_now(&mut cat, asset).map_err(err)?;
@@ -307,6 +309,7 @@ pub fn faces_of_photo(
     let cat = open.cat()?;
     let faces = rows
         .iter()
+        .filter(|f| f.state != FaceState::Hidden)
         .map(|f| face_dto(&cat, &open.cache, f))
         .collect::<CmdResult<_>>()?;
     Ok(PhotoFacesDto { searched, faces })
@@ -412,4 +415,21 @@ pub fn faces_decide(
     let mut cat = open.writer()?;
     let (c, r) = people::decide(&open.lib, &mut cat, person, &confirm, &reject).map_err(err)?;
     Ok([c, r])
+}
+
+/// "Not this person" on a face (the viewer's face menu). Returns whether it
+/// had a person.
+#[tauri::command(async)]
+pub fn faces_not_person(state: State<'_, AppState>, face: i64) -> CmdResult<bool> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    people::not_this_person(&open.lib, &mut cat, face).map_err(err)
+}
+
+/// "Not a face": hidden for good.
+#[tauri::command(async)]
+pub fn faces_not_face(state: State<'_, AppState>, face: i64) -> CmdResult<()> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    people::not_a_face(&open.lib, &mut cat, face).map_err(err)
 }

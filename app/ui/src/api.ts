@@ -263,7 +263,8 @@ export const api = {
   facesRemoveModels: () => invoke<boolean>("faces_remove_models"),
   /** Name and find (ADR-040). A photo not searched yet is searched now:
    * `searched` is false until it has been (ask again). */
-  facesOfPhoto: (id: string) => invoke<PhotoFacesDto>("faces_of_photo", { id }),
+  facesOfPhoto: (id: string, search = true) =>
+    invoke<PhotoFacesDto>("faces_of_photo", { id, search }),
   facesPeople: () => invoke<PersonDto[]>("faces_people"),
   facesName: (face: number, name: string) => invoke<PersonDto>("faces_name", { face, name }),
   /** Search every photo not searched yet; returns how many were queued. */
@@ -273,6 +274,9 @@ export const api = {
   /** Returns [confirmed, rejected]. */
   facesDecide: (person: number, confirm: number[], reject: number[]) =>
     invoke<[number, number]>("faces_decide", { person, confirm, reject }),
+  /** The viewer's face menu: not this person, or not a face (hidden). */
+  facesNotPerson: (face: number) => invoke<boolean>("faces_not_person", { face }),
+  facesNotFace: (face: number) => invoke<void>("faces_not_face", { face }),
   /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
   aiDuplicates: (from: string | null = null, to: string | null = null) =>
     invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),

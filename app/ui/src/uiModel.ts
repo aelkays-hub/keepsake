@@ -51,7 +51,7 @@ export interface UiState {
    * window shows how far it has got). */
   aiJob: AiJob | null;
   /** Name and find (ADR-040): the photo whose faces are named. */
-  nameFind: { photo: string; title: string } | null;
+  nameFind: { photo: string; title: string; face?: number } | null;
 }
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or
@@ -98,7 +98,7 @@ export type Msg =
   | { t: "duplicates"; range: DateRange | null }
   /** Start (or, `null`, close) an AI job. */
   | { t: "aiJob"; job: AiJob | null }
-  | { t: "nameFind"; photo: { photo: string; title: string } | null };
+  | { t: "nameFind"; photo: { photo: string; title: string; face?: number } | null };
 
 export const initial: UiState = {
   section: { kind: "all" },

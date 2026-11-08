@@ -56,7 +56,7 @@
 
 ---
 
-## People: name a face and find that person — plan, steps 1–4 (2026-11-08)
+## People: name a face and find that person — plan, steps 1–5 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
 - **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
@@ -83,7 +83,12 @@
   - Catalog: `face_rejections_pending` (v13); `Faces::{confirmed_names, confirmed_regions, rejection_boxes, photos_with_decisions, restore_confirmed, restore_rejection, forget_decisions}`; `save_scan` gives a restored face its description and applies waiting rejections.
   - `MetadataService::sync_faces` (`People|<name>` keywords and the sidecar); `people::name_face` / `decide` and `scan::delete_all` take the library and call it; the rebuild restores people, faces and rejections.
 - **Tests, run here:** xmp_tests (+3: Lightroom-style regions read, other apps' regions kept and Keepsake's taken off, nested values; the full round trip has faces), face_store_tests (+2: keywords, sidecars, rebuild, the next search keeps the names and the rejection; Delete all takes the names off and leaves the user's `People|Bob`), rebuild, AI, catalog, core library, CLI and app tests; clippy.
-- **Next:** step 5, the Inspector's People and the viewer's face boxes.
+- **Step 5 built — the Inspector and the viewer:**
+  - Core: face state `hidden` ("not a face", v13); `Faces::hide`; `people::{not_this_person, not_a_face}`; a new search keeps faces with a "not this person".
+  - App: `faces_of_photo(id, search)`, `faces_not_person`, `faces_not_face`.
+  - UI: Inspector **People** (`PeopleBlock`); viewer **Faces** button and key **P** (F is full screen), face boxes at the photo's zoom, a box menu (Name…, Not <name>, Not a face); Name and find opens with the clicked face picked.
+- **Tests, run here:** face_store_tests (+1: not this person, not a face, not added again by a new search, never suggested); xmp, rebuild, face, app tests; clippy; Vitest; mocked Playwright `people.spec.ts` (3) with name-find, viewer, metadata, a11y and faces specs.
+- **Next:** step 6, the People screen (every person, unnamed faces grouped by likeness, rename, merge). Not started: it was not part of this request.
 
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 

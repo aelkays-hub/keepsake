@@ -712,3 +712,59 @@ fn delete_all_face_data_takes_the_names_off_the_photos_too() {
     assert!(w.cat.read(|tx| tx.faces().people()).unwrap().is_empty());
     assert_eq!(keywords_of(&mut w, a), ["People|Bob"]);
 }
+
+// ── The viewer's face menu (step 5) ────────────────────────────────────────
+
+#[test]
+fn not_this_person_and_not_a_face() {
+    let mut w = World::new(&["a.jpg"]);
+    let a = photo_with(
+        &mut w,
+        "a.jpg",
+        Some(Y2020),
+        &[face_with(0.1, emb(128)), face_with(0.6, emb(64))],
+    );
+    let (f0, f1) = (face_of(&w, a, 0), face_of(&w, a, 1));
+    let sara = people::name_face(&w.lib, &mut w.cat, f0, "Sara", 1).unwrap();
+    assert_eq!(keywords_of(&mut w, a), ["People|Sara"]);
+    // Not Sara: her name and keyword come off, and it is remembered.
+    assert!(people::not_this_person(&w.lib, &mut w.cat, f0).unwrap());
+    assert!(keywords_of(&mut w, a).is_empty());
+    assert_eq!(
+        w.cat.read(|tx| tx.faces().rejected_for(f0)).unwrap(),
+        [sara]
+    );
+    assert!(
+        !people::not_this_person(&w.lib, &mut w.cat, f0).unwrap(),
+        "no one's now"
+    );
+    // Not a face: hidden, not counted, and a new search does not bring it
+    // back.
+    people::not_a_face(&w.lib, &mut w.cat, f1).unwrap();
+    let f = w.cat.read(|tx| tx.faces().get(f1)).unwrap().unwrap();
+    assert_eq!((f.person, f.state), (None, FaceState::Hidden));
+    assert_eq!(scan::status(&w.cat).unwrap().faces, 1);
+    w.cat
+        .write(|tx| {
+            tx.faces()
+                .save_scan(
+                    a,
+                    faces::MODEL_ID,
+                    1024,
+                    768,
+                    &[face_with(0.1, emb(128)), face_with(0.6, emb(64))],
+                    9,
+                )
+                .map(|_| ())
+        })
+        .unwrap();
+    let found = w.cat.read(|tx| tx.faces().for_asset(a)).unwrap();
+    assert_eq!(found.len(), 2, "the hidden face is not added again");
+    assert!(found
+        .iter()
+        .any(|f| f.id == f1 && f.state == FaceState::Hidden));
+    // A hidden face is never suggested.
+    let ok = people::name_face(&w.lib, &mut w.cat, f0, "Sara", 2).unwrap();
+    people::suggest(&mut w.cat, ok).unwrap();
+    assert!(people::review(&w.cat, ok).unwrap().is_empty());
+}

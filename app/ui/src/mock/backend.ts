@@ -122,7 +122,7 @@ interface MockFace {
   photo: number;
   who: number;
   k: number;
-  state: "unknown" | "suggested" | "confirmed";
+  state: "unknown" | "suggested" | "confirmed" | "hidden";
   person: number | null;
   likeness: number | null;
   rejected: Set<number>;
@@ -1221,7 +1221,9 @@ export function installMock(): void {
         case "faces_find":
         case "faces_suggest":
         case "faces_review":
-        case "faces_decide": {
+        case "faces_decide":
+        case "faces_not_person":
+        case "faces_not_face": {
           if (
             !(st.faces.enabled && st.ai.enabled) &&
             (cmd === "faces_of_photo" || cmd === "faces_find")
@@ -1273,10 +1275,22 @@ export function installMock(): void {
           });
           if (cmd === "faces_of_photo") {
             const i = Number(String(a.id).slice(1));
-            // Searched the second time it is asked about.
+            // Searched the second time it is asked about (not when only
+            // looking: the Inspector, the viewer).
             const searched = st.facesAsked.has(i);
-            st.facesAsked.add(i);
-            return { searched, faces: searched ? facesOf(i).map(dto) : [] };
+            if (a.search !== false) st.facesAsked.add(i);
+            const shown = searched ? facesOf(i).filter((f) => f.state !== "hidden") : [];
+            return { searched, faces: shown.map(dto) };
+          }
+          if (cmd === "faces_not_person" || cmd === "faces_not_face") {
+            const f = st.faceRows.get(Number(a.face));
+            if (!f) return cmd === "faces_not_person" ? false : null;
+            const had = f.person;
+            if (cmd === "faces_not_person" && had !== null) f.rejected.add(had);
+            f.person = null;
+            f.likeness = null;
+            f.state = cmd === "faces_not_face" ? "hidden" : "unknown";
+            return cmd === "faces_not_person" ? had !== null : null;
           }
           if (cmd === "faces_people") return st.people.map(personDto);
           if (cmd === "faces_name") {
