@@ -90,6 +90,9 @@ export interface MockState {
   aiRejected: Map<number, string[]>;
   /** Date ranges asked for: status polls left until they are analysed. */
   aiRanges: Map<string, number>;
+  /** Tag with Claude (`?claude=key` starts with a key saved; `?claude=bad`
+   * with one Claude refuses). Photos asked for: status polls left. */
+  claude: { key: string | null; model: string; asked: Map<string, number> };
 }
 
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
@@ -227,6 +230,11 @@ export function installMock(): void {
     choice: new Map(),
     aiRejected: new Map(),
     aiRanges: new Map(),
+    claude: {
+      key: params.get("claude") ? `sk-ant-mock-${params.get("claude")}` : null,
+      model: "claude-opus-5-5",
+      asked: new Map(),
+    },
     history: [],
     folders: [],
     settings: {
@@ -1183,6 +1191,63 @@ export function installMock(): void {
           // ?queueing=<ms>: queueing the work takes that long (a busy drive).
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
+        case "ai_claude_info":
+        case "ai_claude_set_key":
+        case "ai_claude_set_model": {
+          if (cmd === "ai_claude_set_key") {
+            const k = typeof a.key === "string" ? a.key.trim() : "";
+            if (k && !/^sk-ant-[A-Za-z0-9_-]{13,}$/.test(k))
+              throw "That does not look like a Claude API key (they start with sk-ant-).";
+            st.claude.key = k || null;
+          }
+          if (cmd === "ai_claude_set_model") st.claude.model = String(a.model);
+          return {
+            hasKey: st.claude.key !== null,
+            model: st.claude.model,
+            models: [
+              { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
+              { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
+              { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
+            ],
+          };
+        }
+        case "ai_claude_tag":
+        case "ai_claude_status":
+        case "ai_claude_stop": {
+          let ids = (a.ids ?? []) as string[];
+          if (cmd === "ai_claude_tag") {
+            if (!st.claude.key) throw "Add your Claude API key in Settings first.";
+            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+            st.claude.asked.set(ids.join(","), 2);
+          }
+          const key = ids.join(",");
+          const left = st.claude.asked.get(key) ?? 0;
+          if (cmd === "ai_claude_stop") {
+            st.claude.asked.set(key, 0);
+            return null;
+          }
+          const bad = st.claude.key?.endsWith("bad") ?? false;
+          if (cmd === "ai_claude_status" && left > 0) {
+            st.claude.asked.set(key, left - 1);
+            if (left === 1 && !bad)
+              for (const id of ids) {
+                const i = Number(id.slice(1));
+                const cur = st.keywords.get(i) ?? [];
+                st.keywords.set(i, [...new Set([...cur, "Beach", "AI|Sand Castle"])]);
+              }
+          }
+          const items = ids.length;
+          const pending = left > 0 ? items : 0;
+          const failed = !pending && bad ? items : 0;
+          const status = {
+            items,
+            analysed: pending || bad ? 0 : items,
+            pending,
+            failed,
+            problem: bad ? "Claude did not accept the API key: check it in Settings" : null,
+          };
+          return cmd === "ai_claude_tag" ? { ids, status } : status;
         }
         case "ai_range_stop": {
           st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);

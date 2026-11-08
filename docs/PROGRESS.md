@@ -56,6 +56,51 @@
 
 ---
 
+## Helpers end with the app (2026-11-08)
+
+- **Asked:** "got an error on install". The installer could not replace `exiftool.exe`: two ExifTool processes from earlier sessions were still running. Then "Yes, fix it" (ADR-037).
+- **Why they were left:**
+  - A `-stay_open` ExifTool does not end when its input closes.
+  - Closing the window ends the app without running destructors.
+  - The import ExifTool lives in a `static`, which is never dropped.
+- **Built:**
+  - `ExifTool::shutdown` and `ExifTool::pid`.
+  - The app stops the render service and the import ExifTool on exit.
+  - On Windows, the app joins a kill-on-close job object (`keepsake_platform::close_helpers_with_app`). Programs opened with "Open in" or in Explorer break away from it and stay open.
+- **Tests:**
+  - `shutdown_ends_the_process_even_when_the_handle_is_kept` (real ExifTool).
+  - `closing_the_job_ends_its_processes` and `a_process_outside_the_job_keeps_running` (Windows).
+- **Not verified:** closing the installed app and checking Task Manager. That is a manual step in TEST_ME.md.
+
+## Tag with Claude (2026-11-08)
+
+- **Asked:** "for individual photos, I would like to add another tagging option using the best external LLM that can do it". The product owner chose (ADR-036):
+  - the model in Settings: Opus 5.5 by default, Fable 5.1 or Haiku 5.5;
+  - `ureq` + `keyring` as the new dependencies;
+  - tags from the list plus up to 5 new ones;
+  - a right-click menu on photos.
+- **Built:**
+  - **Core, `ai::cloud`:**
+    - The request: photo, tag list, JSON schema, `effort: low`, fallback.
+    - Reading the answer: list tags only, new tags tidied, refusals and errors sorted into retry or not.
+    - Keyword paths, with new ones under `AI|`.
+    - The `ai.claude` job, with `enqueue`, `status` and `stop`. The render service runs it on its own worker (`with_claude`). `RenderError::Refused` is not retried.
+  - **Platform, `secrets`:** the API key in Windows Credential Manager / the macOS Keychain. `KEEPSAKE_CLAUDE_KEY` overrides it.
+  - **App:** `ai_claude_info`, `ai_claude_set_key`, `ai_claude_set_model`, `ai_claude_tag` (a selection), `ai_claude_status` and `ai_claude_stop`. A new setting, `[ai] claude_model`.
+  - **UI:**
+    - A right-click menu on the grid: Open and Tag with Claude… (also the Menu key or Shift+F10).
+    - A Tag with Claude button in the viewer.
+    - Settings → Tag with Claude: model and key.
+    - The progress window asks first (count, model, cost) and shows problems.
+- **Tests:**
+  - 7 unit tests in `ai::cloud`: base64, key check, request, answer, errors, keyword paths, headers.
+  - `claude_tags_become_keywords_from_the_thumbnail_only` and `a_refused_key_fails_the_photo_and_says_why` run the worker with a stand-in for Claude.
+  - The `secrets` environment override.
+  - 5 mocked UI tests (`e2e/mocked/claude.spec.ts`).
+- **Not verified:**
+  - A real call to the Claude API: there is no key in this session or in CI.
+  - The Windows ARM64 build with `ring`.
+
 ## On-device AI: content tags and same-day duplicates (2026-11-07)
 
 ### What was asked

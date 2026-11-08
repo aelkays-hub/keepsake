@@ -1,10 +1,54 @@
-# Manual Test Steps — On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
 
 ---
+
+## Helpers end with the app
+
+Automated:
+```
+cargo test -p keepsake-core --test probe_tests shutdown
+cargo test -p keepsake-platform job
+```
+
+Manual:
+1. **Windows:** start Keepsake and browse a few photos, or import a card, so ExifTool starts. In Task Manager → Details, sort by name. **Expected:** one or two `exiftool.exe`. Close Keepsake with ✕. **Expected:** within about 5 s no `exiftool.exe`, `ffmpeg.exe` or Keepsake `msedgewebview2.exe` is left.
+2. **Windows:** start Keepsake again and end `keepsake-app.exe` in Task Manager (End task), as a crash would. **Expected:** its `exiftool.exe` disappears at once too.
+3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
+4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
+5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
+
+## Tag with Claude (cloud tagging for the photos you pick)
+
+You need a Claude API key from console.anthropic.com (Anthropic charges for each photo; Haiku is the cheapest for trying it).
+
+Automated:
+```
+cargo test -p keepsake-core --lib ai::cloud
+cargo test -p keepsake-core --test ai_tests claude refused
+cargo test -p keepsake-platform secrets
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/claude.spec.ts
+```
+
+Manual (both OSes):
+1. Open **Settings**. **Expected:** below On-device AI, a "Tag with Claude" card says "No API key is saved yet." and the model list shows Claude Opus 5.5 (selected), Claude Fable 5.1 and Claude Haiku 5.5, each with its cost a photo.
+2. Type `hello` in the key field and press **Save key**. **Expected:** a red message says it does not look like a Claude API key. Paste your real key and press **Save key**. **Expected:** the field empties (the key is never shown again) and the card says "An API key is saved in this computer's credential store."
+   - **Windows:** open Credential Manager → Windows Credentials. **Expected:** an entry for `claude-api-key.Keepsake` (or similar, under Generic Credentials).
+   - **macOS:** open Keychain Access and search for Keepsake. **Expected:** an item `Keepsake` with account `claude-api-key`.
+   - Check `config.toml` in the settings folder. **Expected:** it has `claude_model` but no key.
+3. Choose **Claude Haiku 5.5** for a cheap test. Close and reopen Settings. **Expected:** Haiku is still selected.
+4. In the grid, click a photo of something recognisable (a landmark, a pet, a beach), then right-click it. **Expected:** a menu with **Open** and **Tag with Claude…**. Choose **Tag with Claude…**. **Expected:** a window in the bottom-right corner, "Tagging with Claude: DSC01234.JPG", asks "Send 1 photo to Claude Haiku 5.5 to be tagged? It costs under 1¢, charged by Anthropic." Nothing is sent yet.
+5. Press **Send**. **Expected:** a progress bar, then within about 10 seconds "1 of 1 photos tagged." In the inspector, the photo's keywords now include list tags (e.g. Beach, People) and maybe some under AI (e.g. `AI › Sand Castle`). Keywords it already had are still there. It never names a person.
+6. Select 3 photos (Shift-click), right-click one of them and choose **Tag with Claude…**. **Expected:** "Send 3 photos…" with a cost for three. Press **Send**, then **Hide**: a small "Claude · n%" button stays in the corner; click it to get the window back. Try **Stop** on a larger selection: photos already done keep their tags.
+7. Open a photo in the viewer (double-click). **Expected:** the top bar has **Tag with Claude**; it works as in step 4, and the window shows above the viewer.
+8. Keyboard: select a photo, press **Shift+F10** (or the Menu key). **Expected:** the menu opens at the photo with Open focused; arrows move, Escape closes.
+9. In Settings, paste a wrong key that still starts with `sk-ant-` (e.g. your key with the last letters changed) and save. Tag a photo. **Expected:** "0 of 1 photos tagged. 1 photo could not be: Claude did not accept the API key: check it in Settings". Put the right key back.
+10. Press **Remove key**. **Expected:** "No API key is saved yet.", and the credential is gone from Credential Manager / Keychain Access. Tag with Claude… now shows "Add your Claude API key in Settings first" with **Open Settings**, and nothing is sent.
+11. Unplug the network and tag a photo. **Expected:** the window stays at "0 of 1 done…" with a note "could not reach Claude: …". It tries again after 30 s and then 60 s: plug the network back in within a minute and it finishes by itself. Left unplugged, after the third try it says "1 photo could not be: could not reach Claude: …"; tag it again once you are online.
+12. Originals: compare a tagged photo's file before and after (size and modified time). **Expected:** unchanged; the keywords are in its `.xmp` sidecar.
 
 ## On-device AI: tags and same-day duplicates
 
