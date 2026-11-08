@@ -1338,6 +1338,7 @@ No new dependencies.
   - **Gemini (Google)**: `generateContent`, `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`, key in `x-goog-api-key`, never in the URL.
     - The photo is `inlineData`, the prompt a `systemInstruction`.
     - The answer is held to the schema with `responseMimeType: application/json` and `responseJsonSchema` (without `additionalProperties`, which Google's docs do not list for answers).
+    - The tag list is not an `enum` in that schema: Gemini refuses it ("Request contains an invalid argument", found with a real key on 2026-11-08). The list goes with the question instead, one name a line, and `tidy` keeps only tags on it.
     - `thinkingConfig.thinkingLevel: LOW`.
     - Google recommends its newer Interactions API for new work, but says `generateContent` "remains fully supported". It is the documented, stable one; moving later only touches `gemini.rs`.
 - **Models, chosen per provider in Settings** (prices checked on the providers' pages, November 2026):

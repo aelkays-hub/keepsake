@@ -50,10 +50,15 @@ pub fn call(
 /// The request body for one photo (the model is in the URL).
 pub fn request(jpeg: &[u8], names: &[String]) -> Value {
     // `responseJsonSchema` takes JSON Schema; `additionalProperties` is
-    // left out, as Google's docs do not list it for answers.
+    // left out, as Google's docs do not list it for answers. Gemini refuses
+    // the tag list as an `enum` ("Request contains an invalid argument"), so
+    // the list goes with the question instead; `tidy` keeps only tags on it.
     let mut s = schema(names);
     if let Some(o) = s.as_object_mut() {
         o.remove("additionalProperties");
+    }
+    if let Some(items) = s["properties"]["tags"]["items"].as_object_mut() {
+        items.remove("enum");
     }
     json!({
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
@@ -61,7 +66,7 @@ pub fn request(jpeg: &[u8], names: &[String]) -> Value {
             "role": "user",
             "parts": [
                 {"inlineData": {"mimeType": "image/jpeg", "data": base64(jpeg)}},
-                {"text": ASK},
+                {"text": format!("{ASK}\n\nThe list (use these names exactly):\n{}", names.join("\n"))},
             ],
         }],
         "generationConfig": {
@@ -143,13 +148,18 @@ mod tests {
         let parts = &r["contents"][0]["parts"];
         assert_eq!(parts[0]["inlineData"]["mimeType"], "image/jpeg");
         assert_eq!(parts[0]["inlineData"]["data"], "Zm9v");
-        assert_eq!(parts[1]["text"], ASK);
+        let ask = parts[1]["text"].as_str().unwrap();
+        assert!(ask.starts_with(ASK));
+        for n in names() {
+            assert!(ask.lines().any(|l| l == n), "{n} is in the question");
+        }
         assert_eq!(r["systemInstruction"]["parts"][0]["text"], SYSTEM);
         let g = &r["generationConfig"];
         assert_eq!(g["responseMimeType"], "application/json");
         assert_eq!(g["thinkingConfig"]["thinkingLevel"], "LOW");
         let s = &g["responseJsonSchema"];
-        assert_eq!(s["properties"]["tags"]["items"]["enum"][2], "Dog");
+        // Gemini refuses the list as an enum.
+        assert_eq!(s["properties"]["tags"]["items"], json!({"type": "string"}));
         assert_eq!(s["required"], json!(["tags", "new_tags"]));
         assert!(s.get("additionalProperties").is_none());
         assert_eq!(
@@ -169,6 +179,17 @@ mod tests {
         assert_eq!(t.tags, ["People"]);
         assert_eq!(t.new_tags, ["Picnic"]);
         assert_eq!(t.model, "gemini-3.6-flash");
+    }
+
+    #[test]
+    fn only_tags_on_the_list_are_kept_without_an_enum() {
+        let t = parse_response(
+            200,
+            &ok(r#"{"tags": ["dog", "Dragon", "People"], "new_tags": []}"#),
+            &names(),
+        )
+        .unwrap();
+        assert_eq!(t.tags, ["Dog", "People"]);
     }
 
     #[test]
