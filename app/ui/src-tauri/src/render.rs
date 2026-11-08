@@ -108,6 +108,16 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
                         st.ai.note(None, Some(reason.clone()));
                         let _ = app.emit("ai://status", ());
                     }
+                    RenderEvent::FacesReady { accel } => {
+                        let st = app.state::<AppState>();
+                        st.faces.note(Some(accel.describe().to_owned()), None);
+                        let _ = app.emit("faces://status", ());
+                    }
+                    RenderEvent::FacesUnavailable { reason } => {
+                        let st = app.state::<AppState>();
+                        st.faces.note(None, Some(reason.clone()));
+                        let _ = app.emit("faces://status", ());
+                    }
                     _ => {}
                 }
                 if let RenderEvent::Done { asset, made, .. } = ev {

@@ -224,6 +224,7 @@ impl World {
             evict_every: 25,
             ai: false,
             ai_gpu: false,
+            faces: false,
         };
         RenderService::new(&self.lib, t.clone(), self.cache.clone(), opts)
     }
@@ -617,6 +618,7 @@ fn a_full_cache_makes_thumbnails_only_until_the_item_is_opened() {
         evict_every: 1,
         ai: false,
         ai_gpu: false,
+        faces: false,
     };
     let svc = RenderService::new(&w.lib, t, w.cache.clone(), opts);
     w.run(&svc);

@@ -18,6 +18,7 @@ import { LAYOUTS, layoutExample } from "../importLayouts";
 import * as fmt from "../format";
 import { AiSettings } from "./AiSettings";
 import { CloudSettings } from "./CloudSettings";
+import { FacesSettings } from "./FacesSettings";
 
 const GB = 1024 ** 3;
 
@@ -383,6 +384,7 @@ export function SettingsScreen() {
       <h1 className="heading">Settings</h1>
       <Library info={info} />
       <AiSettings />
+      <FacesSettings />
       <CloudSettings />
       <CardImport value={imp} onChange={setImp} />
 

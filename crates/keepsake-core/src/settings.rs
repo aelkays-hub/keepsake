@@ -195,6 +195,10 @@ pub struct AiSettings {
     pub enabled: bool,
     /// Use the graphics card when it can (DirectML / CoreML).
     pub gpu: bool,
+    /// Recognise faces (ADR-040): search photos for faces when asked. Off
+    /// until the user turns it on (which downloads the face models); needs
+    /// `enabled`.
+    pub faces: bool,
     /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
     /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
@@ -248,6 +252,7 @@ impl Default for AiSettings {
         Self {
             enabled: false,
             gpu: true,
+            faces: false,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),
             gemini_model: Provider::Gemini.default_model().id().to_owned(),

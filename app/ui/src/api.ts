@@ -10,6 +10,7 @@ import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
 import type { AiTagsDto } from "./bindings/AiTagsDto";
+import type { FacesStatus } from "./bindings/FacesStatus";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -71,6 +72,7 @@ export type {
   AiTagDto,
   AiTagsDto,
   AppInfo,
+  FacesStatus,
   AssetMembers,
   BackupOverview,
   Bucket,
@@ -241,6 +243,16 @@ export const api = {
     invoke<void>("ai_enable", { enabled, gpu }),
   aiInstallCancel: () => invoke<void>("ai_install_cancel"),
   aiRemoveModel: () => invoke<boolean>("ai_remove_model"),
+  /** Recognise faces (ADR-040): on downloads the face models first. */
+  facesStatus: () => invoke<FacesStatus>("faces_status"),
+  facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
+  facesInstallCancel: () => invoke<void>("faces_install_cancel"),
+  /** Search every photo not searched yet; returns how many were queued. */
+  facesScanAll: () => invoke<number>("faces_scan_all"),
+  facesStop: () => invoke<number>("faces_stop"),
+  /** Forget every face, person and decision; returns how many faces. */
+  facesDeleteAll: () => invoke<number>("faces_delete_all"),
+  facesRemoveModels: () => invoke<boolean>("faces_remove_models"),
   /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
   aiDuplicates: (from: string | null = null, to: string | null = null) =>
     invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),
@@ -312,6 +324,9 @@ export const events = {
   aiInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("ai://install", (e) => f(e.payload)),
   aiStatus: (f: () => void): Promise<UnlistenFn> => listen("ai://status", () => f()),
+  facesInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("faces://install", (e) => f(e.payload)),
+  facesStatus: (f: () => void): Promise<UnlistenFn> => listen("faces://status", () => f()),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

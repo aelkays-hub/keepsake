@@ -111,6 +111,7 @@ fn corpus_arw_and_avchd_render() {
             evict_every: 100,
             ai: false,
             ai_gpu: false,
+            faces: false,
         },
     );
     let mut evs = Vec::new();

@@ -84,6 +84,9 @@ export interface MockState {
   crashSeen: boolean;
   /** On-device AI (`?ai=off` starts with it off). */
   ai: { enabled: boolean; gpu: boolean; modelInstalled: boolean };
+  /** Recognise faces (`?faces=on`: on, models installed). `left`: status
+   * polls until a search of all photos is done. */
+  faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
   /** Duplicate decisions: `keeper`, `not_kept`, `not_duplicate`. */
   choice: Map<number, string>;
   /** AI tags removed by the user. */
@@ -286,6 +289,13 @@ export function installMock(): void {
       enabled: params.get("ai") !== "off",
       gpu: true,
       modelInstalled: params.get("ai") !== "off",
+    },
+    faces: {
+      enabled: params.get("faces") === "on",
+      installed: params.get("faces") === "on",
+      scanned: 0,
+      people: 0,
+      left: 0,
     },
     choice: new Map(),
     aiRejected: new Map(),
@@ -1184,6 +1194,70 @@ export function installMock(): void {
           return null;
         case "ai_install_cancel":
           return null;
+        case "faces_status": {
+          const f = st.faces;
+          const photos = all.filter((it) => it.kind !== "video").length;
+          if (f.left > 0) {
+            f.left -= 1;
+            if (f.left === 0) f.scanned = photos;
+          }
+          // About 3 photos in 5 have faces, 1.5 faces each.
+          const withFaces = Math.round(f.scanned * 0.6);
+          return {
+            enabled: f.enabled,
+            aiEnabled: st.ai.enabled,
+            modelsInstalled: f.installed,
+            modelsBytes: 38928942,
+            runtimeFound: true,
+            accel: f.enabled && st.ai.enabled ? "graphics card (DirectML)" : null,
+            problem: null,
+            installing: null,
+            photos,
+            scanned: f.scanned,
+            withFaces,
+            faces: Math.round(withFaces * 1.5),
+            people: f.people,
+            pending: f.left > 0 ? photos - f.scanned : 0,
+            failed: 0,
+          };
+        }
+        case "faces_enable":
+          if (a.enabled && !st.ai.enabled) throw "Turn on On-device AI first (just above).";
+          st.faces.enabled = Boolean(a.enabled);
+          if (st.faces.enabled && !st.faces.installed) {
+            st.faces.installed = true;
+            void emit("faces://install", {
+              done: 38928942,
+              total: 38928942,
+              finished: true,
+              error: null,
+            });
+          }
+          return null;
+        case "faces_install_cancel":
+          return null;
+        case "faces_scan_all": {
+          if (!(st.faces.enabled && st.ai.enabled)) throw "Turn on Recognise faces first.";
+          const photos = all.filter((it) => it.kind !== "video").length;
+          st.faces.left = 2;
+          return photos - st.faces.scanned;
+        }
+        case "faces_stop": {
+          const was = st.faces.left > 0;
+          st.faces.left = 0;
+          return was ? 1 : 0;
+        }
+        case "faces_delete_all": {
+          const n = Math.round(Math.round(st.faces.scanned * 0.6) * 1.5);
+          st.faces.scanned = 0;
+          st.faces.people = 0;
+          st.faces.left = 0;
+          return n;
+        }
+        case "faces_remove_models":
+          st.faces.enabled = false;
+          st.faces.installed = false;
+          return true;
         case "ai_remove_model":
           st.ai.enabled = false;
           st.ai.modelInstalled = false;

@@ -1,4 +1,5 @@
 //! `keepsake ai status | install | run | duplicates | retag | explain` (ADR-035)
+//! and `keepsake ai faces install | scan | status | delete-all` (ADR-040)
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -43,6 +44,36 @@ pub enum AiAction {
         /// Use the processor only, not the graphics card.
         #[arg(long)]
         cpu: bool,
+    },
+    /// Faces, on this computer (ADR-040).
+    Faces {
+        #[command(subcommand)]
+        action: FacesAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum FacesAction {
+    /// Download the two face models into this computer's cache folder
+    /// (39 MB).
+    Install,
+    /// Search every photo not yet searched for faces (from the thumbnails;
+    /// makes missing ones first).
+    Scan {
+        /// Use the processor only, not the graphics card.
+        #[arg(long)]
+        cpu: bool,
+        /// Keep working on battery.
+        #[arg(long)]
+        ignore_battery: bool,
+    },
+    /// What is installed and how many faces were found.
+    Status,
+    /// Forget every face, person and decision (originals are not touched).
+    DeleteAll {
+        /// Do it without asking.
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -90,6 +121,7 @@ pub fn run(ctx: &Ctx, action: AiAction) -> Result<u8> {
         AiAction::Run(a) => run_all(ctx, &a),
         AiAction::Duplicates { date } => dups(ctx, date.as_deref()),
         AiAction::Explain { file, top, cpu } => explain(ctx, &file, top, !cpu),
+        AiAction::Faces { action } => faces(ctx, action),
         AiAction::Retag => {
             let lib = ctx.library()?;
             let mut cat = lib.open_catalog()?;
@@ -291,4 +323,125 @@ fn explain(ctx: &Ctx, file: &std::path::Path, top: usize, gpu: bool) -> Result<u
         },
     )?;
     Ok(EXIT_OK)
+}
+
+fn faces(ctx: &Ctx, action: FacesAction) -> Result<u8> {
+    use keepsake_core::ai::faces::{install as face_install, scan, MODEL_ID as FACE_MODEL};
+    match action {
+        FacesAction::Install => {
+            let mut last = 0u64;
+            match face_install::install(cancel_flag(), &mut |done, total| {
+                if !ctx.json && done >= last + 5 * 1024 * 1024 {
+                    last = done;
+                    eprintln!("{} of {}", human_bytes(done), human_bytes(total));
+                }
+            }) {
+                Ok(()) => {
+                    ctx.emit(&json!({ "installed": true }), || {
+                        println!("Installed the face models.")
+                    })?;
+                    Ok(EXIT_OK)
+                }
+                Err(ai::AiError::Cancelled) => Ok(EXIT_CANCELLED),
+                Err(e) => Err(e.into()),
+            }
+        }
+        FacesAction::Status => {
+            let lib = ctx.library()?;
+            let cat = lib.open_catalog()?;
+            let c = scan::status(&cat)?;
+            let det = face_install::DETECTOR.find();
+            let rec = face_install::RECOGNIZER.find();
+            ctx.emit(
+                &json!({
+                    "model_id": FACE_MODEL,
+                    "detector": det.as_deref().map(path_str),
+                    "recognizer": rec.as_deref().map(path_str),
+                    "counts": c,
+                }),
+                || {
+                    for (what, p) in [("Detector:  ", &det), ("Recogniser:", &rec)] {
+                        match p {
+                            Some(p) => println!("{what} {}", p.display()),
+                            None => println!("{what} not installed (keepsake ai faces install)"),
+                        }
+                    }
+                    println!(
+                        "Searched {} of {} photo(s): {} face(s) in {} photo(s); {} people named; \
+                         {} queued, {} failed.",
+                        c.scanned, c.photos, c.faces, c.with_faces, c.people, c.pending, c.failed
+                    );
+                },
+            )?;
+            Ok(EXIT_OK)
+        }
+        FacesAction::DeleteAll { yes } => {
+            if !yes {
+                anyhow::bail!("this forgets every face, person and decision; run again with --yes");
+            }
+            let lib = ctx.library()?;
+            let mut cat = lib.open_catalog()?;
+            let n = scan::delete_all(&mut cat)?;
+            ctx.emit(&json!({ "deleted_faces": n }), || {
+                println!("Deleted all face data ({n} face(s)).")
+            })?;
+            Ok(EXIT_OK)
+        }
+        FacesAction::Scan {
+            cpu,
+            ignore_battery,
+        } => {
+            let lib = ctx.library()?;
+            let settings = Settings::load()?;
+            let cache = Cache::new(settings.render.cache_root()?);
+            let queued = {
+                let mut cat = lib.open_catalog()?;
+                scan::enqueue_unscanned(&mut cat)?
+            };
+            if !ctx.json {
+                eprintln!("{queued} photo(s) to search.");
+            }
+            let mut opts = RenderOptions::from_settings(&settings.render);
+            opts.proxy_workers = 0;
+            opts.faces = true;
+            opts.ai_gpu = !cpu && settings.ai.gpu;
+            opts.pause_on_battery = settings.render.pause_on_battery && !ignore_battery;
+            let svc = RenderService::new(&lib, RenderTools::discover(), cache, opts)
+                .with_power(Arc::new(keepsake_platform::on_battery));
+            let cancel: &AtomicBool = cancel_flag();
+            let mut searched = 0u64;
+            let mut problem: Option<String> = None;
+            svc.run(cancel, &mut |ev| match ev {
+                RenderEvent::FacesReady { accel } => {
+                    if !ctx.json {
+                        eprintln!("Face models loaded on the {}.", accel.describe());
+                    }
+                }
+                RenderEvent::FacesUnavailable { reason } => problem = Some(reason.clone()),
+                RenderEvent::Done { kind, .. } if kind == ai::JOB_AI_FACES => {
+                    searched += 1;
+                    if !ctx.json && searched.is_multiple_of(100) {
+                        eprintln!("{searched} searched…");
+                    }
+                }
+                _ => {}
+            })
+            .context("running the face worker")?;
+            if let Some(p) = problem {
+                anyhow::bail!("the face models could not start: {p}");
+            }
+            let c = scan::status(&lib.open_catalog()?)?;
+            ctx.emit(&json!({ "searched": searched, "counts": c }), || {
+                println!(
+                    "Searched {searched} photo(s); {} face(s) in {} photo(s) so far.",
+                    c.faces, c.with_faces
+                )
+            })?;
+            Ok(if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                EXIT_CANCELLED
+            } else {
+                EXIT_OK
+            })
+        }
+    }
 }

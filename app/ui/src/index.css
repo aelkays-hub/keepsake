@@ -1509,6 +1509,13 @@ pre.report {
   border-style: dotted;
   background: transparent;
 }
+/* Delete all face data (ADR-040) */
+button.danger {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: var(--accent-text);
+}
+
 /* Which AI gave a tag (ADR-039) */
 .ai-badge {
   display: inline-block;

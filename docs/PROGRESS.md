@@ -56,7 +56,7 @@
 
 ---
 
-## People: name a face and find that person — plan and step 1 (2026-11-08)
+## People: name a face and find that person — plan, steps 1 and 2 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
 - **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
@@ -66,7 +66,14 @@
   - `model::open_session` shared by the image encoder and the face models.
   - Setup scripts: `-WithAi` / `--with-ai` also fetch the two face models (SHA-256 pinned).
 - **Tests, run here:** 16 unit tests (`ai::faces`: decoding, merging, fitting, alignment, input order, pins); `face_tests` with the real models (load, a blank picture has no faces, 128 unit numbers, the same each time, the graphics card and the processor agree); the corpus test on the product owner's photos: 49 photos read, 25 with faces, 56 faces, each found again at 768 px and matching itself (lowest 0.939; same person from 0.363). The model and corpus tests skip in CI (no models there), like the image encoder's.
-- **Next:** step 2, scanning and storing faces (schema v13, `ai.faces` jobs, the setting, Delete all face data).
+- **Step 2 built — searching photos and storing faces:**
+  - Core: schema v13 (`people`, `face_scans`, `faces`, `face_rejections`), `catalog::Faces` (save a search keeping named faces, people, set a person, reject, counts, photos not searched, delete all), `faces::scan` (`ai.faces` jobs, `FaceFinder`, enqueue, status, stop, delete all), the face worker in `RenderService`, `[ai] faces`, `Jobs::remove_all_queued`.
+  - Fix found by the new tests: the AI and face workers could wait forever for a thumbnail queued after the thumbnail workers had ended (when the service stops at an empty queue). They now wait only while a thumbnail worker runs; searching every photo queues its thumbnails first.
+  - CLI: `keepsake ai faces install | scan | status | delete-all --yes`.
+  - App: `faces_status`, `faces_enable` (download with progress, `faces://install`), `faces_install_cancel`, `faces_scan_all`, `faces_stop`, `faces_delete_all`, `faces_remove_models`; `faces://status` when the face worker starts or cannot.
+  - UI: Settings → Recognise faces (on/off, progress, Search all / Stop, Delete all face data asked first, Delete the downloaded face models).
+- **Tests, run here:** `face_store_tests` (the worker with a stand-in: thumbnails searched, tiny faces left out, a photo waiting for its thumbnail, not searched twice; named faces kept on a new search, one person per name, rejections; Delete all; thumbnails queued with a search; no models: the worker says why and the rest goes on); the step-1 tests; catalog, AI, render, core library, CLI and app tests; Vitest `faces.test.ts`; mocked Playwright `faces.spec.ts` (and the other Settings tests).
+- **Next:** step 3, Name and find (right-click, the window, matching, Review and Find more).
 
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 

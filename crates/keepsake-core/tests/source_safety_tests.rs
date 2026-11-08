@@ -232,6 +232,7 @@ fn a_read_only_library_volume_is_only_read() {
             evict_every: 25,
             ai: false,
             ai_gpu: false,
+            faces: false,
         },
     );
     svc.run(&AtomicBool::new(false), &mut |_| {}).unwrap();

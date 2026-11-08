@@ -1,8 +1,31 @@
-# Manual Test Steps — Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faces, step 2: searching photos for faces (ADR-040)
+
+Names and Name and find come in the next step; this one finds and stores the faces. The first start upgrades the catalog (schema 13).
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/faces.spec.ts
+cd app/ui; pnpm test
+```
+
+Manual (both OSes):
+1. Settings → **Recognise faces** with On-device AI **off**. **Expected:** "Needs On-device AI (just above)" and the tick-box cannot be ticked. Turn On-device AI on.
+2. Tick **Recognise faces**. **Expected:** if the models are not installed, "Downloading the face models: … of 39 MB" with Cancel, then the box stays ticked. The status says "0 of N photos searched; no faces yet. On the graphics card (DirectML)" (macOS: Core ML).
+3. Press **Search all N photos**. **Expected:** "Searching N photos…", a **Stop** button, and the counts going up every few seconds ("F faces in P of S photos searched (N photos in all); W waiting"). Photos without a thumbnail get one first. The app stays usable; on battery it pauses if Settings says so.
+4. Press **Stop**. **Expected:** "Stopped."; the counts stay. Press **Search all** again. **Expected:** it continues with the photos not searched yet (it does not search the done ones again).
+5. With the app closed, in a terminal: `keepsake ai faces status`. **Expected:** the model paths and the same counts. `keepsake ai faces scan` searches the rest from the terminal and ends with "Searched … photo(s); … face(s) in … photo(s) so far."
+6. Press **Delete all face data…**. **Expected:** "Forget F faces and 0 people? … This cannot be undone." with **Delete all face data** (red) and **Cancel**. Cancel: nothing changes. Delete: "All face data was deleted." and "0 of N photos searched".
+7. Untick **Recognise faces**, then **Delete the downloaded face models**. **Expected:** the two model files are gone from the cache folder (`%LOCALAPPDATA%\keepsake\models\` or `~/Library/Caches/keepsake/models/`); ticking again downloads them again.
+8. Throughout: originals are not changed (their modified dates stay), and no network traffic other than the one-time model download.
 
 ---
 

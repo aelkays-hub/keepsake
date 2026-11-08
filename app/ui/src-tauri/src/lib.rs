@@ -6,6 +6,7 @@ mod commands;
 mod convert;
 mod diagnostics;
 mod edit;
+mod faces;
 mod folders;
 mod import;
 mod maintenance;
@@ -164,6 +165,13 @@ pub fn run() {
             cloud::ai_cloud_tag,
             cloud::ai_cloud_status,
             cloud::ai_cloud_stop,
+            faces::faces_status,
+            faces::faces_enable,
+            faces::faces_install_cancel,
+            faces::faces_scan_all,
+            faces::faces_stop,
+            faces::faces_delete_all,
+            faces::faces_remove_models,
         ])
         .build(tauri::generate_context!());
     let app = match result {

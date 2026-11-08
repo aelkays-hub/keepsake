@@ -26,12 +26,13 @@ pub use ids::{
 };
 pub use migrations::LATEST_VERSION;
 pub use model::*;
+pub use repo::{box_iou, name_key, SAME_FACE_IOU};
 pub use repo::{
     Ai, AiCounts, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DayItem,
-    DriveRow, EditFields, EventSpan, Events, Facet, FacetColumn, Files, Imports, Job, JobCounts,
-    JobState, Jobs, Labels, LibraryReport, Meta, NewJob, Priority, RangeItem, Recipes, Renditions,
-    Report, ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags,
-    Volumes, UNKNOWN,
+    DriveRow, EditFields, EventSpan, Events, FaceCounts, FaceRow, FaceScan, FaceState, Faces,
+    Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels, LibraryReport,
+    Meta, NewFace, NewJob, Person, Priority, RangeItem, Recipes, Renditions, Report, ReportRow,
+    Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -77,6 +78,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(sequences, Sequences);
     repo_accessor!(report, Report);
     repo_accessor!(ai, Ai);
+    repo_accessor!(faces, Faces);
 
     /// The raw connection, for bulk paths inside the crate (seeding).
     pub(crate) fn conn(&self) -> &rusqlite::Connection {

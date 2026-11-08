@@ -5,7 +5,8 @@
 //! - `workers` threads take [`super::JOB_STILLS`] jobs, `proxy_workers`
 //!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
 //!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; with AI on, one more
-//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035). Each has its own catalog
+//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035), and with faces on,
+//!   one takes [`crate::ai::JOB_AI_FACES`] jobs (ADR-040). Each has its own catalog
 //!   connection and claims one job at a time;
 //! - fingerprints wait while a thumbnail job is ready: each reads a whole
 //!   file, and on a network drive they would take the disk from thumbnails.
@@ -28,7 +29,7 @@
 //! - the cancel flag stops workers after their current job.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -38,9 +39,10 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
+use crate::ai::faces::scan::{self as face_scan, FaceFinder, FinderLoader};
 use crate::ai::{
-    self, AiError, ImageModel, LabelSet, Purpose, CLOUD_JOBS, JOB_AI, JOB_AI_CLAUDE, JOB_AI_GEMINI,
-    JOB_AI_OPENAI, JOB_AI_TAG,
+    self, AiError, ImageModel, LabelSet, Purpose, CLOUD_JOBS, JOB_AI, JOB_AI_CLAUDE, JOB_AI_FACES,
+    JOB_AI_GEMINI, JOB_AI_OPENAI, JOB_AI_TAG,
 };
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
@@ -92,6 +94,8 @@ pub struct RenderOptions {
     pub ai: bool,
     /// Let it use the graphics card.
     pub ai_gpu: bool,
+    /// Run the face worker (ADR-040).
+    pub faces: bool,
 }
 
 impl RenderOptions {
@@ -106,13 +110,15 @@ impl RenderOptions {
             evict_every: 25,
             ai: false,
             ai_gpu: true,
+            faces: false,
         }
     }
 
-    /// Turn the AI worker on or off as the settings say.
+    /// Turn the AI and face workers on or off as the settings say.
     pub fn with_ai(mut self, s: &crate::settings::AiSettings) -> Self {
         self.ai = s.enabled;
         self.ai_gpu = s.gpu;
+        self.faces = s.enabled && s.faces;
         self
     }
 }
@@ -161,6 +167,14 @@ pub enum RenderEvent {
     },
     /// The AI worker could not start (no model, no runtime, ...).
     AiUnavailable {
+        reason: String,
+    },
+    /// The face models are loaded and the face worker runs (ADR-040).
+    FacesReady {
+        accel: ai::Accel,
+    },
+    /// The face worker could not start.
+    FacesUnavailable {
         reason: String,
     },
     Evicted {
@@ -226,6 +240,9 @@ pub struct RenderService {
     /// Tag with AI (ADR-036, ADR-038): with it, a worker runs the cloud
     /// jobs of every provider (`ai.claude`, `ai.openai`, `ai.gemini`).
     cloud: Option<Arc<dyn ai::cloud::Tagger>>,
+    /// Loads the face worker's models (ADR-040); the installed models when
+    /// not set.
+    faces: Option<FinderLoader>,
 }
 
 struct Shared {
@@ -236,6 +253,20 @@ struct Shared {
     evicting: Mutex<()>,
     /// The cache is above [`FULL_PCT`] of its limit (as of the last trim).
     full: AtomicBool,
+    /// Thumbnail workers still running. Workers that wait for thumbnails
+    /// (AI, faces) stop waiting once none is: when the service stops at an
+    /// empty queue, a thumbnail queued after they quit would never be made.
+    stills_live: AtomicUsize,
+}
+
+/// Counts a thumbnail worker out of [`Shared::stills_live`] when it ends,
+/// however it ends.
+struct StillsLive<'a>(&'a AtomicUsize);
+
+impl Drop for StillsLive<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl RenderService {
@@ -247,7 +278,14 @@ impl RenderService {
             opts,
             on_battery: Arc::new(|| false),
             cloud: None,
+            faces: None,
         }
+    }
+
+    /// Load the face worker's finder with this (tests use a stand-in).
+    pub fn with_faces(mut self, loader: FinderLoader) -> Self {
+        self.faces = Some(loader);
+        self
     }
 
     /// Run the cloud tagging jobs with this tagger (ADR-036, ADR-038).
@@ -289,6 +327,7 @@ impl RenderService {
             paused: Mutex::new(None),
             evicting: Mutex::new(()),
             full: AtomicBool::new(self.is_full(bytes)),
+            stills_live: AtomicUsize::new(self.opts.workers.max(1)),
         };
         let (tx, rx) = channel::<RenderEvent>();
         let mut errors: Vec<RenderError> = Vec::new();
@@ -298,6 +337,7 @@ impl RenderService {
                 .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
                 .chain(std::iter::once(JOB_FINGERPRINT))
                 .chain(self.opts.ai.then_some(JOB_AI))
+                .chain(self.opts.faces.then_some(JOB_AI_FACES))
                 // One worker sends the photos of every provider.
                 .chain(self.cloud.is_some().then_some(JOB_AI_CLAUDE));
             for kind in plan {
@@ -383,6 +423,12 @@ impl RenderService {
         .unwrap_or(true)
     }
 
+    /// Wait for thumbnails: one is ready to be made and a thumbnail worker
+    /// is still there to make it.
+    fn stills_wait(cat: &Catalog, shared: &Shared) -> bool {
+        shared.stills_live.load(Ordering::SeqCst) > 0 && Self::stills_active(cat)
+    }
+
     fn sleep(cancel: &AtomicBool, d: Duration) {
         let end = Instant::now() + d;
         while Instant::now() < end && !cancel.load(Ordering::SeqCst) {
@@ -398,7 +444,11 @@ impl RenderService {
         shared: &Shared,
         exiftool: Option<&ExifTool>,
     ) -> Result<(), RenderError> {
+        let _live = (kind == JOB_STILLS).then(|| StillsLive(&shared.stills_live));
         let mut cat = self.lib.open_catalog()?;
+        if kind == JOB_AI_FACES {
+            return self.face_worker(&mut cat, cancel, tx, shared);
+        }
         let mut ai_state = None;
         if kind == JOB_AI {
             let dropped = cat.write(|t| {
@@ -440,7 +490,7 @@ impl RenderService {
             // a thumbnail job is ready instead.
             let wait = match kind {
                 JOB_FINGERPRINT => Self::stills_waiting(&cat),
-                JOB_AI => Self::stills_active(&cat),
+                JOB_AI => Self::stills_wait(&cat, shared),
                 _ => false,
             };
             if wait {
@@ -540,7 +590,7 @@ impl RenderService {
                 });
             }
             RenderError::Waiting(reason) => {
-                let wait = if kind == JOB_AI || kind == JOB_AI_CLAUDE {
+                let wait = if kind == JOB_AI || kind == JOB_AI_CLAUDE || kind == JOB_AI_FACES {
                     NO_THUMB_RETRY_MS
                 } else {
                     WAITING_RETRY_MS
@@ -657,6 +707,123 @@ impl RenderService {
         }
         for (job, e) in failed {
             self.settle_err(cat, cancel, tx, shared, JOB_AI, &job, e)?;
+        }
+        Ok(true)
+    }
+
+    /// The face worker (ADR-040): load the models, then search the queued
+    /// photos a batch at a time, like the AI worker. If the models cannot
+    /// be loaded it says why and stops; the other workers go on.
+    fn face_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        let loader = self
+            .faces
+            .clone()
+            .unwrap_or_else(face_scan::installed_loader);
+        let mut finder = match loader(self.opts.ai_gpu) {
+            Ok(f) => {
+                let _ = tx.send(RenderEvent::FacesReady { accel: f.accel() });
+                f
+            }
+            Err(e) => {
+                tracing::warn!("face worker not started: {e}");
+                let _ = tx.send(RenderEvent::FacesUnavailable {
+                    reason: e.to_string(),
+                });
+                return Ok(());
+            }
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let pause = pause_reason(cat, &self.on_battery, self.opts.pause_on_battery);
+            self.note_pause(shared, pause, tx);
+            if pause.is_some() {
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            }
+            // Like the AI worker, it reads thumbnails: they come first.
+            if Self::stills_wait(cat, shared) {
+                Self::sleep(cancel, FINGERPRINT_WAIT);
+                continue;
+            }
+            match self.face_batch(cat, cancel, tx, shared, finder.as_mut()) {
+                Ok(true) => {}
+                Ok(false) if self.opts.until_empty => break,
+                Ok(false) => Self::sleep(cancel, Duration::from_secs(1)),
+                Err(e) if e.is_busy() => Self::sleep(cancel, BUSY_RETRY),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// The face worker's turn: claim up to [`AI_BATCH`] face jobs, find
+    /// their faces, then store them all in one write. Returns whether there
+    /// was work.
+    fn face_batch(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        finder: &mut dyn FaceFinder,
+    ) -> Result<bool, RenderError> {
+        let now = now_ms();
+        let jobs: Vec<Job> = cat.write(|t| {
+            let mut v = Vec::new();
+            while v.len() < AI_BATCH {
+                match t.jobs().claim(&[JOB_AI_FACES], now)? {
+                    Some(j) => v.push(j),
+                    None => break,
+                }
+            }
+            Ok::<_, CatalogError>(v)
+        })?;
+        if jobs.is_empty() {
+            return Ok(false);
+        }
+        let mut ready = Vec::new();
+        let mut failed = Vec::new();
+        for job in jobs {
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match face_scan::prepare(cat, &self.cache, finder, job.asset_id) {
+                Ok(p) => ready.push((job, p, t0.elapsed())),
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    failed.push((job, e));
+                }
+            }
+        }
+        let at = now_ms();
+        Self::write_busy(cat, cancel, |t| {
+            for (job, p, _) in &ready {
+                face_scan::save(t, p, at)?;
+                t.jobs().complete(job.id, at)?;
+            }
+            Ok(())
+        })?;
+        for (job, p, took) in ready {
+            shared.done.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(RenderEvent::Done {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+                ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                made: vec![format!("{} faces", p.faces.len())],
+                encoder: None,
+            });
+        }
+        for (job, e) in failed {
+            self.settle_err(cat, cancel, tx, shared, JOB_AI_FACES, &job, e)?;
         }
         Ok(true)
     }

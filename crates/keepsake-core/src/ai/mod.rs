@@ -43,6 +43,7 @@ pub use analyze::{
 pub use cloud::{CloudModel, Provider, CLOUD_JOBS, JOB_AI_CLAUDE, JOB_AI_GEMINI, JOB_AI_OPENAI};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
+pub use faces::scan::JOB_AI_FACES;
 pub use labels::LabelSet;
 pub use model::{Accel, ImageModel};
 

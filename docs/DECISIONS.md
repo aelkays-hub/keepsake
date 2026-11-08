@@ -1396,7 +1396,7 @@ No new dependencies.
 
 ## ADR-040 — People: name a face and find that person, on this computer
 
-**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Step 1 built; steps 2–6 to come. Extends ADR-035.
+**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1 and 2 built; steps 3–6 to come. Extends ADR-035.
 
 **Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
 
@@ -1468,3 +1468,11 @@ No new dependencies.
 **Approved** (2026-11-08): (1) YuNet and SFace. (2) Suggestions always confirmed by the user. (3) Find looks in all photos by default. (4) Names also as `People|Name` keywords. (5) The People screen in a second step, after Name and find.
 
 **Step 1, as built** (`keepsake_core::ai::faces`): `FaceModels::{load, load_installed, find, describe, find_and_describe}`; `detect` (fitting the picture into 640 × 640, decoding the three grids, merging overlapping faces at IoU 0.3, faces kept from a score of 0.8); `align` (the closed-form least-squares similarity, no mirroring, bilinear, black outside); `install` (the pins, `install`, `remove`, `KEEPSAKE_FACE_DETECTOR` / `KEEPSAKE_FACE_RECOGNIZER`). The image encoder and the face models share `model::open_session` (graphics card, else processor).
+
+**Step 2, as built** (searching and storing):
+- **Schema v13**: `people` (one per name, any case), `face_scans` (each photo searched, with the models and the thumbnail's size, so a photo with no faces is remembered), `faces` (box and landmarks in 0–1 units, score, int8 embedding, person and state `unknown` / `suggested` / `confirmed`), `face_rejections`. A person is removed only after their faces are made `unknown` (no cascading reset, which would break the state check).
+- **Jobs `ai.faces`**, one per photo, run by a face worker in the render service when On-device AI and Recognise faces are both on (`[ai] faces`). Like the AI worker it loads its models once, claims 32 jobs, saves them in one write, waits for thumbnails and pauses on battery. A photo already searched with these models is skipped. Faces narrower than 40 px in the 1024 px thumbnail are not kept.
+- **Searching again keeps the user's decisions**: faces with no person are replaced; a named or suggested face stays, and a new face over it (IoU above 0.5) is the same face, not a second one.
+- **Workers that wait for thumbnails** (AI and faces) wait only while a thumbnail worker is still running: when the service stops at an empty queue (CLI, tests), a thumbnail queued after the thumbnail workers ended would otherwise be waited for forever. Searching every photo queues the thumbnails it needs first.
+- **Settings → Recognise faces**: on (downloads the two models, 39 MB, with progress; needs On-device AI), Search all N photos / Stop, Delete all face data (asked first: faces, people and decisions; queued searches dropped), Delete the downloaded face models. CLI: `keepsake ai faces install | scan | status | delete-all --yes`.
+- Not yet: suggestions, names in the sidecars (step 4: Delete all face data will then also clear the face regions it wrote).

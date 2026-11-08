@@ -106,6 +106,43 @@ dto! {
         pub failed: u64,
     }
 
+    /// Recognise faces at a glance (Settings; ADR-040).
+    pub struct FacesStatus {
+        /// Turned on in the settings.
+        pub enabled: bool,
+        /// On-device AI is on (faces need it).
+        pub ai_enabled: bool,
+        /// Both face models are on this computer.
+        pub models_installed: bool,
+        #[ts(type = "number")]
+        pub models_bytes: u64,
+        /// ONNX Runtime is present.
+        pub runtime_found: bool,
+        /// Where the face models run, once loaded.
+        pub accel: Option<String>,
+        /// Why the face worker is not running, if it is not.
+        pub problem: Option<String>,
+        /// Downloading the models: bytes so far.
+        #[ts(type = "number | null")]
+        pub installing: Option<u64>,
+        /// Photos in the library, searched, with faces; faces found; people
+        /// named; searches still to do, and that failed.
+        #[ts(type = "number")]
+        pub photos: u64,
+        #[ts(type = "number")]
+        pub scanned: u64,
+        #[ts(type = "number")]
+        pub with_faces: u64,
+        #[ts(type = "number")]
+        pub faces: u64,
+        #[ts(type = "number")]
+        pub people: u64,
+        #[ts(type = "number")]
+        pub pending: u64,
+        #[ts(type = "number")]
+        pub failed: u64,
+    }
+
     /// How far "Find duplicates" or "Tag photos" has got for a date range.
     pub struct AiRangeStatus {
         /// `YYYY-MM-DD`, inclusive.

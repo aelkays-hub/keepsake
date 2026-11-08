@@ -5,6 +5,7 @@ mod ai;
 mod assets;
 mod browse;
 mod events;
+mod faces;
 mod files;
 mod imports;
 mod jobs;
@@ -26,6 +27,10 @@ pub use browse::{
     SortField,
 };
 pub use events::{EventSpan, Events};
+pub use faces::{
+    box_iou, name_key, FaceCounts, FaceRow, FaceScan, FaceState, Faces, NewFace, Person,
+    SAME_FACE_IOU,
+};
 pub use files::Files;
 pub use imports::Imports;
 pub use jobs::{Job, JobCounts, JobState, Jobs, NewJob, Priority};

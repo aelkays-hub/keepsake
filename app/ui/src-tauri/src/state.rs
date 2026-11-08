@@ -112,6 +112,7 @@ pub struct AppState {
     pub maint: crate::maintenance::MaintState,
     /// On-device AI status and the model download.
     pub ai: crate::ai::AiState,
+    pub faces: crate::faces::FacesState,
 }
 
 /// WebView2 arguments for the UI tests: `KEEPSAKE_UI_DEBUG_PORT=<port>`
