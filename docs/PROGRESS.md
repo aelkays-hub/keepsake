@@ -56,6 +56,12 @@
 
 ---
 
+## CI: the Mac job runs on macos-15 (2026-11-08)
+
+Since 8 Nov 2026 GitHub refuses the `macos-14` runner ("The configuration 'macos-14-arm64-us-default' is not supported"), so every macOS check was cancelled before it ran, on `main` and on every branch. The Mac job in `.github/workflows/ci.yml` now runs on `macos-15` (Apple Silicon) and is named `macos-15 (Rust)`; the commented-out DMG job in `release.yml` and the Definition of Done in `CLAUDE.md` say the same. Keepsake still supports macOS 14 and later: this only changes the machine the tests run on. The required check on `main` must be renamed from `macos-14 (Rust)` to `macos-15 (Rust)` in the repository's branch protection.
+
+---
+
 ## On-device AI: content tags and same-day duplicates (2026-11-07)
 
 ### What was asked

@@ -6,6 +6,12 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 ---
 
+## CI on macos-15
+
+Nothing to test in the app. On the pull request, check that a check named **macos-15 (Rust)** runs and passes next to **windows-latest**, and that no check named macos-14 is left waiting.
+
+---
+
 ## On-device AI: tags and same-day duplicates
 
 Setup (once): `scripts\setup.ps1 -VendorOnly` (Windows) or `scripts/setup.sh` (macOS, Apple Silicon) installs ONNX Runtime into `vendor/onnxruntime/`. Add `-WithAi` / `--with-ai` to get the model too (372 MB) for the automated model tests; the app downloads its own copy when you turn AI on.
