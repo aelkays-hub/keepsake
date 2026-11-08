@@ -10,7 +10,11 @@ import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
 import type { AiTagsDto } from "./bindings/AiTagsDto";
+import type { FaceDto } from "./bindings/FaceDto";
 import type { FacesStatus } from "./bindings/FacesStatus";
+import type { PersonDto } from "./bindings/PersonDto";
+import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
+import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -72,7 +76,11 @@ export type {
   AiTagDto,
   AiTagsDto,
   AppInfo,
+  FaceDto,
   FacesStatus,
+  PersonDto,
+  PhotoFacesDto,
+  SuggestDto,
   AssetMembers,
   BackupOverview,
   Bucket,
@@ -253,6 +261,18 @@ export const api = {
   /** Forget every face, person and decision; returns how many faces. */
   facesDeleteAll: () => invoke<number>("faces_delete_all"),
   facesRemoveModels: () => invoke<boolean>("faces_remove_models"),
+  /** Name and find (ADR-040). A photo not searched yet is searched now:
+   * `searched` is false until it has been (ask again). */
+  facesOfPhoto: (id: string) => invoke<PhotoFacesDto>("faces_of_photo", { id }),
+  facesPeople: () => invoke<PersonDto[]>("faces_people"),
+  facesName: (face: number, name: string) => invoke<PersonDto>("faces_name", { face, name }),
+  /** Search every photo not searched yet; returns how many were queued. */
+  facesFind: () => invoke<number>("faces_find"),
+  facesSuggest: (person: number) => invoke<SuggestDto>("faces_suggest", { person }),
+  facesReview: (person: number) => invoke<FaceDto[]>("faces_review", { person }),
+  /** Returns [confirmed, rejected]. */
+  facesDecide: (person: number, confirm: number[], reject: number[]) =>
+    invoke<[number, number]>("faces_decide", { person, confirm, reject }),
   /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
   aiDuplicates: (from: string | null = null, to: string | null = null) =>
     invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),

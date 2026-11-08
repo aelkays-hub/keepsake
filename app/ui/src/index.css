@@ -1509,6 +1509,60 @@ pre.report {
   border-style: dotted;
   background: transparent;
 }
+/* Name and find (ADR-040) */
+.name-find .face-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.face-crop {
+  display: block;
+  border-radius: 6px;
+  background-color: var(--panel-2);
+  background-repeat: no-repeat;
+}
+.face-pick {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.face-pick[aria-checked="true"] {
+  border-color: var(--accent);
+}
+.face-pick.rejected .face-crop {
+  opacity: 0.35;
+}
+.face-no {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-weight: 700;
+  color: var(--bad);
+}
+.face-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+.face-review {
+  max-height: 52vh;
+  overflow: auto;
+}
+.face-review h3 {
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.name-find progress {
+  width: 100%;
+}
+
 /* Delete all face data (ADR-040) */
 button.danger {
   border-color: var(--bad);

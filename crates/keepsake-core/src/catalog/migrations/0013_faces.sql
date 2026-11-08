@@ -47,6 +47,8 @@ CREATE TABLE faces (
   person_id INTEGER REFERENCES people(id),
   state     TEXT NOT NULL DEFAULT 'unknown'
             CHECK (state IN ('unknown', 'suggested', 'confirmed')),
+  -- A suggestion's likeness to the person's confirmed faces (cosine).
+  likeness  REAL,
   CHECK ((person_id IS NULL) = (state = 'unknown'))
 ) STRICT;
 CREATE INDEX faces_asset ON faces(asset_id);

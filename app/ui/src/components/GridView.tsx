@@ -393,6 +393,21 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
                 });
               },
             },
+            {
+              label: "Name and find…",
+              title:
+                "Name a person in this photo and find the other photos they are in (on this computer)",
+              testId: "tile-menu-faces",
+              disabled: menu.sel.focus === null || rows.get(menu.sel.focus)?.kind === "video",
+              run: () => {
+                const r = menu.sel.focus !== null ? rows.get(menu.sel.focus) : null;
+                if (r)
+                  dispatch({
+                    t: "nameFind",
+                    photo: { photo: r.id, title: r.name ?? "this photo" },
+                  });
+              },
+            },
           ]}
         />
       )}

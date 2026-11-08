@@ -61,6 +61,10 @@ pub struct FaceRow {
     pub model: String,
     pub person: Option<i64>,
     pub state: FaceState,
+    /// A suggestion's likeness to the person's confirmed faces.
+    pub likeness: Option<f32>,
+    /// When its photo was taken (UTC ms), if known.
+    pub capture_ms: Option<i64>,
 }
 
 /// An asset's face scan.
@@ -152,56 +156,41 @@ pub fn name_key(name: &str) -> String {
     name.trim().to_lowercase()
 }
 
-type RawFace = (
-    i64,
-    AssetId,
-    (f64, f64, f64, f64),
-    Vec<u8>,
-    f64,
-    String,
-    Vec<u8>,
-    f64,
-    Option<i64>,
-    String,
-);
+const FACE_COLS: &str = "f.id, f.asset_id, f.x, f.y, f.w, f.h, f.landmarks, f.score, f.model,
+    f.embedding, f.emb_scale, f.person_id, f.state, f.likeness,
+    (SELECT a.capture_ts_ms FROM assets a WHERE a.id = f.asset_id)";
 
-const FACE_COLS: &str = "id, asset_id, x, y, w, h, landmarks, score, model, embedding, emb_scale,
-                         person_id, state";
-
-fn raw_face(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawFace> {
-    Ok((
-        r.get(0)?,
-        r.get(1)?,
-        (r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?),
-        r.get(6)?,
-        r.get(7)?,
-        r.get(8)?,
-        r.get(9)?,
-        r.get(10)?,
-        r.get(11)?,
-        r.get(12)?,
-    ))
-}
-
-fn face_row(raw: RawFace) -> Result<FaceRow, CatalogError> {
-    let (id, asset_id, (x, y, w, h), lm, score, model, emb, scale, person, state) = raw;
+fn face_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FaceRow> {
+    let lm: Vec<u8> = r.get(6)?;
+    let state: String = r.get(12)?;
+    let bad = |i: usize, m: String| {
+        rusqlite::Error::FromSqlConversionFailure(
+            i,
+            rusqlite::types::Type::Text,
+            Box::new(CatalogError::Invalid(m)),
+        )
+    };
+    let landmarks = blob_landmarks(&lm).map_err(|e| bad(6, e.to_string()))?;
+    let state = FaceState::parse(&state).ok_or_else(|| bad(12, format!("face state {state}")))?;
+    let f = |i: usize| -> rusqlite::Result<f32> { Ok(r.get::<_, f64>(i)? as f32) };
     Ok(FaceRow {
-        id,
-        asset_id,
+        id: r.get(0)?,
+        asset_id: r.get(1)?,
         face: NewFace {
-            x: x as f32,
-            y: y as f32,
-            w: w as f32,
-            h: h as f32,
-            landmarks: blob_landmarks(&lm)?,
-            score: score as f32,
-            embedding: blob_i8(emb),
-            emb_scale: scale as f32,
+            x: f(2)?,
+            y: f(3)?,
+            w: f(4)?,
+            h: f(5)?,
+            landmarks,
+            score: f(7)?,
+            embedding: blob_i8(r.get(9)?),
+            emb_scale: f(10)?,
         },
-        model,
-        person,
-        state: FaceState::parse(&state)
-            .ok_or_else(|| CatalogError::Invalid(format!("face state {state}")))?,
+        model: r.get(8)?,
+        person: r.get(11)?,
+        state,
+        likeness: r.get::<_, Option<f64>>(13)?.map(|v| v as f32),
+        capture_ms: r.get(14)?,
     })
 }
 
@@ -228,23 +217,22 @@ impl<M> Faces<'_, M> {
     /// The asset's faces, best first.
     pub fn for_asset(&self, asset: AssetId) -> Result<Vec<FaceRow>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
-            "SELECT {FACE_COLS} FROM faces WHERE asset_id = ?1 ORDER BY score DESC, id"
+            "SELECT {FACE_COLS} FROM faces f WHERE f.asset_id = ?1 ORDER BY f.score DESC, f.id"
         ))?;
-        let raw: Vec<RawFace> = st.query_map([asset], raw_face)?.collect::<Result<_, _>>()?;
-        raw.into_iter().map(face_row).collect()
+        let v = st.query_map([asset], face_row)?.collect::<Result<_, _>>()?;
+        Ok(v)
     }
 
     /// One face.
     pub fn get(&self, id: i64) -> Result<Option<FaceRow>, CatalogError> {
-        let raw = self
+        Ok(self
             .conn
             .query_row(
-                &format!("SELECT {FACE_COLS} FROM faces WHERE id = ?1"),
+                &format!("SELECT {FACE_COLS} FROM faces f WHERE f.id = ?1"),
                 [id],
-                raw_face,
+                face_row,
             )
-            .optional()?;
-        raw.map(face_row).transpose()
+            .optional()?)
     }
 
     /// Photos not yet searched for faces with `model`, newest first.
@@ -320,6 +308,52 @@ impl<M> Faces<'_, M> {
             .query_row(
                 "SELECT id, name, created_ms FROM people WHERE name_key = ?1",
                 [name_key(name)],
+                |r| {
+                    Ok(Person {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        created_ms: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// A person's faces in `state` (suggested: best first; else newest
+    /// photo first).
+    pub fn of_person(&self, person: i64, state: FaceState) -> Result<Vec<FaceRow>, CatalogError> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {FACE_COLS} FROM faces f WHERE f.person_id = ?1 AND f.state = ?2
+              ORDER BY f.likeness DESC, 15 DESC, f.id"
+        ))?;
+        let v = st
+            .query_map(params![person, state.as_str()], face_row)?
+            .collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
+    /// Faces of `model` with no person, and not rejected for `person`: the
+    /// ones that may be suggested for them.
+    pub fn candidates(&self, model: &str, person: i64) -> Result<Vec<FaceRow>, CatalogError> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {FACE_COLS} FROM faces f
+              WHERE f.state = 'unknown' AND f.model = ?1
+                AND NOT EXISTS (SELECT 1 FROM face_rejections r
+                                 WHERE r.face_id = f.id AND r.person_id = ?2)"
+        ))?;
+        let v = st
+            .query_map(params![model, person], face_row)?
+            .collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
+    /// One person.
+    pub fn person(&self, id: i64) -> Result<Option<Person>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, name, created_ms FROM people WHERE id = ?1",
+                [id],
                 |r| {
                     Ok(Person {
                         id: r.get(0)?,
@@ -430,8 +464,27 @@ impl Faces<'_, Rw> {
             None => (None, FaceState::Unknown),
         };
         self.conn.execute(
-            "UPDATE faces SET person_id = ?2, state = ?3 WHERE id = ?1",
+            "UPDATE faces SET person_id = ?2, state = ?3, likeness = NULL WHERE id = ?1",
             params![face, person, state.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// Suggest `face` for `person`, with its likeness.
+    pub fn suggest(&self, face: i64, person: i64, likeness: f32) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "UPDATE faces SET person_id = ?2, state = 'suggested', likeness = ?3
+              WHERE id = ?1 AND state = 'unknown'",
+            params![face, person, f64::from(likeness)],
+        )?;
+        Ok(())
+    }
+
+    /// Forget that `face` was rejected for `person` (the user named it so).
+    pub fn unreject(&self, face: i64, person: i64) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM face_rejections WHERE face_id = ?1 AND person_id = ?2",
+            params![face, person],
         )?;
         Ok(())
     }
@@ -443,7 +496,7 @@ impl Faces<'_, Rw> {
             params![face, person],
         )?;
         self.conn.execute(
-            "UPDATE faces SET person_id = NULL, state = 'unknown'
+            "UPDATE faces SET person_id = NULL, state = 'unknown', likeness = NULL
               WHERE id = ?1 AND person_id = ?2",
             params![face, person],
         )?;

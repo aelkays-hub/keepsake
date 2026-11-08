@@ -1,8 +1,31 @@
-# Manual Test Steps — Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faces, step 3: Name and find (ADR-040)
+
+Needs Settings → On-device AI and **Recognise faces** on. Names are kept in the catalog only for now (the sidecars come in the next step).
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/name-find.spec.ts
+```
+
+Manual (both OSes), with your own photos of one person over several years:
+1. Right-click a photo of that person → **Name and find…**. **Expected:** a window "Name and find: <file>", briefly "Looking for faces in this photo…" if it was not searched yet, then the faces in it, cut out (one face: already picked). A video's menu has the item greyed out; a photo with no faces says so.
+2. Pick the face, type the name (e.g. Sara) and press **Name and find** (or Enter). **Expected:** "Finding Sara" and "Searching photos for faces: S of N done (W to go)…" while photos not searched yet are searched. **Show matches so far** shows what is found up to now; you can also close the window and come back later.
+3. When every photo is searched: **Expected:** "F faces that may be Sara, best first (photos from Y1 to Y2)", grouped by year, newest year first. The years are about 3 either side of the photo you named.
+4. Click any face that is not Sara. **Expected:** it fades with a red ✕ and the button says "Confirm F−1 faces". Press it. **Expected:** "F−1 faces confirmed as Sara; 1 face marked as not Sara."
+5. Press **Find more**. **Expected:** new suggestions a few years further back (or on) than before; repeat. When there are no more: "No more faces like Sara's were found (photos from … to … looked at)." The faces you rejected never come back for Sara.
+6. Right-click another photo of her → Name and find… and start typing "Sa". **Expected:** Sara is offered; naming the face Sara (any case) adds it to the same person.
+7. In the viewer (double-click a photo), press **Name and find**. **Expected:** the same window for that photo.
+8. Settings → Recognise faces. **Expected:** the people count includes Sara. Delete all face data forgets her too.
+9. Originals are not changed (modified dates stay), and nothing goes over the network.
 
 ---
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, type AppInfo } from "./api";
 import { AiJobWindow } from "./components/AiJobWindow";
+import { NameFindWindow } from "./components/NameFindWindow";
 import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
 import { CrashBanner } from "./components/CrashBanner";
@@ -170,6 +171,7 @@ function Shell() {
       {s.viewer && <Viewer />}
       {s.dialog === "timeShift" && <TimeShiftDialog />}
       <AiJobWindow />
+      <NameFindWindow />
     </div>
   );
 }

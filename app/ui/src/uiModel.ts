@@ -50,6 +50,8 @@ export interface UiState {
   /** Tag photos or Find duplicates running for a folder or dates (a
    * window shows how far it has got). */
   aiJob: AiJob | null;
+  /** Name and find (ADR-040): the photo whose faces are named. */
+  nameFind: { photo: string; title: string } | null;
 }
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or
@@ -95,7 +97,8 @@ export type Msg =
   /** The Duplicates screen, for these dates (`null`: all). */
   | { t: "duplicates"; range: DateRange | null }
   /** Start (or, `null`, close) an AI job. */
-  | { t: "aiJob"; job: AiJob | null };
+  | { t: "aiJob"; job: AiJob | null }
+  | { t: "nameFind"; photo: { photo: string; title: string } | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -112,6 +115,7 @@ export const initial: UiState = {
   dialog: null,
   dupRange: null,
   aiJob: null,
+  nameFind: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -167,6 +171,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
     case "aiJob":
       return { ...s, aiJob: m.job };
+    case "nameFind":
+      return { ...s, nameFind: m.photo };
   }
 }
 

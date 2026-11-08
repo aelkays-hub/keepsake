@@ -1396,7 +1396,7 @@ No new dependencies.
 
 ## ADR-040 — People: name a face and find that person, on this computer
 
-**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1 and 2 built; steps 3–6 to come. Extends ADR-035.
+**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–3 built; steps 4–6 to come. Extends ADR-035.
 
 **Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
 
@@ -1475,4 +1475,12 @@ No new dependencies.
 - **Searching again keeps the user's decisions**: faces with no person are replaced; a named or suggested face stays, and a new face over it (IoU above 0.5) is the same face, not a second one.
 - **Workers that wait for thumbnails** (AI and faces) wait only while a thumbnail worker is still running: when the service stops at an empty queue (CLI, tests), a thumbnail queued after the thumbnail workers ended would otherwise be waited for forever. Searching every photo queues the thumbnails it needs first.
 - **Settings → Recognise faces**: on (downloads the two models, 39 MB, with progress; needs On-device AI), Search all N photos / Stop, Delete all face data (asked first: faces, people and decisions; queued searches dropped), Delete the downloaded face models. CLI: `keepsake ai faces install | scan | status | delete-all --yes`.
-- Not yet: suggestions, names in the sidecars (step 4: Delete all face data will then also clear the face regions it wrote).
+- Not yet: names in the sidecars (step 4: Delete all face data will then also clear the face regions it wrote).
+
+**Step 3, as built** (Name and find, `faces::people`):
+- **Right-click a photo → Name and find…** (grid; also a **Name and find** button in the viewer; not for videos). The window shows the photo's faces cut out of its thumbnail; a photo not searched yet is searched first, ahead of everything else (`scan::search_now`), and the window waits for it.
+- **Naming** a face confirms it as that person (one person per name, any case; names used before are offered). Then every photo not searched yet is searched in the background (the window shows the count; it can be closed, or **Show matches so far**), then the person's faces are suggested.
+- **Matching** (`people::suggest`): every face with no person, not rejected for this person, gets the best cosine similarity to **any** of the person's confirmed faces; from 0.363 it is suggested (`faces.state = 'suggested'`, `faces.likeness`). At most one face a photo (the best), none in a photo where the person is confirmed or already suggested.
+- **Out from the dates** (`YEARS_STEP` = 3): only faces in photos within 3 years of a confirmed face's photo (or with no date) are looked at. **Find more** after confirming reaches 3 years further each time; this is how a child's photos are reached from an adult's.
+- **Review**: the suggestions by year, newest first, best first within it. A click marks one "not them"; **Confirm N faces** confirms the rest and records the rejections (never suggested for that person again). Nothing is named without the user.
+- Schema v13 also has `faces.likeness` (the suggestion's score); v13 had not been released.

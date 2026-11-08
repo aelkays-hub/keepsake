@@ -731,6 +731,17 @@ export function Viewer() {
             Tag with AI
           </button>
         )}
+        {row && row.kind !== "video" && (
+          <button
+            onClick={() =>
+              dispatch({ t: "nameFind", photo: { photo: row.id, title: row.name ?? "this photo" } })
+            }
+            title="Name a person in this photo and find the other photos they are in (on this computer)"
+            data-testid="viewer-faces"
+          >
+            Name and find
+          </button>
+        )}
         <OpenInMenu id={row?.id ?? null} member={member} onOpened={setNote} />
         <button
           onClick={() => void toggleFullscreen()}

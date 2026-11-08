@@ -172,6 +172,13 @@ pub fn run() {
             faces::faces_stop,
             faces::faces_delete_all,
             faces::faces_remove_models,
+            faces::faces_of_photo,
+            faces::faces_people,
+            faces::faces_name,
+            faces::faces_find,
+            faces::faces_suggest,
+            faces::faces_review,
+            faces::faces_decide,
         ])
         .build(tauri::generate_context!());
     let app = match result {

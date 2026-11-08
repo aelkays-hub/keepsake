@@ -15,6 +15,7 @@
 pub mod align;
 pub mod detect;
 pub mod install;
+pub mod people;
 pub mod scan;
 
 use std::path::Path;

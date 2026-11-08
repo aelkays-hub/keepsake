@@ -7,12 +7,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use keepsake_core::ai::faces::{install, scan};
+use keepsake_core::ai::faces::{install, people, scan};
 use keepsake_core::ai::install as ai_install;
+use keepsake_core::catalog::{AssetId, Catalog, FaceRow, FaceState};
+use keepsake_core::render::{source, Cache, Variant};
 use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::api::{AiInstallProgress, FacesStatus};
+use crate::api::{AiInstallProgress, FaceDto, FacesStatus, PersonDto, PhotoFacesDto, SuggestDto};
+use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
 /// What the face worker and the download last said.
@@ -209,4 +212,198 @@ pub fn faces_delete_all(app: AppHandle, state: State<'_, AppState>) -> CmdResult
 pub fn faces_remove_models(app: AppHandle) -> CmdResult<bool> {
     save_and_restart(&app, false)?;
     install::remove().map_err(err)
+}
+
+// ── Name and find (ADR-040, step 3) ────────────────────────────────────────
+
+fn faces_on() -> CmdResult<()> {
+    let s = Settings::load().map_err(err)?;
+    if s.ai.enabled && s.ai.faces {
+        Ok(())
+    } else {
+        Err("Turn on Recognise faces first (Settings).".into())
+    }
+}
+
+fn thumb(cat: &Catalog, cache: &Cache, asset: AssetId) -> Option<String> {
+    let hash = source::source_hash(cat, asset).ok()??;
+    convert::cached(cache, Some(&hash), Variant::Thumb1024)
+        .or_else(|| convert::cached(cache, Some(&hash), Variant::Thumb256))
+}
+
+fn face_dto(cat: &Catalog, cache: &Cache, f: &FaceRow) -> CmdResult<FaceDto> {
+    let person = match f.person {
+        Some(p) => cat
+            .read(|tx| tx.faces().person(p))
+            .map_err(err)?
+            .map(|p| p.name),
+        None => None,
+    };
+    let (pw, ph) = cat
+        .read(|tx| tx.faces().scan(f.asset_id))
+        .map_err(err)?
+        .map_or((1024, 768), |s| (s.width, s.height));
+    Ok(FaceDto {
+        id: f.id,
+        photo: f.asset_id.to_string(),
+        thumb: thumb(cat, cache, f.asset_id),
+        pw,
+        ph,
+        x: f.face.x,
+        y: f.face.y,
+        w: f.face.w,
+        h: f.face.h,
+        person,
+        state: f.state.as_str().to_owned(),
+        likeness: f
+            .likeness
+            .map(|l| (l.clamp(0.0, 1.0) * 100.0).round() as u8),
+        date: f
+            .capture_ms
+            .and_then(chrono::DateTime::from_timestamp_millis)
+            .map(|d| d.format("%Y-%m-%d").to_string()),
+    })
+}
+
+fn suggest_dto(o: people::SuggestOutcome) -> SuggestDto {
+    SuggestDto {
+        added: o.added,
+        waiting: o.waiting,
+        confirmed: o.confirmed,
+        from_year: o.from_year,
+        to_year: o.to_year,
+    }
+}
+
+/// The faces in a photo. One not searched yet is searched now, ahead of
+/// the rest (`searched` false until it is: ask again).
+#[tauri::command(async)]
+pub fn faces_of_photo(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<PhotoFacesDto> {
+    faces_on()?;
+    let open = state.open()?;
+    let asset: AssetId = convert::id(&id, "asset")?;
+    let (searched, rows) = {
+        let cat = open.cat()?;
+        let searched = cat
+            .read(|tx| tx.faces().scan(asset))
+            .map_err(err)?
+            .is_some_and(|s| s.model == keepsake_core::ai::faces::MODEL_ID);
+        (
+            searched,
+            cat.read(|tx| tx.faces().for_asset(asset)).map_err(err)?,
+        )
+    };
+    if !searched {
+        {
+            let mut cat = open.writer()?;
+            scan::search_now(&mut cat, asset).map_err(err)?;
+        }
+        crate::render::start_service(&app)?;
+    }
+    let cat = open.cat()?;
+    let faces = rows
+        .iter()
+        .map(|f| face_dto(&cat, &open.cache, f))
+        .collect::<CmdResult<_>>()?;
+    Ok(PhotoFacesDto { searched, faces })
+}
+
+/// Everyone named, by name.
+#[tauri::command(async)]
+pub fn faces_people(state: State<'_, AppState>) -> CmdResult<Vec<PersonDto>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let list = cat.read(|tx| tx.faces().people()).map_err(err)?;
+    list.into_iter()
+        .map(|p| {
+            let confirmed = cat
+                .read(|tx| tx.faces().of_person(p.id, FaceState::Confirmed))
+                .map_err(err)?
+                .len() as u64;
+            Ok(PersonDto {
+                id: p.id,
+                name: p.name,
+                confirmed,
+            })
+        })
+        .collect()
+}
+
+/// Name a face: it is that person's (a new name adds a person).
+#[tauri::command(async)]
+pub fn faces_name(state: State<'_, AppState>, face: i64, name: String) -> CmdResult<PersonDto> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let id =
+        people::name_face(&mut cat, face, &name, keepsake_core::jobs::now_ms()).map_err(err)?;
+    let p = cat
+        .read(|tx| tx.faces().person(id))
+        .map_err(err)?
+        .ok_or("the person was not saved")?;
+    let confirmed = cat
+        .read(|tx| tx.faces().of_person(id, FaceState::Confirmed))
+        .map_err(err)?
+        .len() as u64;
+    Ok(PersonDto {
+        id,
+        name: p.name,
+        confirmed,
+    })
+}
+
+/// Find: search every photo not searched yet (in the background) so the
+/// person can be looked for in all of them. Returns how many were queued;
+/// follow it with `faces_status`, then `faces_suggest`.
+#[tauri::command(async)]
+pub fn faces_find(app: AppHandle, state: State<'_, AppState>) -> CmdResult<u64> {
+    faces_on()?;
+    let open = state.open()?;
+    let n = {
+        let mut cat = open.writer()?;
+        scan::enqueue_unscanned(&mut cat).map_err(err)?
+    };
+    if n > 0 {
+        crate::render::start_service(&app)?;
+    }
+    Ok(n)
+}
+
+/// Suggest the person's faces among the faces found so far (Find more:
+/// again, with the faces confirmed since).
+#[tauri::command(async)]
+pub fn faces_suggest(state: State<'_, AppState>, person: i64) -> CmdResult<SuggestDto> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    Ok(suggest_dto(people::suggest(&mut cat, person).map_err(err)?))
+}
+
+/// The person's suggestions waiting for an answer, best first.
+#[tauri::command(async)]
+pub fn faces_review(state: State<'_, AppState>, person: i64) -> CmdResult<Vec<FaceDto>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    people::review(&cat, person)
+        .map_err(err)?
+        .iter()
+        .map(|f| face_dto(&cat, &open.cache, f))
+        .collect()
+}
+
+/// The user's answers on suggestions: `confirm` are the person's, `reject`
+/// are not. Returns `[confirmed, rejected]`.
+#[tauri::command(async)]
+pub fn faces_decide(
+    state: State<'_, AppState>,
+    person: i64,
+    confirm: Vec<i64>,
+    reject: Vec<i64>,
+) -> CmdResult<[u64; 2]> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let (c, r) = people::decide(&mut cat, person, &confirm, &reject).map_err(err)?;
+    Ok([c, r])
 }

@@ -143,6 +143,64 @@ dto! {
         pub failed: u64,
     }
 
+    /// A face in a photo (Name and find; ADR-040).
+    pub struct FaceDto {
+        #[ts(type = "number")]
+        pub id: i64,
+        /// The photo's asset id.
+        pub photo: String,
+        /// The photo's thumbnail (the face is cut out of it), if made.
+        pub thumb: Option<String>,
+        /// The picture the face was found in (the thumbnail), in pixels:
+        /// to cut the face out at the right shape.
+        pub pw: u32,
+        pub ph: u32,
+        /// Its box, in 0–1 units of the picture.
+        pub x: f32,
+        pub y: f32,
+        pub w: f32,
+        pub h: f32,
+        /// Whose face it is (confirmed or suggested), if anyone's.
+        pub person: Option<String>,
+        /// `unknown`, `suggested` or `confirmed`.
+        pub state: String,
+        /// A suggestion's likeness to the person, 0–100.
+        pub likeness: Option<u8>,
+        /// When the photo was taken, `YYYY-MM-DD` (UTC), if known.
+        pub date: Option<String>,
+    }
+
+    /// The faces in one photo, and whether it has been searched yet.
+    pub struct PhotoFacesDto {
+        pub searched: bool,
+        pub faces: Vec<FaceDto>,
+    }
+
+    /// A named person.
+    pub struct PersonDto {
+        #[ts(type = "number")]
+        pub id: i64,
+        pub name: String,
+        /// Faces confirmed as theirs.
+        #[ts(type = "number")]
+        pub confirmed: u64,
+    }
+
+    /// What finding a person's faces did (Find, Find more).
+    pub struct SuggestDto {
+        /// Suggested this time.
+        #[ts(type = "number")]
+        pub added: u64,
+        /// Waiting for an answer, in all.
+        #[ts(type = "number")]
+        pub waiting: u64,
+        #[ts(type = "number")]
+        pub confirmed: u64,
+        /// The years looked at (none: every year).
+        pub from_year: Option<i32>,
+        pub to_year: Option<i32>,
+    }
+
     /// How far "Find duplicates" or "Tag photos" has got for a date range.
     pub struct AiRangeStatus {
         /// `YYYY-MM-DD`, inclusive.

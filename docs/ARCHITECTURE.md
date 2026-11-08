@@ -144,12 +144,13 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - Face clustering and semantic search are not built yet.
 
 ### Faces (ADR-040)
-`keepsake_core::ai::faces`, on this computer only. Steps 1 (models and pipeline) and 2 (searching and storing) are built; Name and find, sidecars and the screens come next.
+`keepsake_core::ai::faces`, on this computer only. Steps 1 (models and pipeline), 2 (searching and storing) and 3 (Name and find) are built; sidecars and the screens come next.
 - `FaceModels::find(picture)`: the picture is fitted into YuNet's fixed 640 × 640 input (blue, green, red, 0–255, black padding right and bottom). Its three grids (8, 16, 32 px cells) are decoded as OpenCV does (score √(cls·obj), box from centre offsets and log size, 5 landmarks), faces scoring under 0.8 dropped and overlapping ones merged (IoU 0.3). Boxes come back in the picture's pixels.
 - `FaceModels::describe(picture, face)`: the face is straightened onto SFace's 112 × 112 five-point template (closest similarity transform, bilinear) and SFace gives 128 numbers, made unit length (`Embedding`). A cosine similarity of 0.363 or more: likely the same person.
 - Both sessions come from `model::open_session` (DirectML / Core ML, else the CPU), like the image encoder. Models: `faces::install` (pinned, BLAKE3-checked, user cache or `vendor/models/`).
 - `faces::scan`: `ai.faces` jobs, one per photo. The face worker (`RenderService`, when `[ai] enabled` and `faces`; `with_faces` gives tests a stand-in `FaceFinder`) reads the 1024 px thumbnail, keeps faces at least 40 px wide and stores them with `Faces::save_scan` (catalog `faces`, `face_scans`; `people`, `face_rejections` for the user's decisions). Named faces survive a new search.
 - Thumbnail waits: `Shared::stills_live` counts the running thumbnail workers; the AI and face workers wait for thumbnails only while one is running.
+- `faces::people` (Name and find): `name_face` (confirm a face as a named person), `suggest` (nearest-confirmed-face cosine ≥ 0.363, within 3 years of a confirmed face's date, one face a photo; stored as `state = 'suggested'` with `likeness`), `review`, `decide` (confirm, or reject into `face_rejections`). The app's `faces_*` commands are thin wrappers; the window (`NameFindWindow`) polls `faces_of_photo` and `faces_status` and cuts faces out of thumbnails with CSS (`faces.ts::cropStyle`, the box widened by a fifth, at the face's own shape from the searched picture's size).
 
 ### Cloud tagger
 Tag with AI (`keepsake_core::ai::cloud`, ADR-036, ADR-038): Claude, ChatGPT or Gemini.

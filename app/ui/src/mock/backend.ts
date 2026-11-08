@@ -87,6 +87,11 @@ export interface MockState {
   /** Recognise faces (`?faces=on`: on, models installed). `left`: status
    * polls until a search of all photos is done. */
   faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
+  /** Name and find: the faces found so far (by id), the photos asked
+   * about once (searched the next time they are asked about), people. */
+  faceRows: Map<number, MockFace>;
+  facesAsked: Set<number>;
+  people: { id: number; name: string }[];
   /** Duplicate decisions: `keeper`, `not_kept`, `not_duplicate`. */
   choice: Map<number, string>;
   /** AI tags removed by the user. */
@@ -110,6 +115,19 @@ export interface MockState {
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
 
 /** Tag with AI: the providers, as the backend describes them. */
+/** A face in the mock: photo `i` (not a video) has one or two, each of
+ * one of five pretend people (`who`). */
+interface MockFace {
+  id: number;
+  photo: number;
+  who: number;
+  k: number;
+  state: "unknown" | "suggested" | "confirmed";
+  person: number | null;
+  likeness: number | null;
+  rejected: Set<number>;
+}
+
 /** What each provider tags a photo with in the mock (they differ a little,
  * so the inspector's list per AI can be checked). */
 const CLOUD_TAGS: Record<string, string[]> = {
@@ -297,6 +315,9 @@ export function installMock(): void {
       people: 0,
       left: 0,
     },
+    faceRows: new Map(),
+    facesAsked: new Set(),
+    people: [],
     choice: new Map(),
     aiRejected: new Map(),
     aiSources: new Map(),
@@ -1194,6 +1215,146 @@ export function installMock(): void {
           return null;
         case "ai_install_cancel":
           return null;
+        case "faces_of_photo":
+        case "faces_people":
+        case "faces_name":
+        case "faces_find":
+        case "faces_suggest":
+        case "faces_review":
+        case "faces_decide": {
+          if (
+            !(st.faces.enabled && st.ai.enabled) &&
+            (cmd === "faces_of_photo" || cmd === "faces_find")
+          )
+            throw "Turn on Recognise faces first (Settings).";
+          // Every photo's faces, made when first needed.
+          const facesOf = (i: number): MockFace[] => {
+            if (all[i]?.kind === "video" || i % 3 === 2) return [];
+            const have = [...st.faceRows.values()].filter((f) => f.photo === i);
+            if (have.length) return have;
+            const made = Array.from({ length: i % 3 === 0 ? 2 : 1 }, (_, k) => {
+              const f: MockFace = {
+                id: i * 10 + k + 1,
+                photo: i,
+                who: (i + k) % 5,
+                k,
+                state: "unknown",
+                person: null,
+                likeness: null,
+                rejected: new Set(),
+              };
+              st.faceRows.set(f.id, f);
+              return f;
+            });
+            return made;
+          };
+          const dto = (f: MockFace) => ({
+            id: f.id,
+            photo: `a${f.photo}`,
+            thumb: THUMBS[f.photo % 16],
+            pw: 320,
+            ph: 240,
+            x: 0.15 + f.k * 0.45,
+            y: 0.2,
+            w: 0.3,
+            h: 0.45,
+            person:
+              f.person === null ? null : (st.people.find((p) => p.id === f.person)?.name ?? null),
+            state: f.state,
+            likeness: f.likeness,
+            date: day(all[f.photo]?.t ?? null),
+          });
+          const personDto = (p: { id: number; name: string }) => ({
+            id: p.id,
+            name: p.name,
+            confirmed: [...st.faceRows.values()].filter(
+              (f) => f.person === p.id && f.state === "confirmed",
+            ).length,
+          });
+          if (cmd === "faces_of_photo") {
+            const i = Number(String(a.id).slice(1));
+            // Searched the second time it is asked about.
+            const searched = st.facesAsked.has(i);
+            st.facesAsked.add(i);
+            return { searched, faces: searched ? facesOf(i).map(dto) : [] };
+          }
+          if (cmd === "faces_people") return st.people.map(personDto);
+          if (cmd === "faces_name") {
+            const f = st.faceRows.get(Number(a.face));
+            const name = String(a.name).trim();
+            if (!f || !name) throw "no such face";
+            let p = st.people.find((x) => x.name.toLowerCase() === name.toLowerCase());
+            if (!p) {
+              p = { id: st.people.length + 1, name };
+              st.people.push(p);
+              st.faces.people = st.people.length;
+            }
+            f.person = p.id;
+            f.state = "confirmed";
+            f.likeness = null;
+            f.rejected.delete(p.id);
+            return personDto(p);
+          }
+          if (cmd === "faces_find") {
+            const photos = all.filter((it) => it.kind !== "video").length;
+            const left = photos - st.faces.scanned;
+            if (left > 0) st.faces.left = 2;
+            return left;
+          }
+          const person = Number(a.person);
+          if (cmd === "faces_suggest") {
+            all.forEach((_, i) => facesOf(i));
+            const mine = [...st.faceRows.values()].filter(
+              (f) => f.person === person && f.state === "confirmed",
+            );
+            if (!mine.length) throw "name one of this person's faces first";
+            const who = mine[0].who;
+            const taken = new Set(
+              [...st.faceRows.values()].filter((f) => f.person === person).map((f) => f.photo),
+            );
+            let added = 0;
+            for (const f of st.faceRows.values()) {
+              if (f.state !== "unknown" || f.who !== who || f.rejected.has(person)) continue;
+              if (taken.has(f.photo)) continue;
+              taken.add(f.photo);
+              f.state = "suggested";
+              f.person = person;
+              f.likeness = 40 + ((f.photo * 7) % 55);
+              added += 1;
+            }
+            const waiting = [...st.faceRows.values()].filter(
+              (f) => f.person === person && f.state === "suggested",
+            ).length;
+            return { added, waiting, confirmed: mine.length, fromYear: 2012, toYear: 2020 };
+          }
+          if (cmd === "faces_review")
+            return [...st.faceRows.values()]
+              .filter((f) => f.person === person && f.state === "suggested")
+              .sort((x, y) => (y.likeness ?? 0) - (x.likeness ?? 0))
+              .map(dto);
+          // faces_decide
+          let c = 0;
+          let r = 0;
+          for (const id of a.confirm as number[]) {
+            const f = st.faceRows.get(id);
+            if (f?.person === person) {
+              f.state = "confirmed";
+              f.likeness = null;
+              c += 1;
+            }
+          }
+          for (const id of a.reject as number[]) {
+            const f = st.faceRows.get(id);
+            if (f?.person === person) {
+              f.rejected.add(person);
+              f.state = "unknown";
+              f.person = null;
+              f.likeness = null;
+              r += 1;
+            }
+          }
+          return [c, r];
+        }
         case "faces_status": {
           const f = st.faces;
           const photos = all.filter((it) => it.kind !== "video").length;

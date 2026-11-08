@@ -133,6 +133,23 @@ pub fn save(tx: &WriteTx<'_>, p: &Prepared, now_ms: i64) -> Result<u64, CatalogE
 /// Queue these photos to be searched for faces (photos already searched
 /// are skipped by the job). `again`: also queue ones whose job finished.
 pub fn enqueue(cat: &mut Catalog, assets: &[AssetId], again: bool) -> Result<u64, AiError> {
+    enqueue_at(cat, assets, Priority::Recent, again)
+}
+
+/// Search one photo now, ahead of the rest (Name and find on a photo not
+/// searched yet): its thumbnail first if it has none.
+pub fn search_now(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
+    crate::render::enqueue(cat, &[asset], Priority::Visible, false)?;
+    enqueue_at(cat, &[asset], Priority::Visible, true)?;
+    Ok(())
+}
+
+fn enqueue_at(
+    cat: &mut Catalog,
+    assets: &[AssetId],
+    priority: Priority,
+    again: bool,
+) -> Result<u64, AiError> {
     let now = crate::jobs::now_ms();
     let size = crate::render::ENQUEUE_CHUNK;
     let mut n = 0;
@@ -148,7 +165,7 @@ pub fn enqueue(cat: &mut Catalog, assets: &[AssetId], again: bool) -> Result<u64
                     sort_key: i64::try_from(c * size + i).unwrap_or(i64::MAX),
                 })
                 .collect();
-            tx.jobs().enqueue(&jobs, Priority::Recent, now, again)
+            tx.jobs().enqueue(&jobs, priority, now, again)
         })?;
     }
     Ok(n)

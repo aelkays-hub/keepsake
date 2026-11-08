@@ -370,3 +370,181 @@ fn without_the_models_the_face_worker_says_why_and_the_rest_goes_on() {
     // The photo is still to be searched.
     assert_eq!(scan::status(&w.cat).unwrap().pending, 1);
 }
+
+// ── Name and find (step 3) ─────────────────────────────────────────────────
+
+use keepsake_core::ai::faces::people;
+use keepsake_core::catalog::CaptureTime;
+
+const YEAR: i64 = 365 * 24 * 3600 * 1000;
+const Y2020: i64 = 1_577_836_800_000;
+
+/// A 128-number int8 embedding: `plus` of the numbers +100, the rest -100.
+/// Two of these have a cosine of (2·shared − 128) / 128.
+fn emb(plus: usize) -> Vec<i8> {
+    (0..EMBEDDING_LEN)
+        .map(|i| if i < plus { 100 } else { -100 })
+        .collect()
+}
+
+fn face_with(x: f32, embedding: Vec<i8>) -> NewFace {
+    NewFace {
+        embedding,
+        ..new_face(x)
+    }
+}
+
+/// Store one search of `name`'s photo, taken at `at`, with these faces.
+fn photo_with(w: &mut World, name: &str, at: Option<i64>, faces_in: &[NewFace]) -> AssetId {
+    let id = w.asset(name);
+    w.cat
+        .write(|tx| {
+            if let Some(ms) = at {
+                let mut a = tx.assets().require(id)?;
+                a.capture = Some(CaptureTime {
+                    utc_ms: ms,
+                    utc_offset_min: Some(0),
+                });
+                tx.assets().update(&a)?;
+            }
+            tx.faces()
+                .save_scan(id, faces::MODEL_ID, 1024, 768, faces_in, 1)
+                .map(|_| ())
+        })
+        .unwrap();
+    id
+}
+
+fn face_of(w: &World, photo: AssetId, n: usize) -> i64 {
+    let mut f = w.cat.read(|tx| tx.faces().for_asset(photo)).unwrap();
+    f.sort_by(|a, b| a.face.x.total_cmp(&b.face.x));
+    f[n].id
+}
+
+fn suggested(w: &World, person: i64) -> Vec<AssetId> {
+    let mut v: Vec<AssetId> = people::review(&w.cat, person)
+        .unwrap()
+        .iter()
+        .map(|f| f.asset_id)
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn name_and_find_suggests_the_faces_most_like_the_named_one() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"]);
+    let t = Some(Y2020);
+    // a: Sara; b: almost the same face; c: someone else (cosine 0) and
+    // someone only a little like her (0.1, under the threshold, and still
+    // under it next to the faces confirmed later); d: two
+    // faces like her (only the better one); e: like her, rejected later.
+    let a = photo_with(
+        &mut w,
+        "a.jpg",
+        t,
+        &[face_with(0.1, emb(128)), face_with(0.6, emb(64))],
+    );
+    let b = photo_with(&mut w, "b.jpg", t, &[face_with(0.1, emb(124))]);
+    let c = photo_with(
+        &mut w,
+        "c.jpg",
+        t,
+        &[face_with(0.1, emb(64)), face_with(0.6, emb(70))],
+    );
+    let d = photo_with(
+        &mut w,
+        "d.jpg",
+        t,
+        &[face_with(0.1, emb(110)), face_with(0.6, emb(120))],
+    );
+    let e = photo_with(&mut w, "e.jpg", t, &[face_with(0.1, emb(120))]);
+    let fa = face_of(&w, a, 0);
+    let sara = people::name_face(&mut w.cat, fa, "Sara", 1).unwrap();
+    // Nothing is suggested before a face is named for that person.
+    let nobody = w.cat.write(|tx| tx.faces().add_person("Ali", 1)).unwrap();
+    assert!(people::suggest(&mut w.cat, nobody).is_err());
+
+    let r = people::suggest(&mut w.cat, sara).unwrap();
+    assert_eq!((r.added, r.waiting, r.confirmed), (3, 3, 1));
+    assert_eq!((r.from_year, r.to_year), (Some(2016), Some(2022)));
+    let mut want = vec![b, d, e];
+    want.sort();
+    assert_eq!(suggested(&w, sara), want, "not c; not the other face in a");
+    // d's better face, best first overall.
+    let rev = people::review(&w.cat, sara).unwrap();
+    assert_eq!(rev[0].asset_id, b);
+    assert!(rev[0].likeness.unwrap() > rev[1].likeness.unwrap());
+    let dd = rev.iter().find(|f| f.asset_id == d).unwrap();
+    assert_eq!(dd.id, face_of(&w, d, 1), "the better of d's two faces");
+    // Suggesting again adds nothing new.
+    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+
+    // The answers: b and d are Sara; e is not.
+    let fe = face_of(&w, e, 0);
+    let (fb, fd) = (face_of(&w, b, 0), dd.id);
+    let (yes, no) = people::decide(&mut w.cat, sara, &[fb, fd], &[fe]).unwrap();
+    assert_eq!((yes, no), (2, 1));
+    assert!(suggested(&w, sara).is_empty());
+    let f = w.cat.read(|tx| tx.faces().get(fe)).unwrap().unwrap();
+    assert_eq!((f.person, f.state), (None, FaceState::Unknown));
+    // A rejected face is not suggested for her again.
+    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+    // Faces not suggested for her are left alone by her answers.
+    let other = face_of(&w, c, 0);
+    assert_eq!(
+        people::decide(&mut w.cat, sara, &[other], &[]).unwrap(),
+        (0, 0)
+    );
+    // Naming a rejected face her after all forgets the rejection.
+    assert_eq!(people::name_face(&mut w.cat, fe, "sara", 2).unwrap(), sara);
+    assert!(w
+        .cat
+        .read(|tx| tx.faces().rejected_for(fe))
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        w.cat
+            .read(|tx| tx.faces().of_person(sara, FaceState::Confirmed))
+            .unwrap()
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn find_more_steps_back_through_the_years() {
+    let mut w = World::new(&[
+        "y2020.jpg",
+        "y2018.jpg",
+        "y2016.jpg",
+        "y2014.jpg",
+        "none.jpg",
+    ]);
+    let at = |years: i64| Some(Y2020 - years * YEAR);
+    let p2020 = photo_with(&mut w, "y2020.jpg", at(0), &[face_with(0.1, emb(128))]);
+    let p2018 = photo_with(&mut w, "y2018.jpg", at(2), &[face_with(0.1, emb(120))]);
+    let p2016 = photo_with(&mut w, "y2016.jpg", at(4), &[face_with(0.1, emb(118))]);
+    let p2014 = photo_with(&mut w, "y2014.jpg", at(6), &[face_with(0.1, emb(116))]);
+    // A photo with no date is always looked at.
+    let undated = photo_with(&mut w, "none.jpg", None, &[face_with(0.1, emb(126))]);
+    let f2020 = face_of(&w, p2020, 0);
+    let sara = people::name_face(&mut w.cat, f2020, "Sara", 1).unwrap();
+
+    let mut reached = Vec::new();
+    for want in [vec![p2018, undated], vec![p2016], vec![p2014]] {
+        people::suggest(&mut w.cat, sara).unwrap();
+        let mut want = want;
+        want.sort();
+        let got = suggested(&w, sara);
+        assert_eq!(got, want, "after {reached:?}");
+        let ids: Vec<i64> = people::review(&w.cat, sara)
+            .unwrap()
+            .iter()
+            .map(|f| f.id)
+            .collect();
+        people::decide(&mut w.cat, sara, &ids, &[]).unwrap();
+        reached.extend(got);
+    }
+    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+}

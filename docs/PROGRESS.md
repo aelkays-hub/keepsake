@@ -56,7 +56,7 @@
 
 ---
 
-## People: name a face and find that person — plan, steps 1 and 2 (2026-11-08)
+## People: name a face and find that person — plan, steps 1–3 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
 - **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
@@ -73,7 +73,12 @@
   - App: `faces_status`, `faces_enable` (download with progress, `faces://install`), `faces_install_cancel`, `faces_scan_all`, `faces_stop`, `faces_delete_all`, `faces_remove_models`; `faces://status` when the face worker starts or cannot.
   - UI: Settings → Recognise faces (on/off, progress, Search all / Stop, Delete all face data asked first, Delete the downloaded face models).
 - **Tests, run here:** `face_store_tests` (the worker with a stand-in: thumbnails searched, tiny faces left out, a photo waiting for its thumbnail, not searched twice; named faces kept on a new search, one person per name, rejections; Delete all; thumbnails queued with a search; no models: the worker says why and the rest goes on); the step-1 tests; catalog, AI, render, core library, CLI and app tests; Vitest `faces.test.ts`; mocked Playwright `faces.spec.ts` (and the other Settings tests).
-- **Next:** step 3, Name and find (right-click, the window, matching, Review and Find more).
+- **Step 3 built — Name and find:**
+  - Core: `faces::people` (`name_face`, `suggest`, `review`, `decide`), `scan::search_now`; `Faces::{of_person, candidates, person, suggest, unreject}`; face rows carry the photo's capture time and the suggestion's likeness (`faces.likeness`, added to the unreleased schema v13).
+  - App: `faces_of_photo`, `faces_people`, `faces_name`, `faces_find`, `faces_suggest`, `faces_review`, `faces_decide`.
+  - UI: **Name and find…** in the photo menu and the viewer; `NameFindWindow` (faces of the photo, name with earlier names offered, searching with Show matches so far, Review by year with click-to-reject, Confirm, Find more).
+- **Tests, run here:** `face_store_tests` (+2: suggestions most like the named face, under the threshold left out, one a photo, not in her own photos, rejections kept, answers only for her suggestions, naming a rejected face; Find more stepping 2020 → 2018 → 2016 → 2014 with undated photos looked at); core library; app (bindings regenerated); Vitest (`faces.test.ts`: widening, cut-out shape, by year, search line); mocked Playwright `name-find.spec.ts` (3) with the faces, cloud, viewer and a11y specs; looked at in the browser.
+- **Next:** step 4, names in the sidecars (MWG face regions, `People|Name` keywords, rebuild).
 
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 
