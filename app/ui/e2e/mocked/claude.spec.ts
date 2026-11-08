@@ -114,3 +114,33 @@ test("the Menu key opens the photo menu", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tile-menu")).toHaveCount(0);
 });
+
+test("Ctrl+click toggles the selection and opens no photo menu", async ({ page }) => {
+  await open(page, "&claude=key");
+  const a = page.getByTestId("tile").nth(0);
+  const b = page.getByTestId("tile").nth(1);
+  await a.click();
+  await b.click({ modifiers: ["Control"] });
+  await expect(page.locator('[data-testid="tile"][aria-selected="true"]')).toHaveCount(2);
+  // On a Mac, Ctrl+click also fires contextmenu (primary button, Ctrl down):
+  // send that here too, so every OS checks it.
+  await b.evaluate((el) =>
+    el.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+      }),
+    ),
+  );
+  await expect(page.getByTestId("tile-menu")).toHaveCount(0);
+  await expect(b).toBeFocused();
+  await b.click({ modifiers: ["Control"] });
+  await expect(b).toHaveAttribute("aria-selected", "false");
+  // A right-click still opens it.
+  await b.click({ button: "right" });
+  await expect(page.getByTestId("tile-menu")).toBeVisible();
+});

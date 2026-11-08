@@ -20,6 +20,8 @@ import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
 import { ContextMenu } from "./ContextMenu";
 
+const MAC =
+  typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
 const GAP = 8;
 /** How far the mouse moves before a press becomes a drag. */
 const DRAG_PX = 4;
@@ -321,6 +323,9 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
         onMouseDown={onMouseDown}
         onContextMenu={(e) => {
           e.preventDefault();
+          // On a Mac, Ctrl+click also fires contextmenu: it toggles the
+          // selection there, so it opens no menu.
+          if (e.ctrlKey && (e.button === 0 || MAC)) return;
           const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
           if (hit) openMenu(e.clientX, e.clientY, Number(hit.dataset.index));
         }}
