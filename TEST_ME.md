@@ -10,6 +10,8 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 Nothing to test in the app. On the pull request, check that a check named **macos-15 (Rust)** runs and passes next to **windows-latest**, and that no check named macos-14 is left waiting.
 
+On a Mac: click a photo, then Ctrl+click another. Expected: both are selected and no menu opens; Ctrl+click it again and it is no longer selected. A two-finger click (or right-click) still opens the photo menu. On Windows: Ctrl+click toggles the selection and a right-click opens the menu.
+
 ---
 
 ## Helpers end with the app
