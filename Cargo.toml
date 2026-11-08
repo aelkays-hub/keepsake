@@ -39,6 +39,8 @@ ctrlc = "3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 fast_image_resize = { version = "6", features = ["image"] }
 twox-hash = { version = "2", default-features = false, features = ["xxhash3_64", "std"] }
+# On-device AI (ADR-035): ONNX Runtime loaded at run time from vendor/, never linked.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "tracing", "load-dynamic"] }
 
 # Dependencies (SQLite, image decoding, BLAKE3) optimised even in debug
 # builds: the debug app stays usable on large libraries and in UI tests;

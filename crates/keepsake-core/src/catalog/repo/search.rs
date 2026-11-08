@@ -58,6 +58,14 @@ pub struct SearchQuery {
     /// `""`: a file without one.
     #[serde(default)]
     pub file_type: Option<String>,
+    /// Leave out items the user marked "not kept" in a group of duplicates
+    /// (ADR-035).
+    #[serde(default)]
+    pub hide_not_kept: bool,
+    /// Assets with this tag (keyword or AI tag) or one below it, as a
+    /// Lightroom path (`Places|Lake`).
+    #[serde(default)]
+    pub tag: Option<String>,
 }
 
 /// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
@@ -158,6 +166,22 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         ));
         f.args
             .push(Box::new(t.trim().trim_start_matches('.').to_uppercase()));
+    }
+    if let Some(t) = q.tag.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        f.wh.push(format!(
+            "EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
+               {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
+            super::tags::PATHS_CTE
+        ));
+        f.args.push(Box::new(t.to_owned()));
+        f.args.push(Box::new(t.to_owned()));
+    }
+    if q.hide_not_kept {
+        f.wh.push(
+            "NOT EXISTS (SELECT 1 FROM duplicate_choices dc
+                          WHERE dc.asset_id = a.id AND dc.choice = 'not_kept')"
+                .into(),
+        );
     }
     if let Some(k) = q.kind {
         f.wh.push("a.media_kind = ?".into());

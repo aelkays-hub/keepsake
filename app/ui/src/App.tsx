@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 
 import { api, type AppInfo } from "./api";
+import { AiJobWindow } from "./components/AiJobWindow";
 import { BackupScreen } from "./components/BackupScreen";
 import { CalendarView } from "./components/CalendarView";
 import { CrashBanner } from "./components/CrashBanner";
 import { DetailsView } from "./components/DetailsView";
+import { DuplicatesScreen } from "./components/DuplicatesScreen";
 import { FirstRun } from "./components/FirstRun";
 import { FoldersScreen } from "./components/FoldersScreen";
 import { GridView } from "./components/GridView";
@@ -76,6 +78,12 @@ function Main() {
     return (
       <main className="main screen-main" aria-label="Folders">
         <FoldersScreen />
+      </main>
+    );
+  if (s.screen === "duplicates")
+    return (
+      <main className="main screen-main" aria-label="Duplicates">
+        <DuplicatesScreen />
       </main>
     );
   if (s.screen === "backup")
@@ -161,6 +169,7 @@ function Shell() {
       <CrashBanner />
       {s.viewer && <Viewer />}
       {s.dialog === "timeShift" && <TimeShiftDialog />}
+      <AiJobWindow />
     </div>
   );
 }

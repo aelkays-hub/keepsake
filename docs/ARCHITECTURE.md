@@ -141,7 +141,12 @@ Wraps FFmpeg for all video operations: trim (stream copy or smart-cut re-encode)
 Pluggable connectors: Flickr (OAuth 2.0), OpenTimelineIO export. Each connector implements a `Connector` trait in `keepsake-core` with send/cancel/progress.
 
 ### AIWorker
-On-device inference: auto-tagging, face detection/clustering, semantic embedding. Runs on a low-priority thread pool. Results written to the catalog; never to original files.
+On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the render service takes `ai.analyze` jobs when AI is on (`RenderOptions::ai`). Jobs are queued only for dates the user asks about (`ai::analyze::enqueue_range`, from the calendar tree's right-click menu) or by `keepsake ai run`; the worker drops queued background-class AI jobs when it starts. It has the same pauses (battery, import) and waits while requested thumbnail jobs are ready or running.
+- The AI worker claims up to 32 jobs in one catalog write, works them out, then saves every result and marks the jobs done in one more write (a write can take seconds on a USB drive). Jobs are queued for a target: a date range or a folder and those below it (`ai::Target`, a library search).
+- Each job reads the asset's 1024 px thumbnail from the cache (never the original). It computes a 64-bit difference hash and a 768-number SigLIP 2 embedding (ONNX Runtime, loaded at run time from `vendor/onnxruntime/`; DirectML or CoreML, else CPU). It stores both in `ai_analysis` and gives AI tags (`asset_tags`, source `ai`) by zero-shot scoring against the built-in label vectors (`ai/labels.tsv` + `.bin`): a tag scores its best phrase, and some tags give another (Baby → People). `ai_analysis.tag_list` records the tag-list version, so photos tagged with an older list are re-tagged from their stored vector.
+- Duplicates (`ai::duplicates`) are grouped on demand per capture day from the stored vectors.
+- The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
+- Face clustering and semantic search are not built yet.
 
 ---
 

@@ -1,3 +1,4 @@
+mod ai;
 pub mod api;
 mod background;
 mod commands;
@@ -134,6 +135,22 @@ pub fn run() {
             diagnostics::crash_dismiss,
             diagnostics::ui_ready,
             diagnostics::startup_ms,
+            ai::ai_status,
+            ai::ai_enable,
+            ai::ai_install_cancel,
+            ai::ai_remove_model,
+            ai::ai_duplicates,
+            ai::ai_analyze_range,
+            ai::ai_range_status,
+            ai::ai_analyze_folder,
+            ai::ai_folder_status,
+            ai::ai_folder_stop,
+            ai::ai_range_stop,
+            ai::ai_duplicate_day,
+            ai::ai_pick_keeper,
+            ai::ai_set_choice,
+            ai::ai_tags,
+            ai::ai_tag_decide,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

@@ -3,8 +3,8 @@
 mod common;
 
 use keepsake_core::catalog::{
-    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, Event, EventId, FileRole,
-    GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
+    AssetId, Blake3Hash, CaptureSource, CaptureTime, Confidence, DuplicateChoice, Event, EventId,
+    FileRole, GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
 };
 use keepsake_core::relpath::RelPath;
 use keepsake_core::xmp::{ns, sidecar, AssetXmp, FileRef, RecipeRef, SequenceRef, XmpPacket};
@@ -24,6 +24,8 @@ fn full_sample() -> AssetXmp {
         comment: Some("Line one\nLine <two> & \"three\"".into()),
         user_tags: vec![tag("Family"), tag("Travel|Japan|Tokyo")],
         ai_tags: vec![(tag("Outdoors|Beach"), 0.875), (tag("Sky"), 0.1)],
+        ai_tags_rejected: vec![tag("Dog"), tag("Food|Pizza")],
+        duplicate_choice: Some(DuplicateChoice::NotKept),
         capture: Some(CaptureTime {
             utc_ms: 1_718_425_800_120,
             utc_offset_min: Some(540),

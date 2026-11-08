@@ -71,6 +71,18 @@ impl ToolPaths {
     }
 }
 
+/// The `vendor/` folder (or the installed app's resource folder, laid out
+/// like it), found as in [`ToolPaths::discover`]: `KEEPSAKE_VENDOR`, the
+/// registered folder, then a `vendor/` above the current directory or the
+/// running program.
+pub fn vendor_root() -> Option<PathBuf> {
+    std::env::var_os("KEEPSAKE_VENDOR")
+        .map(PathBuf::from)
+        .or_else(|| BUNDLED.get().cloned())
+        .or_else(|| std::env::current_dir().ok().and_then(|d| vendor_above(&d)))
+        .or_else(|| exe_dir().and_then(|d| vendor_above(&d)))
+}
+
 static BUNDLED: OnceLock<PathBuf> = OnceLock::new();
 
 /// Tell [`ToolPaths::discover`] where the installed app keeps its tools

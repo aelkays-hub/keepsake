@@ -737,6 +737,8 @@ fn bench(ctx: &Ctx, a: BenchArgs) -> Result<u8> {
             until_empty: true,
             forced_encoder: a.encoder.clone(),
             evict_every: u64::MAX,
+            ai: false,
+            ai_gpu: false,
         };
         let svc = RenderService::new(&lib, tools.clone(), cache.clone(), opts);
         if !ctx.json {

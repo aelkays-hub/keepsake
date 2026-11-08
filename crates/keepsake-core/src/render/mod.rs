@@ -60,6 +60,10 @@ pub enum RenderError {
     /// The asset's format cannot be rendered (not retried).
     #[error("cannot render {0}")]
     Unsupported(String),
+    /// Not ready yet (e.g. AI waits for a thumbnail): tried again later,
+    /// not counted as an attempt.
+    #[error("waiting: {0}")]
+    Waiting(String),
     #[error("{0}")]
     Failed(String),
 }
