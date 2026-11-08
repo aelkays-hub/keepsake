@@ -17,7 +17,8 @@ use super::embedding::{Embedding, DIM};
 use super::AiError;
 use crate::catalog::TagPath;
 
-const TSV: &str = include_str!("labels.tsv");
+/// The built-in tag list.
+pub(crate) const TSV: &str = include_str!("labels.tsv");
 const VECTORS: &[u8] = include_bytes!("labels-siglip2-b16-224.bin");
 const MAGIC: &[u8; 8] = b"KSLV2\0\0\0";
 
@@ -132,6 +133,11 @@ pub fn parse(tsv: &str) -> Result<Vec<Entry>, AiError> {
         }
     }
     Ok(out)
+}
+
+/// The entries of the built-in list.
+pub fn builtin_entries() -> Result<Vec<Entry>, AiError> {
+    parse(TSV)
 }
 
 /// Tag names of a `labels.tsv` text, in order.

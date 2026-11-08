@@ -17,6 +17,10 @@ import type { Bucket } from "./bindings/Bucket";
 import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { CardNotice } from "./bindings/CardNotice";
 import type { CardScan } from "./bindings/CardScan";
+import type { ClaudeInfo } from "./bindings/ClaudeInfo";
+import type { ClaudeModelDto } from "./bindings/ClaudeModelDto";
+import type { ClaudeStarted } from "./bindings/ClaudeStarted";
+import type { ClaudeStatusDto } from "./bindings/ClaudeStatusDto";
 import type { CrashNotice } from "./bindings/CrashNotice";
 import type { Details } from "./bindings/Details";
 import type { DuplicateGroupDto } from "./bindings/DuplicateGroupDto";
@@ -102,6 +106,10 @@ export type {
   Row,
   Selection,
   SelectionSummary,
+  ClaudeInfo,
+  ClaudeModelDto,
+  ClaudeStarted,
+  ClaudeStatusDto,
   SettingsInfo,
   SettingsSaved,
   SettingsUpdate,
@@ -246,6 +254,14 @@ export const api = {
     invoke<AiFolderStatus>("ai_analyze_folder", { volume, folder, what }),
   aiFolderStatus: (volume: string, folder: string, what: AiTask) =>
     invoke<AiFolderStatus>("ai_folder_status", { volume, folder, what }),
+  /** Tag with Claude (ADR-036): the key, the model, the photos. */
+  aiClaudeInfo: () => invoke<ClaudeInfo>("ai_claude_info"),
+  /** Save the API key (`null`: remove it). */
+  aiClaudeSetKey: (key: string | null) => invoke<ClaudeInfo>("ai_claude_set_key", { key }),
+  aiClaudeSetModel: (model: string) => invoke<ClaudeInfo>("ai_claude_set_model", { model }),
+  aiClaudeTag: (selection: Selection) => invoke<ClaudeStarted>("ai_claude_tag", { selection }),
+  aiClaudeStatus: (ids: string[]) => invoke<ClaudeStatusDto>("ai_claude_status", { ids }),
+  aiClaudeStop: (ids: string[]) => invoke<void>("ai_claude_stop", { ids }),
   /** Stop a date range's work: queued jobs are dropped; what was done stays. */
   aiRangeStop: (from: string, to: string, what: AiTask) =>
     invoke<void>("ai_range_stop", { from, to, what }),

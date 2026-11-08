@@ -148,6 +148,14 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
 - Face clustering and semantic search are not built yet.
 
+### Claude tagger
+Tag with Claude (`keepsake_core::ai::cloud`, ADR-036).
+- There is one `ai.claude` job per photo the user picked. Its own worker in the render service runs them when the service has a tagger (`RenderService::with_claude`); the app always gives it one.
+- The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it to the Claude Messages API through a `Tagger` (`Claude`, over `Http` = `UreqHttp`).
+- The key comes from `keepsake_platform::secrets` (the OS credential store), and the model from `config.toml`. Both are looked up for each photo.
+- The tags in the answer are added to the photo's keywords through `MetadataService` (catalog and XMP).
+- Permanent problems fail the job (`RenderError::Refused`); others are retried.
+
 ---
 
 ## Data Directories
@@ -407,6 +415,13 @@ Arrows move through the selection when more than one item is selected, otherwise
 - `config.toml` holds `[render]` (cache folder, limit, workers, battery) and `[open.apps]` (Open in, per type). The Settings screen writes it through `settings_set`, which checks the values, reloads the open library's settings (keeping its views) and restarts the render service.
 - `<library>/history.json` holds backup and verify runs (`keepsake_core::history`), from the app and the CLI. The Backup screen's destinations and "last verified" dates are read from it.
 - One backup or verify runs at a time in the app, on its own thread, reporting `maint://progress` and `maint://done`.
+
+## Helper processes end with the app
+
+ExifTool (`-stay_open`), FFmpeg, ffprobe and dcraw are child processes (ADR-037).
+- On `RunEvent::Exit` the app stops the render service (waiting up to 5 s) and the import ExifTool (`ExifTool::shutdown`).
+- On Windows the app is also in a job object that ends every child when the app's process ends, however it ends (`keepsake_platform::close_helpers_with_app`).
+- Programs opened for the user ("Open in", Explorer) break away from the job and stay open (`external::launch`).
 
 ## Finding the tools
 
