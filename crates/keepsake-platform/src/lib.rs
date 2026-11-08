@@ -8,6 +8,8 @@ pub mod fake;
 pub mod power;
 pub mod secrets;
 
+#[cfg(windows)]
+mod job;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
@@ -19,3 +21,18 @@ pub use devices::{
 pub use fake::FakeDevices;
 pub use keepsake_core::devices::{DeviceEvent, VolumeIdentity};
 pub use power::{on_battery, power_source, PowerSource};
+
+/// End Keepsake's helper processes (ExifTool, FFmpeg, …) when the app ends,
+/// however it ends; call once at start-up. On Windows the app joins a job
+/// object that does this. On macOS a helper sees its input close and ends
+/// by itself, so this does nothing there.
+pub fn close_helpers_with_app() -> Result<(), PlatformError> {
+    #[cfg(windows)]
+    {
+        job::close_helpers_with_app().map_err(PlatformError::Os)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(())
+    }
+}

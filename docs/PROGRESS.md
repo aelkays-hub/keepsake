@@ -56,6 +56,22 @@
 
 ---
 
+## Helpers end with the app (2026-11-08)
+
+- **Asked:** "got an error on install". The installer could not replace `exiftool.exe`: two ExifTool processes from earlier sessions were still running. Then "Yes, fix it" (ADR-037).
+- **Why they were left:**
+  - A `-stay_open` ExifTool does not end when its input closes.
+  - Closing the window ends the app without running destructors.
+  - The import ExifTool lives in a `static`, which is never dropped.
+- **Built:**
+  - `ExifTool::shutdown` and `ExifTool::pid`.
+  - The app stops the render service and the import ExifTool on exit.
+  - On Windows, the app joins a kill-on-close job object (`keepsake_platform::close_helpers_with_app`). Programs opened with "Open in" or in Explorer break away from it and stay open.
+- **Tests:**
+  - `shutdown_ends_the_process_even_when_the_handle_is_kept` (real ExifTool).
+  - `closing_the_job_ends_its_processes` and `a_process_outside_the_job_keeps_running` (Windows).
+- **Not verified:** closing the installed app and checking Task Manager. That is a manual step in TEST_ME.md.
+
 ## Tag with Claude (2026-11-08)
 
 - **Asked:** "for individual photos, I would like to add another tagging option using the best external LLM that can do it". The product owner chose (ADR-036):

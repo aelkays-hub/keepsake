@@ -411,6 +411,13 @@ Arrows move through the selection when more than one item is selected, otherwise
 - `<library>/history.json` holds backup and verify runs (`keepsake_core::history`), from the app and the CLI. The Backup screen's destinations and "last verified" dates are read from it.
 - One backup or verify runs at a time in the app, on its own thread, reporting `maint://progress` and `maint://done`.
 
+## Helper processes end with the app
+
+ExifTool (`-stay_open`), FFmpeg, ffprobe and dcraw are child processes (ADR-037).
+- On `RunEvent::Exit` the app stops the render service (waiting up to 5 s) and the import ExifTool (`ExifTool::shutdown`).
+- On Windows the app is also in a job object that ends every child when the app's process ends, however it ends (`keepsake_platform::close_helpers_with_app`).
+- Programs opened for the user ("Open in", Explorer) break away from the job and stay open (`external::launch`).
+
 ## Finding the tools
 
 `ToolPaths::discover` looks, in order:

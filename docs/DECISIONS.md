@@ -1295,3 +1295,28 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 - Tagging a whole date or folder with Claude, on purpose (cost and privacy).
 - A spending limit, captions, and other providers.
 - A real API call is not in CI, since there is no key there. The request and the answer handling are tested with a stand-in.
+
+
+## ADR-037 — Helper processes end with the app
+
+**Status**: Accepted (2026-11-08, product owner: "got an error on install", then "Yes, fix it").
+
+**Context.** The installer stopped with "Error opening file for writing: …\Keepsake\exiftool\exiftool.exe". Two ExifTool processes from earlier sessions were still running, though Keepsake was closed. Three things caused it:
+- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows).
+- Closing Keepsake's window ends the process without running destructors, so the render service's ExifTool was never told to stop.
+- The import code keeps its ExifTool in a `static`, which is never dropped.
+
+**Decision.**
+- **On exit, stop the helpers (both OSes).** On `RunEvent::Exit` the app:
+  - stops the render service and waits up to 5 s for its jobs to finish (`render::stop_for_exit`), which stops its ExifTool;
+  - stops the import ExifTool (`import::stop_exiftool`).
+- **`ExifTool::shutdown(&self)`** stops the process (asked to finish, killed after 2 s) and waits for it. It works on one kept in a `static`; `Drop` calls it. `ExifTool::pid()` gives the running process's id, for tests.
+- **Windows: a job object as a safety net** (`keepsake_platform::close_helpers_with_app`, hand-written Win32 declarations as in ADR-020).
+  - At start-up the app puts itself in an unnamed job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Everything it starts afterwards joins the job: ExifTool, FFmpeg, ffprobe, dcraw, curl and the WebView2 processes.
+  - When the app's process ends in any way (closed, crashed, killed in Task Manager), Windows ends them all.
+  - Programs the user opens from Keepsake ("Open in", a folder in Explorer) must stay open. `external::launch` starts them with `CREATE_BREAKAWAY_FROM_JOB`, which the job allows (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`). If an outer job refuses the breakaway, it starts them plainly.
+- **macOS has no job objects.** There, the exit handling above is what stops the helpers. After a crash an ExifTool can still be left behind, until the next restart of the Mac.
+
+No new dependencies.
+
+**Not done.** A macOS safety net for crashes (e.g. ExifTool watching for its parent). A render job running at exit (a long video proxy) is not cut short: after 5 s the app exits anyway; on Windows the job then ends its FFmpeg.

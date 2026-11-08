@@ -1,10 +1,25 @@
-# Manual Test Steps — Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
 
 ---
+
+## Helpers end with the app
+
+Automated:
+```
+cargo test -p keepsake-core --test probe_tests shutdown
+cargo test -p keepsake-platform job
+```
+
+Manual:
+1. **Windows:** start Keepsake and browse a few photos, or import a card, so ExifTool starts. In Task Manager → Details, sort by name. **Expected:** one or two `exiftool.exe`. Close Keepsake with ✕. **Expected:** within about 5 s no `exiftool.exe`, `ffmpeg.exe` or Keepsake `msedgewebview2.exe` is left.
+2. **Windows:** start Keepsake again and end `keepsake-app.exe` in Task Manager (End task), as a crash would. **Expected:** its `exiftool.exe` disappears at once too.
+3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
+4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
+5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
 
 ## Tag with Claude (cloud tagging for the photos you pick)
 

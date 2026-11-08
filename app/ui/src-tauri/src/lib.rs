@@ -48,6 +48,11 @@ pub fn run() {
         std::process::exit(self_check(args.get(2)));
     }
     diagnostics::init();
+    // ExifTool and FFmpeg end with the app, so none is left running to block
+    // the next installer (Windows: a job object).
+    if let Err(e) = keepsake_platform::close_helpers_with_app() {
+        tracing::warn!("helpers may outlive the app: {e}");
+    }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
@@ -159,11 +164,22 @@ pub fn run() {
             claude::ai_claude_status,
             claude::ai_claude_stop,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        eprintln!("Keepsake could not start: {e}");
-        std::process::exit(1);
-    }
+        .build(tauri::generate_context!());
+    let app = match result {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Keepsake could not start: {e}");
+            std::process::exit(1);
+        }
+    };
+    app.run(|handle, event| {
+        // Closing the window ends the process without dropping anything:
+        // stop the helpers first, or ExifTool keeps running.
+        if let tauri::RunEvent::Exit = event {
+            render::stop_for_exit(handle, std::time::Duration::from_secs(5));
+            import::stop_exiftool();
+        }
+    });
 }
 
 #[cfg(test)]
