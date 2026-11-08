@@ -104,6 +104,14 @@ pub struct FaceCounts {
     pub failed: u64,
 }
 
+/// A "not this person": the person's name and the face's box (x, y, w, h,
+/// 0–1).
+pub type RejectionBox = (String, f32, f32, f32, f32);
+
+/// The model id of a named face read from a sidecar, before its photo is
+/// searched: it has no description, and is never used to find others.
+pub const RESTORED_MODEL: &str = "sidecar";
+
 /// Two boxes overlapping more than this are the same face (when scanning
 /// again keeps the faces the user named).
 pub const SAME_FACE_IOU: f32 = 0.5;
@@ -365,6 +373,69 @@ impl<M> Faces<'_, M> {
             .optional()?)
     }
 
+    /// The names of the people confirmed in a photo, sorted, once each.
+    pub fn confirmed_names(&self, asset: AssetId) -> Result<Vec<String>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT DISTINCT p.name FROM faces f JOIN people p ON p.id = f.person_id
+              WHERE f.asset_id = ?1 AND f.state = 'confirmed' ORDER BY p.name_key",
+        )?;
+        let v = st
+            .query_map([asset], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
+    /// A photo's confirmed faces with their person's name, by position.
+    pub fn confirmed_regions(
+        &self,
+        asset: AssetId,
+    ) -> Result<Vec<(String, NewFace)>, CatalogError> {
+        let mut out = Vec::new();
+        for f in self.for_asset(asset)? {
+            if f.state != FaceState::Confirmed {
+                continue;
+            }
+            if let Some(p) = f.person.map(|p| self.person(p)).transpose()?.flatten() {
+                out.push((p.name, f.face));
+            }
+        }
+        out.sort_by(|a, b| a.1.x.total_cmp(&b.1.x).then(a.0.cmp(&b.0)));
+        Ok(out)
+    }
+
+    /// "Not this person" on a photo, as (person's name, box x, y, w, h):
+    /// those on its faces and those waiting for a search.
+    pub fn rejection_boxes(&self, asset: AssetId) -> Result<Vec<RejectionBox>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT p.name, f.x, f.y, f.w, f.h FROM face_rejections r
+               JOIN faces f ON f.id = r.face_id JOIN people p ON p.id = r.person_id
+              WHERE f.asset_id = ?1
+             UNION ALL
+             SELECT p.name, q.x, q.y, q.w, q.h FROM face_rejections_pending q
+               JOIN people p ON p.id = q.person_id
+              WHERE q.asset_id = ?1
+             ORDER BY 1, 2, 3",
+        )?;
+        let v = st
+            .query_map([asset], |r| {
+                let f = |i: usize| -> rusqlite::Result<f32> { Ok(r.get::<_, f64>(i)? as f32) };
+                Ok((r.get(0)?, f(1)?, f(2)?, f(3)?, f(4)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
+    /// Photos with a named face or a "not this person".
+    pub fn photos_with_decisions(&self) -> Result<Vec<AssetId>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT asset_id FROM faces WHERE person_id IS NOT NULL
+             UNION SELECT f.asset_id FROM face_rejections r JOIN faces f ON f.id = r.face_id
+             UNION SELECT asset_id FROM face_rejections_pending",
+        )?;
+        let v = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
     /// The people a face was rejected for.
     pub fn rejected_for(&self, face: i64) -> Result<Vec<i64>, CatalogError> {
         let mut st = self.conn.prepare(
@@ -399,7 +470,25 @@ impl Faces<'_, Rw> {
         let kept = self.for_asset(asset)?;
         let mut added = 0;
         for f in faces {
-            if kept.iter().any(|k| box_iou(&k.face, f) > SAME_FACE_IOU) {
+            if let Some(k) = kept.iter().find(|k| box_iou(&k.face, f) > SAME_FACE_IOU) {
+                // A named face read from a sidecar (no description yet), or
+                // one from older models: it takes this search's face, and
+                // keeps its person.
+                if k.model != model {
+                    self.conn.execute(
+                        "UPDATE faces SET landmarks = ?2, score = ?3, model = ?4, embedding = ?5,
+                                          emb_scale = ?6
+                          WHERE id = ?1",
+                        params![
+                            k.id,
+                            landmarks_blob(&f.landmarks),
+                            f64::from(f.score.clamp(0.0, 1.0)),
+                            model,
+                            i8_blob(&f.embedding),
+                            f64::from(f.emb_scale),
+                        ],
+                    )?;
+                }
                 continue;
             }
             self.conn.execute(
@@ -419,6 +508,8 @@ impl Faces<'_, Rw> {
                     f64::from(f.emb_scale),
                 ],
             )?;
+            let id = self.conn.last_insert_rowid();
+            self.apply_pending_rejections(asset, id, f)?;
             added += 1;
         }
         self.conn.execute(
@@ -429,6 +520,165 @@ impl Faces<'_, Rw> {
             params![asset, model, width, height, now_ms],
         )?;
         Ok(added)
+    }
+
+    /// Rejections waiting for a face at `f`'s place become that face's.
+    fn apply_pending_rejections(
+        &self,
+        asset: AssetId,
+        face: i64,
+        f: &NewFace,
+    ) -> Result<(), CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT rowid, person_id, x, y, w, h FROM face_rejections_pending WHERE asset_id = ?1",
+        )?;
+        let rows: Vec<(i64, i64, NewFace)> = st
+            .query_map([asset], |r| {
+                let g = |i: usize| -> rusqlite::Result<f32> { Ok(r.get::<_, f64>(i)? as f32) };
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    NewFace {
+                        x: g(2)?,
+                        y: g(3)?,
+                        w: g(4)?,
+                        h: g(5)?,
+                        landmarks: [[0.0; 2]; 5],
+                        score: 0.0,
+                        embedding: Vec::new(),
+                        emb_scale: 0.0,
+                    },
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        for (rowid, person, b) in rows {
+            if box_iou(&b, f) > SAME_FACE_IOU {
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO face_rejections (face_id, person_id) VALUES (?1, ?2)",
+                    params![face, person],
+                )?;
+                self.conn.execute(
+                    "DELETE FROM face_rejections_pending WHERE rowid = ?1",
+                    [rowid],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A named face read from a sidecar (a rebuild): the photo's face at
+    /// that place becomes the person's, or, if it was not searched yet, one
+    /// is kept for it (with no description until the photo is searched).
+    pub fn restore_confirmed(
+        &self,
+        asset: AssetId,
+        person: i64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> Result<(), CatalogError> {
+        let at = NewFace {
+            x,
+            y,
+            w,
+            h,
+            landmarks: [[0.0; 2]; 5],
+            score: 0.0,
+            embedding: vec![0],
+            emb_scale: 0.0,
+        };
+        let here = self.for_asset(asset)?;
+        if let Some(f) = here.iter().find(|f| box_iou(&f.face, &at) > SAME_FACE_IOU) {
+            if f.person != Some(person) || f.state != FaceState::Confirmed {
+                self.set_person(f.id, Some((person, FaceState::Confirmed)))?;
+            }
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT INTO faces (asset_id, x, y, w, h, landmarks, score, model, embedding,
+                                emb_scale, person_id, state)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, 0, ?9, 'confirmed')",
+            params![
+                asset,
+                f64::from(x.clamp(0.0, 1.0)),
+                f64::from(y.clamp(0.0, 1.0)),
+                f64::from(w.clamp(f32::MIN_POSITIVE, 1.0)),
+                f64::from(h.clamp(f32::MIN_POSITIVE, 1.0)),
+                landmarks_blob(&at.landmarks),
+                RESTORED_MODEL,
+                i8_blob(&at.embedding),
+                person,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// A "not this person" read from a sidecar: on the face at that place,
+    /// or kept until a search finds one there.
+    pub fn restore_rejection(
+        &self,
+        asset: AssetId,
+        person: i64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> Result<(), CatalogError> {
+        let at = NewFace {
+            x,
+            y,
+            w,
+            h,
+            landmarks: [[0.0; 2]; 5],
+            score: 0.0,
+            embedding: Vec::new(),
+            emb_scale: 0.0,
+        };
+        if let Some(f) = self
+            .for_asset(asset)?
+            .iter()
+            .find(|f| box_iou(&f.face, &at) > SAME_FACE_IOU)
+        {
+            return self.reject(f.id, person);
+        }
+        let dup: bool = self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM face_rejections_pending
+                             WHERE asset_id = ?1 AND person_id = ?2
+                               AND abs(x - ?3) < 1e-4 AND abs(y - ?4) < 1e-4)",
+            params![asset, person, f64::from(x), f64::from(y)],
+            |r| r.get(0),
+        )?;
+        if !dup {
+            self.conn.execute(
+                "INSERT INTO face_rejections_pending (asset_id, person_id, x, y, w, h)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    asset,
+                    person,
+                    f64::from(x),
+                    f64::from(y),
+                    f64::from(w),
+                    f64::from(h)
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Take every name off every face and forget every "not this person"
+    /// (the first half of Delete all face data: the sidecars and keywords
+    /// follow, then [`Faces::delete_all`]).
+    pub fn forget_decisions(&self) -> Result<(), CatalogError> {
+        self.conn.execute("DELETE FROM face_rejections", [])?;
+        self.conn
+            .execute("DELETE FROM face_rejections_pending", [])?;
+        self.conn.execute(
+            "UPDATE faces SET person_id = NULL, state = 'unknown', likeness = NULL
+              WHERE person_id IS NOT NULL",
+            [],
+        )?;
+        Ok(())
     }
 
     /// The person named `name`, added if new. Returns their id.
@@ -507,6 +757,8 @@ impl Faces<'_, Rw> {
     /// Returns how many faces there were.
     pub fn delete_all(&self) -> Result<u64, CatalogError> {
         self.conn.execute("DELETE FROM face_rejections", [])?;
+        self.conn
+            .execute("DELETE FROM face_rejections_pending", [])?;
         let n = self.conn.execute("DELETE FROM faces", [])?;
         self.conn.execute("DELETE FROM face_scans", [])?;
         self.conn.execute("DELETE FROM people", [])?;

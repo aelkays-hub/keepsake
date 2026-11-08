@@ -7,7 +7,10 @@ use keepsake_core::catalog::{
     FileRole, GpsPoint, MediaKind, Rating, RecipeId, SequenceId, SequenceKind, TagPath,
 };
 use keepsake_core::relpath::RelPath;
-use keepsake_core::xmp::{ns, sidecar, AssetXmp, FileRef, RecipeRef, SequenceRef, XmpPacket};
+use keepsake_core::xmp::{
+    ns, sidecar, ArrayKind, AssetXmp, FaceRegion, FaceRejection, FileRef, RecipeRef, SequenceRef,
+    XmpPacket,
+};
 
 fn tag(s: &str) -> TagPath {
     TagPath::parse_lightroom(s).unwrap()
@@ -31,6 +34,32 @@ fn full_sample() -> AssetXmp {
             ("gemini".into(), tag("AI|Sand Castle")),
             ("gemini".into(), tag("Beach")),
         ],
+        face_regions: vec![
+            FaceRegion {
+                name: "Sara".into(),
+                cx: 0.25,
+                cy: 0.375,
+                w: 0.125,
+                h: 0.25,
+            },
+            FaceRegion {
+                name: "Ali Ünal".into(),
+                cx: 0.75,
+                cy: 0.5,
+                w: 0.0625,
+                h: 0.125,
+            },
+        ],
+        face_size: Some((1024, 768)),
+        face_rejections: vec![FaceRejection {
+            person: "Sara".into(),
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.125,
+            h: 0.25,
+        }],
+        // Written only (read back empty).
+        face_names: vec![],
         capture: Some(CaptureTime {
             utc_ms: 1_718_425_800_120,
             utc_offset_min: Some(540),
@@ -344,4 +373,153 @@ fn ai_tag_sources_of_an_unknown_ai_are_ignored() {
     x.write(&mut p);
     let back = AssetXmp::read(&XmpPacket::parse(&p.to_xml()).unwrap());
     assert_eq!(back.ai_tag_sources, vec![("openai".to_owned(), tag("Dog"))]);
+}
+
+const LIGHTROOM_FACES: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:mwg-rs="http://www.metadataworkinggroup.com/schemas/regions/"
+    xmlns:stDim="http://ns.adobe.com/xap/1.0/sType/Dimensions#"
+    xmlns:stArea="http://ns.adobe.com/xmp/sType/Area#">
+   <mwg-rs:Regions rdf:parseType="Resource">
+    <mwg-rs:AppliedToDimensions stDim:w="6000" stDim:h="4000" stDim:unit="pixel"/>
+    <mwg-rs:RegionList>
+     <rdf:Bag>
+      <rdf:li>
+       <rdf:Description mwg-rs:Name="Bob" mwg-rs:Type="Face">
+        <mwg-rs:Area stArea:x="0.5" stArea:y="0.25" stArea:w="0.1" stArea:h="0.15" stArea:unit="normalized"/>
+       </rdf:Description>
+      </rdf:li>
+      <rdf:li>
+       <rdf:Description mwg-rs:Name="Rex" mwg-rs:Type="Pet">
+        <mwg-rs:Area stArea:x="0.2" stArea:y="0.2" stArea:w="0.1" stArea:h="0.1" stArea:unit="normalized"/>
+       </rdf:Description>
+      </rdf:li>
+      <rdf:li rdf:parseType="Resource">
+       <mwg-rs:Type>Face</mwg-rs:Type>
+       <mwg-rs:Area stArea:x="0.8" stArea:y="0.3" stArea:w="0.05" stArea:h="0.08" stArea:unit="normalized"/>
+      </rdf:li>
+     </rdf:Bag>
+    </mwg-rs:RegionList>
+   </mwg-rs:Regions>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"#;
+
+const MWG: &str = "http://www.metadataworkinggroup.com/schemas/regions/";
+
+fn region_names(p: &XmpPacket) -> Vec<(String, String)> {
+    let r = p.value(MWG, "Regions").unwrap();
+    let mut v: Vec<(String, String)> = r
+        .field(MWG, "RegionList")
+        .unwrap()
+        .items()
+        .iter()
+        .map(|i| {
+            let t = |k: &str| {
+                i.field(MWG, k)
+                    .and_then(|v| v.as_text())
+                    .unwrap_or("")
+                    .to_owned()
+            };
+            (t("Type"), t("Name"))
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn named_faces_are_read_from_lightroom_style_regions() {
+    let x = AssetXmp::read(&XmpPacket::parse(LIGHTROOM_FACES).unwrap());
+    // Bob only: Rex is a pet and the other face has no name.
+    assert_eq!(
+        x.face_regions,
+        vec![FaceRegion {
+            name: "Bob".into(),
+            cx: 0.5,
+            cy: 0.25,
+            w: 0.1,
+            h: 0.15,
+        }]
+    );
+    assert_eq!(x.face_size, Some((6000, 4000)));
+    // MWG areas are centred: the box starts half its size before.
+    let (bx, by, bw, bh) = x.face_regions[0].to_box();
+    assert!((bx - 0.45).abs() < 1e-6 && (by - 0.175).abs() < 1e-6);
+    assert!((bw - 0.1).abs() < 1e-6 && (bh - 0.15).abs() < 1e-6);
+}
+
+#[test]
+fn writing_faces_keeps_other_apps_regions() {
+    let mut p = XmpPacket::parse(LIGHTROOM_FACES).unwrap();
+    // Keepsake names Sara; Bob is not one of its people: he stays.
+    let x = AssetXmp {
+        face_regions: vec![FaceRegion::from_box("Sara", 0.1, 0.1, 0.2, 0.3)],
+        face_size: Some((1024, 683)),
+        face_names: vec!["Sara".into()],
+        ..Default::default()
+    };
+    x.write(&mut p);
+    let p = XmpPacket::parse(&p.to_xml()).unwrap();
+    assert_eq!(
+        region_names(&p),
+        [
+            ("Face".to_owned(), String::new()),
+            ("Face".to_owned(), "Bob".to_owned()),
+            ("Face".to_owned(), "Sara".to_owned()),
+            ("Pet".to_owned(), "Rex".to_owned()),
+        ]
+    );
+    // Keepsake took the names off (Bob is one of its people now, and it
+    // wrote Sara): their regions go; the pet and the unnamed face stay.
+    let mut p2 = p.clone();
+    AssetXmp {
+        face_names: vec!["bob".into()],
+        ..Default::default()
+    }
+    .write(&mut p2);
+    let p2 = XmpPacket::parse(&p2.to_xml()).unwrap();
+    assert_eq!(
+        region_names(&p2),
+        [
+            ("Face".to_owned(), String::new()),
+            ("Pet".to_owned(), "Rex".to_owned()),
+        ],
+        "Sara's region was Keepsake's (it wrote her last time): it goes too"
+    );
+    // The picture's size of the other app stays when Keepsake has none.
+    let d = p2.value(MWG, "Regions").unwrap();
+    let dims = d.field(MWG, "AppliedToDimensions").unwrap();
+    assert_eq!(
+        dims.field("http://ns.adobe.com/xap/1.0/sType/Dimensions#", "w")
+            .and_then(|v| v.as_text()),
+        Some("1024")
+    );
+}
+
+#[test]
+fn nested_values_round_trip() {
+    use keepsake_core::xmp::Value;
+    let v = Value::fields([
+        ("urn:a", "Name", Value::text("x & <y>")),
+        (
+            "urn:a",
+            "List",
+            Value::Array(
+                ArrayKind::Seq,
+                vec![
+                    Value::fields([("urn:a", "N", Value::text("1"))]),
+                    Value::text("two"),
+                ],
+            ),
+        ),
+    ]);
+    let mut p = XmpPacket::new();
+    p.set_value("urn:a", "Thing", Some(&v));
+    let back = XmpPacket::parse(&p.to_xml()).unwrap();
+    assert_eq!(back.value("urn:a", "Thing"), Some(v));
+    let mut p = back;
+    p.set_value("urn:a", "Thing", None);
+    assert_eq!(p.value("urn:a", "Thing"), None);
 }

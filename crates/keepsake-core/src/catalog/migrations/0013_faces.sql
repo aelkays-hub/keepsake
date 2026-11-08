@@ -59,3 +59,16 @@ CREATE TABLE face_rejections (
   person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
   PRIMARY KEY (face_id, person_id)
 ) STRICT, WITHOUT ROWID;
+
+-- "Not this person" read from a sidecar (a rebuild) before the photo was
+-- searched again: kept by the face's box, and made a face_rejections row
+-- when a search finds a face there.
+CREATE TABLE face_rejections_pending (
+  asset_id  BLOB NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  x         REAL NOT NULL,
+  y         REAL NOT NULL,
+  w         REAL NOT NULL,
+  h         REAL NOT NULL
+) STRICT;
+CREATE INDEX face_rejections_pending_asset ON face_rejections_pending(asset_id);

@@ -29,7 +29,7 @@ pub use browse::{
 pub use events::{EventSpan, Events};
 pub use faces::{
     box_iou, name_key, FaceCounts, FaceRow, FaceScan, FaceState, Faces, NewFace, Person,
-    SAME_FACE_IOU,
+    RESTORED_MODEL, SAME_FACE_IOU,
 };
 pub use files::Files;
 pub use imports::Imports;

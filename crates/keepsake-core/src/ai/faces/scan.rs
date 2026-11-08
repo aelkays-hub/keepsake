@@ -191,11 +191,23 @@ pub fn stop(cat: &mut Catalog) -> Result<u64, AiError> {
     Ok(cat.write(|tx| tx.jobs().remove_all_queued(JOB_AI_FACES))?)
 }
 
-/// Delete all face data: every face, scan, person and decision, and the
-/// queued face jobs. Originals and the face models are not touched.
-/// Returns how many faces there were.
-pub fn delete_all(cat: &mut Catalog) -> Result<u64, AiError> {
+/// Delete all face data: every face, scan, person and decision, the queued
+/// face jobs, and the face regions and `People|<name>` keywords it wrote
+/// to photos (their sidecars are written again). Originals and the face
+/// models are not touched. Returns how many faces there were.
+pub fn delete_all(lib: &crate::library::Library, cat: &mut Catalog) -> Result<u64, AiError> {
     stop(cat)?;
+    // First every name comes off (while the people are known, so their
+    // keywords and regions are found), then the tables are emptied.
+    let photos = cat.read(|tx| tx.faces().photos_with_decisions())?;
+    cat.write(|tx| tx.faces().forget_decisions())?;
+    let mut svc = crate::metadata::MetadataService::new(lib, cat);
+    for p in &photos {
+        svc.sync_faces(*p).map_err(|e| match e {
+            crate::library::LibraryError::Catalog(e) => AiError::Catalog(e),
+            e => AiError::Image(e.to_string()),
+        })?;
+    }
     Ok(cat.write(|tx| tx.faces().delete_all())?)
 }
 

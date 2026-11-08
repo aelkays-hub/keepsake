@@ -1396,7 +1396,7 @@ No new dependencies.
 
 ## ADR-040 — People: name a face and find that person, on this computer
 
-**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–3 built; steps 4–6 to come. Extends ADR-035.
+**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–4 built; steps 5–6 to come. Extends ADR-035.
 
 **Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
 
@@ -1484,3 +1484,12 @@ No new dependencies.
 - **Out from the dates** (`YEARS_STEP` = 3): only faces in photos within 3 years of a confirmed face's photo (or with no date) are looked at. **Find more** after confirming reaches 3 years further each time; this is how a child's photos are reached from an adult's.
 - **Review**: the suggestions by year, newest first, best first within it. A click marks one "not them"; **Confirm N faces** confirms the rest and records the rejections (never suggested for that person again). Nothing is named without the user.
 - Schema v13 also has `faces.likeness` (the suggestion's score); v13 had not been released.
+
+**Step 4, as built** (names in the sidecars and search; approved by the product owner, 2026-11-08):
+- **Face regions.** Each confirmed face is written to the photo's XMP sidecar as a standard MWG region: `mwg-rs:Regions` (`AppliedToDimensions` with the searched picture's size, `stDim:unit` pixel) and a `RegionList` bag of `Type` Face, `Name`, `Area` (`stArea:x`/`y` the box's **centre**, `w`, `h`, `unit` normalized, as MWG requires). The XMP writer and reader gained nested values (`xmp::Value`: text, struct, array, any depth) and read every RDF form (`parseType="Resource"`, `rdf:Description`, fields as attributes).
+- **Other apps' regions stay.** Keepsake writes the regions of its people; a region that is not a named face (a pet, an unnamed face), or a named face of someone Keepsake does not manage, is kept. Keepsake records the names it wrote (`keepsake:FaceNames`) so it can take its own regions off later.
+- **Reading.** Every named face region in a sidecar becomes that person's confirmed face when a photo is added or the catalog rebuilt, Lightroom's and digiKam's too. "Not this person" is under `keepsake:FaceRejections` (person, box).
+- **Keywords.** Each confirmed person's name is a keyword `People|<name>` on the photo (`MetadataService::sync_faces`), taken off when none of their faces is left there; a `People|…` keyword of a name that is not one of the people is the user's and left alone. So the Tag list and the search bar's tag chips find people.
+- **Rebuild.** People, confirmed faces and rejections come back from the sidecars. A restored face has no description (`faces.model = 'sidecar'`) and is never used to find others; the next search of its photo finds the face again and gives it one, keeping the name (`save_scan`). A rejection whose face is not found yet waits by its box (`face_rejections_pending`, schema v13) and is applied when a search finds a face there.
+- **Delete all face data** first takes every name off and writes the photos' sidecars and keywords again (while the people are known), then empties the tables. The user's own `People|…` keywords stay.
+- Originals are never changed: only sidecars (or their mirror for read-only drives) and the catalog.

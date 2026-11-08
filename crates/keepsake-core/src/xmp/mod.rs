@@ -28,7 +28,7 @@ use crate::catalog::{
 };
 use crate::relpath::{path_key, CaseSensitivity, RelPath};
 use packet::{field, Field, ReadField};
-pub use packet::{ArrayKind, XmpPacket};
+pub use packet::{ArrayKind, Value, XmpPacket};
 
 /// Namespace URIs.
 pub mod ns {
@@ -44,6 +44,10 @@ pub mod ns {
     pub const TIFF: &str = "http://ns.adobe.com/tiff/1.0/";
     pub const XMP_DM: &str = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
     pub const KEEPSAKE: &str = "http://ns.keepsake.app/xmp/1.0/";
+    /// Metadata Working Group regions (face regions; ADR-040).
+    pub const MWG_RS: &str = "http://www.metadataworkinggroup.com/schemas/regions/";
+    pub const ST_AREA: &str = "http://ns.adobe.com/xmp/sType/Area#";
+    pub const ST_DIM: &str = "http://ns.adobe.com/xap/1.0/sType/Dimensions#";
 
     /// Conventional prefix for a namespace.
     pub fn preferred_prefix(uri: &str) -> &'static str {
@@ -60,6 +64,9 @@ pub mod ns {
             TIFF => "tiff",
             XMP_DM => "xmpDM",
             KEEPSAKE => "keepsake",
+            MWG_RS => "mwg-rs",
+            ST_AREA => "stArea",
+            ST_DIM => "stDim",
             _ => "ns",
         }
     }
@@ -105,6 +112,49 @@ pub struct SequenceRef {
     pub position: u32,
 }
 
+/// A named face, as an MWG face region (ADR-040): its box's centre and
+/// size in 0–1 units of the picture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FaceRegion {
+    pub name: String,
+    pub cx: f32,
+    pub cy: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl FaceRegion {
+    /// From a box's top-left corner and size (0–1).
+    pub fn from_box(name: &str, x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self {
+            name: name.to_owned(),
+            cx: x + w / 2.0,
+            cy: y + h / 2.0,
+            w,
+            h,
+        }
+    }
+
+    /// The box's top-left corner and size (0–1), kept in the picture.
+    pub fn to_box(&self) -> (f32, f32, f32, f32) {
+        let w = self.w.clamp(f32::MIN_POSITIVE, 1.0);
+        let h = self.h.clamp(f32::MIN_POSITIVE, 1.0);
+        let x = (self.cx - self.w / 2.0).clamp(0.0, 1.0 - w);
+        let y = (self.cy - self.h / 2.0).clamp(0.0, 1.0 - h);
+        (x, y, w, h)
+    }
+}
+
+/// "This face is not that person", by the face's box (ADR-040).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FaceRejection {
+    pub person: String,
+    pub cx: f32,
+    pub cy: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
 /// Everything Keepsake reads from or writes to an asset's sidecar.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AssetXmp {
@@ -124,6 +174,17 @@ pub struct AssetXmp {
     /// Which AI gave which keyword (Tag with AI), as (provider id,
     /// keyword), sorted (ADR-039).
     pub ai_tag_sources: Vec<(String, TagPath)>,
+    /// Named faces (ADR-040), as `mwg-rs:Regions` face regions. Read: every
+    /// named face region in the file (Lightroom's and digiKam's too).
+    pub face_regions: Vec<FaceRegion>,
+    /// The picture the regions were found in (`mwg-rs:AppliedToDimensions`).
+    pub face_size: Option<(u32, u32)>,
+    /// Faces said not to be a person.
+    pub face_rejections: Vec<FaceRejection>,
+    /// Written only: the names whose face regions Keepsake manages (any
+    /// case). A named face region in the file with another name, and every
+    /// region that is not a named face, is kept as it is.
+    pub face_names: Vec<String>,
     pub capture: Option<CaptureTime>,
     pub capture_shift_s: i64,
     pub duration_ms: Option<i64>,
@@ -279,7 +340,130 @@ fn read_recipe(f: &[ReadField]) -> Option<RecipeRef> {
     })
 }
 
+/// A face region's name, if it is a named face with an area.
+fn read_face_region(item: &Value) -> Option<FaceRegion> {
+    if item.field(ns::MWG_RS, "Type")?.as_text()?.trim() != "Face" {
+        return None;
+    }
+    let name = item.field(ns::MWG_RS, "Name")?.as_text()?.trim().to_owned();
+    if name.is_empty() {
+        return None;
+    }
+    let area = item.field(ns::MWG_RS, "Area")?;
+    if let Some(u) = area.field(ns::ST_AREA, "unit").and_then(Value::as_text) {
+        if u.trim() != "normalized" {
+            return None;
+        }
+    }
+    let n = |k: &str| {
+        area.field(ns::ST_AREA, k)?
+            .as_text()?
+            .trim()
+            .parse::<f32>()
+            .ok()
+    };
+    let (cx, cy, w, h) = (n("x")?, n("y")?, n("w")?, n("h")?);
+    let ok = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+    (ok(cx) && ok(cy) && ok(w) && ok(h) && w > 0.0 && h > 0.0).then_some(FaceRegion {
+        name,
+        cx,
+        cy,
+        w,
+        h,
+    })
+}
+
+fn face_region_value(f: &FaceRegion) -> Value {
+    Value::fields([
+        (ns::MWG_RS, "Type", Value::text("Face")),
+        (ns::MWG_RS, "Name", Value::text(&f.name)),
+        (
+            ns::MWG_RS,
+            "Area",
+            Value::fields([
+                (ns::ST_AREA, "x", Value::text(f.cx.to_string())),
+                (ns::ST_AREA, "y", Value::text(f.cy.to_string())),
+                (ns::ST_AREA, "w", Value::text(f.w.to_string())),
+                (ns::ST_AREA, "h", Value::text(f.h.to_string())),
+                (ns::ST_AREA, "unit", Value::text("normalized")),
+            ]),
+        ),
+    ])
+}
+
 impl AssetXmp {
+    /// Write the face regions Keepsake manages, keeping the file's others,
+    /// and the rejections.
+    fn write_faces(&self, p: &mut XmpPacket) {
+        let existing = p.value(ns::MWG_RS, "Regions");
+        // Keepsake's regions: the names it manages now, those it writes,
+        // and those it wrote last time (`keepsake:FaceNames`).
+        let before = p.array(ns::KEEPSAKE, "FaceNames");
+        let ours: Vec<String> = self
+            .face_names
+            .iter()
+            .chain(self.face_regions.iter().map(|f| &f.name))
+            .chain(before.iter())
+            .map(|n| n.trim().to_lowercase())
+            .collect();
+        let mut written: Vec<String> = self.face_regions.iter().map(|f| f.name.clone()).collect();
+        written.sort();
+        written.dedup();
+        p.set_array(ns::KEEPSAKE, "FaceNames", ArrayKind::Bag, &written);
+        let others: Vec<Value> = existing
+            .as_ref()
+            .and_then(|r| r.field(ns::MWG_RS, "RegionList"))
+            .map(|l| l.items().to_vec())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|item| {
+                read_face_region(item).is_none_or(|f| !ours.contains(&f.name.to_lowercase()))
+            })
+            .collect();
+        let mut list: Vec<Value> = self.face_regions.iter().map(face_region_value).collect();
+        list.extend(others);
+        if list.is_empty() {
+            p.set_value(ns::MWG_RS, "Regions", None);
+        } else {
+            let dims = self.face_size.map(|(w, h)| {
+                Value::fields([
+                    (ns::ST_DIM, "w", Value::text(w.to_string())),
+                    (ns::ST_DIM, "h", Value::text(h.to_string())),
+                    (ns::ST_DIM, "unit", Value::text("pixel")),
+                ])
+            });
+            let dims = dims.or_else(|| {
+                existing
+                    .as_ref()
+                    .and_then(|r| r.field(ns::MWG_RS, "AppliedToDimensions"))
+                    .cloned()
+            });
+            let mut fields = Vec::new();
+            if let Some(d) = dims {
+                fields.push((ns::MWG_RS.to_owned(), "AppliedToDimensions".to_owned(), d));
+            }
+            fields.push((
+                ns::MWG_RS.to_owned(),
+                "RegionList".to_owned(),
+                Value::Array(ArrayKind::Bag, list),
+            ));
+            p.set_value(ns::MWG_RS, "Regions", Some(&Value::Struct(fields)));
+        }
+        let rej: Vec<Vec<Field>> = self
+            .face_rejections
+            .iter()
+            .map(|r| {
+                vec![
+                    (ns::KEEPSAKE, "Person", r.person.clone()),
+                    (ns::KEEPSAKE, "X", r.cx.to_string()),
+                    (ns::KEEPSAKE, "Y", r.cy.to_string()),
+                    (ns::KEEPSAKE, "W", r.w.to_string()),
+                    (ns::KEEPSAKE, "H", r.h.to_string()),
+                ]
+            })
+            .collect();
+        p.set_struct_array(ns::KEEPSAKE, "FaceRejections", ArrayKind::Bag, &rej);
+    }
     /// Extract Keepsake's view of a packet. Unknown or malformed values are
     /// ignored rather than failing the whole read.
     pub fn read(p: &XmpPacket) -> Self {
@@ -357,6 +541,41 @@ impl AssetXmp {
             .collect();
         x.ai_tag_sources.sort();
         x.ai_tag_sources.dedup();
+        if let Some(r) = p.value(ns::MWG_RS, "Regions") {
+            x.face_size = r.field(ns::MWG_RS, "AppliedToDimensions").and_then(|d| {
+                let n = |k: &str| {
+                    d.field(ns::ST_DIM, k)?
+                        .as_text()?
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                };
+                Some((n("w")?.round() as u32, n("h")?.round() as u32))
+            });
+            x.face_regions = r
+                .field(ns::MWG_RS, "RegionList")
+                .map(|l| l.items())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(read_face_region)
+                .collect();
+        }
+        x.face_rejections = p
+            .struct_array(ns::KEEPSAKE, "FaceRejections")
+            .iter()
+            .filter_map(|f| {
+                let n = |k: &str| field(f, ns::KEEPSAKE, k)?.trim().parse::<f32>().ok();
+                let person = field(f, ns::KEEPSAKE, "Person")?.trim().to_owned();
+                (!person.is_empty()).then_some(())?;
+                Some(FaceRejection {
+                    person,
+                    cx: n("X")?,
+                    cy: n("Y")?,
+                    w: n("W")?,
+                    h: n("H")?,
+                })
+            })
+            .collect();
         x.duplicate_choice = p
             .simple(ns::KEEPSAKE, "DuplicateChoice")
             .and_then(|v| DuplicateChoice::parse(v.trim()));
@@ -496,6 +715,7 @@ impl AssetXmp {
             })
             .collect();
         p.set_struct_array(ns::KEEPSAKE, "AITagSources", ArrayKind::Bag, &sources);
+        self.write_faces(p);
         set_opt(
             p,
             ns::KEEPSAKE,

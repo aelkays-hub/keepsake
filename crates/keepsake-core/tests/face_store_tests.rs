@@ -314,7 +314,7 @@ fn delete_all_face_data_forgets_everything_and_stops_the_searches() {
         })
         .unwrap();
     scan::enqueue(&mut w.cat, &[b], false).unwrap();
-    assert_eq!(scan::delete_all(&mut w.cat).unwrap(), 1);
+    assert_eq!(scan::delete_all(&w.lib, &mut w.cat).unwrap(), 1);
     let st = scan::status(&w.cat).unwrap();
     assert_eq!((st.scanned, st.faces, st.people, st.pending), (0, 0, 0, 0));
     assert!(w.cat.read(|tx| tx.faces().scan(a)).unwrap().is_none());
@@ -460,7 +460,7 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     );
     let e = photo_with(&mut w, "e.jpg", t, &[face_with(0.1, emb(120))]);
     let fa = face_of(&w, a, 0);
-    let sara = people::name_face(&mut w.cat, fa, "Sara", 1).unwrap();
+    let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
     // Nothing is suggested before a face is named for that person.
     let nobody = w.cat.write(|tx| tx.faces().add_person("Ali", 1)).unwrap();
     assert!(people::suggest(&mut w.cat, nobody).is_err());
@@ -483,7 +483,7 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     // The answers: b and d are Sara; e is not.
     let fe = face_of(&w, e, 0);
     let (fb, fd) = (face_of(&w, b, 0), dd.id);
-    let (yes, no) = people::decide(&mut w.cat, sara, &[fb, fd], &[fe]).unwrap();
+    let (yes, no) = people::decide(&w.lib, &mut w.cat, sara, &[fb, fd], &[fe]).unwrap();
     assert_eq!((yes, no), (2, 1));
     assert!(suggested(&w, sara).is_empty());
     let f = w.cat.read(|tx| tx.faces().get(fe)).unwrap().unwrap();
@@ -493,11 +493,14 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     // Faces not suggested for her are left alone by her answers.
     let other = face_of(&w, c, 0);
     assert_eq!(
-        people::decide(&mut w.cat, sara, &[other], &[]).unwrap(),
+        people::decide(&w.lib, &mut w.cat, sara, &[other], &[]).unwrap(),
         (0, 0)
     );
     // Naming a rejected face her after all forgets the rejection.
-    assert_eq!(people::name_face(&mut w.cat, fe, "sara", 2).unwrap(), sara);
+    assert_eq!(
+        people::name_face(&w.lib, &mut w.cat, fe, "sara", 2).unwrap(),
+        sara
+    );
     assert!(w
         .cat
         .read(|tx| tx.faces().rejected_for(fe))
@@ -529,7 +532,7 @@ fn find_more_steps_back_through_the_years() {
     // A photo with no date is always looked at.
     let undated = photo_with(&mut w, "none.jpg", None, &[face_with(0.1, emb(126))]);
     let f2020 = face_of(&w, p2020, 0);
-    let sara = people::name_face(&mut w.cat, f2020, "Sara", 1).unwrap();
+    let sara = people::name_face(&w.lib, &mut w.cat, f2020, "Sara", 1).unwrap();
 
     let mut reached = Vec::new();
     for want in [vec![p2018, undated], vec![p2016], vec![p2014]] {
@@ -543,8 +546,169 @@ fn find_more_steps_back_through_the_years() {
             .iter()
             .map(|f| f.id)
             .collect();
-        people::decide(&mut w.cat, sara, &ids, &[]).unwrap();
+        people::decide(&w.lib, &mut w.cat, sara, &ids, &[]).unwrap();
         reached.extend(got);
     }
     assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+}
+
+// ── Names in the sidecars and search (step 4) ──────────────────────────────
+
+use keepsake_core::catalog::TagPath;
+use keepsake_core::metadata::MetadataService;
+use keepsake_core::rebuild::rebuild_catalog;
+
+fn keywords_of(w: &mut World, id: AssetId) -> Vec<String> {
+    let mut k: Vec<String> = MetadataService::new(&w.lib, &mut w.cat)
+        .user_tags(id)
+        .unwrap()
+        .iter()
+        .map(TagPath::to_lightroom)
+        .collect();
+    k.sort();
+    k
+}
+
+/// Throw the catalog away and rebuild it from the files and sidecars.
+fn rebuild(w: &mut World) {
+    let vol = w.cat.read(|tx| tx.volumes().list()).unwrap()[0].id;
+    drop(std::mem::replace(
+        &mut w.cat,
+        Catalog::open_in_memory().unwrap(),
+    ));
+    Catalog::delete_files(&w.lib.catalog_path()).unwrap();
+    w.cat = w.lib.open_catalog().unwrap();
+    rebuild_catalog(&mut w.cat, &w.lib, vol, &w.media).unwrap();
+}
+
+#[test]
+fn names_go_into_keywords_and_sidecars_and_a_rebuild_keeps_them() {
+    let mut w = World::new(&["a.jpg", "b.jpg"]);
+    let before = hashes(&w.media);
+    let a = photo_with(
+        &mut w,
+        "a.jpg",
+        Some(Y2020),
+        &[face_with(0.1, emb(128)), face_with(0.6, emb(64))],
+    );
+    let b = photo_with(&mut w, "b.jpg", Some(Y2020), &[face_with(0.1, emb(126))]);
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(a, &[TagPath::parse_lightroom("Holiday").unwrap()])
+        .unwrap();
+    let fa = face_of(&w, a, 0);
+    let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
+    assert_eq!(keywords_of(&mut w, a), ["Holiday", "People|Sara"]);
+    // b's face: suggested, then confirmed; a's other face: not Ali.
+    people::suggest(&mut w.cat, sara).unwrap();
+    let fb = face_of(&w, b, 0);
+    people::decide(&w.lib, &mut w.cat, sara, &[fb], &[]).unwrap();
+    assert_eq!(keywords_of(&mut w, b), ["People|Sara"]);
+    let other = face_of(&w, a, 1);
+    let ali = people::name_face(&w.lib, &mut w.cat, other, "Ali", 2).unwrap();
+    w.cat
+        .write(|tx| {
+            tx.faces()
+                .set_person(other, Some((ali, FaceState::Suggested)))
+        })
+        .unwrap();
+    people::decide(&w.lib, &mut w.cat, ali, &[], &[other]).unwrap();
+    assert_eq!(
+        keywords_of(&mut w, a),
+        ["Holiday", "People|Sara"],
+        "Ali's keyword went"
+    );
+
+    // Rebuilt from the sidecars: Sara with her two faces, and "not Ali".
+    rebuild(&mut w);
+    let people_now: Vec<String> = w
+        .cat
+        .read(|tx| tx.faces().people())
+        .unwrap()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+    assert_eq!(people_now, ["Ali", "Sara"]);
+    let sara = w
+        .cat
+        .read(|tx| tx.faces().person_named("sara"))
+        .unwrap()
+        .unwrap()
+        .id;
+    let ali = w
+        .cat
+        .read(|tx| tx.faces().person_named("Ali"))
+        .unwrap()
+        .unwrap()
+        .id;
+    let hers = w
+        .cat
+        .read(|tx| tx.faces().of_person(sara, FaceState::Confirmed))
+        .unwrap();
+    assert_eq!(hers.len(), 2);
+    assert!(hers
+        .iter()
+        .all(|f| f.model == keepsake_core::catalog::RESTORED_MODEL));
+    assert!((hers.iter().find(|f| f.asset_id == a).unwrap().face.x - 0.1).abs() < 1e-5);
+    assert_eq!(keywords_of(&mut w, a), ["Holiday", "People|Sara"]);
+
+    // The next search of a finds both faces again: Sara's keeps her name
+    // and gets its description; the other is "not Ali" again.
+    w.cat
+        .write(|tx| {
+            tx.faces()
+                .save_scan(
+                    a,
+                    faces::MODEL_ID,
+                    1024,
+                    768,
+                    &[face_with(0.1, emb(128)), face_with(0.6, emb(64))],
+                    5,
+                )
+                .map(|_| ())
+        })
+        .unwrap();
+    let found = w.cat.read(|tx| tx.faces().for_asset(a)).unwrap();
+    assert_eq!(found.len(), 2);
+    let hers = found.iter().find(|f| f.face.x < 0.5).unwrap();
+    assert_eq!(
+        (hers.person, hers.state),
+        (Some(sara), FaceState::Confirmed)
+    );
+    assert_eq!(hers.model, faces::MODEL_ID);
+    assert_eq!(hers.face.embedding, emb(128));
+    let not_ali = found.iter().find(|f| f.face.x > 0.5).unwrap();
+    assert_eq!(
+        w.cat
+            .read(|tx| tx.faces().rejected_for(not_ali.id))
+            .unwrap(),
+        [ali]
+    );
+
+    // Taking Sara's only face off b takes her keyword off b.
+    let fb = face_of(&w, b, 0);
+    w.cat.write(|tx| tx.faces().set_person(fb, None)).unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .sync_faces(b)
+        .unwrap();
+    assert!(keywords_of(&mut w, b).is_empty());
+    assert_eq!(hashes(&w.media), before, "originals unchanged");
+}
+
+#[test]
+fn delete_all_face_data_takes_the_names_off_the_photos_too() {
+    let mut w = World::new(&["a.jpg"]);
+    let a = photo_with(&mut w, "a.jpg", Some(Y2020), &[face_with(0.1, emb(128))]);
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(a, &[TagPath::parse_lightroom("People|Bob").unwrap()])
+        .unwrap();
+    let fa = face_of(&w, a, 0);
+    people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
+    assert_eq!(keywords_of(&mut w, a), ["People|Bob", "People|Sara"]);
+    scan::delete_all(&w.lib, &mut w.cat).unwrap();
+    // Bob is the user's own keyword (not a person here): it stays.
+    assert_eq!(keywords_of(&mut w, a), ["People|Bob"]);
+    // Nothing comes back from the sidecar.
+    rebuild(&mut w);
+    assert!(w.cat.read(|tx| tx.faces().people()).unwrap().is_empty());
+    assert_eq!(keywords_of(&mut w, a), ["People|Bob"]);
 }

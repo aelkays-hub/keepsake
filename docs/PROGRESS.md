@@ -56,7 +56,7 @@
 
 ---
 
-## People: name a face and find that person — plan, steps 1–3 (2026-11-08)
+## People: name a face and find that person — plan, steps 1–4 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
 - **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
@@ -78,7 +78,12 @@
   - App: `faces_of_photo`, `faces_people`, `faces_name`, `faces_find`, `faces_suggest`, `faces_review`, `faces_decide`.
   - UI: **Name and find…** in the photo menu and the viewer; `NameFindWindow` (faces of the photo, name with earlier names offered, searching with Show matches so far, Review by year with click-to-reject, Confirm, Find more).
 - **Tests, run here:** `face_store_tests` (+2: suggestions most like the named face, under the threshold left out, one a photo, not in her own photos, rejections kept, answers only for her suggestions, naming a rejected face; Find more stepping 2020 → 2018 → 2016 → 2014 with undated photos looked at); core library; app (bindings regenerated); Vitest (`faces.test.ts`: widening, cut-out shape, by year, search line); mocked Playwright `name-find.spec.ts` (3) with the faces, cloud, viewer and a11y specs; looked at in the browser.
-- **Next:** step 4, names in the sidecars (MWG face regions, `People|Name` keywords, rebuild).
+- **Step 4 built — names in the sidecars and search** (product owner: "complete steps 4 and 5 … you have my approval"):
+  - XMP: nested values (`xmp::Value`, `XmpPacket::{value, set_value}`), namespaces `mwg-rs`, `stArea`, `stDim`; `AssetXmp::{face_regions, face_size, face_rejections, face_names}`; other apps' regions kept; `keepsake:FaceNames`, `keepsake:FaceRejections`.
+  - Catalog: `face_rejections_pending` (v13); `Faces::{confirmed_names, confirmed_regions, rejection_boxes, photos_with_decisions, restore_confirmed, restore_rejection, forget_decisions}`; `save_scan` gives a restored face its description and applies waiting rejections.
+  - `MetadataService::sync_faces` (`People|<name>` keywords and the sidecar); `people::name_face` / `decide` and `scan::delete_all` take the library and call it; the rebuild restores people, faces and rejections.
+- **Tests, run here:** xmp_tests (+3: Lightroom-style regions read, other apps' regions kept and Keepsake's taken off, nested values; the full round trip has faces), face_store_tests (+2: keywords, sidecars, rebuild, the next search keeps the names and the rejection; Delete all takes the names off and leaves the user's `People|Bob`), rebuild, AI, catalog, core library, CLI and app tests; clippy.
+- **Next:** step 5, the Inspector's People and the viewer's face boxes.
 
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 

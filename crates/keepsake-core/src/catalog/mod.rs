@@ -26,7 +26,7 @@ pub use ids::{
 };
 pub use migrations::LATEST_VERSION;
 pub use model::*;
-pub use repo::{box_iou, name_key, SAME_FACE_IOU};
+pub use repo::{box_iou, name_key, RESTORED_MODEL, SAME_FACE_IOU};
 pub use repo::{
     Ai, AiCounts, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DayItem,
     DriveRow, EditFields, EventSpan, Events, FaceCounts, FaceRow, FaceScan, FaceState, Faces,

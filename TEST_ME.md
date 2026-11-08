@@ -1,8 +1,26 @@
-# Manual Test Steps — Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Faces, step 4: names in the sidecars and search (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test xmp_tests --test face_store_tests --test rebuild_tests
+```
+
+Manual (both OSes):
+1. Name a face (Name and find…) and confirm a few suggestions. **Expected:** each of those photos gets the keyword **People › Sara** (Inspector → Keywords), and the Tag list and the search bar's tags find Sara.
+2. Open the photo's `.xmp` sidecar in a text editor (next to the photo, or in the library's mirror folder for a read-only drive). **Expected:** `mwg-rs:Regions` with a `mwg-rs:Name` Sara, `mwg-rs:Type` Face and an `mwg-rs:Area` (x, y the face's centre, w, h, normalized). The photo itself is not changed (its modified date stays).
+3. Open the same photo in Lightroom Classic (or digiKam) after reading the metadata from the file. **Expected:** Sara's face region with her name.
+4. In Lightroom, name another face on a photo (e.g. Bob) and save the metadata to the file. In Keepsake, Scan again that folder (or rebuild the catalog). **Expected:** Bob is one of the people, with that face confirmed; the Lightroom region is still there.
+5. Reject a suggestion for Sara, then rebuild the catalog (`keepsake rebuild-catalog`). **Expected:** Sara and her confirmed faces come back; after Search all photos, the rejected face is not suggested for her again.
+6. Remove Sara's only face from a photo (reject it in Review, or Delete all face data). **Expected:** the People › Sara keyword goes from that photo; a People › … keyword you typed yourself for someone who is not one of the people stays.
+7. Settings → Delete all face data. **Expected:** the face regions Keepsake wrote are gone from the sidecars (other apps' regions stay), and the People keywords of its people are gone.
 
 ---
 

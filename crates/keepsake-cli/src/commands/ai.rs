@@ -381,7 +381,7 @@ fn faces(ctx: &Ctx, action: FacesAction) -> Result<u8> {
             }
             let lib = ctx.library()?;
             let mut cat = lib.open_catalog()?;
-            let n = scan::delete_all(&mut cat)?;
+            let n = scan::delete_all(&lib, &mut cat)?;
             ctx.emit(&json!({ "deleted_faces": n }), || {
                 println!("Deleted all face data ({n} face(s)).")
             })?;

@@ -17,7 +17,8 @@
 //!   that person again.
 //!
 //! Nothing here is applied without the user: suggestions stay suggestions
-//! until confirmed.
+//! until confirmed. A confirmed face (or a rejection) is written to the
+//! photo's sidecar and keywords at once (`MetadataService::sync_faces`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -25,6 +26,20 @@ use super::{MODEL_ID, SAME_PERSON};
 use crate::ai::embedding::Embedding;
 use crate::ai::AiError;
 use crate::catalog::{AssetId, Catalog, CatalogError, FaceRow, FaceState};
+use crate::library::Library;
+use crate::metadata::MetadataService;
+
+/// The sidecars and keywords of these photos follow their faces.
+fn sync(lib: &Library, cat: &mut Catalog, photos: &[AssetId]) -> Result<(), AiError> {
+    let mut svc = MetadataService::new(lib, cat);
+    for p in photos {
+        svc.sync_faces(*p).map_err(|e| match e {
+            crate::library::LibraryError::Catalog(e) => AiError::Catalog(e),
+            e => AiError::Image(e.to_string()),
+        })?;
+    }
+    Ok(())
+}
 
 /// How far from a confirmed face's date suggestions are looked for, in
 /// years, each time.
@@ -49,17 +64,25 @@ pub struct SuggestOutcome {
 
 /// Name `face` as `name`: it is that person's, confirmed, and any earlier
 /// "not this person" for it is forgotten. Returns the person's id.
-pub fn name_face(cat: &mut Catalog, face: i64, name: &str, now_ms: i64) -> Result<i64, AiError> {
-    Ok(cat.write(|tx| {
-        if tx.faces().get(face)?.is_none() {
+pub fn name_face(
+    lib: &Library,
+    cat: &mut Catalog,
+    face: i64,
+    name: &str,
+    now_ms: i64,
+) -> Result<i64, AiError> {
+    let (person, photo) = cat.write(|tx| {
+        let Some(f) = tx.faces().get(face)? else {
             return Err(CatalogError::Invalid(format!("no face {face}")));
-        }
+        };
         let person = tx.faces().add_person(name, now_ms)?;
         tx.faces().unreject(face, person)?;
         tx.faces()
             .set_person(face, Some((person, FaceState::Confirmed)))?;
-        Ok(person)
-    })?)
+        Ok((person, f.asset_id))
+    })?;
+    sync(lib, cat, &[photo])?;
+    Ok(person)
 }
 
 fn embedding(f: &FaceRow) -> Option<Embedding> {
@@ -159,36 +182,36 @@ pub fn review(cat: &Catalog, person: i64) -> Result<Vec<FaceRow>, AiError> {
 /// (and are not suggested for them again). Faces not suggested for this
 /// person are left alone. Returns `(confirmed, rejected)`.
 pub fn decide(
+    lib: &Library,
     cat: &mut Catalog,
     person: i64,
     confirm: &[i64],
     reject: &[i64],
 ) -> Result<(u64, u64), AiError> {
-    Ok(cat.write(|tx| {
+    let (n, mut photos) = cat.write(|tx| {
         let mut n = (0, 0);
+        let mut photos: Vec<AssetId> = Vec::new();
         for id in confirm {
-            if tx
-                .faces()
-                .get(*id)?
-                .is_some_and(|f| f.person == Some(person))
-            {
+            if let Some(f) = tx.faces().get(*id)?.filter(|f| f.person == Some(person)) {
                 tx.faces()
                     .set_person(*id, Some((person, FaceState::Confirmed)))?;
                 n.0 += 1;
+                photos.push(f.asset_id);
             }
         }
         for id in reject {
-            if tx
-                .faces()
-                .get(*id)?
-                .is_some_and(|f| f.person == Some(person))
-            {
+            if let Some(f) = tx.faces().get(*id)?.filter(|f| f.person == Some(person)) {
                 tx.faces().reject(*id, person)?;
                 n.1 += 1;
+                photos.push(f.asset_id);
             }
         }
-        Ok::<_, CatalogError>(n)
-    })?)
+        Ok::<_, CatalogError>((n, photos))
+    })?;
+    photos.sort();
+    photos.dedup();
+    sync(lib, cat, &photos)?;
+    Ok(n)
 }
 
 #[cfg(test)]

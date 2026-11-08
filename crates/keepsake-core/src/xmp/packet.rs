@@ -32,6 +32,106 @@ pub struct ReadField {
     pub value: String,
 }
 
+/// A property value of any shape, nested as deep as it goes: text, a
+/// struct of named fields, or an array (MWG face regions are a struct with
+/// an array of structs that hold a struct).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    Text(String),
+    /// `(namespace, local name, value)`, in order.
+    Struct(Vec<(String, String, Value)>),
+    Array(ArrayKind, Vec<Value>),
+}
+
+impl Value {
+    pub fn text(s: impl Into<String>) -> Self {
+        Self::Text(s.into())
+    }
+
+    /// A struct from `(namespace, local name, value)` fields.
+    pub fn fields(f: impl IntoIterator<Item = (&'static str, &'static str, Value)>) -> Self {
+        Self::Struct(
+            f.into_iter()
+                .map(|(n, l, v)| (n.to_owned(), l.to_owned(), v))
+                .collect(),
+        )
+    }
+
+    /// A struct's field.
+    pub fn field(&self, ns: &str, local: &str) -> Option<&Value> {
+        match self {
+            Self::Struct(f) => f
+                .iter()
+                .find(|(n, l, _)| n == ns && l == local)
+                .map(|(_, _, v)| v),
+            _ => None,
+        }
+    }
+
+    /// The text, if it is text.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// An array's items (none for text or a struct).
+    pub fn items(&self) -> &[Value] {
+        match self {
+            Self::Array(_, v) => v,
+            _ => &[],
+        }
+    }
+}
+
+fn kind_of(e: &Element) -> Option<ArrayKind> {
+    [ArrayKind::Bag, ArrayKind::Seq, ArrayKind::Alt]
+        .into_iter()
+        .find(|k| is_rdf(e, k.local()))
+}
+
+/// A property element's value, in any of the RDF forms: an array, a
+/// resource, a struct (`rdf:parseType="Resource"`, an `rdf:Description`, or
+/// fields as attributes or child elements) or text.
+fn read_value(e: &Element) -> Value {
+    if let Some(arr) = e.elements().find(|c| kind_of(c).is_some()) {
+        let kind = kind_of(arr).unwrap_or(ArrayKind::Bag);
+        return Value::Array(
+            kind,
+            arr.elements()
+                .filter(|li| is_rdf(li, "li"))
+                .map(read_value)
+                .collect(),
+        );
+    }
+    if let Some(r) = e.attr(ns::RDF, "resource") {
+        return Value::Text(r.to_owned());
+    }
+    let src = e.child(ns::RDF, "Description").unwrap_or(e);
+    let mut fields = Vec::new();
+    for a in &src.attrs {
+        let ours =
+            !a.is_ns_decl() && !is_rdf_attr(a) && a.ns.as_deref().is_some_and(|n| n != dom::XML_NS);
+        if ours {
+            if let Some(n) = &a.ns {
+                fields.push((n.clone(), a.local.clone(), Value::Text(a.value.clone())));
+            }
+        }
+    }
+    for c in src.elements() {
+        if let Some(n) = c.ns.as_deref().filter(|n| *n != ns::RDF) {
+            fields.push((n.to_owned(), c.local.clone(), read_value(c)));
+        }
+    }
+    let structured = !fields.is_empty() || e.attr(ns::RDF, "parseType") == Some("Resource");
+    if structured {
+        Value::Struct(fields)
+    } else {
+        Value::Text(e.text())
+    }
+}
+
 /// Look a field up by namespace and local name.
 pub fn field<'a>(fields: &'a [ReadField], ns: &str, local: &str) -> Option<&'a str> {
     fields
@@ -207,6 +307,11 @@ impl XmpPacket {
             .map(|li| li.text())
     }
 
+    /// A property's value, whatever its shape (see [`Value`]).
+    pub fn value(&self, ns: &str, local: &str) -> Option<Value> {
+        self.property(ns, local).map(read_value)
+    }
+
     /// Fields of a struct property.
     pub fn structure(&self, ns: &str, local: &str) -> Option<Vec<ReadField>> {
         self.property(ns, local).map(struct_fields)
@@ -378,6 +483,47 @@ impl XmpPacket {
             container.push_element(f);
         }
         container
+    }
+
+    /// `el` with `v` as its content.
+    fn build(&mut self, mut el: Element, v: &Value) -> Element {
+        match v {
+            Value::Text(t) => el.push_text(t),
+            Value::Array(kind, items) => {
+                let mut lis = Vec::with_capacity(items.len());
+                for it in items {
+                    let li = self.li();
+                    lis.push(self.build(li, it));
+                }
+                let arr = self.make_array(*kind, lis);
+                el.push_element(arr);
+            }
+            Value::Struct(fields) => {
+                let rp = self.rdf_prefix();
+                el.set_attr(
+                    &format!("{rp}:parseType"),
+                    Some(ns::RDF),
+                    "parseType",
+                    "Resource",
+                );
+                for (fns, flocal, fv) in fields {
+                    let f = self.new_prop(fns, flocal);
+                    let f = self.build(f, fv);
+                    el.push_element(f);
+                }
+            }
+        }
+        el
+    }
+
+    /// Replace a property with a value of any shape; `None` removes it.
+    pub fn set_value(&mut self, uri: &str, local: &str, v: Option<&Value>) {
+        self.remove(uri, local);
+        if let Some(v) = v {
+            let el = self.new_prop(uri, local);
+            let el = self.build(el, v);
+            self.push_prop(el);
+        }
     }
 
     /// Replace a struct property; `None` removes it.

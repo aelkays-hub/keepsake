@@ -1010,6 +1010,29 @@ fn save_asset(
         tx.tags().set_for_asset(d.asset_id, TagSource::Ai, &ai)?;
         tx.ai().set_rejections(d.asset_id, &x.ai_tags_rejected)?;
         tx.ai().set_tag_sources(d.asset_id, &x.ai_tag_sources)?;
+        // Named faces and "not this person" (ADR-040). The faces themselves
+        // are a cache: the next search of the photo finds them again and
+        // keeps these names.
+        let now = crate::jobs::now_ms();
+        for r in &x.face_regions {
+            let person = tx.faces().add_person(&r.name, now)?;
+            let (fx, fy, fw, fh) = r.to_box();
+            tx.faces()
+                .restore_confirmed(d.asset_id, person, fx, fy, fw, fh)?;
+        }
+        for r in &x.face_rejections {
+            let person = tx.faces().add_person(&r.person, now)?;
+            let region = crate::xmp::FaceRegion {
+                name: r.person.clone(),
+                cx: r.cx,
+                cy: r.cy,
+                w: r.w,
+                h: r.h,
+            };
+            let (fx, fy, fw, fh) = region.to_box();
+            tx.faces()
+                .restore_rejection(d.asset_id, person, fx, fy, fw, fh)?;
+        }
         tx.ai()
             .set_choice(d.asset_id, x.duplicate_choice, x.metadata_ms.unwrap_or(0))?;
         for old in tx.recipes().for_asset(d.asset_id)? {

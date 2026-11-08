@@ -200,7 +200,7 @@ pub fn faces_delete_all(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     let open = state.open()?;
     let n = {
         let mut cat = open.writer()?;
-        scan::delete_all(&mut cat).map_err(err)?
+        scan::delete_all(&open.lib, &mut cat).map_err(err)?
     };
     let _ = app.emit("faces://status", ());
     Ok(n)
@@ -338,8 +338,14 @@ pub fn faces_people(state: State<'_, AppState>) -> CmdResult<Vec<PersonDto>> {
 pub fn faces_name(state: State<'_, AppState>, face: i64, name: String) -> CmdResult<PersonDto> {
     let open = state.open()?;
     let mut cat = open.writer()?;
-    let id =
-        people::name_face(&mut cat, face, &name, keepsake_core::jobs::now_ms()).map_err(err)?;
+    let id = people::name_face(
+        &open.lib,
+        &mut cat,
+        face,
+        &name,
+        keepsake_core::jobs::now_ms(),
+    )
+    .map_err(err)?;
     let p = cat
         .read(|tx| tx.faces().person(id))
         .map_err(err)?
@@ -404,6 +410,6 @@ pub fn faces_decide(
 ) -> CmdResult<[u64; 2]> {
     let open = state.open()?;
     let mut cat = open.writer()?;
-    let (c, r) = people::decide(&mut cat, person, &confirm, &reject).map_err(err)?;
+    let (c, r) = people::decide(&open.lib, &mut cat, person, &confirm, &reject).map_err(err)?;
     Ok([c, r])
 }

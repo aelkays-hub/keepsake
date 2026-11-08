@@ -42,6 +42,9 @@ pub(crate) fn sidecar_target(
     }
 }
 
+/// The keyword under which named people are kept: `People|Sara` (ADR-040).
+pub const PEOPLE_TAG: &str = "People";
+
 /// Project an asset's catalog state onto the sidecar for one volume copy.
 pub(crate) fn project(
     tx: &WriteTx<'_>,
@@ -84,6 +87,26 @@ pub(crate) fn project(
         ai_tags_rejected: tx.ai().rejections(asset.id)?,
         duplicate_choice: tx.ai().choice(asset.id)?,
         ai_tag_sources: tx.ai().tag_sources(asset.id)?,
+        face_regions: tx
+            .faces()
+            .confirmed_regions(asset.id)?
+            .iter()
+            .map(|(name, f)| crate::xmp::FaceRegion::from_box(name, f.x, f.y, f.w, f.h))
+            .collect(),
+        face_size: tx.faces().scan(asset.id)?.map(|s| (s.width, s.height)),
+        face_rejections: tx
+            .faces()
+            .rejection_boxes(asset.id)?
+            .into_iter()
+            .map(|(person, x, y, w, h)| crate::xmp::FaceRejection {
+                person,
+                cx: x + w / 2.0,
+                cy: y + h / 2.0,
+                w,
+                h,
+            })
+            .collect(),
+        face_names: tx.faces().people()?.into_iter().map(|p| p.name).collect(),
         capture: asset.capture,
         capture_shift_s: asset.capture_shift_s,
         duration_ms: asset.duration_ms,
@@ -268,6 +291,47 @@ impl<'a> MetadataService<'a> {
         self.edit(id, |tx, _| {
             tx.tags().set_for_asset(id, TagSource::User, &tags)?;
             tx.ai().prune_tag_sources(id, paths)?;
+            tx.tags().prune_unused()?;
+            Ok(())
+        })
+    }
+
+    /// A photo's faces changed (ADR-040): its `People|<name>` keywords
+    /// follow its confirmed faces (a person's keyword is added when one of
+    /// their faces is confirmed here, and taken off when none is left), and
+    /// its sidecar gets its face regions. Keywords of names that are not
+    /// people are left alone.
+    pub fn sync_faces(&mut self, id: AssetId) -> Result<Asset, LibraryError> {
+        self.edit(id, |tx, _| {
+            let here = tx.faces().confirmed_names(id)?;
+            let people: Vec<String> = tx.faces().people()?.into_iter().map(|p| p.name).collect();
+            let key = |n: &str| crate::catalog::name_key(n);
+            let mine = |p: &TagPath| {
+                let parts = p.segments();
+                parts.len() == 2
+                    && parts[0] == PEOPLE_TAG
+                    && people.iter().any(|n| key(n) == key(&parts[1]))
+            };
+            let mut user: Vec<AssetTag> = tx
+                .tags()
+                .for_asset(id)?
+                .into_iter()
+                .filter(|t| t.source == TagSource::User)
+                .filter(|t| {
+                    !mine(&t.path) || here.iter().any(|n| key(n) == key(&t.path.segments()[1]))
+                })
+                .collect();
+            for n in &here {
+                let Ok(p) = TagPath::new([PEOPLE_TAG, n.as_str()]) else {
+                    continue;
+                };
+                if !user.iter().any(|t| t.path == p) {
+                    user.push(AssetTag::user(p));
+                }
+            }
+            let paths: Vec<TagPath> = user.iter().map(|t| t.path.clone()).collect();
+            tx.tags().set_for_asset(id, TagSource::User, &user)?;
+            tx.ai().prune_tag_sources(id, &paths)?;
             tx.tags().prune_unused()?;
             Ok(())
         })
