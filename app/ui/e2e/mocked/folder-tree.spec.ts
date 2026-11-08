@@ -175,3 +175,54 @@ test("a scan that cannot start says why in the menu", async ({ page }) => {
   await expect(page.getByTestId("folder-menu-problem")).toContainText("already running");
   await expect(page.getByTestId("folders-screen")).toHaveCount(0);
 });
+
+test("right-click a folder: tag it and the folders in it, with a progress window", async ({
+  page,
+}) => {
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  const year = folder(page, "2016");
+  const n = await countOf(page, "2016");
+  await year.click({ button: "right" });
+  const menu = page.getByTestId("folder-menu");
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Show",
+    "Scan again",
+    "Find duplicates",
+    "Tag photos",
+  ]);
+  await page.getByTestId("folder-menu-tags").click();
+  await expect(menu).toHaveCount(0);
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Tagging Photos A › 2016");
+  await expect(win.getByTestId("ai-job-status")).toContainText(/done…$/);
+  expect((await calls(page, "ai_analyze_folder")).at(-1)).toEqual({
+    volume: "vOn",
+    folder: "2016",
+    what: "tags",
+  });
+  // Hide: a small button in the corner brings it back.
+  await win.getByTestId("ai-job-hide").click();
+  await expect(win).toHaveCount(0);
+  await page.getByTestId("ai-job-pill").click();
+  await expect(win.getByTestId("ai-job-status")).toHaveText(
+    `${n.toLocaleString("en-US")} of ${n.toLocaleString("en-US")} photos tagged.`,
+    { timeout: 15_000 },
+  );
+  await win.getByTestId("ai-job-close").click();
+  await expect(win).toHaveCount(0);
+});
+
+test("a folder's duplicate search can be stopped; what was done stays", async ({ page }) => {
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  await folder(page, "2016").click({ button: "right" });
+  await page.getByTestId("folder-menu-dups").click();
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Finding duplicates in Photos A › 2016");
+  await win.getByTestId("ai-job-stop").click();
+  await expect(win.getByTestId("ai-job-status")).toContainText("Stopped:");
+  expect((await calls(page, "ai_folder_stop")).at(-1)).toMatchObject({ what: "duplicates" });
+  await win.getByTestId("ai-job-show-dups").click();
+  await expect(page.getByTestId("duplicates-screen")).toBeVisible();
+});

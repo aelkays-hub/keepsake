@@ -81,6 +81,15 @@ text_enum!(
     TagSource { User => "user", Ai => "ai" }
 );
 text_enum!(
+    /// What the user decided about an asset in a group of duplicates
+    /// (ADR-035). Only recorded: no file is moved or deleted.
+    DuplicateChoice {
+        Keeper => "keeper",
+        NotKept => "not_kept",
+        NotDuplicate => "not_duplicate",
+    }
+);
+text_enum!(
     /// Cached derivative kind.
     RenditionKind { Thumbnail => "thumbnail", Preview => "preview", Proxy => "proxy", Export => "export" }
 );
@@ -571,4 +580,21 @@ pub struct SidecarRecord {
     pub rel_path: RelPath,
     pub blake3: Blake3Hash,
     pub mtime_ms: i64,
+}
+
+/// What the `ai.analyze` job made from an asset's thumbnail (ADR-035).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiAnalysis {
+    pub asset_id: AssetId,
+    /// Model id and version, e.g. `siglip2-b16-224@1`.
+    pub model: String,
+    /// The image embedding, int8; times `emb_scale` gives the unit vector.
+    pub embedding: Vec<i8>,
+    pub emb_scale: f32,
+    /// 64-bit difference hash of the thumbnail.
+    pub dhash: u64,
+    pub made_ms: i64,
+    /// The version of the tag list its AI tags came from ("Tag photos");
+    /// 0: none were given (an analysis made only to find duplicates).
+    pub tag_list: u32,
 }

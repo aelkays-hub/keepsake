@@ -4,10 +4,17 @@
 //! [`RenderEvent`]s on the calling thread:
 //! - `workers` threads take [`super::JOB_STILLS`] jobs, `proxy_workers`
 //!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
-//!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; each has its own catalog
+//!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; with AI on, one more
+//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035). Each has its own catalog
 //!   connection and claims one job at a time;
 //! - fingerprints wait while a thumbnail job is ready: each reads a whole
-//!   file, and on a network drive they would take the disk from thumbnails;
+//!   file, and on a network drive they would take the disk from thumbnails.
+//!   AI jobs wait too: they read the thumbnails those jobs make;
+//! - the AI worker loads the model when it starts (GPU first, else CPU);
+//!   if it cannot, it reports why and stops, and the other workers go on.
+//!   It analyses only what was asked for (a date range, `ai::enqueue_range`;
+//!   the whole library only through `keepsake ai run`): on start it drops
+//!   queued background AI jobs left by earlier builds;
 //! - before each job a worker checks the pauses (on battery, an ingest is
 //!   running) and waits while one applies;
 //! - media that is offline is deferred (not counted as an attempt); other
@@ -31,6 +38,7 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
+use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_TAG};
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
 };
@@ -47,6 +55,13 @@ const BUSY_RETRY: Duration = Duration::from_secs(2);
 /// How long the fingerprint worker waits before looking again while
 /// thumbnail jobs are ready.
 const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
+/// A job that is waiting (an AI job for its thumbnail) is looked at again
+/// after this long.
+const WAITING_RETRY_MS: i64 = 5 * 60 * 1000;
+/// An AI job whose thumbnail is being made is looked at again after this.
+const NO_THUMB_RETRY_MS: i64 = 15_000;
+/// AI jobs claimed and saved together.
+const AI_BATCH: usize = 32;
 /// Once over its limit, the cache is trimmed to this share of it (percent).
 pub const EVICT_TO_PCT: u64 = 90;
 /// Above this share of its limit (percent), the cache counts as full.
@@ -70,6 +85,10 @@ pub struct RenderOptions {
     pub forced_encoder: Option<String>,
     /// Trim the cache after this many finished jobs.
     pub evict_every: u64,
+    /// Run the AI worker (tags, duplicates; ADR-035).
+    pub ai: bool,
+    /// Let it use the graphics card.
+    pub ai_gpu: bool,
 }
 
 impl RenderOptions {
@@ -82,7 +101,16 @@ impl RenderOptions {
             until_empty: true,
             forced_encoder: None,
             evict_every: 25,
+            ai: false,
+            ai_gpu: true,
         }
+    }
+
+    /// Turn the AI worker on or off as the settings say.
+    pub fn with_ai(mut self, s: &crate::settings::AiSettings) -> Self {
+        self.ai = s.enabled;
+        self.ai_gpu = s.gpu;
+        self
     }
 }
 
@@ -124,6 +152,14 @@ pub enum RenderEvent {
         reason: PauseReason,
     },
     Resumed,
+    /// The AI model is loaded and the AI worker runs.
+    AiReady {
+        accel: ai::Accel,
+    },
+    /// The AI worker could not start (no model, no runtime, ...).
+    AiUnavailable {
+        reason: String,
+    },
     Evicted {
         report: EvictReport,
     },
@@ -247,7 +283,8 @@ impl RenderService {
             let mut handles = Vec::new();
             let plan = std::iter::repeat_n(JOB_STILLS, self.opts.workers.max(1))
                 .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
-                .chain(std::iter::once(JOB_FINGERPRINT));
+                .chain(std::iter::once(JOB_FINGERPRINT))
+                .chain(self.opts.ai.then_some(JOB_AI));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -320,6 +357,17 @@ impl RenderService {
             .unwrap_or(true)
     }
 
+    /// A thumbnail job that was asked for (on screen or requested, not the
+    /// backlog) is ready or running: AI jobs read the thumbnails those make
+    /// (a busy catalog counts as yes).
+    fn stills_active(cat: &Catalog) -> bool {
+        cat.read(|t| {
+            t.jobs()
+                .active_up_to(JOB_STILLS, Priority::Recent, now_ms())
+        })
+        .unwrap_or(true)
+    }
+
     fn sleep(cancel: &AtomicBool, d: Duration) {
         let end = Instant::now() + d;
         while Instant::now() < end && !cancel.load(Ordering::SeqCst) {
@@ -336,6 +384,35 @@ impl RenderService {
         exiftool: Option<&ExifTool>,
     ) -> Result<(), RenderError> {
         let mut cat = self.lib.open_catalog()?;
+        let mut ai_state = None;
+        if kind == JOB_AI {
+            let dropped = cat.write(|t| {
+                Ok::<_, CatalogError>(
+                    t.jobs().remove_queued(JOB_AI, Priority::Backlog)?
+                        + t.jobs().remove_queued(JOB_AI_TAG, Priority::Backlog)?,
+                )
+            });
+            match dropped {
+                Ok(n) if n > 0 => tracing::info!("AI: dropped {n} queued background jobs"),
+                Ok(_) => {}
+                Err(e) => tracing::debug!("AI: dropping background jobs: {e}"),
+            }
+            match Self::load_ai(self.opts.ai_gpu) {
+                Ok(state) => {
+                    let _ = tx.send(RenderEvent::AiReady {
+                        accel: state.0.accel(),
+                    });
+                    ai_state = Some(state);
+                }
+                Err(e) => {
+                    tracing::warn!("AI worker not started: {e}");
+                    let _ = tx.send(RenderEvent::AiUnavailable {
+                        reason: e.to_string(),
+                    });
+                    return Ok(());
+                }
+            }
+        }
         while !cancel.load(Ordering::SeqCst) {
             let pause = pause_reason(&cat, &self.on_battery, self.opts.pause_on_battery);
             self.note_pause(shared, pause, tx);
@@ -346,11 +423,33 @@ impl RenderService {
             // Fingerprints read every byte of a file; on a network drive
             // that leaves thumbnails waiting for the disk. They wait while
             // a thumbnail job is ready instead.
-            if kind == JOB_FINGERPRINT && Self::stills_waiting(&cat) {
+            let wait = match kind {
+                JOB_FINGERPRINT => Self::stills_waiting(&cat),
+                JOB_AI => Self::stills_active(&cat),
+                _ => false,
+            };
+            if wait {
                 Self::sleep(cancel, FINGERPRINT_WAIT);
                 continue;
             }
-            let claimed = match cat.write(|t| t.jobs().claim(&[kind], now_ms())) {
+            // The AI worker does both, a batch at a time.
+            if let Some(state) = ai_state.as_mut() {
+                match self.ai_batch(&mut cat, cancel, tx, shared, state) {
+                    Ok(true) => {}
+                    Ok(false) if self.opts.until_empty => break,
+                    Ok(false) => Self::sleep(cancel, Duration::from_secs(1)),
+                    Err(e) if e.is_busy() => Self::sleep(cancel, BUSY_RETRY),
+                    Err(e) => return Err(e),
+                }
+                continue;
+            }
+            // The AI worker does both: finding duplicates and tagging.
+            let kinds: &[&str] = if kind == JOB_AI {
+                &[JOB_AI, JOB_AI_TAG]
+            } else {
+                std::slice::from_ref(&kind)
+            };
+            let claimed = match cat.write(|t| t.jobs().claim(kinds, now_ms())) {
                 Err(e) if e.is_busy() => {
                     Self::sleep(cancel, BUSY_RETRY);
                     continue;
@@ -372,7 +471,7 @@ impl RenderService {
             let t0 = Instant::now();
             let thumbs_only =
                 job.priority != Priority::Visible && shared.full.load(Ordering::SeqCst);
-            let result = self.process(&mut cat, &job, exiftool, thumbs_only);
+            let result = self.process(&mut cat, &job, exiftool, thumbs_only, ai_state.as_mut());
             let now = now_ms();
             match result {
                 Ok((made, encoder)) => {
@@ -388,56 +487,175 @@ impl RenderService {
                     });
                     self.maybe_evict(&mut cat, shared, tx);
                 }
-                Err(e) if e.is_busy() => {
-                    // Not the job's fault: again soon, attempt not counted.
-                    let reason = e.to_string();
-                    let at = now + BUSY_RETRY.as_millis() as i64;
-                    Self::write_busy(&mut cat, cancel, |t| t.jobs().defer(job.id, &reason, at))?;
-                    tracing::debug!(job = job.id, kind = %job.kind, "catalog busy; job deferred");
-                    let _ = tx.send(RenderEvent::Deferred {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        reason,
-                    });
-                }
-                Err(RenderError::Offline) => {
-                    let reason = RenderError::Offline.to_string();
-                    Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS)
-                    })?;
-                    let _ = tx.send(RenderEvent::Deferred {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        reason,
-                    });
-                }
-                Err(e) => {
-                    let retry = if e.is_permanent() {
-                        None
-                    } else {
-                        jobs::retry_at(job.attempts, now)
-                    };
-                    let msg = e.to_string();
-                    Self::write_busy(&mut cat, cancel, |t| {
-                        t.jobs().fail(job.id, &msg, retry, now)
-                    })?;
-                    if retry.is_none() {
-                        shared.failed.fetch_add(1, Ordering::SeqCst);
-                    }
-                    tracing::warn!(job = job.id, kind = %job.kind, "render failed: {msg}");
-                    let _ = tx.send(RenderEvent::Failed {
-                        job: job.id,
-                        kind: job.kind.clone(),
-                        asset: job.asset_id,
-                        error: msg,
-                        retry: retry.is_some(),
-                    });
-                }
+                Err(e) => self.settle_err(&mut cat, cancel, tx, shared, kind, &job, e)?,
             }
         }
         Ok(())
+    }
+
+    /// Record a job that did not succeed: deferred (catalog busy, waiting
+    /// for something, drive offline) or failed.
+    #[allow(clippy::too_many_arguments)]
+    fn settle_err(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        kind: &'static str,
+        job: &Job,
+        e: RenderError,
+    ) -> Result<(), RenderError> {
+        let now = now_ms();
+        match e {
+            e if e.is_busy() => {
+                // Not the job's fault: again soon, attempt not counted.
+                let reason = e.to_string();
+                let at = now + BUSY_RETRY.as_millis() as i64;
+                Self::write_busy(cat, cancel, |t| t.jobs().defer(job.id, &reason, at))?;
+                tracing::debug!(job = job.id, kind = %job.kind, "catalog busy; job deferred");
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            RenderError::Waiting(reason) => {
+                let wait = if kind == JOB_AI {
+                    NO_THUMB_RETRY_MS
+                } else {
+                    WAITING_RETRY_MS
+                };
+                Self::write_busy(cat, cancel, |t| t.jobs().defer(job.id, &reason, now + wait))?;
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            RenderError::Offline => {
+                let reason = RenderError::Offline.to_string();
+                Self::write_busy(cat, cancel, |t| {
+                    t.jobs().defer(job.id, &reason, now + OFFLINE_RETRY_MS)
+                })?;
+                let _ = tx.send(RenderEvent::Deferred {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    reason,
+                });
+            }
+            e => {
+                let retry = if e.is_permanent() {
+                    None
+                } else {
+                    jobs::retry_at(job.attempts, now)
+                };
+                let msg = e.to_string();
+                Self::write_busy(cat, cancel, |t| t.jobs().fail(job.id, &msg, retry, now))?;
+                if retry.is_none() {
+                    shared.failed.fetch_add(1, Ordering::SeqCst);
+                }
+                tracing::warn!(job = job.id, kind = %job.kind, "render failed: {msg}");
+                let _ = tx.send(RenderEvent::Failed {
+                    job: job.id,
+                    kind: job.kind.clone(),
+                    asset: job.asset_id,
+                    error: msg,
+                    retry: retry.is_some(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// The AI worker's turn: claim up to [`AI_BATCH`] jobs in one write,
+    /// work out their results, then save them all and mark them done in
+    /// one more write. On a USB drive a write can take seconds, so this is
+    /// far quicker than three writes per photo. Returns whether there was
+    /// work.
+    fn ai_batch(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        state: &mut (ImageModel, LabelSet),
+    ) -> Result<bool, RenderError> {
+        let now = now_ms();
+        let jobs: Vec<Job> = cat.write(|t| {
+            let mut v = Vec::new();
+            while v.len() < AI_BATCH {
+                match t.jobs().claim(&[JOB_AI, JOB_AI_TAG], now)? {
+                    Some(j) => v.push(j),
+                    None => break,
+                }
+            }
+            Ok::<_, CatalogError>(v)
+        })?;
+        if jobs.is_empty() {
+            return Ok(false);
+        }
+        let mut ready = Vec::new();
+        let mut failed = Vec::new();
+        for job in jobs {
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
+            let (model, labels) = (&mut state.0, &state.1);
+            match ai::analyze::prepare(cat, &self.cache, model, labels, job.asset_id, purpose) {
+                Ok(p) => ready.push((job, p, t0.elapsed())),
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    failed.push((job, e));
+                }
+            }
+        }
+        let at = now_ms();
+        Self::write_busy(cat, cancel, |t| {
+            for (job, p, _) in &ready {
+                ai::analyze::save(t, p, at)?;
+                t.jobs().complete(job.id, at)?;
+            }
+            t.tags().prune_unused()?;
+            Ok(())
+        })?;
+        for (job, p, took) in ready {
+            shared.done.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(RenderEvent::Done {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+                ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                made: p.outcome().tags.into_iter().map(|(t, _)| t).collect(),
+                encoder: None,
+            });
+        }
+        for (job, e) in failed {
+            self.settle_err(cat, cancel, tx, shared, JOB_AI, &job, e)?;
+        }
+        Ok(true)
+    }
+
+    /// An AI job's error as a render error. Without a thumbnail, it is made
+    /// first (as urgently) and the job waits.
+    fn ai_error(cat: &mut Catalog, job: &Job, e: AiError) -> Result<RenderError, RenderError> {
+        Ok(match e {
+            AiError::NoThumbnail => {
+                super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
+                RenderError::Waiting("no thumbnail yet".into())
+            }
+            AiError::Render(e) => e,
+            AiError::Catalog(e) => RenderError::Catalog(e),
+            AiError::Image(m) => RenderError::Image(m),
+            e => RenderError::Failed(e.to_string()),
+        })
     }
 
     fn maybe_evict(&self, cat: &mut Catalog, shared: &Shared, tx: &Sender<RenderEvent>) {
@@ -474,6 +692,10 @@ impl RenderService {
         bytes > pct_of(self.opts.max_bytes, FULL_PCT)
     }
 
+    fn load_ai(gpu: bool) -> Result<(ImageModel, LabelSet), AiError> {
+        Ok((ImageModel::load_installed(gpu)?, LabelSet::builtin()?))
+    }
+
     /// Run one job. Returns the variants made and the encoder used.
     /// `thumbs_only`: make the thumbnails, not the preview or the proxy.
     fn process(
@@ -482,6 +704,7 @@ impl RenderService {
         job: &Job,
         exiftool: Option<&ExifTool>,
         thumbs_only: bool,
+        ai_state: Option<&mut (ImageModel, LabelSet)>,
     ) -> Result<(Vec<String>, Option<String>), RenderError> {
         match job.kind.as_str() {
             JOB_STILLS => {
@@ -523,6 +746,24 @@ impl RenderService {
                 Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
                 Err(e) => Err(RenderError::Failed(e.to_string())),
             },
+            JOB_AI | JOB_AI_TAG => {
+                let Some((model, labels)) = ai_state else {
+                    return Err(RenderError::Waiting("the AI model is not loaded".into()));
+                };
+                let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
+                match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id, purpose) {
+                    Ok(out) => Ok((out.tags.into_iter().map(|(t, _)| t).collect(), None)),
+                    Err(AiError::NoThumbnail) => {
+                        // Make the thumbnail first (as urgently), then again.
+                        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
+                        Err(RenderError::Waiting("no thumbnail yet".into()))
+                    }
+                    Err(AiError::Render(e)) => Err(e),
+                    Err(AiError::Catalog(e)) => Err(RenderError::Catalog(e)),
+                    Err(AiError::Image(m)) => Err(RenderError::Image(m)),
+                    Err(e) => Err(RenderError::Failed(e.to_string())),
+                }
+            }
             other => Err(RenderError::Unsupported(format!("job kind {other}"))),
         }
     }

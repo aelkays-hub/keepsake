@@ -12,7 +12,7 @@
 //!   apps Keepsake opens a file in (`keepsake_core::external`) can leave it
 //!   and keep running.
 //! - macOS: nothing here. The app's exit hook stops ExifTool; a crash can
-//!   still leave it running (see `docs/DECISIONS.md`, ADR-033).
+//!   still leave it running (see `docs/DECISIONS.md`, ADR-037).
 
 use crate::PlatformError;
 

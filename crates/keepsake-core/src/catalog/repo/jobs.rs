@@ -33,6 +33,15 @@ impl Priority {
         }
     }
 
+    /// The class to queue related work in (`Visible` is not a class of its
+    /// own: see [`Jobs::enqueue`]).
+    pub fn class(self) -> Self {
+        match self {
+            Priority::Backlog => Priority::Backlog,
+            _ => Priority::Recent,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Priority::Visible => "visible",
@@ -217,9 +226,93 @@ impl<M> Jobs<'_, M> {
         }
         Ok(self.conn.query_row(&sql, args.as_slice(), map).optional()?)
     }
+
+    /// Is a job of `kind` and at least priority `max` (0 is the highest)
+    /// running, or queued and ready to run?
+    pub fn active_up_to(
+        &self,
+        kind: &str,
+        max: Priority,
+        now_ms: i64,
+    ) -> Result<bool, CatalogError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = ?1 AND priority <= ?3
+                 AND (state = 'running' OR (state = 'queued' AND not_before_ms <= ?2)))",
+            params![kind, now_ms, max as i64],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Queued (or done, failed) jobs of `kind`, assets captured from `from`
+    /// to `to` (`YYYY-MM-DD`, local, inclusive): `(queued or running, done)`.
+    pub fn in_dates(&self, kind: &str, from: &str, to: &str) -> Result<(u64, u64), CatalogError> {
+        let (p, d): (i64, i64) = self.conn.query_row(
+            "SELECT coalesce(sum(j.state IN ('queued','running')), 0),
+                    coalesce(sum(j.state = 'done'), 0)
+               FROM jobs j JOIN assets a ON a.id = j.asset_id
+              WHERE j.kind = ?1 AND a.capture_local_date BETWEEN ?2 AND ?3",
+            params![kind, from, to],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((super::to_u64(p, "count")?, super::to_u64(d, "count")?))
+    }
+}
+
+impl<M> Jobs<'_, M> {
+    /// Jobs of `kind` still to run (queued or running) for assets matching
+    /// `q`.
+    pub fn pending_matching(
+        &self,
+        kind: &str,
+        q: &crate::catalog::SearchQuery,
+    ) -> Result<u64, CatalogError> {
+        let mut f = super::search::filter_sql_in(q)?;
+        if f.empty {
+            return Ok(0);
+        }
+        let sql = format!(
+            "SELECT count(*) FROM jobs j
+               JOIN assets a ON a.id = j.asset_id AND j.kind = ? AND j.state IN ('queued','running'){}{}",
+            f.joins,
+            f.where_sql()
+        );
+        f.args.insert(0, Box::new(kind.to_owned()));
+        let n: i64 = self
+            .conn
+            .query_row(&sql, rusqlite::params_from_iter(f.args.iter()), |r| {
+                r.get(0)
+            })?;
+        super::to_u64(n, "count")
+    }
 }
 
 impl Jobs<'_, Rw> {
+    /// Delete queued jobs of `kind` for these assets (not running or
+    /// finished ones): "Stop". Returns how many.
+    pub fn remove_queued_for(&self, kind: &str, assets: &[AssetId]) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        for chunk in assets.chunks(500) {
+            let sql = format!(
+                "DELETE FROM jobs WHERE kind = ? AND state = 'queued' AND asset_id IN ({})",
+                vec!["?"; chunk.len()].join(",")
+            );
+            let mut args: Vec<&dyn rusqlite::ToSql> = vec![&kind];
+            args.extend(chunk.iter().map(|a| a as &dyn rusqlite::ToSql));
+            n += self.conn.execute(&sql, args.as_slice())? as u64;
+        }
+        Ok(n)
+    }
+
+    /// Delete queued jobs of `kind` whose class is `class` (not running or
+    /// finished ones). Returns how many.
+    pub fn remove_queued(&self, kind: &str, class: Priority) -> Result<u64, CatalogError> {
+        Ok(self.conn.execute(
+            "DELETE FROM jobs WHERE kind = ?1 AND state = 'queued' AND base_priority = ?2
+               AND priority = ?2",
+            params![kind, class as i64],
+        )? as u64)
+    }
+
     /// Add jobs in class `class`, or re-queue existing ones that are done
     /// or failed when `requeue_finished`. A job already queued or running
     /// keeps its place, but moves up if `class` is better than its own.

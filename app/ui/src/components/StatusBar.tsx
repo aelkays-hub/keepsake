@@ -1,4 +1,4 @@
-// Status bar: item count, selection, renders, offline drives, edits.
+// Status bar: item count, selection, renders, offline drives and edits.
 
 import { useEffect, useState } from "react";
 

@@ -5,7 +5,8 @@
 # (used by CI; skips installing Rust, Node and pnpm).
 # -Arch ARM64|AMD64: fetch binaries for another architecture (the ARM64
 # release is built on an x64 runner). Default: this machine's.
-param([switch]$VendorOnly, [ValidateSet("", "AMD64", "ARM64")][string]$Arch = "")
+# -WithAi: also download the AI model (372 MB) into vendor\models (ADR-035).
+param([switch]$VendorOnly, [ValidateSet("", "AMD64", "ARM64")][string]$Arch = "", [switch]$WithAi)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -264,6 +265,82 @@ if ($lrOut -cnotmatch "dcraw emulator") {
 # Its usage exit status (non-zero) must not become the script's.
 $global:LASTEXITCODE = 0
 Write-Info "  OK LibRaw dcraw_emu"
+
+# -- 7. ONNX Runtime with DirectML (on-device AI, ADR-035) --------------------
+# Microsoft's own NuGet packages, pinned by SHA-256 (not yet on the mirror):
+# Microsoft.ML.OnnxRuntime.DirectML 1.24.4 (MIT) and Microsoft.AI.DirectML
+# 1.15.4 (Microsoft DirectML licence, redistributable). Loaded by Keepsake at
+# run time, never linked. Install layout: vendor\onnxruntime\ (this $Arch).
+$OrtDir = Join-Path $Vendor "onnxruntime"
+$OrtDll = Join-Path $OrtDir "onnxruntime.dll"
+$OrtRid = if ($Arch -eq "ARM64") { "win-arm64" } else { "win-x64" }
+$DmlRid = if ($Arch -eq "ARM64") { "arm64-win" } else { "x64-win" }
+$OrtStamp = Join-Path $OrtDir "arch.txt"
+
+function Invoke-PinnedDownload {
+    param([string]$Url, [string]$OutFile, [string]$ExpectedSHA256)
+    Write-Info "Downloading $Url ..."
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -MaximumRedirection 10
+    } catch {
+        Write-Err "Download failed: $Url`n  Error: $_"
+    }
+    $actual = (Get-FileHash -Algorithm SHA256 $OutFile).Hash.ToLower()
+    if ($actual -ne $ExpectedSHA256.ToLower()) {
+        Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+        Write-Err "SHA-256 mismatch: $Url`n  expected: $ExpectedSHA256`n  got:      $actual"
+    }
+    Write-Info "  OK SHA-256 verified"
+}
+
+$haveOrt = (Test-Path $OrtDll) -and (Test-Path $OrtStamp) -and ((Get-Content $OrtStamp -Raw).Trim() -eq $Arch)
+if (-not $haveOrt) {
+    $OrtPkg = Join-Path $Vendor "ort-dml.zip"
+    $DmlPkg = Join-Path $Vendor "directml.zip"
+    Invoke-PinnedDownload -Url "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg" `
+        -OutFile $OrtPkg -ExpectedSHA256 "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
+    Invoke-PinnedDownload -Url "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg" `
+        -OutFile $DmlPkg -ExpectedSHA256 "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9"
+    $X = Join-Path $Vendor "ort-extract"
+    foreach ($pair in @(@($OrtPkg, "ort"), @($DmlPkg, "dml"))) {
+        $dest = Join-Path $X $pair[1]
+        if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+        Expand-Archive -Path $pair[0] -DestinationPath $dest -Force
+    }
+    if (Test-Path $OrtDir) { Remove-Item $OrtDir -Recurse -Force }
+    New-Item -ItemType Directory -Force $OrtDir | Out-Null
+    foreach ($f in @("onnxruntime.dll", "onnxruntime_providers_shared.dll")) {
+        Copy-Item (Join-Path $X "ort\runtimes\$OrtRid\native\$f") $OrtDir -Force
+    }
+    Copy-Item (Join-Path $X "dml\bin\$DmlRid\DirectML.dll") $OrtDir -Force
+    Copy-Item (Join-Path $X "ort\LICENSE") (Join-Path $OrtDir "LICENSE-onnxruntime.txt") -Force
+    Copy-Item (Join-Path $X "ort\ThirdPartyNotices.txt") $OrtDir -Force
+    Copy-Item (Join-Path $X "dml\LICENSE.txt") (Join-Path $OrtDir "LICENSE-DirectML.txt") -Force
+    Set-Content -Path $OrtStamp -Value $Arch
+    Remove-Item $X -Recurse -Force
+    Remove-Item $OrtPkg, $DmlPkg -Force
+    Write-Info "  Installed ONNX Runtime 1.24.4 + DirectML 1.15.4 ($OrtRid)"
+} else {
+    Write-Info "  ONNX Runtime already present, skipping download."
+}
+
+# -- 8. AI model (optional, -WithAi) ------------------------------------------
+# SigLIP 2 base image encoder (Apache-2.0), onnx-community revision ba1f3b08.
+# The app downloads it into the user's cache when AI is turned on; this copy
+# is for developers and the model tests.
+if ($WithAi) {
+    $ModelDir  = Join-Path $Vendor "models\siglip2-b16-224"
+    $ModelFile = Join-Path $ModelDir "vision_model.onnx"
+    $ModelSHA  = "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad"
+    $ok = (Test-Path $ModelFile) -and ((Get-FileHash -Algorithm SHA256 $ModelFile).Hash.ToLower() -eq $ModelSHA)
+    if (-not $ok) {
+        New-Item -ItemType Directory -Force $ModelDir | Out-Null
+        Invoke-PinnedDownload -Url "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4/onnx/vision_model.onnx" `
+            -OutFile $ModelFile -ExpectedSHA256 $ModelSHA
+    } else {
+        Write-Info "  AI model already present, skipping download."
+    }
+}
 
 # -- Done ---------------------------------------------------------------------
 Write-Info ""

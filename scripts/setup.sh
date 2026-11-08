@@ -5,7 +5,14 @@
 # NOTE: macOS FFmpeg support is currently deferred (Windows-first development).
 # A future prompt will add a CI workflow that compiles an LGPL FFmpeg/ffprobe
 # for Apple Silicon (VideoToolbox enabled, no GPL components).
+#
+# --with-ai: also download the AI model (372 MB) into vendor/models (ADR-035).
 set -euo pipefail
+
+WITH_AI=0
+for arg in "$@"; do
+    [[ "$arg" == "--with-ai" ]] && WITH_AI=1
+done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR="$REPO_ROOT/vendor"
@@ -177,6 +184,68 @@ if ! grep -q "dcraw emulator" <<<"$LIBRAW_OUT"; then
     error "dcraw_emu smoke-test failed ($LIBRAW_DIR/dcraw_emu)"
 fi
 info "  ✓ LibRaw dcraw_emu"
+
+# download_pinned <url> <dest_path> <expected_sha256>  (not on the mirror yet)
+download_pinned() {
+    local url="$1" dest="$2" expected_sha256="$3" actual
+    info "Downloading $url ..."
+    curl -L --retry 3 --max-redirs 10 --fail -o "$dest" "$url" || error "Download failed: $url"
+    if command -v sha256sum &>/dev/null; then
+        actual=$(sha256sum "$dest" | awk '{print $1}')
+    else
+        actual=$(shasum -a 256 "$dest" | awk '{print $1}')
+    fi
+    if [[ "$actual" != "$expected_sha256" ]]; then
+        rm -f "$dest"
+        error "SHA-256 mismatch: $url\n  expected: $expected_sha256\n  got:      $actual"
+    fi
+    info "  ✓ SHA-256 OK"
+}
+
+# ── 7. ONNX Runtime (on-device AI, ADR-035) ──────────────────────────────────
+# Microsoft's official 1.31.1 build for Apple Silicon (MIT, includes CoreML),
+# pinned by SHA-256. Loaded by Keepsake at run time, never linked.
+# Install layout: vendor/onnxruntime/libonnxruntime.dylib (+ licences)
+ORT_DIR="$VENDOR/onnxruntime"
+if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    if [[ ! -f "$ORT_DIR/libonnxruntime.dylib" ]]; then
+        ORT_TGZ="$VENDOR/onnxruntime-osx-arm64-1.31.1.tgz"
+        download_pinned \
+            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-osx-arm64-1.31.1.tgz" \
+            "$ORT_TGZ" "2e1344a1926ee50eb25b38153cb6992c3567515aef0e677a1a520a1798896d6f"
+        TMPX="$VENDOR/ort-extract"
+        rm -rf "$TMPX" && mkdir -p "$TMPX" "$ORT_DIR"
+        tar -xzf "$ORT_TGZ" -C "$TMPX" --strip-components=1
+        cp -L "$TMPX/lib/libonnxruntime.dylib" "$ORT_DIR/libonnxruntime.dylib"
+        cp "$TMPX/LICENSE" "$ORT_DIR/LICENSE-onnxruntime.txt"
+        cp "$TMPX/ThirdPartyNotices.txt" "$ORT_DIR/ThirdPartyNotices.txt"
+        xattr -d com.apple.quarantine "$ORT_DIR/libonnxruntime.dylib" 2>/dev/null || true
+        rm -rf "$TMPX" "$ORT_TGZ"
+        info "  Installed $ORT_DIR/libonnxruntime.dylib"
+    else
+        info "  ONNX Runtime already present, skipping download."
+    fi
+else
+    warn "ONNX Runtime is set up for Apple Silicon only; AI features are off here."
+fi
+
+# ── 8. AI model (optional, --with-ai) ────────────────────────────────────────
+# SigLIP 2 base image encoder (Apache-2.0), onnx-community revision ba1f3b08.
+# The app downloads it into the user's cache when AI is turned on; this copy
+# is for developers and the model tests.
+if [[ "$WITH_AI" == 1 ]]; then
+    MODEL_DIR="$VENDOR/models/siglip2-b16-224"
+    MODEL_FILE="$MODEL_DIR/vision_model.onnx"
+    MODEL_SHA="c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad"
+    if [[ ! -f "$MODEL_FILE" ]]; then
+        mkdir -p "$MODEL_DIR"
+        download_pinned \
+            "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4/onnx/vision_model.onnx" \
+            "$MODEL_FILE" "$MODEL_SHA"
+    else
+        info "  AI model already present, skipping download."
+    fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 info ""

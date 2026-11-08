@@ -110,6 +110,8 @@ pub struct AppState {
     pub render: crate::render::RenderState,
     /// The running backup or verify.
     pub maint: crate::maintenance::MaintState,
+    /// On-device AI status and the model download.
+    pub ai: crate::ai::AiState,
 }
 
 /// WebView2 arguments for the UI tests: `KEEPSAKE_UI_DEBUG_PORT=<port>`

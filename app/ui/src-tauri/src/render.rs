@@ -90,7 +90,7 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     if slot.as_ref().is_some_and(|h| !h.is_finished()) {
         return Ok(false);
     }
-    let mut opts = RenderOptions::from_settings(&open.settings.render);
+    let mut opts = RenderOptions::from_settings(&open.settings.render).with_ai(&open.settings.ai);
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
         .with_power(power());
@@ -109,6 +109,19 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
                 let _ = render::enqueue_backlog(&mut cat);
             }
             let result = svc.run(&cancel, &mut |ev| {
+                match ev {
+                    RenderEvent::AiReady { accel } => {
+                        let st = app.state::<AppState>();
+                        st.ai.note(Some(accel.describe().to_owned()), None);
+                        let _ = app.emit("ai://status", ());
+                    }
+                    RenderEvent::AiUnavailable { reason } => {
+                        let st = app.state::<AppState>();
+                        st.ai.note(None, Some(reason.clone()));
+                        let _ = app.emit("ai://status", ());
+                    }
+                    _ => {}
+                }
                 if let RenderEvent::Done { asset, made, .. } = ev {
                     if made.iter().any(|m| m == "thumb-256") {
                         let _ = app.emit(

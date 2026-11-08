@@ -1,4 +1,5 @@
 pub mod add_folder;
+pub mod ai;
 pub mod backup;
 pub mod card;
 pub mod common;

@@ -24,14 +24,16 @@ pub fn on_exit(state: &AppState) {
     );
 }
 
-/// Ask the render service, an import and a maintenance job to stop, wait
-/// up to `wait` for them, then stop the app's shared ExifTool. True when
-/// everything stopped in time.
+/// Ask the render service (AI analysis runs in it), an import, a
+/// maintenance job and an AI model download to stop, wait up to `wait`
+/// for them, then stop the app's shared ExifTool. True when everything
+/// stopped in time.
 pub(crate) fn stop(state: &AppState, wait: Duration) -> bool {
     let deadline = Instant::now() + wait;
     state.render.stop();
     crate::import::request_stop(state);
     state.maint.request_stop();
+    state.ai.stop_install();
     let stopped = loop {
         let idle = state.render.finished()
             && !state
