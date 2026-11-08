@@ -56,6 +56,20 @@
 
 ---
 
+## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
+
+- **Asked:** "keep track of AI tags and indicate which AI tagged them... visible in the sidebar", "an additional option in the dropdown for tag with AI to allow to tag with all", then "add tags to search". Chosen: the Inspector, AIs kept separate, tag chips in the search bar (ADR-039).
+- **Built:**
+  - **Core:** migration 12, `ai_tag_sources`; `Ai::{tag_sources, add_tag_sources, set_tag_sources, prune_tag_sources}`; `MetadataService::add_ai_keywords` (used by the cloud worker); `set_user_tags` forgets removed keywords' sources; XMP `keepsake:AITagSources`, restored by a rebuild; `SearchQuery::tags` (every one must match); `[ai] cloud_provider = "all"` (`AiSettings::cloud_all`).
+  - **App:** `ai_tags` returns `byAi`; `ai_cloud_set_default` takes `all`; `Query.tags`.
+  - **UI:** Inspector **Tagged with AI** (a row per AI) and an *On-device* label; **All (…)** in the Tag with AI list (cost in all, each privacy note, a count per AI); tag chips with suggestions in the search bar (`tagSearch.ts`).
+- **Tests:**
+  - `each_ai_is_recorded_for_the_keywords_it_gave_and_it_survives_a_rebuild` (ai_tests), the chips in `hierarchical_tags_and_search` (catalog_tests: `with_all`), `ai_tag_sources_of_an_unknown_ai_are_ignored` and the full XMP round trip (xmp_tests), `cloud_all` in the settings test.
+  - Vitest `unit/tagSearch.test.ts`; mocked Playwright: `All sends the photos to every AI…` (cloud.spec) and `tags in the search bar…` (ai.spec); the AI list test now expects the All option.
+- **Checked here:** `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings`, ESLint, Prettier, `tsc`, `vite build`, and the UI against the mock backend in the browser (chips, All, the Inspector rows).
+- **Run here** (the product owner turned local tests back on): keepsake-core `ai_tests`, `catalog_tests`, `rebuild_tests`, `xmp_tests` and `--lib`; `keepsake-app` (the regenerated bindings matched); Vitest; mocked Playwright `cloud`, `ai`, `library`, `a11y`, `metadata`. All passed.
+- **Not verified:** no real AI call; the other Playwright files and the real-app tests are left to CI.
+
 ## Tag with AI: Claude, ChatGPT or Gemini (2026-11-08)
 
 - **Asked:** "give the user the ability to select which AI to use when tagging a single picture, Gemini, ChatGPT, CoPilot,...". The product owner chose Claude, ChatGPT and Gemini; Copilot has no public API for this (ADR-038).

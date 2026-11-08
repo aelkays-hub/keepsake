@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use keepsake_core::ai::cloud::{self, CloudModel, CloudTagger, Provider, UreqHttp};
 use keepsake_core::catalog::AssetId;
-use keepsake_core::settings::Settings;
+use keepsake_core::settings::{Settings, ALL_PROVIDERS};
 use tauri::{AppHandle, State};
 
 use crate::api::{
@@ -63,8 +63,13 @@ pub fn ai_cloud_info() -> CmdResult<CloudInfo> {
                 .collect(),
         });
     }
+    let default_provider = if settings.ai.cloud_all() {
+        ALL_PROVIDERS
+    } else {
+        settings.ai.cloud_provider().id()
+    };
     Ok(CloudInfo {
-        default_provider: settings.ai.cloud_provider().id().to_owned(),
+        default_provider: default_provider.to_owned(),
         providers,
     })
 }
@@ -97,12 +102,16 @@ pub fn ai_cloud_set_model(model: String) -> CmdResult<CloudInfo> {
     ai_cloud_info()
 }
 
-/// The provider offered first next time.
+/// The provider offered first next time (`all`: every AI with a key).
 #[tauri::command(async)]
 pub fn ai_cloud_set_default(provider_id: String) -> CmdResult<CloudInfo> {
-    let p = provider(&provider_id)?;
+    let id = if provider_id == ALL_PROVIDERS {
+        ALL_PROVIDERS
+    } else {
+        provider(&provider_id)?.id()
+    };
     let mut s = Settings::load().map_err(err)?;
-    s.ai.cloud_provider = p.id().to_owned();
+    s.ai.cloud_provider = id.to_owned();
     s.save().map_err(err)?;
     ai_cloud_info()
 }

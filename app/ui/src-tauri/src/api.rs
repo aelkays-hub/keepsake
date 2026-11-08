@@ -72,6 +72,10 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub tag: Option<String>,
+        /// Has every one of these tags (the search bar's tag chips).
+        #[serde(default)]
+        #[ts(optional)]
+        pub tags: Option<Vec<String>>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).
@@ -141,7 +145,8 @@ dto! {
 
     /// Tag with AI: every provider, and the one offered first.
     pub struct CloudInfo {
-        /// The id of the provider offered first (the one used last).
+        /// The id of the provider offered first (the one used last), or
+        /// `all`: every AI with a key.
         pub default_provider: String,
         pub providers: Vec<CloudProviderDto>,
     }
@@ -239,6 +244,20 @@ dto! {
         pub analysed: bool,
         /// Most likely first.
         pub tags: Vec<AiTagDto>,
+        /// The keywords each AI gave it with Tag with AI (ADR-039): one
+        /// entry per AI, Claude, ChatGPT, Gemini in that order. A keyword
+        /// two AIs gave is in both.
+        pub by_ai: Vec<AiTagSourceDto>,
+    }
+
+    /// The keywords one AI gave an item (Tag with AI).
+    pub struct AiTagSourceDto {
+        /// `claude`, `openai` or `gemini`.
+        pub provider: String,
+        /// For people: "ChatGPT".
+        pub name: String,
+        /// Lightroom-style paths, sorted.
+        pub tags: Vec<String>,
     }
 
     /// An AI tag on an item.

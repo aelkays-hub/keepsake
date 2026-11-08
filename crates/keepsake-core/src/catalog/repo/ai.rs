@@ -255,6 +255,21 @@ impl<M> Ai<'_, M> {
         })
     }
 
+    /// The keywords each AI gave an asset with Tag with AI, as (provider
+    /// id, keyword), sorted by provider then keyword (ADR-039).
+    pub fn tag_sources(&self, asset: AssetId) -> Result<Vec<(String, TagPath)>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT provider, tag_path FROM ai_tag_sources WHERE asset_id = ?1
+              ORDER BY provider, tag_path",
+        )?;
+        let raw: Vec<(String, String)> = st
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        raw.into_iter()
+            .map(|(p, t)| TagPath::parse_lightroom(&t).map(|t| (p, t)))
+            .collect()
+    }
+
     /// AI tags the user removed from an asset, sorted.
     pub fn rejections(&self, asset: AssetId) -> Result<Vec<TagPath>, CatalogError> {
         let mut st = self.conn.prepare(
@@ -309,6 +324,52 @@ impl Ai<'_, Rw> {
             params![asset, list],
         )?;
         Ok(())
+    }
+
+    /// Record that `provider` gave an asset `paths` (those recorded stay).
+    pub fn add_tag_sources(
+        &self,
+        asset: AssetId,
+        provider: &str,
+        paths: &[TagPath],
+    ) -> Result<(), CatalogError> {
+        for p in paths {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_tag_sources (asset_id, provider, tag_path)
+                 VALUES (?1, ?2, ?3)",
+                params![asset, provider, p.to_lightroom()],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Replace which AI gave which keyword of an asset.
+    pub fn set_tag_sources(
+        &self,
+        asset: AssetId,
+        sources: &[(String, TagPath)],
+    ) -> Result<(), CatalogError> {
+        self.conn
+            .execute("DELETE FROM ai_tag_sources WHERE asset_id = ?1", [asset])?;
+        for (provider, p) in sources {
+            self.add_tag_sources(asset, provider, std::slice::from_ref(p))?;
+        }
+        Ok(())
+    }
+
+    /// Forget the sources of keywords the asset no longer has (`keywords`:
+    /// those it has).
+    pub fn prune_tag_sources(
+        &self,
+        asset: AssetId,
+        keywords: &[TagPath],
+    ) -> Result<(), CatalogError> {
+        let kept: Vec<(String, TagPath)> = self
+            .tag_sources(asset)?
+            .into_iter()
+            .filter(|(_, p)| keywords.contains(p))
+            .collect();
+        self.set_tag_sources(asset, &kept)
     }
 
     /// Replace the AI tags the user removed from an asset.

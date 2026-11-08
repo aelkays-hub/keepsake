@@ -505,8 +505,9 @@ pub fn keyword_paths(t: &CloudTags) -> Result<Vec<TagPath>, AiError> {
 }
 
 /// One cloud job: send the asset's thumbnail to `provider` through `tagger`
-/// and add what it gives to the asset's keywords (those it has stay).
-/// Returns the keywords added, as `A|B`.
+/// and add what it gives to the asset's keywords (those it has stay),
+/// recording that `provider` gave them (ADR-039). Returns the keywords
+/// added, as `A|B`.
 pub fn tag_asset(
     cat: &mut Catalog,
     lib: &Library,
@@ -521,18 +522,12 @@ pub fn tag_asset(
     let names = labels::parse_names(labels::TSV)?;
     let got = tagger.tag(provider, &jpeg, &names)?;
     let paths = keyword_paths(&got)?;
-    let mut svc = MetadataService::new(lib, cat);
-    let mut keywords = svc.user_tags(asset).map_err(lib_err)?;
-    let mut added = Vec::new();
-    for p in paths {
-        if !keywords.contains(&p) {
-            added.push(p.to_lightroom());
-            keywords.push(p);
-        }
-    }
-    if !added.is_empty() {
-        svc.set_user_tags(asset, &keywords).map_err(lib_err)?;
-    }
+    let added: Vec<String> = MetadataService::new(lib, cat)
+        .add_ai_keywords(asset, provider.id(), &paths)
+        .map_err(lib_err)?
+        .iter()
+        .map(TagPath::to_lightroom)
+        .collect();
     tracing::info!(asset = %asset, provider = provider.id(), model = %got.model, "tagged: {added:?}");
     Ok(added)
 }

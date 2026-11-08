@@ -2,35 +2,63 @@
 // Tag with AI (the photos picked): a window in the corner shows how far it
 // has got, with Stop and Hide. Hidden, a small button in the corner brings
 // it back. The work runs in the background either way. Tag with AI first
-// asks which AI (Claude, ChatGPT or Gemini, those with a key), and says
-// what it will send and roughly what it costs.
+// asks which AI (Claude, ChatGPT or Gemini, those with a key, or All of
+// them, ADR-039), and says what it will send and roughly what it costs.
 
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type AiFolderStatus, type CloudInfo } from "../api";
-import { costOf, firstChoice, help, usable } from "../cloud";
+import { ALL, chosen, costOf, firstChoice, help, names, usable } from "../cloud";
 import * as fmt from "../format";
 import { useUi } from "../state";
 import type { AiJob } from "../uiModel";
 
-/** How far it has got (Tag with AI adds what failed and why). */
-type St = AiFolderStatus & { failed?: number; problem?: string | null };
+/** How far it has got (Tag with AI adds what failed and why, and with
+ * All, how each AI is getting on). */
+type St = AiFolderStatus & {
+  failed?: number;
+  problem?: string | null;
+  each?: { name: string; st: St }[];
+};
+
+/** Tag with AI: the providers' statuses as one (with All, a problem says
+ * whose it is). */
+function merge(list: { name: string; st: St }[]): St {
+  const sum = (f: (s: St) => number | undefined) => list.reduce((n, e) => n + (f(e.st) ?? 0), 0);
+  const bad = list.find((e) => e.st.problem);
+  return {
+    items: sum((s) => s.items),
+    analysed: sum((s) => s.analysed),
+    pending: sum((s) => s.pending),
+    failed: sum((s) => s.failed),
+    problem: bad ? (list.length > 1 ? `${bad.name}: ${bad.st.problem}` : bad.st.problem) : null,
+    each: list,
+  };
+}
 
 /** The job's three calls, for a folder, dates or picked photos (sent to
- * `provider`). */
-function calls(job: AiJob, provider: string | null) {
+ * each of `providers`). */
+function calls(job: AiJob, providers: { id: string; name: string }[]) {
   if ("cloud" in job) {
     // The photos are known once queued: Stop and the status use them.
     let ids: string[] = [];
-    const p = provider ?? "";
+    const sel = job.cloud;
+    const named = (sts: St[]) => merge(sts.map((st, i) => ({ name: providers[i].name, st })));
     return {
-      start: (): Promise<St> =>
-        api.aiCloudTag(job.cloud, p).then((r) => {
+      start: async (): Promise<St> => {
+        // One after the other: each queues the same photos.
+        const sts: St[] = [];
+        for (const p of providers) {
+          const r = await api.aiCloudTag(sel, p.id);
           ids = r.ids;
-          return r.status;
-        }),
-      status: (): Promise<St> => api.aiCloudStatus(ids, p),
-      stop: () => api.aiCloudStop(ids, p),
+          sts.push(r.status);
+        }
+        return named(sts);
+      },
+      status: (): Promise<St> =>
+        Promise.all(providers.map((p) => api.aiCloudStatus(ids, p.id))).then(named),
+      stop: () =>
+        Promise.all(providers.map((p) => api.aiCloudStop(ids, p.id))).then(() => undefined),
     };
   }
   if ("range" in job) {
@@ -55,7 +83,17 @@ export function AiJobWindow() {
   /** Tag with AI: the providers, and the one picked to send to. */
   const [info, setInfo] = useState<CloudInfo | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const c = useMemo(() => job && calls(job, picked), [job, picked]);
+  /** Who the photos go to: the AI picked, or with All every AI with a key. */
+  const sendTo = useMemo(() => (info ? chosen(info, picked) : []), [info, picked]);
+  const c = useMemo(
+    () =>
+      job &&
+      calls(
+        job,
+        sendTo.map((p) => ({ id: p.id, name: p.name })),
+      ),
+    [job, sendTo],
+  );
   const [st, setSt] = useState<St | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [stopped, setStopped] = useState(false);
@@ -114,10 +152,12 @@ export function AiJobWindow() {
   const asking = cloud && !go;
   const running = !asking && !problem && (!st || st.pending > 0) && !stopped;
   const pct = st && st.items > 0 ? Math.round((100 * st.analysed) / st.items) : 0;
-  const provider = info?.providers.find((p) => p.id === picked);
+  const all = picked === ALL;
   const ready = info ? usable(info) : [];
-  const model = provider?.models.find((m) => m.id === provider.model);
-  const aiName = provider?.name ?? "AI";
+  const models = sendTo.map((p) => p.models.find((m) => m.id === p.model));
+  const cents = models.reduce((n, m) => n + (m?.centsPerPhoto ?? 0), 0);
+  const aiName = sendTo.length > 0 ? names(sendTo.map((p) => p.name)) : "AI";
+  const notes = sendTo.map((p) => help(p.id).note).filter((n): n is string => n !== null);
   const what = cloud ? `Tagging with ${aiName}:` : tags ? "Tagging" : "Finding duplicates in";
   const close = () => dispatch({ t: "aiJob", job: null });
   const send = (j: AiJob) => {
@@ -135,7 +175,8 @@ export function AiJobWindow() {
         title="Show progress"
       >
         {running && <span className="spinner" aria-hidden={true} />}
-        {cloud ? aiName : tags ? "Tagging" : "Duplicates"} · {running ? `${pct}%` : "done"}
+        {cloud ? (all ? "All AIs" : aiName) : tags ? "Tagging" : "Duplicates"} ·{" "}
+        {running ? `${pct}%` : "done"}
       </button>
     );
 
@@ -147,9 +188,12 @@ export function AiJobWindow() {
       "Add an API key for Claude, ChatGPT or Gemini in Settings first (Settings → Tag with AI).";
   else if (asking && "cloud" in job)
     line =
-      `Send ${fmt.plural(job.count, "photo")} to ${model?.name ?? aiName} to be tagged?` +
-      (model && provider
-        ? ` It costs ${costOf(job.count, model.centsPerPhoto)}, charged by ${provider.company}.`
+      `Send ${fmt.plural(job.count, "photo")} to ` +
+      names(sendTo.map((p, i) => models[i]?.name ?? p.name)) +
+      ` to be tagged?${all ? " Each one tags them." : ""}` +
+      (sendTo.length > 0 && models.every((m) => m)
+        ? ` It costs ${costOf(job.count, cents)}${all ? " in all" : ""}, charged by ` +
+          `${names(sendTo.map((p) => p.company))}.`
         : "");
   else if (!st) line = "Getting ready…";
   else if (st.items === 0)
@@ -157,6 +201,14 @@ export function AiJobWindow() {
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
+  else if (cloud && st.each && st.each.length > 1)
+    line =
+      "Photos tagged: " +
+      st.each
+        .map((e) => `${e.name} ${fmt.count(e.st.analysed)} of ${fmt.count(e.st.items)}`)
+        .join(", ") +
+      "." +
+      (st.failed ? ` ${fmt.plural(st.failed, "photo")} could not be: ${st.problem ?? "?"}` : "");
   else if (cloud)
     line =
       `${fmt.count(st.analysed)} of ${fmt.count(st.items)} photos tagged.` +
@@ -191,6 +243,7 @@ export function AiJobWindow() {
                 {p.name} ({p.models.find((m) => m.id === p.model)?.name ?? p.model})
               </option>
             ))}
+            <option value={ALL}>All ({names(ready.map((p) => p.name))})</option>
           </select>
         </label>
       )}
@@ -206,9 +259,9 @@ export function AiJobWindow() {
         {running && <span className="spinner" aria-hidden={true} />}
         {line}
       </p>
-      {asking && provider && help(provider.id).note && (
+      {asking && notes.length > 0 && (
         <p className="muted" data-testid="ai-job-privacy">
-          {help(provider.id).note}
+          {notes.join(" ")}
         </p>
       )}
       {running && st?.problem && (
@@ -217,7 +270,7 @@ export function AiJobWindow() {
         </p>
       )}
       <footer className="modal-foot">
-        {asking && provider && (
+        {asking && sendTo.length > 0 && (
           <button className="primary" onClick={() => send(job)} data-testid="ai-job-send">
             Send
           </button>

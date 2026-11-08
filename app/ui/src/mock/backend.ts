@@ -88,6 +88,8 @@ export interface MockState {
   choice: Map<number, string>;
   /** AI tags removed by the user. */
   aiRejected: Map<number, string[]>;
+  /** Tag with AI: the keywords each provider gave an item (ADR-039). */
+  aiSources: Map<number, Map<string, string[]>>;
   /** Date ranges asked for: status polls left until they are analysed. */
   aiRanges: Map<string, number>;
   /** Tag with AI (`?claude=key`, `?openai=key`, `?gemini=key` start with
@@ -105,6 +107,14 @@ export interface MockState {
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
 
 /** Tag with AI: the providers, as the backend describes them. */
+/** What each provider tags a photo with in the mock (they differ a little,
+ * so the inspector's list per AI can be checked). */
+const CLOUD_TAGS: Record<string, string[]> = {
+  claude: ["Beach", "AI|Sand Castle"],
+  openai: ["Beach", "Sky"],
+  gemini: ["Beach", "AI|Sand Castle"],
+};
+
 const CLOUD = [
   {
     id: "claude",
@@ -279,6 +289,7 @@ export function installMock(): void {
     },
     choice: new Map(),
     aiRejected: new Map(),
+    aiSources: new Map(),
     aiRanges: new Map(),
     cloud: {
       keys: Object.fromEntries(
@@ -384,6 +395,8 @@ export function installMock(): void {
     if (q.minRating && rating(it) < q.minRating) return false;
     if (q.hideNotKept && st.choice.get(it.i) === "not_kept") return false;
     if (q.tag && !tagsOf(it.i).some((t) => t === q.tag || t.startsWith(`${q.tag}|`))) return false;
+    for (const want of q.tags ?? [])
+      if (!tagsOf(it.i).some((t) => t === want || t.startsWith(`${want}|`))) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -1299,7 +1312,11 @@ export function installMock(): void {
               for (const id of ids) {
                 const i = Number(id.slice(1));
                 const cur = st.keywords.get(i) ?? [];
-                st.keywords.set(i, [...new Set([...cur, "Beach", "AI|Sand Castle"])]);
+                const given = CLOUD_TAGS[p.id] ?? [];
+                st.keywords.set(i, [...new Set([...cur, ...given])]);
+                const by = st.aiSources.get(i) ?? new Map<string, string[]>();
+                by.set(p.id, [...new Set([...(by.get(p.id) ?? []), ...given])].sort());
+                st.aiSources.set(i, by);
               }
           }
           const items = ids.length;
@@ -1361,13 +1378,20 @@ export function installMock(): void {
           return null;
         case "ai_tags": {
           const i = Number(String(a.id).slice(1));
-          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [] };
+          // Per AI, the keywords it gave that the item still has.
+          const kw = st.keywords.get(i) ?? [];
+          const by = st.aiSources.get(i);
+          const byAi = CLOUD.flatMap((p) => {
+            const tags = (by?.get(p.id) ?? []).filter((t) => kw.includes(t));
+            return tags.length ? [{ provider: p.id, name: p.name, tags }] : [];
+          });
+          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [], byAi };
           const gone = st.aiRejected.get(i) ?? [];
           const mine = st.keywords.get(i) ?? [];
           const tags = [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]]
             .filter((t) => !gone.includes(t) && !mine.includes(t))
             .map((tag, k) => ({ tag, confidence: k === 0 ? 61 : 23 }));
-          return { enabled: true, analysed: true, tags };
+          return { enabled: true, analysed: true, tags, byAi };
         }
         case "ai_tag_decide": {
           const i = Number(String(a.id).slice(1));

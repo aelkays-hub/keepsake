@@ -1012,3 +1012,85 @@ fn each_provider_has_its_own_jobs_and_one_worker_runs_them_all() {
     }
     assert_eq!(keywords(&mut w, a), ["Dog"], "a keyword once, not twice");
 }
+
+// ── Which AI gave which keyword (ADR-039) ──────────────────────────────────
+
+fn sources(w: &World, id: AssetId) -> Vec<(String, String)> {
+    w.cat
+        .read(|tx| tx.ai().tag_sources(id))
+        .unwrap()
+        .into_iter()
+        .map(|(p, t)| (p, t.to_lightroom()))
+        .collect()
+}
+
+fn pair(p: &str, t: &str) -> (String, String) {
+    (p.to_owned(), t.to_owned())
+}
+
+#[test]
+fn each_ai_is_recorded_for_the_keywords_it_gave_and_it_survives_a_rebuild() {
+    let mut w = World::new(&[("a.jpg", scene(1, 800, 600))]);
+    let before = common::tree_hashes(&w.media);
+    let a = w.asset("a.jpg");
+    let hash = keepsake_core::render::source::source_hash(&w.cat, a)
+        .unwrap()
+        .unwrap();
+    w.cache
+        .put_bytes(
+            &mut w.cat,
+            &hash,
+            keepsake_core::render::Variant::Thumb1024,
+            &jpeg(&scene(1, 1024, 768)),
+        )
+        .unwrap();
+    // A keyword of the user's own, which an AI then also gives.
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(a, &[tag("Dog"), tag("Holiday")])
+        .unwrap();
+    // "All": the same photo to ChatGPT and Gemini.
+    ai::cloud::enqueue(&mut w.cat, Provider::OpenAi, &[a]).unwrap();
+    ai::cloud::enqueue(&mut w.cat, Provider::Gemini, &[a]).unwrap();
+    let fake = std::sync::Arc::new(FakeCloud {
+        answer: Ok(ai::cloud::CloudTags {
+            tags: vec!["Dog".into(), "Beach".into()],
+            new_tags: vec![],
+            model: "m".into(),
+        }),
+        sent: Default::default(),
+    });
+    cloud_service(&w, fake)
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(keywords(&mut w, a), ["Beach", "Dog", "Holiday"]);
+    // Each AI has its own rows, also for the keyword the user had; nobody
+    // gave Holiday.
+    let both = vec![
+        pair("gemini", "Beach"),
+        pair("gemini", "Dog"),
+        pair("openai", "Beach"),
+        pair("openai", "Dog"),
+    ];
+    assert_eq!(sources(&w, a), both);
+
+    // The sidecar has them, so a rebuild restores them.
+    let vol = w.cat.read(|tx| tx.volumes().list()).unwrap()[0].id;
+    drop(std::mem::replace(
+        &mut w.cat,
+        Catalog::open_in_memory().unwrap(),
+    ));
+    Catalog::delete_files(&w.lib.catalog_path()).unwrap();
+    w.cat = w.lib.open_catalog().unwrap();
+    rebuild_catalog(&mut w.cat, &w.lib, vol, &w.media).unwrap();
+    assert_eq!(sources(&w, a), both);
+
+    // Removing a keyword forgets who gave it.
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(a, &[tag("Dog"), tag("Holiday")])
+        .unwrap();
+    assert_eq!(
+        sources(&w, a),
+        [pair("gemini", "Dog"), pair("openai", "Dog")]
+    );
+    assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
+}

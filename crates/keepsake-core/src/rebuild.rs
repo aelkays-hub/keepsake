@@ -1009,6 +1009,7 @@ fn save_asset(
             .set_for_asset(d.asset_id, TagSource::User, &user)?;
         tx.tags().set_for_asset(d.asset_id, TagSource::Ai, &ai)?;
         tx.ai().set_rejections(d.asset_id, &x.ai_tags_rejected)?;
+        tx.ai().set_tag_sources(d.asset_id, &x.ai_tag_sources)?;
         tx.ai()
             .set_choice(d.asset_id, x.duplicate_choice, x.metadata_ms.unwrap_or(0))?;
         for old in tx.recipes().for_asset(d.asset_id)? {

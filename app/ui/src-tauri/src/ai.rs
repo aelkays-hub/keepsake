@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use keepsake_core::ai::cloud::Provider;
 use keepsake_core::ai::{self, duplicates, install, Purpose, JOB_AI, JOB_AI_TAG, MODEL_ID};
 use keepsake_core::catalog::{AssetId, DuplicateChoice, TagPath, TagSource};
 use keepsake_core::metadata::MetadataService;
@@ -14,8 +15,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiFolderStatus, AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagsDto,
-    DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
+    AiFolderStatus, AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagSourceDto,
+    AiTagsDto, DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -427,9 +428,10 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
         .read(|tx| tx.ai().analysis(id))
         .map_err(err)?
         .is_some_and(|a| a.model == MODEL_ID && a.tag_list > 0);
-    let mut tags: Vec<AiTagDto> = cat
-        .read(|tx| tx.tags().for_asset(id))
-        .map_err(err)?
+    let all = cat.read(|tx| tx.tags().for_asset(id)).map_err(err)?;
+    let sources = cat.read(|tx| tx.ai().tag_sources(id)).map_err(err)?;
+    let by_ai = by_ai(&all, &sources);
+    let mut tags: Vec<AiTagDto> = all
         .into_iter()
         .filter(|t| t.source == TagSource::Ai)
         .map(|t| AiTagDto {
@@ -442,7 +444,35 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
         enabled: Settings::load().map_err(err)?.ai.enabled,
         analysed,
         tags,
+        by_ai,
     })
+}
+
+/// Per AI, the keywords it gave that the item still has.
+fn by_ai(
+    tags: &[keepsake_core::catalog::AssetTag],
+    sources: &[(String, TagPath)],
+) -> Vec<AiTagSourceDto> {
+    Provider::ALL
+        .into_iter()
+        .filter_map(|p| {
+            let tags: Vec<String> = sources
+                .iter()
+                .filter(|(by, path)| {
+                    by == p.id()
+                        && tags
+                            .iter()
+                            .any(|t| t.source == TagSource::User && &t.path == path)
+                })
+                .map(|(_, path)| path.to_lightroom())
+                .collect();
+            (!tags.is_empty()).then(|| AiTagSourceDto {
+                provider: p.id().to_owned(),
+                name: p.name().to_owned(),
+                tags,
+            })
+        })
+        .collect()
 }
 
 /// Remove an AI tag for good (`keep: false`) or make it the user's own

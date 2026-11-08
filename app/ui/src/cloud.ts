@@ -49,9 +49,27 @@ export function usable(info: CloudInfo): CloudProviderDto[] {
   return info.providers.filter((p) => p.hasKey);
 }
 
+/** The choice "All": every AI with a key tags the photos (ADR-039). */
+export const ALL = "all";
+
 /** The provider to offer first: the default if it has a key, else the
- * first that has one (`null`: none has). */
+ * first that has one (`null`: none has). "All" when it was used last and
+ * more than one AI has a key. */
 export function firstChoice(info: CloudInfo): string | null {
   const ready = usable(info);
+  if (info.defaultProvider === ALL && ready.length > 1) return ALL;
   return (ready.find((p) => p.id === info.defaultProvider) ?? ready[0])?.id ?? null;
+}
+
+/** The providers a choice sends to: one, or every one with a key. */
+export function chosen(info: CloudInfo, picked: string | null): CloudProviderDto[] {
+  const ready = usable(info);
+  return picked === ALL ? ready : ready.filter((p) => p.id === picked);
+}
+
+/** "Claude", "Claude and Gemini", "Claude, ChatGPT and Gemini". */
+export function names(list: string[]): string {
+  return list.length <= 1
+    ? (list[0] ?? "")
+    : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
 }

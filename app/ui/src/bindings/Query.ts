@@ -32,4 +32,8 @@ hideNotKept?: boolean,
 /**
  * Has this tag (keyword or AI tag) or one below it (`Places|Lake`).
  */
-tag?: string, };
+tag?: string, 
+/**
+ * Has every one of these tags (the search bar's tag chips).
+ */
+tags?: Array<string>, };

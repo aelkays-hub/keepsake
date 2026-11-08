@@ -137,6 +137,61 @@ textarea {
 .toolbar #search {
   width: 240px;
 }
+/* Tag chips and tag suggestions in the search bar */
+.search-box {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1px 2px 1px 8px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.search-chip button {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+}
+.search-tags {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+.search-tags li {
+  padding: 3px 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+.search-tags li[aria-selected="true"],
+.search-tags li:hover {
+  background: var(--accent-fill);
+  color: var(--accent-text);
+}
+.search-tags li[aria-selected="true"] .muted,
+.search-tags li:hover .muted {
+  color: inherit;
+}
+.search-tags .tag-icon {
+  opacity: 0.6;
+  margin-right: 4px;
+}
 .toolbar .filter {
   display: flex;
   gap: 4px;
@@ -1453,6 +1508,32 @@ pre.report {
 .chips.ai li {
   border-style: dotted;
   background: transparent;
+}
+/* Which AI gave a tag (ADR-039) */
+.ai-badge {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-left: 4px;
+  align-self: flex-start;
+  width: fit-content;
+}
+.ai-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ai-source .ai-badge {
+  margin-left: 0;
+  flex: none;
+  min-width: 56px;
+  text-align: center;
+  color: var(--text);
 }
 .dup-layout {
   display: grid;

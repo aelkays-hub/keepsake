@@ -149,7 +149,8 @@ Tag with AI (`keepsake_core::ai::cloud`, ADR-036, ADR-038): Claude, ChatGPT or G
 - The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it through a `Tagger` (`CloudTagger`, over `Http` = `UreqHttp`), which builds the provider's request and reads its answer (`cloud::{claude, openai, gemini}`).
 - The shared parts are in `cloud`: the prompt, the tag schema, tidying the answer (`tidy`) and what an HTTP status means (`http_error`).
 - Each provider's key comes from `keepsake_platform::secrets` (the OS credential store, account `<id>-api-key`), and its model from `config.toml` (`[ai] claude_model`, `openai_model`, `gemini_model`). Both are looked up for each photo.
-- The tags in the answer are added to the photo's keywords through `MetadataService` (catalog and XMP).
+- The tags in the answer are added to the photo's keywords through `MetadataService::add_ai_keywords` (catalog and XMP), which also records which AI gave each one (`ai_tag_sources`, `keepsake:AITagSources`; ADR-039). Removing a keyword forgets who gave it.
+- **All** (ADR-039) is the UI queueing the same photos for each AI with a key; each AI's jobs are followed on their own.
 - Permanent problems fail the job (`RenderError::Refused`); others are retried.
 
 ---
@@ -357,6 +358,7 @@ One sidecar per copy of an asset's original, named `<name>.<ext>.xmp` beside it.
 | Time-shift | `keepsake:CaptureShiftSeconds` | |
 | Camera, lens, duration | `tiff:Make`, `tiff:Model`, `exifEX:LensModel`, `xmpDM:duration` | |
 | Identity, event, AI tags, recipes, member files | `keepsake:AssetID`, `keepsake:Event`, `keepsake:AITags`, `keepsake:Recipes`, `keepsake:Files` | |
+| Which AI gave each keyword (Tag with AI) | `keepsake:AITagSources` (`Name`, `By`) | rows of unknown AIs are left out |
 
 The `keepsake:` namespace is `http://ns.keepsake.app/xmp/1.0/`. `xmp:MetadataDate` decides which sidecar wins when two disagree.
 

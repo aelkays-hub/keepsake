@@ -121,6 +121,9 @@ pub struct AssetXmp {
     pub ai_tags_rejected: Vec<TagPath>,
     /// The user's decision in a group of duplicates.
     pub duplicate_choice: Option<DuplicateChoice>,
+    /// Which AI gave which keyword (Tag with AI), as (provider id,
+    /// keyword), sorted (ADR-039).
+    pub ai_tag_sources: Vec<(String, TagPath)>,
     pub capture: Option<CaptureTime>,
     pub capture_shift_s: i64,
     pub duration_ms: Option<i64>,
@@ -343,6 +346,17 @@ impl AssetXmp {
             .collect();
         x.ai_tags_rejected.sort();
         x.ai_tags_rejected.dedup();
+        x.ai_tag_sources = p
+            .struct_array(ns::KEEPSAKE, "AITagSources")
+            .iter()
+            .filter_map(|f| {
+                let by = crate::ai::cloud::Provider::parse(field(f, ns::KEEPSAKE, "By")?.trim())?;
+                let path = TagPath::parse_lightroom(field(f, ns::KEEPSAKE, "Name")?).ok()?;
+                Some((by.id().to_owned(), path))
+            })
+            .collect();
+        x.ai_tag_sources.sort();
+        x.ai_tag_sources.dedup();
         x.duplicate_choice = p
             .simple(ns::KEEPSAKE, "DuplicateChoice")
             .and_then(|v| DuplicateChoice::parse(v.trim()));
@@ -471,6 +485,17 @@ impl AssetXmp {
                 .map(TagPath::to_lightroom)
                 .collect::<Vec<_>>(),
         );
+        let sources: Vec<Vec<Field>> = self
+            .ai_tag_sources
+            .iter()
+            .map(|(by, t)| {
+                vec![
+                    (ns::KEEPSAKE, "Name", t.to_lightroom()),
+                    (ns::KEEPSAKE, "By", by.clone()),
+                ]
+            })
+            .collect();
+        p.set_struct_array(ns::KEEPSAKE, "AITagSources", ArrayKind::Bag, &sources);
         set_opt(
             p,
             ns::KEEPSAKE,

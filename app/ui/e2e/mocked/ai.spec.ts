@@ -214,3 +214,37 @@ test("AI tags in the inspector: remove one, keep one as a keyword", async ({ pag
     [second, true],
   ]);
 });
+
+test("tags in the search bar: suggested as you type, every chip must match", async ({ page }) => {
+  await open(page);
+  const search = page.getByTestId("search");
+  await search.fill("do");
+  const tagList = page.getByRole("listbox", { name: "Tags" });
+  // One suggestion (the # before it is an icon).
+  await expect(tagList.getByRole("option")).toHaveText(["#Dog (334)"]);
+  await tagList.getByRole("option", { name: /Dog/ }).click();
+  // The words typed to find it go; the tag is a chip.
+  await expect(search).toHaveValue("");
+  await expect(page.getByTestId("search-chip")).toHaveText(["Dog✕"]);
+  await expect(page.getByTestId("count")).toHaveText("334 items");
+  // With the keyboard: Dog and People together.
+  await search.fill("peo");
+  await search.press("ArrowDown");
+  await search.press("Enter");
+  await expect(page.getByTestId("search-chip")).toHaveText(["Dog✕", "People✕"]);
+  await expect(page.getByTestId("count")).toHaveText("167 items");
+  expect((await calls(page, "view_open")).at(-1)).toMatchObject({
+    query: { tags: ["Dog", "People"] },
+  });
+  // A chosen tag is not suggested again.
+  await search.fill("dog");
+  await expect(tagList).toHaveCount(0);
+  // Backspace in the empty box removes the last chip; ✕ removes one.
+  await search.fill("");
+  await search.press("Backspace");
+  await expect(page.getByTestId("search-chip")).toHaveText(["Dog✕"]);
+  await expect(page.getByTestId("count")).toHaveText("334 items");
+  await page.getByRole("button", { name: "Remove tag Dog from the search" }).click();
+  await expect(page.getByTestId("search-chip")).toHaveCount(0);
+  await expect(page.getByTestId("count")).toHaveText("1,000 items");
+});

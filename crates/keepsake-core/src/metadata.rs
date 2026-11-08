@@ -83,6 +83,7 @@ pub(crate) fn project(
             .collect(),
         ai_tags_rejected: tx.ai().rejections(asset.id)?,
         duplicate_choice: tx.ai().choice(asset.id)?,
+        ai_tag_sources: tx.ai().tag_sources(asset.id)?,
         capture: asset.capture,
         capture_shift_s: asset.capture_shift_s,
         duration_ms: asset.duration_ms,
@@ -259,13 +260,48 @@ impl<'a> MetadataService<'a> {
             .collect())
     }
 
+    /// Replace the asset's keywords. A keyword removed also loses its
+    /// record of which AI gave it.
     pub fn set_user_tags(&mut self, id: AssetId, tags: &[TagPath]) -> Result<Asset, LibraryError> {
+        let paths = tags;
         let tags: Vec<AssetTag> = tags.iter().cloned().map(AssetTag::user).collect();
         self.edit(id, |tx, _| {
             tx.tags().set_for_asset(id, TagSource::User, &tags)?;
+            tx.ai().prune_tag_sources(id, paths)?;
             tx.tags().prune_unused()?;
             Ok(())
         })
+    }
+
+    /// Tag with AI: add the keywords `provider` (its id: `claude`) gave the
+    /// asset, those it has stay, and record that `provider` gave each one,
+    /// also those the asset had already (ADR-039). Returns the keywords
+    /// added.
+    pub fn add_ai_keywords(
+        &mut self,
+        id: AssetId,
+        provider: &str,
+        given: &[TagPath],
+    ) -> Result<Vec<TagPath>, LibraryError> {
+        let mut added = Vec::new();
+        self.edit(id, |tx, _| {
+            let mut user: Vec<AssetTag> = tx
+                .tags()
+                .for_asset(id)?
+                .into_iter()
+                .filter(|t| t.source == TagSource::User)
+                .collect();
+            for p in given {
+                if !user.iter().any(|t| &t.path == p) && !added.contains(p) {
+                    added.push(p.clone());
+                    user.push(AssetTag::user(p.clone()));
+                }
+            }
+            tx.tags().set_for_asset(id, TagSource::User, &user)?;
+            tx.ai().add_tag_sources(id, provider, given)?;
+            Ok(())
+        })?;
+        Ok(added)
     }
 
     /// Replace the asset's AI tags (confidence 0–1).

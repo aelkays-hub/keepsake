@@ -1,8 +1,46 @@
-# Manual Test Steps — Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Which AI tagged it, Tag with AI to All, and tags in the search bar (ADR-039)
+
+The first start after this update upgrades the catalog (schema 12); it takes a moment and nothing visible changes.
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test ai_tests each_ai_is_recorded
+cargo test -p keepsake-core --test catalog_tests hierarchical_tags_and_search
+cargo test -p keepsake-core --test xmp_tests
+cargo test -p keepsake-core --lib settings
+cd app/ui; pnpm vitest run src/unit/tagSearch.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/cloud.spec.ts e2e/mocked/ai.spec.ts
+```
+
+Manual (both OSes). You need API keys for **at least two** AIs in Settings → Tag with AI (cheapest models are fine).
+
+### Tag with AI → All
+1. Right-click one photo → **Tag with AI…**. Open the **AI** list. **Expected:** the AIs with a key, then **All (Claude, ChatGPT and Gemini)** (only the names with a key).
+2. Pick **All**. **Expected:** the heading says "Tagging with Claude, ChatGPT and Gemini: …"; the text names each model, says "Each one tags them", and gives one cost "in all", charged by each company. Every AI's privacy note shows (OpenAI's 30 days, Gemini's billing note).
+3. Press **Send**. **Expected:** the bar moves; at the end "Photos tagged: Claude 1 of 1, ChatGPT 1 of 1, Gemini 1 of 1." If one key is bad, that AI's count stays 0 and the problem starts with its name.
+4. Right-click another photo → **Tag with AI…**. **Expected:** **All** is already picked. Remove all keys but one in Settings and try again. **Expected:** no AI list; that one AI is used.
+
+### Which AI gave each tag (Inspector)
+5. Select the photo from step 3. **Expected:** the Inspector's **Keywords** has each tag once. Under **AI tags** (labelled *On-device*) the on-device tags are unchanged. Below, **Tagged with AI** has one row per AI that tagged it (Claude, ChatGPT, Gemini), each with the keywords **that** AI gave. A keyword two AIs gave is in both rows.
+6. Remove one of those keywords with its ✕ in **Keywords**. **Expected:** it disappears from every AI row too. Add it back by typing it. **Expected:** it is a keyword again but **not** in any AI row (you added it).
+7. A photo you only tagged yourself, or tagged by AI before this update. **Expected:** no **Tagged with AI** section.
+8. Check the sidecar survives: close the app, open the photo's `.xmp` next to it in a text editor. **Expected:** a `keepsake:AITagSources` list with `keepsake:Name` and `keepsake:By` (`claude`, `openai`, `gemini`). The original photo file's modified date did not change.
+
+### Tags in the search bar
+9. Click the search box and type the start of a tag you use, e.g. `bea`. **Expected:** a list under the box with matching tags and their counts (`# Beach (40)`), those starting with the letters first.
+10. Click one. **Expected:** it becomes a chip "Beach ✕" in the search bar, the typed letters go, and the grid shows only items with that tag (same count as in the list).
+11. Type another tag, press **↓** then **Enter**. **Expected:** a second chip; only items with **both** tags show (fewer or the same). A tag already chosen is not suggested again. A parent tag (e.g. `Travel`) also matches items with a tag below it (`Travel › Japan`).
+12. Type words that are not a tag (part of a file name). **Expected:** they search names, comments and keywords, together with the chips.
+13. With the box empty press **Backspace**. **Expected:** the last chip goes. Click ✕ on a chip. **Expected:** that one goes. **✕ Clear** removes all chips and filters.
+14. **Esc** with the list open closes the list; Esc again clears the words.
 
 ---
 

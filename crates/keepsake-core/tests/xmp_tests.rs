@@ -26,6 +26,11 @@ fn full_sample() -> AssetXmp {
         ai_tags: vec![(tag("Outdoors|Beach"), 0.875), (tag("Sky"), 0.1)],
         ai_tags_rejected: vec![tag("Dog"), tag("Food|Pizza")],
         duplicate_choice: Some(DuplicateChoice::NotKept),
+        ai_tag_sources: vec![
+            ("claude".into(), tag("Beach")),
+            ("gemini".into(), tag("AI|Sand Castle")),
+            ("gemini".into(), tag("Beach")),
+        ],
         capture: Some(CaptureTime {
             utc_ms: 1_718_425_800_120,
             utc_offset_min: Some(540),
@@ -322,4 +327,21 @@ fn exiftool_reads_our_sidecar() {
         .iter()
         .any(|s| s == "Travel|Japan|Tokyo"));
     assert_eq!(o["Description"], "Line one\nLine <two> & \"three\"");
+}
+
+#[test]
+fn ai_tag_sources_of_an_unknown_ai_are_ignored() {
+    // A sidecar written by a later version may name an AI this one does not
+    // know: those rows are left out when read.
+    let x = AssetXmp {
+        ai_tag_sources: vec![
+            ("openai".into(), tag("Dog")),
+            ("someone".into(), tag("Cat")),
+        ],
+        ..Default::default()
+    };
+    let mut p = XmpPacket::new();
+    x.write(&mut p);
+    let back = AssetXmp::read(&XmpPacket::parse(&p.to_xml()).unwrap());
+    assert_eq!(back.ai_tag_sources, vec![("openai".to_owned(), tag("Dog"))]);
 }

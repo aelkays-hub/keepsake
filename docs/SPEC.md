@@ -134,11 +134,12 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
   - The two are separate, and nothing is analysed in the background otherwise.
 - Auto-tagging: up to 6 tags per photo from a built-in list of 110 (people, beach, dog, food, sunset, moon, mosque, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. A photo with no sure tag gets the model's best guess (one or two).
 - The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it.
+- **Tags in the search bar (ADR-039)**: typing suggests matching tags; picking one adds it as a chip. The items shown have every chip's tag (or one below it). ✕ or Backspace in the empty box removes a chip.
 - Find duplicates and Tag photos also work on a folder and every folder below it: right-click it in the folder tree. A window shows the progress, with Stop and Hide.
 
 ### Tag with AI (optional, cloud)
 - **Only for the photos you pick (ADR-036, ADR-038).** Right-click a photo or a selection and choose **Tag with AI…**, or press **Tag with AI** in the viewer.
-- **Choose the AI: Claude (Anthropic), ChatGPT (OpenAI) or Gemini (Google).** The window that asks first lists the ones with a key; the one used last is offered first. It says how many photos go to which model, and roughly what it costs. Nothing is sent until you press **Send**.
+- **Choose the AI: Claude (Anthropic), ChatGPT (OpenAI) or Gemini (Google), or All of them (ADR-039).** The window that asks first lists the ones with a key, and All when more than one has one; the choice used last is offered first. It says how many photos go to which model, and roughly what it costs. Nothing is sent until you press **Send**.
 - Each needs your own API key, saved in Settings → Tag with AI. Keys are kept in Windows Credential Manager or the macOS Keychain.
 - The model is chosen there too, for each:
   - Claude: Claude Opus 5.5 (the default), Claude Fable 5.1 or Claude Haiku 5.5.
@@ -146,7 +147,7 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
   - Gemini: Gemini 3.6 Flash (the default), Gemini 4 Argon or Gemini 3.5 Flash-Lite.
 - What each company does with the photos is said where you choose: use a Gemini key from a project with billing, or Google may use the photos.
 - A 1024-pixel copy of each photo is sent, never the original.
-- The AI gives tags from the built-in list, plus up to 5 of its own. They become your keywords; new ones go under AI (e.g. `AI › Eiffel Tower`). It never names people. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
+- The AI gives tags from the built-in list, plus up to 5 of its own. They become your keywords; new ones go under AI (e.g. `AI › Eiffel Tower`). The inspector's **Tagged with AI** shows, for each AI, the keywords it gave (a keyword two AIs gave is in both rows; ADR-039). It never names people. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
 - Same-day duplicates (Sidebar → Duplicates): near-identical **RAW** photos taken on one calendar day, grouped: bursts, re-shoots, the same shot twice. A JPEG with the same name as a RAW is an edited copy, so JPEG-only photos (and videos) are never grouped. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
 - `keepsake ai status | install | run | duplicates [DAY] | retag`.
 - Still to come (v2):

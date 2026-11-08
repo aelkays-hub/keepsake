@@ -1364,5 +1364,32 @@ No new dependencies.
 
 **Not done.**
 - Copilot / Azure OpenAI.
-- Sending one photo to several AIs at once and comparing.
+- Sending one photo to several AIs at once and comparing (done in ADR-039).
 - A real call to OpenAI or Google is not in CI (no keys there); requests and answers are tested with a stand-in, against the documented shapes.
+
+## ADR-039 — Which AI gave each tag; Tag with AI to All; tags in the search bar
+
+**Status**: Accepted (2026-11-08, product owner: "keep track of AI tags and indicate which AI tagged them... visible in the sidebar", "an additional option in the dropdown for tag with AI to allow to tag with all", and "add tags to search"). Chosen in answers: show it in the **Inspector**; when two AIs give the same tag, **keep them separate**; tag search as **tag chips in the search bar**. Extends ADR-035 and ADR-038.
+
+**Context.** Tag with AI adds the AI's tags to a photo's keywords, the same as tags the user types, so nothing recorded which AI gave a keyword. The on-device AI's tags are already apart (`asset_tags.source = 'ai'`). The window that asks first sends to one AI. Search took words (names, comments, keywords) and one tag from the Tag list.
+
+**Decision.**
+- **A record per AI and keyword**: table `ai_tag_sources (asset_id, provider, tag_path)` (schema v12), provider `claude`, `openai` or `gemini`.
+  - `MetadataService::add_ai_keywords(asset, provider, given)` adds the keywords the photo lacks and records **every** keyword the AI gave, also those it had already (the user's own, or another AI's). The cloud worker uses it.
+  - Two AIs that give the same keyword each have a row; the keyword is still added once.
+  - Removing a keyword (`set_user_tags`) forgets who gave it.
+  - **Written to the XMP sidecar** as `keepsake:AITagSources` (a bag of `Name`, `By`), so a rebuild restores it. An AI this version does not know is left out when read.
+- **Inspector**: under the on-device AI tags (now labelled *On-device*), **Tagged with AI** lists one row per AI (Claude, ChatGPT, Gemini, in that order) with the keywords it gave that the photo still has. `ai_tags` returns them as `byAi`.
+- **All**: the AI list in the ask-first window ends with **All (Claude, ChatGPT and Gemini)**, the AIs with a key, when more than one has one.
+  - The photos are queued for each AI in turn (`ai_cloud_tag` once per AI); the window follows all of them and Stop stops all of them.
+  - It says what it costs in all and who charges, shows each AI's privacy note, and at the end how many each AI tagged.
+  - All is remembered like one AI (`[ai] cloud_provider = "all"`); with only one key left, that AI is offered.
+- **Tags in the search bar**: typing suggests up to 8 tags whose name contains the words (those whose name, or a part of it, starts with them first, then the most used). Picking one (click, or ↓ and Enter) adds it as a chip and clears the words; ✕ or Backspace in the empty box removes one.
+  - The items shown have **every** chip's tag, or a tag below it, as the Tag list does for one (`SearchQuery::tags`, `Query.tags`). The Tag list stays.
+
+**Dependencies.** None.
+
+**Not done.**
+- Searching by which AI gave a tag (offered, not chosen).
+- The on-device AI's tags are not in the per-AI rows: they are already apart, under On-device.
+- Keywords tagged by an AI before this change have no record of which AI gave them.

@@ -66,6 +66,10 @@ pub struct SearchQuery {
     /// Lightroom path (`Places|Lake`).
     #[serde(default)]
     pub tag: Option<String>,
+    /// Assets with every one of these tags (each, or one below it): the
+    /// search bar's tag chips.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
@@ -167,7 +171,13 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         f.args
             .push(Box::new(t.trim().trim_start_matches('.').to_uppercase()));
     }
-    if let Some(t) = q.tag.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+    let tags = q
+        .tag
+        .iter()
+        .chain(&q.tags)
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty());
+    for t in tags {
         f.wh.push(format!(
             "EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
                {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",

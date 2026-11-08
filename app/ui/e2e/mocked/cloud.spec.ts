@@ -118,6 +118,7 @@ test("with several keys the user picks the AI, and it is offered first next time
     "Claude (Claude Opus 5.5)",
     "ChatGPT (GPT-6.1 Sol)",
     "Gemini (Gemini 3.6 Flash)",
+    "All (Claude, ChatGPT and Gemini)",
   ]);
   await pick.selectOption("gemini");
   await expect(win.getByRole("heading")).toContainText("Tagging with Gemini:");
@@ -180,4 +181,46 @@ test("the Menu key opens the photo menu", async ({ page }) => {
   await expect(page.getByTestId("tile-menu").getByRole("menuitem", { name: "Open" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("tile-menu")).toHaveCount(0);
+});
+
+test("All sends the photos to every AI with a key, and the inspector shows who gave what", async ({
+  page,
+}) => {
+  await open(page, "&claude=key&openai=key");
+  await page.getByTestId("tile").first().click();
+  await page.getByTestId("tile").first().click({ button: "right" });
+  await page.getByTestId("tile-menu-cloud").click();
+  const win = page.getByTestId("ai-job");
+  const pick = win.getByTestId("ai-job-provider");
+  await pick.selectOption("all");
+  await expect(win.getByRole("heading")).toContainText("Tagging with Claude and ChatGPT:");
+  await expect(win.getByTestId("ai-job-status")).toHaveText(
+    "Send 1 photo to Claude Opus 5.5 and GPT-6.1 Sol to be tagged? Each one tags them. " +
+      "It costs about $0.03 in all, charged by Anthropic and OpenAI.",
+  );
+  await expect(win.getByTestId("ai-job-privacy")).toContainText("30 days");
+  await win.getByTestId("ai-job-send").click();
+  await expect(win.getByTestId("ai-job-status")).toHaveText(
+    "Photos tagged: Claude 1 of 1, ChatGPT 1 of 1.",
+  );
+  const sent = (await calls(page, "ai_cloud_tag")) as { providerId: string }[];
+  expect(sent.map((c) => c.providerId)).toEqual(["claude", "openai"]);
+  expect(await calls(page, "ai_cloud_set_default")).toEqual([{ providerId: "all" }]);
+  await win.getByTestId("ai-job-close").click();
+
+  // Each AI has its own row; Beach, which both gave, is in both.
+  const by = page.getByTestId("ai-sources");
+  await expect(by.getByTestId("ai-source-claude")).toContainText("Claude");
+  await expect(
+    by.getByRole("list", { name: "Keywords from Claude" }).getByRole("listitem"),
+  ).toHaveText(["AI|Sand Castle", "Beach"]);
+  await expect(
+    by.getByRole("list", { name: "Keywords from ChatGPT" }).getByRole("listitem"),
+  ).toHaveText(["Beach", "Sky"]);
+  await expect(by.getByTestId("ai-source-gemini")).toHaveCount(0);
+
+  // Next time All is offered first.
+  await page.getByTestId("tile").nth(3).click({ button: "right" });
+  await page.getByTestId("tile-menu-cloud").click();
+  await expect(win.getByTestId("ai-job-provider")).toHaveValue("all");
 });

@@ -6,6 +6,7 @@ import type { CloudProviderDto } from "./CloudProviderDto";
  */
 export type CloudInfo = { 
 /**
- * The id of the provider offered first (the one used last).
+ * The id of the provider offered first (the one used last), or
+ * `all`: every AI with a key.
  */
 defaultProvider: string, providers: Array<CloudProviderDto>, };

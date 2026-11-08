@@ -23,6 +23,9 @@ use serde::{Deserialize, Serialize};
 use crate::library::LibraryError;
 
 /// Default rendition cache size limit: 20 GiB.
+/// `[ai] cloud_provider` when "All" was used last (ADR-039).
+pub const ALL_PROVIDERS: &str = "all";
+
 pub const DEFAULT_CACHE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
 /// Rendition settings.
@@ -198,7 +201,7 @@ pub struct AiSettings {
     pub openai_model: String,
     pub gemini_model: String,
     /// The provider offered first (the one used last): `claude`, `openai`
-    /// or `gemini`.
+    /// or `gemini`, or `all` (every AI with a key, ADR-039).
     pub cloud_provider: String,
 }
 
@@ -206,6 +209,11 @@ impl AiSettings {
     /// The provider offered first (Claude if the setting names none known).
     pub fn cloud_provider(&self) -> crate::ai::Provider {
         crate::ai::Provider::parse(&self.cloud_provider).unwrap_or_default()
+    }
+
+    /// "All" was used last: every AI with a key is offered first.
+    pub fn cloud_all(&self) -> bool {
+        self.cloud_provider == ALL_PROVIDERS
     }
 
     /// `provider`'s chosen model (its default if the setting names none of
@@ -322,6 +330,11 @@ mod tests {
         a.openai_model = "claude-opus-5-5".into();
         assert_eq!(a.cloud_model(Provider::OpenAi), CloudModel::Gpt61Sol);
         a.cloud_provider = "nobody".into();
+        assert_eq!(a.cloud_provider(), Provider::Claude);
+        assert!(!a.cloud_all());
+        // "All" is remembered; one provider is still Claude.
+        a.cloud_provider = ALL_PROVIDERS.into();
+        assert!(a.cloud_all());
         assert_eq!(a.cloud_provider(), Provider::Claude);
     }
 
