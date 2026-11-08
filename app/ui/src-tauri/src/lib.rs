@@ -1,6 +1,7 @@
 mod ai;
 pub mod api;
 mod background;
+mod claude;
 mod commands;
 mod convert;
 mod diagnostics;
@@ -151,6 +152,12 @@ pub fn run() {
             ai::ai_set_choice,
             ai::ai_tags,
             ai::ai_tag_decide,
+            claude::ai_claude_info,
+            claude::ai_claude_set_key,
+            claude::ai_claude_set_model,
+            claude::ai_claude_tag,
+            claude::ai_claude_status,
+            claude::ai_claude_stop,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

@@ -11,8 +11,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+keyring.workspace = true
 
-# No OS binding crates: Windows (cfgmgr32, kernel32) and macOS
+# keyring (ADR-036) keeps the Claude API key in the OS store. Otherwise no
+# OS binding crates: Windows (cfgmgr32, kernel32) and macOS
 # (DiskArbitration, CoreFoundation) are called through hand-written
 # declarations in src/windows.rs and src/macos.rs (ADR-020).
 

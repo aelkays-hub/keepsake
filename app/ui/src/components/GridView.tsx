@@ -1,13 +1,14 @@
 // The thumbnail grid: virtualized rows of tiles, multi-select with mouse
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
-// video durations.
+// video durations. Right-click (or the Menu key) opens a menu for the
+// selection: Open, Tag with Claude.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { fileUrl, type Row } from "../api";
-import { useListKeys } from "../edits";
+import { selectionPayload, useListKeys } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
@@ -17,6 +18,7 @@ import { Stars } from "./Stars";
 import { markReady } from "../diagnostics";
 import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
+import { ContextMenu } from "./ContextMenu";
 
 const GAP = 8;
 /** How far the mouse moves before a press becomes a drag. */
@@ -153,7 +155,21 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   useRovingFocus(parent, s.sel.focus, [first, last, cols]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
   const listKeys = useListKeys(rows.count, cols, pageRows, onOpen);
+  /** The right-click menu, at the pointer, for this selection. */
+  const [menu, setMenu] = useState<{ x: number; y: number; sel: sel.Sel } | null>(null);
+  const openMenu = (x: number, y: number, i: number | null) => {
+    const cur = i !== null && !sel.has(s.sel, i) ? sel.only(i) : s.sel;
+    if (!cur.ranges.length && cur.focus === null) return;
+    setMenu({ x, y, sel: cur });
+  };
   const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      const el = parent.current?.querySelector<HTMLElement>(`#tile-${s.sel.focus ?? -1}`);
+      const r = el?.getBoundingClientRect();
+      if (r) openMenu(r.left + 8, r.bottom - 8, s.sel.focus);
+      e.preventDefault();
+      return;
+    }
     // + and − change the thumbnail size.
     if (
       !e.ctrlKey &&
@@ -288,55 +304,98 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
     );
   }
   return (
-    <div
-      ref={parent}
-      className="grid-scroll"
-      tabIndex={0}
-      role="grid"
-      aria-label="Items"
-      aria-rowcount={rowCount}
-      aria-multiselectable
-      data-testid="grid"
-      data-count={rows.count}
-      data-size={size}
-      data-selecting={s.selecting || undefined}
-      onKeyDown={onKey}
-      onMouseDown={onMouseDown}
-    >
-      <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
-        {items.map((vr) => (
-          <div
-            key={vr.key}
-            role="row"
-            className="grid-row"
-            style={{ transform: `translateY(${vr.start}px)`, gap: GAP, paddingLeft: GAP }}
-          >
-            {Array.from({ length: cols }, (_, c) => {
-              const i = vr.index * cols + c;
-              if (i >= rows.count) return null;
-              return (
-                <Tile
-                  key={i}
-                  index={i}
-                  row={rows.get(i)}
-                  px={TILE}
-                  large={large}
-                  selected={sel.has(s.sel, i)}
-                  focused={s.sel.focus === i}
-                  onOpen={onOpen}
-                />
-              );
-            })}
-          </div>
-        ))}
-        {box && (
-          <div
-            className="marquee"
-            data-testid="marquee"
-            style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
-          />
-        )}
+    <>
+      <div
+        ref={parent}
+        className="grid-scroll"
+        tabIndex={0}
+        role="grid"
+        aria-label="Items"
+        aria-rowcount={rowCount}
+        aria-multiselectable
+        data-testid="grid"
+        data-count={rows.count}
+        data-size={size}
+        data-selecting={s.selecting || undefined}
+        onKeyDown={onKey}
+        onMouseDown={onMouseDown}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+          if (hit) openMenu(e.clientX, e.clientY, Number(hit.dataset.index));
+        }}
+      >
+        <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
+          {items.map((vr) => (
+            <div
+              key={vr.key}
+              role="row"
+              className="grid-row"
+              style={{ transform: `translateY(${vr.start}px)`, gap: GAP, paddingLeft: GAP }}
+            >
+              {Array.from({ length: cols }, (_, c) => {
+                const i = vr.index * cols + c;
+                if (i >= rows.count) return null;
+                return (
+                  <Tile
+                    key={i}
+                    index={i}
+                    row={rows.get(i)}
+                    px={TILE}
+                    large={large}
+                    selected={sel.has(s.sel, i)}
+                    focused={s.sel.focus === i}
+                    onOpen={onOpen}
+                  />
+                );
+              })}
+            </div>
+          ))}
+          {box && (
+            <div
+              className="marquee"
+              data-testid="marquee"
+              style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+            />
+          )}
+        </div>
       </div>
-    </div>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label="Selected items"
+          testId="tile-menu"
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: "Open",
+              disabled: menu.sel.focus === null,
+              run: () => {
+                if (menu.sel.focus !== null) onOpen(menu.sel.focus);
+              },
+            },
+            {
+              label: "Tag with Claude…",
+              title: "Send these photos to Claude to be tagged (asks first)",
+              testId: "tile-menu-claude",
+              run: () => {
+                const n = menu.sel.ranges.length ? sel.size(menu.sel) : 1;
+                const one = n === 1 && menu.sel.focus !== null ? rows.get(menu.sel.focus) : null;
+                dispatch({
+                  t: "aiJob",
+                  job: {
+                    claude: selectionPayload(view?.view ?? null, menu.sel),
+                    count: n,
+                    title: one?.name ?? fmt.plural(n, "photo"),
+                    what: "tags",
+                  },
+                });
+              },
+            },
+          ]}
+        />
+      )}
+    </>
   );
 }

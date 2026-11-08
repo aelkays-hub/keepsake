@@ -38,7 +38,7 @@ use serde::Serialize;
 use super::cache::{Cache, CacheStats, EvictReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
-use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_TAG};
+use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_CLAUDE, JOB_AI_TAG};
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
 };
@@ -220,6 +220,8 @@ pub struct RenderService {
     cache: Cache,
     opts: RenderOptions,
     on_battery: PowerCheck,
+    /// Tag with Claude (ADR-036): with it, a worker runs `ai.claude` jobs.
+    claude: Option<Arc<dyn ai::cloud::Tagger>>,
 }
 
 struct Shared {
@@ -240,7 +242,14 @@ impl RenderService {
             cache,
             opts,
             on_battery: Arc::new(|| false),
+            claude: None,
         }
+    }
+
+    /// Run `ai.claude` jobs with this tagger (ADR-036).
+    pub fn with_claude(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
+        self.claude = Some(tagger);
+        self
     }
 
     /// How to tell whether the computer runs on battery
@@ -284,7 +293,8 @@ impl RenderService {
             let plan = std::iter::repeat_n(JOB_STILLS, self.opts.workers.max(1))
                 .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
                 .chain(std::iter::once(JOB_FINGERPRINT))
-                .chain(self.opts.ai.then_some(JOB_AI));
+                .chain(self.opts.ai.then_some(JOB_AI))
+                .chain(self.claude.is_some().then_some(JOB_AI_CLAUDE));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -522,7 +532,7 @@ impl RenderService {
                 });
             }
             RenderError::Waiting(reason) => {
-                let wait = if kind == JOB_AI {
+                let wait = if kind == JOB_AI || kind == JOB_AI_CLAUDE {
                     NO_THUMB_RETRY_MS
                 } else {
                     WAITING_RETRY_MS
@@ -654,6 +664,8 @@ impl RenderService {
             AiError::Render(e) => e,
             AiError::Catalog(e) => RenderError::Catalog(e),
             AiError::Image(m) => RenderError::Image(m),
+            AiError::Cloud { message, retry } if !retry => RenderError::Refused(message),
+            e @ AiError::NoApiKey => RenderError::Refused(e.to_string()),
             e => RenderError::Failed(e.to_string()),
         })
     }
@@ -762,6 +774,15 @@ impl RenderService {
                     Err(AiError::Catalog(e)) => Err(RenderError::Catalog(e)),
                     Err(AiError::Image(m)) => Err(RenderError::Image(m)),
                     Err(e) => Err(RenderError::Failed(e.to_string())),
+                }
+            }
+            JOB_AI_CLAUDE => {
+                let Some(tagger) = self.claude.as_deref() else {
+                    return Err(RenderError::Waiting("Claude is not set up".into()));
+                };
+                match ai::cloud::tag_asset(cat, &self.lib, &self.cache, tagger, job.asset_id) {
+                    Ok(added) => Ok((added, None)),
+                    Err(e) => Err(Self::ai_error(cat, job, e)?),
                 }
             }
             other => Err(RenderError::Unsupported(format!("job kind {other}"))),

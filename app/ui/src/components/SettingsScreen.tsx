@@ -17,6 +17,7 @@ import { copyDiagnosticReport } from "../diagnostics";
 import { LAYOUTS, layoutExample } from "../importLayouts";
 import * as fmt from "../format";
 import { AiSettings } from "./AiSettings";
+import { ClaudeSettings } from "./ClaudeSettings";
 
 const GB = 1024 ** 3;
 
@@ -382,6 +383,7 @@ export function SettingsScreen() {
       <h1 className="heading">Settings</h1>
       <Library info={info} />
       <AiSettings />
+      <ClaudeSettings />
       <CardImport value={imp} onChange={setImp} />
 
       <div className="card">

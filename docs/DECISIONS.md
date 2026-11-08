@@ -1237,3 +1237,61 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 
 **Not done.** Faces and semantic search; the text model would make semantic search a small step. Your own tag words (that needs the text model and a tokenizer). A sharpness score for the suggested keeper. Video frames other than the thumbnail's. Mirroring the new downloads. ONNX Runtime in the Windows ARM64 installer is untested (the setup step for ARM64 was run, not the installer), and on macOS it is not exercised (no macOS machine in this session). Per-tag cut-offs tuned on a labelled sample of the library.
+
+
+## ADR-036 — Tag with Claude: an optional cloud tagger for the photos the user picks
+
+**Status**: Accepted (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
+
+**Context.** On-device tagging (ADR-035) covers 110 fixed tags and is sometimes wrong. The product owner wants a stronger tagger for single photos, accepting that the photo leaves the computer and that it costs money. Keepsake is local-first, so this must be opt-in, per photo, and never touch originals.
+
+**Decision.**
+- **Provider: Anthropic's Claude Messages API**, called over HTTPS with the user's own API key (`POST https://api.anthropic.com/v1/messages`, `anthropic-version: 2026-10-21`). Rust has no official Anthropic SDK, so the request is plain JSON (`keepsake_core::ai::cloud`).
+- **Model: chosen in Settings → Tag with Claude.**
+  - Claude Opus 5.5 (`claude-opus-5-5`): the default, about 2¢ a photo.
+  - Claude Fable 5.1 (`claude-fable-5-1`): Anthropic's most capable, about 6¢.
+  - Claude Haiku 5.5 (`claude-haiku-5-5`): about 0.1¢, less accurate.
+  - The estimates assume about 3,000 tokens in and a few hundred out, at list prices.
+  - Effort is `low`, since this is a classification. Opus and Fable ask for the API's fallback model if they decline (`fallbacks: "default"`).
+- **What is sent: only the photos the user picks.** First a window says how many photos, to which model, and roughly what it costs, and the user presses **Send**.
+  - Each photo's 1024 px thumbnail from the render cache is re-encoded as JPEG and sent. The original is never read or sent.
+  - Nothing is sent in the background, or for a whole date or folder.
+- **What comes back: structured output** (`output_config.format`, a JSON schema).
+  - `tags` must be names from the built-in list.
+  - `new_tags` are up to 5 of Claude's own: Title Case, at most 3 words and 40 characters.
+  - The prompt forbids naming people or tagging personal traits (age, ethnicity, religion, health).
+  - Unknown list names are dropped, and a "new" tag that is on the list counts as a list tag.
+- **Where the tags go: the user's keywords**, through `MetadataService`, so they are in the catalog and the XMP sidecars and survive a rebuild.
+  - List tags keep their names (Portrait also gives People, as on-device). New tags go under **AI** (`AI|Eiffel Tower`).
+  - Keywords the photo already has stay. The user removes these like any keyword.
+  - They are not stored as on-device AI tags: they cost money, and the on-device tagger would replace them.
+- **How it runs: an `ai.claude` job per photo** on the persistent job queue, run by its own worker in the render service (`RenderService::with_claude`), never on a command thread.
+  - A photo without a thumbnail queues one and waits for it.
+  - A refused key, a refusal or a bad request fails the photo for good (`RenderError::Refused`).
+  - Busy answers (429, 529), server errors and network errors are retried with the usual back-off.
+  - The window follows the photos (`ai_claude_status`), with Stop and Hide, and shows the latest problem.
+- **The API key is kept in the operating system's credential store**: Windows Credential Manager, the macOS Keychain. It is stored under service "Keepsake", account `claude-api-key`, by `keepsake_platform::secrets`.
+  - It is never written to `config.toml`, a log or the catalog, and the UI never shows it again once saved.
+  - `KEEPSAKE_CLAUDE_KEY` overrides it (for the CLI and tests).
+  - The model id is in `config.toml` (`[ai] claude_model`).
+- **UI.**
+  - Right-click a photo or a selection in the grid (or press the Menu key or Shift+F10) and choose **Tag with Claude…**.
+  - The viewer has a **Tag with Claude** button.
+  - Settings → Tag with Claude has the model, Save key and Remove key.
+
+**Dependencies** (approved 2026-11-08):
+
+| Dependency | Version | Licence | Kind | Why |
+|---|---|---|---|---|
+| `ureq` (feature `rustls` only; no gzip) | 3.5 | MIT OR Apache-2.0 | runtime, keepsake-core | HTTPS client for the Claude API. Pulls in `rustls` (Apache-2.0 OR ISC OR MIT), `ring` (Apache-2.0 AND ISC), `webpki-roots` (CDLA-Permissive-2.0, Mozilla's root certificates), and `rustls-pki-types`, `http`, `httparse`, `log`, `percent-encoding`, `utf-8` (MIT and/or Apache-2.0). No OpenSSL. |
+| `keyring` (features `windows-native`, `apple-native`) | 3.6 | MIT OR Apache-2.0 | runtime, keepsake-platform | Keeps the API key in Windows Credential Manager / the macOS Keychain. Pulls in `windows-sys` / `security-framework` (MIT OR Apache-2.0). |
+
+- Nothing GPL.
+- `ring` builds C and assembly with the platform's compiler: MSVC on Windows. The ARM64 cross-build needs clang, which the GitHub Windows runners have.
+- Base64 is a 20-line function, not another crate.
+- The model download (ADR-035) still uses the system `curl`; it could move to `ureq` later.
+
+**Not done.**
+- Tagging a whole date or folder with Claude, on purpose (cost and privacy).
+- A spending limit, captions, and other providers.
+- A real API call is not in CI, since there is no key there. The request and the answer handling are tested with a stand-in.

@@ -6,6 +6,7 @@
 pub mod devices;
 pub mod fake;
 pub mod power;
+pub mod secrets;
 
 #[cfg(target_os = "macos")]
 mod macos;

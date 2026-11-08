@@ -12,11 +12,14 @@
 //! - [`analyze`]: the `ai.analyze` job: one asset's thumbnail in, its
 //!   embedding, hash and AI tags out. Originals are never read or changed.
 //! - [`duplicates`]: groups of near-identical items within one day.
+//! - [`cloud`]: Tag with Claude (ADR-036): photos the user picks are sent
+//!   to the Claude API, and what it gives becomes their keywords.
 //!
 //! The user's decisions (removed AI tags, keepers) are kept by
 //! [`crate::metadata::MetadataService`], in the catalog and XMP sidecars.
 
 pub mod analyze;
+pub mod cloud;
 pub mod dhash;
 pub mod duplicates;
 pub mod embedding;
@@ -35,6 +38,7 @@ pub use analyze::{
     analyze_asset, enqueue_range, enqueue_target, range_status, stop_target, target_status,
     AnalyzeOutcome, Purpose, Target,
 };
+pub use cloud::{ClaudeModel, JOB_AI_CLAUDE};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
 pub use labels::LabelSet;
@@ -77,6 +81,13 @@ pub enum AiError {
     Download(String),
     #[error("cancelled")]
     Cancelled,
+    /// Tag with Claude: no API key is saved.
+    #[error("no Claude API key: add one in Settings")]
+    NoApiKey,
+    /// Tag with Claude: the request failed; `retry` if trying again later
+    /// may help.
+    #[error("{message}")]
+    Cloud { message: String, retry: bool },
 }
 
 impl AiError {

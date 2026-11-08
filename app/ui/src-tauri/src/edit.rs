@@ -19,7 +19,7 @@ use crate::state::{err, AppState, CmdResult, Open};
 
 const INLINE: usize = 50;
 
-fn resolve(state: &AppState, sel: &Selection) -> CmdResult<Vec<AssetId>> {
+pub(crate) fn resolve(state: &AppState, sel: &Selection) -> CmdResult<Vec<AssetId>> {
     let mut out = convert::ids(&sel.ids)?;
     if let Some(v) = sel.view {
         state.with_view(v, |view| {
