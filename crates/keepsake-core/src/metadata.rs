@@ -81,6 +81,8 @@ pub(crate) fn project(
             .filter(|t| t.source == TagSource::Ai)
             .map(|t| (t.path.clone(), t.confidence.unwrap_or(0.0)))
             .collect(),
+        ai_tags_rejected: tx.ai().rejections(asset.id)?,
+        duplicate_choice: tx.ai().choice(asset.id)?,
         capture: asset.capture,
         capture_shift_s: asset.capture_shift_s,
         duration_ms: asset.duration_ms,
@@ -281,6 +283,69 @@ impl<'a> MetadataService<'a> {
             tx.tags().prune_unused()?;
             Ok(())
         })
+    }
+
+    /// Remove an AI tag from an asset for good: the background analysis will
+    /// not give it again (ADR-035).
+    pub fn reject_ai_tag(&mut self, id: AssetId, path: &TagPath) -> Result<Asset, LibraryError> {
+        self.edit(id, |tx, _| {
+            let mut rejected = tx.ai().rejections(id)?;
+            if !rejected.contains(path) {
+                rejected.push(path.clone());
+            }
+            tx.ai().set_rejections(id, &rejected)?;
+            let keep: Vec<AssetTag> = tx
+                .tags()
+                .for_asset(id)?
+                .into_iter()
+                .filter(|t| t.source == TagSource::Ai && &t.path != path)
+                .collect();
+            tx.tags().set_for_asset(id, TagSource::Ai, &keep)?;
+            tx.tags().prune_unused()?;
+            Ok(())
+        })
+    }
+
+    /// Make an AI tag the user's own keyword (it then stays whatever the
+    /// analysis decides).
+    pub fn keep_ai_tag(&mut self, id: AssetId, path: &TagPath) -> Result<Asset, LibraryError> {
+        self.edit(id, |tx, _| {
+            let mut user: Vec<AssetTag> = tx
+                .tags()
+                .for_asset(id)?
+                .into_iter()
+                .filter(|t| t.source == TagSource::User)
+                .collect();
+            if !user.iter().any(|t| &t.path == path) {
+                user.push(AssetTag::user(path.clone()));
+            }
+            tx.tags().set_for_asset(id, TagSource::User, &user)?;
+            Ok(())
+        })
+    }
+
+    /// Record the user's decision about an asset in a group of duplicates
+    /// (`None` clears it). Nothing is moved or deleted.
+    pub fn set_duplicate_choice(
+        &mut self,
+        id: AssetId,
+        choice: Option<crate::catalog::DuplicateChoice>,
+    ) -> Result<Asset, LibraryError> {
+        self.edit(id, |tx, _| {
+            tx.ai().set_choice(id, choice, now_ms())?;
+            Ok(())
+        })
+    }
+
+    /// Keep `keeper` from a group of duplicates: it is marked the keeper and
+    /// `others` "not kept". Only recorded; no file is moved or deleted.
+    pub fn pick_keeper(&mut self, keeper: AssetId, others: &[AssetId]) -> Result<(), LibraryError> {
+        use crate::catalog::DuplicateChoice;
+        self.set_duplicate_choice(keeper, Some(DuplicateChoice::Keeper))?;
+        for id in others.iter().filter(|id| **id != keeper) {
+            self.set_duplicate_choice(*id, Some(DuplicateChoice::NotKept))?;
+        }
+        Ok(())
     }
 
     /// Shift the capture time by `delta_s` seconds (cumulative). Errors when the

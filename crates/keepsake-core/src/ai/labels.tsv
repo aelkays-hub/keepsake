@@ -1,0 +1,115 @@
+# Keepsake AI tags (ADR-035). One tag per line: name<TAB>phrases separated by |, and
+# optionally <TAB>a tag it also gives (Baby gives People).
+# Each phrase becomes "a photo of <phrase>."; a tag scores its best-matching phrase.
+# After editing, run scripts/make-label-vectors.py to rebuild labels-siglip2-b16-224.bin,
+# and raise LIST_VERSION in labels.rs so tagged photos are tagged again.
+People	a person|people|a man|a woman|a boy|a girl|a young woman|a young man|an old man|an old woman|a woman wearing a hijab|a family|a couple|friends together|a mother and child|a father and child|a man taking a photo|a woman standing outdoors|a man standing outdoors
+Portrait	a portrait of a person|a close-up of a face|a portrait of a woman|a portrait of a man|a portrait of a child|a headshot|a woman posing for a photo shoot|a man posing for a photo|a smiling face	People
+Group photo	a group photo of people posing|a group of friends posing for a photo|a family photo|a family posing together	People
+Selfie	a selfie|a person taking a selfie	People
+Baby	a baby|an infant|a newborn baby|a baby sitting|a sleeping baby|a baby girl|a baby boy|a crying baby	People
+Child	a child|kids playing|a little girl|a little boy|a toddler|children|a smiling boy|a smiling girl	People
+Crowd	a crowd of people|many people	People
+Wedding	a wedding|a bride and groom|a wedding reception|a wedding dress
+Birthday	a birthday party|a birthday cake with candles|a first birthday photo shoot|a birthday cake|birthday balloons and decorations|a child blowing out candles
+Party	a party|people celebrating|balloons at a party|a banquet hall
+Concert	a concert|a band playing on stage
+Graduation	a graduation ceremony
+Christmas	christmas decorations|a christmas tree
+Halloween	halloween costumes|carved pumpkins
+Fireworks	fireworks in the night sky
+Dog	a dog|a puppy|a dog on a leash
+Cat	a cat|a kitten
+Bird	a bird|birds flying|a seagull
+Horse	a horse
+Cow	a cow|cattle in a field
+Sheep	sheep
+Fish	fish|an aquarium
+Insect	an insect|a butterfly|a bee
+Wildlife	wild animals|wildlife
+Zoo	animals at a zoo
+Beach	a beach|sand and sea
+Sea	the sea|the ocean|waves
+Lake	a lake
+River	a river|a stream
+Waterfall	a waterfall
+Mountain	mountains|a mountain landscape
+Hills	rolling hills|countryside
+Forest	a forest|trees in the woods
+Desert	a desert|sand dunes
+Snow	snow|a snowy landscape
+Field	a field|a meadow
+Garden	a garden|a park
+Flower	a flower|flowers
+Tree	a tree
+Sunset	a sunset|a sunrise|golden sky at dusk
+Night	a night scene|a city at night
+Sky	the sky|clouds
+Rain	rain|a rainy day
+Landscape	a landscape|scenery
+Cityscape	a cityscape|a city skyline
+Street	a street|people walking on a street|a street with shops
+Building	a building|architecture
+House	a house|a home exterior
+Church	a church|a cathedral
+Castle	a castle
+Bridge	a bridge
+Monument	a monument|a statue
+Interior	the inside of a room|an interior
+Kitchen	a kitchen
+Restaurant	a restaurant|a cafe
+Shop	a shop|a market
+Museum	a museum|an art gallery
+Stadium	a stadium|a sports arena
+Airport	an airport|an airplane at the gate
+Road	a road|a highway
+Car	a car
+Motorcycle	a motorcycle
+Bicycle	a bicycle|cycling
+Bus	a bus
+Train	a train|a railway
+Boat	a boat|a ship|sailing
+Airplane	an airplane|a plane in the sky
+Food	food|a meal on a plate
+Dessert	a dessert|cake|ice cream|a decorated cake|pastries|a birthday cake
+Drink	a drink|coffee|a glass of wine
+Fruit	fruit
+Barbecue	a barbecue|grilling food
+Pizza	a pizza
+Sport	people playing sport|an athlete
+Football	football|soccer
+Basketball	basketball
+Tennis	tennis
+Golf	golf
+Swimming	swimming|a swimming pool
+Skiing	skiing|snowboarding
+Surfing	surfing
+Running	running|a running race
+Hiking	hiking|a hiking trail
+Camping	camping|a tent outdoors
+Fishing	fishing
+Dancing	people dancing
+Playground	a playground
+Toy	toys
+Book	books|reading a book
+Computer	a computer|a laptop
+Phone	a mobile phone
+Musical instrument	a musical instrument|a guitar|a piano
+Art	a painting|artwork
+Document	a document|text on paper|a receipt
+Screenshot	a screenshot of a screen
+Sign	a sign|a street sign
+Map	a map
+Vehicle interior	the inside of a car
+Underwater	an underwater scene
+Aerial view	an aerial view from a drone
+Macro	a macro close-up photo
+Black and white	a black and white photo
+Climbing	rock climbing|a person climbing a rope|abseiling
+Cave	a cave
+Coin	a coin|coins
+Police	a police officer	People
+Moon	the moon|the moon in the night sky|a full moon
+Mosque	a mosque|a mosque with minarets|the inside of a mosque
+Helicopter	a helicopter|a helicopter in the sky
+Squirrel	a squirrel

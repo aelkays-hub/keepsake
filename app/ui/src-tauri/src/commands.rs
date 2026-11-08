@@ -231,6 +231,15 @@ pub fn facets(state: State<'_, AppState>) -> CmdResult<Facets> {
     Ok(Facets {
         cameras: f(FacetColumn::Camera)?,
         lenses: f(FacetColumn::Lens)?,
+        tags: cat
+            .read(|tx| tx.tags().counts())
+            .map_err(err)?
+            .into_iter()
+            .map(|(p, count)| FacetItem {
+                value: p.to_lightroom(),
+                count,
+            })
+            .collect(),
     })
 }
 

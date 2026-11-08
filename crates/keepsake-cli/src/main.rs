@@ -64,6 +64,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::preset::PresetAction,
     },
+    /// On-device AI: tags and same-day duplicates (status, install, run).
+    Ai {
+        #[command(subcommand)]
+        action: commands::ai::AiAction,
+    },
     /// Thumbnails, previews and video proxies: status, run, queue, bench.
     Renders {
         #[command(subcommand)]
@@ -111,6 +116,7 @@ fn main() -> ExitCode {
         Commands::Probe(a) => commands::probe::run(&ctx, a),
         Commands::Watch(a) => commands::watch::run(&ctx, a),
         Commands::Dev { action } => commands::dev::run(&ctx, action),
+        Commands::Ai { action } => commands::ai::run(&ctx, action),
         Commands::Renders { action } => commands::renders::run(&ctx, action),
         Commands::Card { action } => commands::card::run(&ctx, action),
         Commands::Preset { action } => commands::preset::run(&ctx, action),

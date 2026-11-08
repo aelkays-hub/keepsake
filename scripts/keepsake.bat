@@ -1,7 +1,7 @@
 @echo off
 rem Keepsake on Windows: set up everything, then run, build or test the app.
 rem
-rem   keepsake.bat           set up, then start the app (pnpm tauri dev)
+rem   keepsake.bat           set up, get the latest changes, then start the app (pnpm tauri dev)
 rem   keepsake.bat build     set up, then build the installers
 rem   keepsake.bat test      set up, then run the Rust and UI tests
 rem   keepsake.bat release   tag v0.1.0 on mvp-hardening and push it (asks first)
@@ -48,6 +48,19 @@ cd /d "%ROOT%"
 echo [keepsake] Repository: %ROOT%
 
 if /i "%MODE%"=="release" goto :release
+
+rem -- 2b. Get the latest changes of this branch (skipped if you changed files)
+git diff --quiet 2>nul
+if errorlevel 1 goto :skip_pull
+git diff --cached --quiet 2>nul
+if errorlevel 1 goto :skip_pull
+echo [keepsake] Getting the latest changes...
+git pull --ff-only
+if errorlevel 1 echo [keepsake] Could not update ^(offline, or the branch moved^); using the copy you have.
+goto :pulled
+:skip_pull
+echo [keepsake] You have changed files here: not updating, using them as they are.
+:pulled
 
 rem -- 3. C++ Build Tools (Rust needs them to compile on Windows) -------------
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"

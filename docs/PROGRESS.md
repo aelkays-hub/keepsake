@@ -52,10 +52,123 @@
 | 18 | Image adjustments (crop, resize, red-eye, auto-levels) | ⬜ Pending |
 | 19 | Flickr export connector | ⬜ Pending |
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
-| 21 | On-device AI: tagging, face clustering, semantic search | ⬜ Pending |
+| 21 | On-device AI: tagging, face clustering, semantic search | 🟡 Tagging and same-day duplicates done (ADR-035); faces and semantic search pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## On-device AI: content tags and same-day duplicates (2026-11-07)
+
+### What was asked
+- A small model running on the product owner's own computer to (1) find exact and near-identical photos taken on the same day and pick a keeper, without touching originals, and (2) tag photos by content (people, beach, dog, food), searchable and removable. Design first, then build after approval.
+
+### What was decided (ADR-035, approved)
+- **Model:** SigLIP 2 base (Apache-2.0), with the image encoder only. **Runtime:** ONNX Runtime via `ort` (load-dynamic), using DirectML on Windows and CoreML on macOS, else the CPU.
+- **Tags:** a fixed list of 102. **Duplicates:** non-keepers are marked "not kept" and nothing is deleted.
+- **Measured** on the product owner's laptop: 80 ms a photo on the integrated Radeon (fp32), so 100k photos take about 2.2 h once.
+
+### What was built
+- **Core** (`keepsake_core::ai`):
+  - the model wrapper, with GPU first and CPU fallback, and preprocessing;
+  - the int8 embedding store and the 64-bit difference hash;
+  - the label set and its SigLIP scoring;
+  - same-day grouping (union of hash and cosine links, burst-aware);
+  - the `ai.analyze` job on the render service's new AI worker;
+  - model install (curl + BLAKE3) and re-tagging from stored vectors.
+- **Catalog:** schema v9 (`ai_analysis`, `ai_tag_rejections`, `duplicate_choices`); `SearchQuery::hide_not_kept`; the snapshot includes the new decisions.
+- **Edits:** `MetadataService::{reject_ai_tag, keep_ai_tag, set_duplicate_choice, pick_keeper}`. The XMP fields `keepsake:AITagsRejected` and `keepsake:DuplicateChoice` are read and written, and restored by rebuild.
+- **App:**
+  - Duplicates screen;
+  - Settings → On-device AI (download with progress, GPU switch, delete model);
+  - AI tags in the inspector;
+  - Hide not kept in the toolbar;
+  - ONNX Runtime and DirectML in the Windows installer.
+- **CLI:** `keepsake ai status | install | run | duplicates | retag`.
+- **Setup:** `setup.ps1` installs ONNX Runtime + DirectML (x64 or ARM64), and `-WithAi` adds the model. `setup.sh` does the same for ONNX Runtime 1.31.1 on Apple Silicon, with `--with-ai`.
+- **Label vectors:** `scripts/make-label-vectors.py` (developer tool).
+
+### Changed the same day: only the dates you ask about
+- **Asked:** "why is keepsake so slow in finding duplicates", then "it should not try to seek the whole catalogue to find them, I should be able to go to a specific date and right click to select find duplicated and tag".
+- **Found:** 144 of 129,127 items had been analysed, at 1.5 s each. Each result waited 2–3.5 s for the catalog on the USB drive (its write-ahead log was 247 MB) while background thumbnails and proxies wrote too. The model took 80 ms, and on a copy of the catalog a save took under 1 ms.
+- **Built:**
+  - Turning AI on analyses nothing by itself.
+  - Right-click a year, month or day in the sidebar's calendar tree → **Find duplicates and tags** (also the Menu key or Shift+F10). It queues that range ahead of other work (thumbnails too, no proxies) and opens Duplicates on it, with "Analysing: n of m done…", refreshing every 3 s. "All analysed dates" goes back to every day.
+  - The worker drops the old background AI jobs and waits only for requested thumbnail jobs.
+  - `keepsake ai run --from --to` analyses a range from the CLI.
+- **Tests:** `only_the_dates_asked_for_are_queued_ahead_of_the_backlog` and `the_summary_can_be_limited_to_dates`. The worker test now asks for its day, with a stale background job dropped. The mocked UI covers right-click a year, the keyboard menu, and AI off.
+
+### 7 Nov 2026 (evening): one progress window, and the launcher updates itself
+- **Asked:** "I do not see the tagging progress bar?" Tag photos on a date showed only a line in the status bar; the progress window was for folders. Now Tag photos on a year, month or day opens the same window, with its bar, Stop (`ai_range_stop`) and Hide. The status-bar line is gone.
+- **Asked:** "update my script in keepsake/scripts". `scripts/keepsake.bat` now gets the latest changes of its branch (`git pull --ff-only`) before it starts or builds the app. It skips this when files there were changed, and carries on with the copy it has if it is offline.
+- **Tests:** the mocked UI's date tagging uses the window (getting ready, bar, done), Stop on dates, and AI off in the window.
+
+### 7 Nov 2026 (evening): an app icon
+- **Asked:** "how about we create an icon for the app!" The product owner chose a modern camera (from a camera and a lens, after three first concepts).
+- **Built:** a mirrorless camera, front view, dark grey on an orange rounded square. The source is `app/ui/src-tauri/icons/icon.svg`. It was rendered to a 1024 px PNG (Edge, headless), and `pnpm tauri icon` made the `.ico` (Windows), the `.icns` (macOS) and the PNGs; only the desktop files are kept. This replaces the blank placeholders. No new dependency.
+
+### 7 Nov 2026 (evening): whole folders, a progress window, quicker saves
+- **Asked:** "I want to be able to run it at a top level folder tree and it traverses the tree and tags, I would like to see a window showing progress", and to speed it up. Before that: "Keepsake started and now everything is hung". The app was busy, not hung. On start it caught up on thumbnails and proxies, and catalog writes on the USB drive took up to 12 s. By the time it was checked nothing was queued.
+- **Built:**
+  - Folder menu: **Find duplicates** and **Tag photos** for a folder and all below it.
+  - A progress window in the corner with Stop, Hide (a corner button brings it back), Close and Show duplicates.
+  - The AI worker claims and saves 32 jobs at a time: two catalog writes per 32 photos instead of 96.
+  - Core: `ai::Target`, `enqueue_target`, `target_status`, `stop_target`, `Ai::matching`, `Jobs::pending_matching`, `Jobs::remove_queued_for`, `ai::analyze::{prepare, save}`.
+  - App: `ai_analyze_folder`, `ai_folder_status`, `ai_folder_stop`.
+- **Tests:** `a_folder_and_the_folders_in_it_can_be_tagged_and_stopped`; the worker and range tests run through the batched worker; the mocked UI covers tagging a folder (window, Hide, done) and stopping a folder's duplicate search.
+
+### 7 Nov 2026 (later): best-guess tags and a tag list in the toolbar
+- **Asked:** "tagging is still very poor we need a stronger AI … I am getting less than 50% of pics tagged", and "would be good to have a dropdown of tags at top of screen".
+- **Measured:** SigLIP 2 Large (approved for a trial) on 300 random library photos.
+  - It was no better than the base model: 233 photos with a sure tag against 247, and about 20 of 24 right best guesses against 21.
+  - It was three times slower, so it was not adopted.
+  - The base model's best guess was usually right but under the 0.02 cut-off.
+- **Built:**
+  - A photo with no sure tag gets its best guess (two if close), down to 0.002. 296 of the 300 now get a tag, against 247.
+  - New tags: Moon, Mosque, Helicopter and Squirrel (110 in all). Tag list version 3, so older tags are redone quickly on the next Tag photos.
+  - The toolbar's **Tag** list ("Any tag", then every tag with its count, most used first) filters the library to that tag and the tags below it.
+- **Tests:** `a_photo_with_no_sure_tag_gets_its_best_guess`, tag counts and the tag filter in `hierarchical_tags_and_search`, and the mocked UI's tag list.
+
+### 7 Nov 2026: people are tagged, and Tag photos shows it has started
+- **Asked:** "when menu is selected, there is no indication of anything happening, there needs to be some feedback...like tagging", and "a simple picture contains a person or face and your AI model is failing maybe we need to change the model with a better one".
+- **Found:**
+  - No feedback: the menu waited for the work to be queued, which takes seconds on the USB drive.
+  - People: the model was fine, but each tag averaged its phrases. On 48 of the library's photos, none of 15 with people got People.
+- **Built:**
+  - Tag photos closes the menu at once. The status bar shows "Getting ready to tag…" with a spinner, then the progress; a failure stays until dismissed. Find duplicates shows "Working…" in the menu.
+  - Tags score their best phrase, with many more phrases for people; Baby, Child, Portrait, Group photo, Selfie, Crowd and Police also give People. 106 tags (Climbing, Cave, Coin, Police added). Vector file format 2.
+  - Result: 12 of the 15 people photos get People, and none of the 33 others does.
+  - Schema v11: `ai_analysis.tag_list`. Photos tagged with the old list are re-tagged from their stored analysis when Tag photos runs on their dates (quick, no model).
+  - `keepsake ai explain <picture>` prints every tag's score for one picture.
+- **Tests:**
+  - New tests: `photos_tagged_with_an_older_tag_list_are_tagged_again`, `a_tag_scores_its_best_phrase_and_gives_the_tag_it_implies`, `the_list_is_checked`.
+  - Mocked UI: "Getting ready to tag…" with slow queueing, the AI-off message in the status bar, and "Working…" for Find duplicates.
+
+### Changed the same day: Find duplicates and Tag photos are separate
+- **Asked:** "let us separate finding duplicates from tags, they should be separate functions runs seperatly".
+- **Built:**
+  - The date menu has **Find duplicates** (RAW photos, `ai.analyze`, no tags; opens Duplicates) and **Tag photos** (every photo, `ai.tag`; progress in the status bar).
+  - Tagging an already-analysed photo reuses its stored embedding.
+  - Schema v10 adds `ai_analysis.tagged`.
+  - `keepsake ai run --tags`.
+- **Tests:** `finding_duplicates_and_tagging_are_separate`. The range and worker tests now use Tag photos, and the mocked UI covers both menu items and the status-bar progress.
+
+### Changed the same day: duplicates among RAW photos only
+- **Asked:** "Only determine duplicates in RAW format, a picture that as the same name as a raw file with a jpg extension is not a duplicate it is an edited copy of the picture".
+- **Built:** only items with a RAW file are compared (`duplicates::Scope::Raw`, `assets.is_raw`). JPEG-only photos, edited copies and videos are never grouped. Tags are unchanged.
+- **Test:** `only_raw_photos_are_duplicates_and_an_edited_jpeg_is_not_one`.
+
+### Tests
+- **keepsake-core unit tests:** embedding round trip; difference hash (re-encoded copy matches, a different picture does not); label file checks (mismatch refused, CRLF checkout fine); SigLIP probability; grouping (hash and cosine links, burst bar, photos and videos never mixed, "not duplicates", keeper choice, big-day window); preprocessing; download checks (bad hash not kept, cancel leaves nothing).
+- **`ai_tests`:**
+  - **Without the model:** analyses stored and found by day; unanalysed items queued; AI tags searchable; a removed tag is never given again and is in the XMP; keep turns a tag into a keyword; decisions survive a catalog rebuild and originals are byte-for-byte unchanged; same-day groups, keeper and summary; different days never group.
+  - **With the model** (skipped if absent): a re-encoded copy is the same picture and a different one is not; GPU and CPU agree; the full render-service run makes thumbnails, then analyses, then groups the two identical photos.
+- **UI:** unit tests for the helpers, plus `e2e/mocked/ai.spec.ts` (pick a keeper, keyboard N, Undo, Hide not kept; AI off → Settings → on and off, delete model; inspector remove and keep).
+
+### Not done
+- Faces, semantic search, your own tag words, a sharpness-based keeper suggestion.
+- Mirroring the new downloads on `vendor-binaries`.
+- macOS was not run (no Mac in this session), and the ARM64 installer was not tried.
+- Per-tag thresholds tuned on a labelled sample.
 
 ## Thumbnails no longer go blank after background fingerprinting (2026-11-06)
 
