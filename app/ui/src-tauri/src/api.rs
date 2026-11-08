@@ -64,6 +64,144 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub file_type: Option<String>,
+        /// Leave out items marked "not kept" among duplicates.
+        #[serde(default)]
+        #[ts(optional)]
+        pub hide_not_kept: Option<bool>,
+        /// Has this tag (keyword or AI tag) or one below it (`Places|Lake`).
+        #[serde(default)]
+        #[ts(optional)]
+        pub tag: Option<String>,
+    }
+
+    /// On-device AI at a glance (Settings, Duplicates).
+    pub struct AiStatus {
+        /// Turned on in the settings.
+        pub enabled: bool,
+        pub gpu: bool,
+        /// The model is on this computer.
+        pub model_installed: bool,
+        #[ts(type = "number")]
+        pub model_bytes: u64,
+        /// ONNX Runtime is present.
+        pub runtime_found: bool,
+        /// Where it runs (`graphics card (DirectML)`, …) once loaded.
+        pub accel: Option<String>,
+        /// Why it is not running, if it is not.
+        pub problem: Option<String>,
+        /// Downloading the model: bytes so far.
+        #[ts(type = "number | null")]
+        pub installing: Option<u64>,
+        #[ts(type = "number")]
+        pub analysed: u64,
+        #[ts(type = "number")]
+        pub assets: u64,
+        #[ts(type = "number")]
+        pub pending: u64,
+        #[ts(type = "number")]
+        pub failed: u64,
+    }
+
+    /// How far "Find duplicates" or "Tag photos" has got for a date range.
+    pub struct AiRangeStatus {
+        /// `YYYY-MM-DD`, inclusive.
+        pub from: String,
+        pub to: String,
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub analysed: u64,
+        #[ts(type = "number")]
+        pub pending: u64,
+    }
+
+    /// How far "Find duplicates" or "Tag photos" has got for a folder.
+    pub struct AiFolderStatus {
+        /// Items it covers (RAW photos for duplicates, all for tags).
+        #[ts(type = "number")]
+        pub items: u64,
+        /// Of those, done.
+        #[ts(type = "number")]
+        pub analysed: u64,
+        /// Jobs still to run.
+        #[ts(type = "number")]
+        pub pending: u64,
+    }
+
+    /// A day with duplicates.
+    pub struct DuplicateDayDto {
+        /// `YYYY-MM-DD`.
+        pub date: String,
+        #[ts(type = "number")]
+        pub groups: u64,
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub undecided: u64,
+    }
+
+    pub struct DuplicateSummaryDto {
+        pub days: Vec<DuplicateDayDto>,
+        #[ts(type = "number")]
+        pub groups: u64,
+        #[ts(type = "number")]
+        pub items: u64,
+        #[ts(type = "number")]
+        pub undecided: u64,
+    }
+
+    /// One item of a group of duplicates.
+    pub struct DuplicateMemberDto {
+        pub id: String,
+        pub name: String,
+        pub video: bool,
+        #[ts(type = "number | null")]
+        pub capture_ms: Option<i64>,
+        pub rating: u8,
+        /// `keeper`, `not_kept`, `not_duplicate`, or null.
+        pub choice: Option<String>,
+        /// Likeness to the keeper, 0–100.
+        pub likeness: u8,
+        /// The same picture as the keeper (re-saved or resized copy).
+        pub exact: bool,
+        /// Its 256 px thumbnail, if made.
+        pub thumb: Option<String>,
+    }
+
+    pub struct DuplicateGroupDto {
+        pub date: String,
+        pub keeper: String,
+        pub decided: bool,
+        pub members: Vec<DuplicateMemberDto>,
+    }
+
+    /// An item's AI tags, and why there may be none.
+    pub struct AiTagsDto {
+        /// On-device AI is turned on.
+        pub enabled: bool,
+        /// The item has been tagged ("Tag photos").
+        pub analysed: bool,
+        /// Most likely first.
+        pub tags: Vec<AiTagDto>,
+    }
+
+    /// An AI tag on an item.
+    pub struct AiTagDto {
+        /// Lightroom-style path.
+        pub tag: String,
+        /// 0–100.
+        pub confidence: u8,
+    }
+
+    /// The model download (`ai://install`).
+    pub struct AiInstallProgress {
+        #[ts(type = "number")]
+        pub done: u64,
+        #[ts(type = "number")]
+        pub total: u64,
+        /// Finished: null when it worked, else why not.
+        pub finished: bool,
+        pub error: Option<String>,
     }
 
     /// A folder in the sidebar's folder tree.
@@ -131,6 +269,8 @@ dto! {
     pub struct Facets {
         pub cameras: Vec<FacetItem>,
         pub lenses: Vec<FacetItem>,
+        /// Tags (keywords and AI tags), most used first.
+        pub tags: Vec<FacetItem>,
     }
 
     pub struct VolumeItem {

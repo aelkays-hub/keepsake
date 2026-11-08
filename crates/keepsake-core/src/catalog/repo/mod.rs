@@ -1,6 +1,7 @@
 //! Typed repositories. Read methods are available on every transaction; write
 //! methods only on repositories from a [`super::WriteTx`].
 
+mod ai;
 mod assets;
 mod browse;
 mod events;
@@ -18,6 +19,7 @@ mod sidecars;
 mod tags;
 mod volumes;
 
+pub use ai::{Ai, AiCounts, DayItem, RangeItem};
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,

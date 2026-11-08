@@ -24,4 +24,12 @@ lensIs?: string,
 /**
  * Has a file of this extension (`JPG`); `""`: one without.
  */
-fileType?: string, };
+fileType?: string, 
+/**
+ * Leave out items marked "not kept" among duplicates.
+ */
+hideNotKept?: boolean, 
+/**
+ * Has this tag (keyword or AI tag) or one below it (`Places|Lake`).
+ */
+tag?: string, };

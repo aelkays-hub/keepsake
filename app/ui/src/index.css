@@ -247,6 +247,45 @@ textarea {
   color: var(--muted);
   font-size: 12px;
 }
+/* Tag photos in progress: easy to spot. */
+.statusbar [data-testid="tagging"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.statusbar [data-testid="tagging"].error {
+  color: var(--bad);
+}
+.statusbar button.link {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.spinner[hidden] {
+  display: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
 
 /* ── Grid ──────────────────────────────────────────────────────────── */
 .grid-scroll {
@@ -975,6 +1014,58 @@ textarea {
   letter-spacing: 0.5px;
 }
 
+/* A folder's AI job: a window in the corner (the library stays usable). */
+.ai-job {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 55;
+  width: min(380px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.ai-job h2 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+.ai-job p {
+  margin: 4px 0;
+}
+.ai-job progress {
+  width: 100%;
+  height: 10px;
+  margin: 8px 0 2px;
+  accent-color: var(--accent);
+}
+.ai-job [role="status"],
+.ai-job [role="alert"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-job [role="alert"] {
+  color: var(--bad);
+}
+.ai-job-pill {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
 /* ── Dialogs ───────────────────────────────────────────────────────── */
 .modal-back {
   position: fixed;
@@ -1240,6 +1331,9 @@ pre.report {
   margin: 4px 8px;
   font-size: 12px;
 }
+.context-menu p.busy {
+  color: var(--muted);
+}
 
 /* Open in… menu */
 .open-in {
@@ -1353,4 +1447,63 @@ pre.report {
 }
 .all-meta dd {
   white-space: pre-wrap;
+}
+
+/* On-device AI (ADR-035) */
+.chips.ai li {
+  border-style: dotted;
+  background: transparent;
+}
+.dup-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.dup-days ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dup-days button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  text-align: left;
+}
+.dup-days button[aria-current="true"] {
+  background: var(--sel);
+}
+.dup-groups {
+  overflow: auto;
+  min-height: 0;
+}
+.dup-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+  background: var(--panel);
+}
+.dup-group.decided {
+  opacity: 0.8;
+}
+.dup-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dup-tiles .card-tile {
+  padding: 0;
+  text-align: left;
+}
+.dup-tiles .card-tile.focused {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.dup-badge {
+  color: var(--ok);
 }

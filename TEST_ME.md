@@ -1,8 +1,56 @@
-# Manual Test Steps — Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## On-device AI: tags and same-day duplicates
+
+Setup (once): `scripts\setup.ps1 -VendorOnly` (Windows) or `scripts/setup.sh` (macOS, Apple Silicon) installs ONNX Runtime into `vendor/onnxruntime/`. Add `-WithAi` / `--with-ai` to get the model too (372 MB) for the automated model tests; the app downloads its own copy when you turn AI on.
+
+Automated:
+```
+cargo test -p keepsake-core --lib ai::
+cargo test -p keepsake-core --test ai_tests
+cd app/ui; pnpm test; pnpm exec playwright test --project=mocked e2e/mocked/ai.spec.ts
+```
+Without the model, the three `ai_tests` that run it print "skipping" and pass.
+
+Manual (both OSes), with a library that has some bursts or repeated shots:
+1. Open **Settings**. **Expected:** an "On-device AI" card says "Off." and that turning it on downloads the model once (371.8 MB).
+2. Tick **Tag photos and find duplicates**. **Expected:** a progress bar counts up to 371.8 MB. Afterwards the card says "Starting…", then "Ready, on the graphics card (DirectML). 0 items analysed so far." Nothing is analysed yet: it waits until you ask (step 4). On a Mac it says CoreML; without a usable GPU it says processor (CPU). The model is in `%LOCALAPPDATA%\keepsake\models\siglip2-b16-224\` (Windows) or `~/Library/Caches/keepsake/models/siglip2-b16-224/` (macOS). Nothing is written next to your photos.
+3. Start the download again on a fresh profile and press **Cancel**. **Expected:** the bar goes away, AI stays off, and no `vision_model.part` is left in that folder.
+4. In the sidebar's calendar tree (By date), right-click a day with a burst of RAW photos (or select it and press the Menu key or Shift+F10). **Expected:** the menu has **Show**, **Find duplicates** and **Tag photos**. Choose **Find duplicates**. **Expected:**
+   - Duplicates opens as "Duplicates · Sat 4 July 2026" (that day).
+   - It shows "Comparing: n of m done…", counting up every few seconds, then "m of m RAW photos compared." Only RAW photos are counted. No AI tags are given. For a day of a few hundred photos with thumbnails, that takes well under a minute.
+   - Its groups appear. Only that day was analysed: `keepsake ai status` shows that day's count, not the whole library.
+   - The same works on a month or a year (longer).
+   - With AI off, the menu says to turn it on in Settings first.
+   - Thumbnails missing for that day are made first. AI work pauses on battery and during a card import.
+5. Right-click the same day and choose **Tag photos**. **Expected:** the menu closes at once, the library shows that day, and the progress window opens in the bottom-right corner: "Tagging Sat 4 July 2026", "Getting ready…" (a few seconds on a USB drive), then a progress bar with "n of m done…", then "m of m photos tagged." and **Close**. It has **Stop** and **Hide**, as for a folder (step 16). A photo of a person, baby or child gets **People** (and Baby, Child or Portrait as fits). Photos tagged by the previous build are tagged again, quickly. Photos already compared need no new analysis, so it is quick. Select one photo. **Expected:** the inspector shows **AI tags** under Keywords (dotted chips, e.g. "Beach", "People"); hover shows how sure it is.
+6. Type one of those tags in the search box. **Expected:** the photo is found.
+7. Press ✕ on an AI tag. **Expected:** it goes. Run `keepsake ai retag`, or wait for the photo to be analysed again. **Expected:** it does not come back. Press ✓ on another. **Expected:** it moves to Keywords.
+8. On the Duplicates screen, press **All analysed dates** (or open Duplicates from the sidebar). **Expected:** every analysed day with groups, newest first, each with "n of m" left to decide. Only RAW photos are grouped: a JPEG-only photo, including an edited JPEG with the same name as a RAW (e.g. `Edits\DSC001.JPG` next to `DSC001.ARW`), never appears in a group. A day shows its groups: near-identical shots, the suggested one ("Suggested", best rated, else earliest) outlined. The others say "96% alike" or "Same picture".
+9. Click a photo in a group. **Expected:** it says "Kept" and the others "Not kept"; the day's count drops by one.
+10. Click in the groups area and use the keys: arrows move, **K** keeps the focused photo, **N** marks the group "Not duplicates" (it goes away), and **U** undoes a group's decision.
+11. Go to **All items** and tick **Hide not kept** in the toolbar. **Expected:** the item count drops by the number of "not kept" photos; untick to see them again.
+12. Check the originals: in Explorer / Finder their modified dates and sizes are unchanged and none was moved or deleted. Only the library's XMP sidecars changed (they now hold `keepsake:DuplicateChoice` / `keepsake:AITagsRejected`).
+13. Untick **Tag photos and find duplicates**, then press **Delete the downloaded model**. **Expected:** the model file is gone; AI tags and your keeper choices stay. Duplicates now says the AI is off, with a button to Settings.
+14. In the toolbar, open the **Tag** list (after Lens). **Expected:** "Any tag", then every keyword and AI tag with its count, most used first (e.g. "People (412)"). Choose one. **Expected:** only items with that tag show, and the count in the status bar drops. Press **✕ Clear**. **Expected:** the list is back on "Any tag" and every item shows. On both OSes.
+15. Tag a day whose photos have few obvious subjects (a building, the moon, flowers). **Expected:** nearly every photo gets one or two tags; hover shows they are less sure. ✕ removes a wrong one for good.
+16. In the sidebar choose **By folder**, open a drive, and right-click a year folder. **Expected:** the menu has Show, Scan again, **Find duplicates** and **Tag photos**. Choose **Tag photos**. **Expected:** the menu closes, and a window in the bottom-right corner reads "Tagging <drive> › <year>", then "Getting ready…". Then a progress bar and "n of m done…" count up every 2 s. The library can still be used.
+    - Press **Hide**. **Expected:** the window goes and a small "Tagging · 40%" button stays in the corner; click it to bring the window back.
+    - Press **Stop**. **Expected:** "Stopped: n of m done. What was done stays." Run Tag photos again on the same folder. **Expected:** it carries on from there.
+    - Let one finish. **Expected:** "m of m photos tagged." and a **Close** button. With **Find duplicates** it shows "m of m RAW photos compared." and **Show duplicates**, which opens the Duplicates screen.
+    - Speed: tagging a folder of a few hundred photos that already have thumbnails takes minutes, not an hour, even on the USB drive. On both OSes.
+17. Check one picture's tags from a terminal: `keepsake ai explain "C:\Photos\photo.jpg"` (on a Mac, `keepsake ai explain ~/Pictures/photo.jpg`). **Expected:** "Tags given: …", then the 15 best tags with their scores. A photo of a person lists People (or Portrait, Baby, Child) near the top.
+18. The app icon: after installing, look at the Start menu entry, the desktop shortcut, the taskbar while Keepsake runs, and the installer file itself. **Expected:** each shows a dark camera on an orange rounded square, not a blank square. On macOS, the Dock and Finder show the same icon.
+19. Windows: run `scripts\keepsake.bat`. **Expected:** after "Repository: …" it prints "Getting the latest changes..." and git's result ("Already up to date." or the files it updated), then starts the app. Change a file in the repository and run it again. **Expected:** "You have changed files here: not updating, using them as they are." Unplug the network. **Expected:** "Could not update (offline, or the branch moved); using the copy you have.", and the app still starts.
+20. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
+
+macOS notes: CoreML is tried first, then the CPU. The installer does not bundle ONNX Runtime yet (no macOS app bundle of the sidecars), so on a Mac test from source.
 
 ---
 

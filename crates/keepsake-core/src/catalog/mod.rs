@@ -27,10 +27,11 @@ pub use ids::{
 pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{
-    Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DriveRow, EditFields,
-    EventSpan, Events, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
-    LibraryReport, Meta, NewJob, Priority, Recipes, Renditions, Report, ReportRow, Search,
-    SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
+    Ai, AiCounts, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DayItem,
+    DriveRow, EditFields, EventSpan, Events, Facet, FacetColumn, Files, Imports, Job, JobCounts,
+    JobState, Jobs, Labels, LibraryReport, Meta, NewJob, Priority, RangeItem, Recipes, Renditions,
+    Report, ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags,
+    Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -75,6 +76,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(browse, Browse);
     repo_accessor!(sequences, Sequences);
     repo_accessor!(report, Report);
+    repo_accessor!(ai, Ai);
 
     /// The raw connection, for bulk paths inside the crate (seeding).
     pub(crate) fn conn(&self) -> &rusqlite::Connection {

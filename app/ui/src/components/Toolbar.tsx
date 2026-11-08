@@ -26,7 +26,7 @@ export function Toolbar() {
   const { s, dispatch, refreshes, view } = useUi();
   const thumbSize = useThumbSize();
   const [text, setText] = useState(s.filters.text ?? "");
-  const [facets, setFacets] = useState<Facets>({ cameras: [], lenses: [] });
+  const [facets, setFacets] = useState<Facets>({ cameras: [], lenses: [], tags: [] });
   // Cameras and lenses of the whole library: they change only with imports
   // and edits, not with each new view (fetching them per view held up the
   // next search behind a 200 ms query at 300,000 items).
@@ -118,6 +118,23 @@ export function Toolbar() {
         ))}
       </select>
       <select
+        aria-label="Tag"
+        title="Show only items with this keyword or AI tag"
+        value={s.filters.tag ?? ""}
+        onChange={(e) => set({ tag: e.target.value || undefined })}
+        data-testid="tag"
+      >
+        <option value="">Any tag</option>
+        {s.filters.tag && !facets.tags.some((t) => t.value === s.filters.tag) && (
+          <option value={s.filters.tag}>{s.filters.tag.split("|").join(" › ")}</option>
+        )}
+        {facets.tags.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.value.split("|").join(" › ")} ({fmt.count(t.count)})
+          </option>
+        ))}
+      </select>
+      <select
         aria-label="Type"
         value={s.filters.kind ?? ""}
         onChange={(e) => set({ kind: (e.target.value || null) as KindFilter | null })}
@@ -141,6 +158,18 @@ export function Toolbar() {
           </option>
         ))}
       </select>
+      <label
+        className="filter"
+        title="Leave out items you marked “not kept” on the Duplicates screen"
+      >
+        <input
+          type="checkbox"
+          checked={!!s.filters.hideNotKept}
+          onChange={(e) => set({ hideNotKept: e.target.checked || undefined })}
+          data-testid="hide-not-kept"
+        />
+        Hide not kept
+      </label>
       {active && (
         <button
           className="clear"
