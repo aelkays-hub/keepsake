@@ -137,7 +137,7 @@ const CLOUD = [
     name: "Gemini",
     company: "Google",
     prefix: "AIza",
-    key: /^(?!sk-)[A-Za-z0-9_-]{20,100}$/,
+    key: /^(?!sk-)[A-Za-z0-9._-]{20,256}$/,
     hint: "",
     models: [
       { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", centsPerPhoto: 0.8 },

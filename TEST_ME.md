@@ -26,7 +26,7 @@ Manual (both OSes):
    - **Windows:** Credential Manager → Windows Credentials. **Expected:** an entry for `openai-api-key` (and `claude-api-key` if you had one, which still works).
    - **macOS:** Keychain Access, search Keepsake. **Expected:** items with accounts `openai-api-key` and so on.
    - `config.toml` has `openai_model`, `gemini_model` and `cloud_provider`, but no key.
-3. Save a Gemini key too. Change Gemini's model to **Gemini 3.5 Flash-Lite**, close and reopen Settings. **Expected:** still selected; the other providers' models did not change.
+3. Save a Gemini key too (either kind: `AIza…`, or the newer `AQ.…` with dots). **Expected:** it is accepted. Change Gemini's model to **Gemini 3.5 Flash-Lite**, close and reopen Settings. **Expected:** still selected; the other providers' models did not change.
 4. In the grid, right-click a photo of something recognisable. **Expected:** a menu with **Open** and **Tag with AI…**. Choose it. **Expected:** a window "Tagging with …" with an **AI** list showing only the providers with a key, e.g. "ChatGPT (GPT-6.1 Sol)" and "Gemini (Gemini 3.5 Flash-Lite)".
 5. Pick **Gemini**. **Expected:** the heading says "Tagging with Gemini: …", the line says "Send 1 photo to Gemini 3.5 Flash-Lite to be tagged? It costs under 1¢, charged by Google.", and the billing note shows. Pick **ChatGPT**: the line says "charged by OpenAI" and the 30-days note shows. Nothing is sent yet.
 6. Press **Send**. **Expected:** within about 10 seconds "1 of 1 photos tagged." The inspector shows new keywords (list tags, maybe some under AI); old ones are still there. No person is named.

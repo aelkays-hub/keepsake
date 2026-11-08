@@ -81,6 +81,7 @@
 - **Not verified:**
   - No test was run on this computer, and no real call to OpenAI or Google was made (no keys).
   - The TypeScript bindings were written by hand; CI regenerates them and fails if they differ.
+- **Fix, same day:** Gemini keys in the newer format (`AQ.…`, with dots) were refused as "does not look like a Gemini API key". Keys may now contain dots, and Gemini keys may be up to 256 characters; the key test covers an `AQ.` key.
 
 ## Helpers end with the app (2026-11-08)
 

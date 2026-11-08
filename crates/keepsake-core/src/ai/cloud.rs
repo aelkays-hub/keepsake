@@ -128,13 +128,14 @@ impl Provider {
         let s = s.trim();
         let charset = s
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
         charset
             && s.len() >= 20
             && match self {
                 Self::Claude => s.starts_with("sk-ant-"),
                 Self::OpenAi => s.starts_with("sk-") && !s.starts_with("sk-ant-"),
-                Self::Gemini => !s.starts_with("sk-") && s.len() <= 100,
+                // Classic keys start with AIza; newer ones (AQ.…) have dots.
+                Self::Gemini => !s.starts_with("sk-") && s.len() <= 256,
             }
     }
 }
@@ -648,6 +649,7 @@ mod tests {
         let claude = "sk-ant-api03-abcdefghijklmnop_QR-12";
         let openai = "sk-proj-abcdefghijklmnopqrstuvwxyz0123";
         let gemini = "AIzaSyAbcdefghijklmnopqrstuvwxyz012345";
+        let gemini_new = "AQ.Ab8RN6Kq-abcdefghijklmnopqrstuvwxyz_0123456789";
         assert!(Provider::Claude.looks_like_key(claude));
         assert!(Provider::Claude.looks_like_key(&format!("  {claude}  ")));
         assert!(!Provider::Claude.looks_like_key(openai));
@@ -655,6 +657,12 @@ mod tests {
         assert!(!Provider::OpenAi.looks_like_key(claude));
         assert!(!Provider::OpenAi.looks_like_key(gemini));
         assert!(Provider::Gemini.looks_like_key(gemini));
+        assert!(
+            Provider::Gemini.looks_like_key(gemini_new),
+            "keys with dots"
+        );
+        assert!(!Provider::Claude.looks_like_key(gemini_new));
+        assert!(!Provider::OpenAi.looks_like_key(gemini_new));
         assert!(!Provider::Gemini.looks_like_key(openai));
         for p in Provider::ALL {
             assert!(!p.looks_like_key("sk-ant-short"));
