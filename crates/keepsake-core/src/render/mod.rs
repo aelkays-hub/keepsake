@@ -63,6 +63,10 @@ pub enum RenderError {
     Waiting(String),
     #[error("{0}")]
     Failed(String),
+    /// Refused for a reason that trying again will not fix (e.g. Claude
+    /// did not accept the API key; not retried).
+    #[error("{0}")]
+    Refused(String),
 }
 
 impl RenderError {
@@ -77,7 +81,7 @@ impl RenderError {
 
     /// Retrying will not help.
     pub fn is_permanent(&self) -> bool {
-        matches!(self, RenderError::Unsupported(_))
+        matches!(self, RenderError::Unsupported(_) | RenderError::Refused(_))
     }
 }
 

@@ -192,6 +192,9 @@ pub struct AiSettings {
     pub enabled: bool,
     /// Use the graphics card when it can (DirectML / CoreML).
     pub gpu: bool,
+    /// Tag with Claude (ADR-036): the model's API id. The API key is in
+    /// the OS's credential store, never here.
+    pub claude_model: String,
 }
 
 impl Default for AiSettings {
@@ -199,6 +202,7 @@ impl Default for AiSettings {
         Self {
             enabled: false,
             gpu: true,
+            claude_model: crate::ai::ClaudeModel::default().id().to_owned(),
         }
     }
 }

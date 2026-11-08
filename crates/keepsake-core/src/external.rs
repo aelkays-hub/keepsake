@@ -47,14 +47,39 @@ pub fn open_folder(dir: &Path) -> Result<(), LibraryError> {
 }
 
 fn launch((prog, args): (String, Vec<String>)) -> Result<(), LibraryError> {
-    Command::new(&prog)
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+    let command = || {
+        let mut cmd = Command::new(&prog);
+        cmd.args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd
+    };
+    let mut cmd = command();
+    outlive_app(&mut cmd);
+    if cmd.spawn().is_ok() {
+        return Ok(());
+    }
+    // Breaking away can be refused (Keepsake was started inside a job that
+    // does not allow it): start it plainly then.
+    command()
         .spawn()
         .map_err(|e| LibraryError::Invalid(format!("could not start {prog}: {e}")))?;
     Ok(())
+}
+
+/// A program the user opens stays open when Keepsake closes: on Windows it
+/// leaves the job that ends Keepsake's helpers with the app
+/// (`keepsake_platform::close_helpers_with_app`).
+fn outlive_app(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        cmd.creation_flags(CREATE_BREAKAWAY_FROM_JOB);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
 }
 
 #[cfg(test)]

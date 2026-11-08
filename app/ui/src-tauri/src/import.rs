@@ -25,12 +25,20 @@ use crate::convert;
 use crate::state::{err, ui_test, AppState, CmdResult};
 
 /// The app's one ExifTool process (started on first use).
+static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
+
 pub(crate) fn exiftool() -> Option<&'static ExifTool> {
-    static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
     ET.get_or_init(|| {
         ExifTool::start(&RenderTools::discover().exiftool, Duration::from_secs(30)).ok()
     })
     .as_ref()
+}
+
+/// When the app closes: stop the import ExifTool, if one was started.
+pub(crate) fn stop_exiftool() {
+    if let Some(Some(et)) = ET.get() {
+        et.shutdown();
+    }
 }
 
 fn mount_path(mount: &str) -> CmdResult<PathBuf> {
