@@ -11,7 +11,7 @@ define_repo!(
 );
 
 /// Recursive CTE yielding `(tag_id, 'A|B|C')` for every tag.
-const PATHS_CTE: &str = "WITH RECURSIVE tag_paths(id, path) AS (
+pub(crate) const PATHS_CTE: &str = "WITH RECURSIVE tag_paths(id, path) AS (
        SELECT id, name FROM tags WHERE parent_id IS NULL
        UNION ALL
        SELECT t.id, tp.path || '|' || t.name FROM tags t JOIN tag_paths tp ON t.parent_id = tp.id
@@ -88,6 +88,27 @@ impl<M> Tags<'_, M> {
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
+    }
+
+    /// Every tag on at least one asset (keywords and AI tags), with how
+    /// many assets carry it or a tag below it, most used first.
+    pub fn counts(&self) -> Result<Vec<(TagPath, u64)>, CatalogError> {
+        let mut st = self.conn.prepare(&format!(
+            "{PATHS_CTE}
+             SELECT p.path, count(DISTINCT at.asset_id)
+               FROM tag_paths p
+               JOIN tag_paths d ON d.path = p.path OR d.path LIKE p.path || '|%'
+               JOIN asset_tags at ON at.tag_id = d.id
+              GROUP BY p.path
+              ORDER BY count(DISTINCT at.asset_id) DESC, p.path
+              LIMIT 1000"
+        ))?;
+        let raw: Vec<(String, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        raw.into_iter()
+            .map(|(p, n)| Ok((TagPath::parse_lightroom(&p)?, u64::try_from(n).unwrap_or(0))))
+            .collect()
     }
 
     /// Ids of assets carrying `path` (exactly, not descendants).

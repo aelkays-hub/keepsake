@@ -725,6 +725,20 @@ export function Viewer() {
           </div>
         )}
         {row && <span className="stars-text">{"★".repeat(row.rating)}</span>}
+        {row && only && (
+          <button
+            onClick={() =>
+              dispatch({
+                t: "aiJob",
+                job: { claude: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+              })
+            }
+            title="Send this photo to Claude to be tagged (asks first)"
+            data-testid="viewer-claude"
+          >
+            Tag with Claude
+          </button>
+        )}
         <OpenInMenu id={row?.id ?? null} member={member} onOpened={setNote} />
         <button
           onClick={() => void toggleFullscreen()}

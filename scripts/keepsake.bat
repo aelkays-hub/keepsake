@@ -1,16 +1,33 @@
 @echo off
 rem Keepsake on Windows: set up everything, then run, build or test the app.
 rem
-rem   keepsake.bat           set up, then start the app (pnpm tauri dev)
+rem   keepsake.bat           set up, get the newest work, then start the app (pnpm tauri dev)
 rem   keepsake.bat build     set up, then build the installers
 rem   keepsake.bat test      set up, then run the Rust and UI tests
 rem   keepsake.bat release   tag v0.1.0 on mvp-hardening and push it (asks first)
 rem
 rem Safe to run again: each step skips what is already installed.
+rem The newest work is on the branch named in BRANCH below; the script moves
+rem to it and gets its latest changes (set KEEPSAKE_BRANCH to use another,
+rem or KEEPSAKE_BRANCH=- to stay on the branch you are on).
 rem Run it from this folder, or copy it anywhere: outside the repository it
 rem clones Keepsake into %USERPROFILE%\keepsake first.
 
 setlocal EnableExtensions
+rem The branch with the newest work. Change it when a newer one is started.
+set "BRANCH=feat/claude-tagging"
+if defined KEEPSAKE_BRANCH set "BRANCH=%KEEPSAKE_BRANCH%"
+
+rem Run from a copy in TEMP: changing branch or getting changes rewrites this
+rem file, and Windows reads a running script from the file as it goes.
+if defined KEEPSAKE_FROM goto :from_copy
+set "KEEPSAKE_FROM=%~dp0"
+copy /y "%~f0" "%TEMP%\keepsake-run.bat" >nul
+if errorlevel 1 goto :from_copy
+"%TEMP%\keepsake-run.bat" %*
+:from_copy
+set "HERE=%~dp0"
+if defined KEEPSAKE_FROM set "HERE=%KEEPSAKE_FROM%"
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=dev"
 if /i not "%MODE%"=="dev" if /i not "%MODE%"=="build" if /i not "%MODE%"=="test" if /i not "%MODE%"=="release" (
@@ -34,8 +51,8 @@ set "PATH=%ProgramFiles%\Git\cmd;%PATH%"
 
 rem -- 2. Find or clone the repository ----------------------------------------
 set "ROOT="
-if exist "%~dp0..\Cargo.toml" (
-  for %%R in ("%~dp0..") do set "ROOT=%%~fR"
+if exist "%HERE%..\Cargo.toml" (
+  for %%R in ("%HERE%..") do set "ROOT=%%~fR"
 )
 if defined ROOT goto :have_repo
 set "ROOT=%USERPROFILE%\keepsake"
@@ -48,6 +65,29 @@ cd /d "%ROOT%"
 echo [keepsake] Repository: %ROOT%
 
 if /i "%MODE%"=="release" goto :release
+
+rem -- 2b. Move to the newest work and get its latest changes (skipped if you
+rem        changed files)
+git diff --quiet 2>nul
+if errorlevel 1 goto :skip_pull
+git diff --cached --quiet 2>nul
+if errorlevel 1 goto :skip_pull
+if "%BRANCH%"=="-" goto :same_branch
+git fetch -q origin
+set "CUR="
+for /f "usebackq delims=" %%B in (`git branch --show-current`) do set "CUR=%%B"
+if /i "%CUR%"=="%BRANCH%" goto :same_branch
+echo [keepsake] Moving to the branch with the newest work: %BRANCH%
+git switch "%BRANCH%"
+if errorlevel 1 echo [keepsake] Could not move to %BRANCH%; staying on %CUR%.
+:same_branch
+echo [keepsake] Getting the latest changes...
+git pull --ff-only
+if errorlevel 1 echo [keepsake] Could not update ^(offline, or the branch moved^); using the copy you have.
+goto :pulled
+:skip_pull
+echo [keepsake] You have changed files here: not updating, using them as they are.
+:pulled
 
 rem -- 3. C++ Build Tools (Rust needs them to compile on Windows) -------------
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"

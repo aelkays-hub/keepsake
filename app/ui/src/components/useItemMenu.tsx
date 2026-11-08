@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 
+import type { MenuItem } from "./ContextMenu";
 import { ItemMenu } from "./ItemMenu";
 
 const mac =
@@ -23,6 +24,8 @@ export const isMenuKey = (e: React.KeyboardEvent) =>
 export function useItemMenu(
   rowAt: (i: number) => { id: string; name: string | null } | undefined,
   focusItem: (i: number) => void,
+  /** The list's own actions for item `i` (see `ItemMenu`'s `actions`). */
+  actions?: (i: number) => { before?: MenuItem[]; after?: MenuItem[] },
 ) {
   const [menu, setMenu] = useState<{
     x: number;
@@ -46,6 +49,7 @@ export function useItemMenu(
       y={menu.y}
       id={menu.id}
       name={menu.name}
+      actions={actions?.(menu.i)}
       onClose={() => {
         setMenu(null);
         focusItem(menu.i);

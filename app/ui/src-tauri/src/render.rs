@@ -31,6 +31,25 @@ impl RenderState {
     }
 }
 
+/// When the app closes: stop the service and wait up to `wait` for its
+/// current jobs to finish, so its ExifTool is stopped too.
+pub fn stop_for_exit(app: &AppHandle, wait: std::time::Duration) {
+    let state = app.state::<AppState>();
+    state.render.stop();
+    let worker = state.render.worker.lock().ok().and_then(|mut w| w.take());
+    if let Some(w) = worker {
+        let deadline = std::time::Instant::now() + wait;
+        while !w.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if w.is_finished() {
+            let _ = w.join();
+        } else {
+            tracing::warn!("render service still busy at exit");
+        }
+    }
+}
+
 /// Stop the service (it finishes its current job in the background) and
 /// start one with the current settings.
 pub fn restart_service(app: &AppHandle) -> CmdResult<bool> {
@@ -58,10 +77,11 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     if slot.as_ref().is_some_and(|h| !h.is_finished()) {
         return Ok(false);
     }
-    let mut opts = RenderOptions::from_settings(&open.settings.render);
+    let mut opts = RenderOptions::from_settings(&open.settings.render).with_ai(&open.settings.ai);
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
-        .with_power(power());
+        .with_power(power())
+        .with_claude(crate::claude::tagger());
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render
@@ -77,6 +97,19 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
                 let _ = render::enqueue_backlog(&mut cat);
             }
             let result = svc.run(&cancel, &mut |ev| {
+                match ev {
+                    RenderEvent::AiReady { accel } => {
+                        let st = app.state::<AppState>();
+                        st.ai.note(Some(accel.describe().to_owned()), None);
+                        let _ = app.emit("ai://status", ());
+                    }
+                    RenderEvent::AiUnavailable { reason } => {
+                        let st = app.state::<AppState>();
+                        st.ai.note(None, Some(reason.clone()));
+                        let _ = app.emit("ai://status", ());
+                    }
+                    _ => {}
+                }
                 if let RenderEvent::Done { asset, made, .. } = ev {
                     if made.iter().any(|m| m == "thumb-256") {
                         let _ = app.emit(

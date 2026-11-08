@@ -230,6 +230,8 @@ fn a_read_only_library_volume_is_only_read() {
             until_empty: true,
             forced_encoder: None,
             evict_every: 25,
+            ai: false,
+            ai_gpu: false,
         },
     );
     svc.run(&AtomicBool::new(false), &mut |_| {}).unwrap();

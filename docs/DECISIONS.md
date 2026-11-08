@@ -1161,3 +1161,162 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Measured.** Corpus: 59 of 1,010 JPEGs have a built-in preview (camera originals; edited exports have none), and every one matches the whole picture in shape, orientation and content (`corpus_jpeg_built_in_previews_match_the_picture`).
 
 **Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.
+
+---
+
+## ADR-035 — On-device AI: content tags and same-day duplicates
+
+**Status**: Accepted (2026-11-07, product owner: chose "SigLIP 2 base", "ort + ONNX Runtime", "Fixed list for now" and "Mark 'not kept'", then "Yes, download all" for the development downloads). ADR-033 and ADR-034 are taken by open pull requests.
+
+**Context.** The product owner wants a small model running on their own computer (no cloud) to (1) find exact and near-identical photos taken on the same day (bursts, re-shoots, a shot saved twice) and pick one to keep, and (2) tag photos by what they show, searchable and removable. SPEC v2 lists on-device tagging; schema v1 already had `asset_tags.source = 'ai'` with a confidence, and the XMP writer a `keepsake:AITags` bag.
+
+**Decision.**
+- **One model for both: SigLIP 2 base, patch 16, 224 px** (google/siglip2-base-patch16-224, **Apache-2.0**), the ONNX image encoder from onnx-community/siglip2-base-patch16-224-ONNX at revision `ba1f3b08` (`vision_model.onnx`, fp32, 371,807,752 bytes, SHA-256 `c0573e3f…bcad`, BLAKE3 `2bc84d1b…856b`). Its 768-number image vectors give near-duplicate similarity, and zero-shot scores against a tag list give tags. OpenAI CLIP was not chosen: the licence of its weights is unconfirmed (the MIT licence covers the code). Apple MobileCLIP weights are for research only.
+- **fp32, not int8.** Measured per photo on the product owner's laptop (Ryzen 7 7735HS, integrated Radeon): fp32 takes 80 ms on the GPU (DirectML) and 120 ms on the CPU; int8 takes 300 ms on the GPU and 72 ms on the CPU. fp32 on the GPU leaves the CPU to the thumbnail workers, so 100,000 photos are about 2.2 hours of one-off background work. The download is 372 MB, twice the 190 MB estimated in the proposal (that figure was fp16).
+- **Runtime: ONNX Runtime, loaded at run time, never linked**, through the `ort` crate's `load-dynamic` feature. Windows (x64, ARM64): Microsoft.ML.OnnxRuntime.DirectML **1.24.4** and Microsoft.AI.DirectML **1.15.4** (NuGet). DirectML is used when it works; otherwise the CPU, with half the cores. macOS (Apple Silicon): ONNX Runtime **1.31.1**, whose CoreML provider is tried first. `ort` 2.0.0-rc.15 needs ONNX Runtime 1.17 or later. Microsoft stopped the DirectML build at 1.24 (Windows ML replaces it), so a later update may move Windows to Windows ML.
+- **Where the files come from.** ONNX Runtime goes in `vendor/onnxruntime/` (setup scripts, pinned by SHA-256) and in the Windows installer's resources. The model is **never committed or bundled**: Settings → On-device AI (or `keepsake ai install`) downloads it into the user's cache folder (`%LOCALAPPDATA%\keepsake\models\siglip2-b16-224\`, `~/Library/Caches/keepsake/models/…`) with the operating system's own `curl` (in Windows 10+ and macOS), so no HTTP crate is added, and keeps it only if its BLAKE3 matches. Developers get it in `vendor/models/` with `setup.ps1 -WithAi` / `setup.sh --with-ai`. These downloads come from their upstream hosts (NuGet, GitHub, Hugging Face) pinned by checksum. They are **not yet on the `vendor-binaries` mirror** (ADR-005): mirroring them needs the product owner's go-ahead to upload release assets.
+- **Tags: a fixed list.** `ai/labels.tsv` (102 tags, each with one or more English phrases). Its text vectors were made once with the model's text half by `scripts/make-label-vectors.py`, a developer tool run in a throwaway Python environment, and are committed as `labels-siglip2-b16-224.bin` (82 KB, int8). The app therefore needs neither the 1.1 GB text model nor a tokenizer. The vector file carries a copy of the list it was made from, and loading refuses a mismatch. A tag's probability is SigLIP's own `sigmoid(112.67·cos − 16.77)` (the model's trained `logit_scale` and `logit_bias`, read from the original weights). A photo gets at most 6 tags, each at 0.02 or above: on a sample of the library the right tag scored 0.02–0.6 and the rest below 0.01. Changing the list or the cut-off re-scores the stored vectors (`keepsake ai retag`) without running the model again.
+- **Whole folders, a progress window, and batched saves** (product owner, 7 Nov 2026: "I want to speed the duplicate and tagging processes so in addition to running them for one day at a time, I want to be able to run it at a top level folder tree and it traverses the tree and tags, I would like to see a window showing progress").
+  - The folder tree's right-click menu has **Find duplicates** and **Tag photos** too. They cover the folder and every folder below it (the drive itself: all of it). `ai::Target` is a date range or a folder, and both are a library search (`SearchQuery` with dates, or volume and folder). `Ai::matching` and `Jobs::pending_matching` count over it.
+  - A window in the corner shows "Tagging Photos A › 2016", a progress bar and "n of m done…". It has **Stop** (drops the folder's queued jobs; what was done stays) and **Hide** (a small button in the corner brings it back). When done it shows **Close**, and **Show duplicates** after Find duplicates. The library stays usable meanwhile.
+  - **Speed:** each AI job used to take three catalog writes: claim, save, mark done. On the USB drive a write waited 2–12 s behind thumbnail and proxy writes. The AI worker now claims up to 32 jobs in one write, works them out (`ai::analyze::prepare`), then saves the results and marks the jobs done in one more write (`ai::analyze::save`). That is two writes per 32 photos instead of 96. A job that cannot finish (no thumbnail yet, drive offline) is deferred or failed one by one, as before.
+- **A bigger model was tried and not adopted; best guesses instead** (product owner, 7 Nov 2026: "tagging is still very poor we need a stronger AI to perform this tagging...I am getting less than 50% of pics tagged"). The product owner chose to try SigLIP 2 Large and switch only if it scored clearly better, and agreed to best-guess tags.
+  - **Tried:** google/siglip2-large-patch16-256 (Apache-2.0), the fp16 ONNX image encoder from onnx-community/siglip2-large-patch16-256-ONNX at revision `c03fb63d` (632,433,061 bytes, SHA-256 `f7f71938…fd1a`), with its own `logit_scale` 108.05 and `logit_bias` −16.35. It was downloaded only into a developer's scratch folder, never into the app.
+  - **Measured on 300 random photos of the library** (CPU):
+    - At the 0.02 cut-off, Large gave a sure tag to 233 photos and the base model to 247.
+    - On 24 photos neither tagged, the best guess was right about 20 times with Large and 21 with base.
+    - Large took 0.65 s per photo against 0.22 s.
+    - So Large is not clearly better on this library, and it is three times slower. The model is unchanged, and so are the dependencies.
+  - **What was wrong:** the cut-off. SigLIP's probabilities for short phrases are low, and the right tag often ranked first just under 0.02.
+  - **Best guesses:** a photo with no tag at 0.02 now gets its best guess, plus the second when it is at least half as likely, down to 0.002 (`labels::GUESS_MIN_PROB`).
+    - Coverage of the 300 rose from 247 to 296.
+    - The 24 that had none all get a tag, and 23 of those are right.
+    - The inspector shows how sure each tag is, and ✕ removes a wrong guess for good.
+  - **New tags** the sample showed were missing: Moon, Mosque, Helicopter and Squirrel, for 110 in all. Tag list version 3, so earlier tagged photos are re-tagged from their stored analysis.
+- **A tag list in the toolbar** (same day: "would be good to have a dropdown of tags at top of screen"). "Any tag" lists every keyword and AI tag in the library, most used first, with its count. Choosing one shows only the items with it or a tag below it (`SearchQuery.tag`, `Tags::counts`; `Facets.tags`).
+- **People were missed; tags now score their best phrase** (product owner, 7 Nov 2026: "a simple picture contains a person or face and your AI model is failing maybe we need to change the model with a better one").
+  - **Found:** the model sees people well, but the scoring hid it. Each tag averaged its phrases into one vector and short phrases such as "a photo of people." score low with SigLIP. On 48 photos from the library (15 with people), no photo got People, and 8 of the 15 got no tag at all. A woman posing in a studio scored 0.0015 for People against "a woman posing for a photo shoot" at 0.55.
+  - **Changed:**
+    - A tag now scores its best-matching phrase, and the people tags have many more phrases (a man, a woman, a girl, a family, a newborn baby, a headshot, …).
+    - An optional third column in `labels.tsv` names a tag it also gives: Portrait, Group photo, Selfie, Baby, Child, Crowd and Police give People.
+    - 4 new tags (Climbing, Cave, Coin, Police), for 106 in all.
+    - The vector file is format 2 (`KSLV2`): one int8 vector per phrase, 189 KB.
+  - **Result on the same 48 photos:** 12 of the 15 people photos get People. The other 3 get Birthday, Wedding or Climbing. None of the 33 others gets People, and planes, cats, dogs and buildings keep their tags. The cut-off (0.02) and the 6-tag limit are unchanged.
+  - **The model is kept:** no new download or dependency. A face detector (needed later for face clustering) would make People surer still; it is a separate decision.
+  - **Re-tagging:** schema v11 (migration 0011) adds `ai_analysis.tag_list`, the tag-list version the tags came from (`labels::LIST_VERSION`, now 2; rows tagged before are 1). Tag photos counts a photo tagged with an older list as not done and re-tags it from its stored analysis (no thumbnail, no model run); `keepsake ai retag` re-tags every tagged photo.
+  - `keepsake ai explain <picture>` prints every tag's score for one picture, to check why a tag was or was not given.
+- **Tag photos answers at once** (same request: "when menu is selected, there is no indication of anything happening"). Queueing a range waited on the catalog, which takes seconds on the USB drive, with nothing on screen. Now the menu closes at once and the status bar shows "July 2026: Getting ready to tag…" with a spinner, then "Tagging: n of m done…". A failure (AI off, say) stays in the status bar until dismissed. Find duplicates, which still waits to open the Duplicates screen, shows "Working…" in the menu.
+- **Finding duplicates and tagging are separate** (product owner, same day: "let us separate finding duplicates from tags, they should be separate functions runs separately").
+  - The date's right-click menu has **Find duplicates** and **Tag photos**.
+  - **Find duplicates** queues `ai.analyze` jobs for the range's RAW photos. They store the embedding and hash and give no tags; then the Duplicates screen opens on the range.
+  - **Tag photos** queues `ai.tag` jobs for every item of the range and stays in the library. The status bar shows "July 2026: Tagging: n of m done…", and the inspector refreshes when it ends.
+  - An item already analysed is not analysed again: tagging it scores its stored embedding (no thumbnail, no model run), and finding duplicates for a tagged item does nothing more.
+  - Schema v10 (migration 0010) adds `ai_analysis.tagged`; rows from v9 were tagged. `ai::analyze::Purpose` names the two tasks. `keepsake ai run` finds duplicates, and `--tags` tags.
+- **Duplicates: RAW photos only** (product owner, same day: "Only determine duplicates in RAW format, a picture that has the same name as a raw file with a jpg extension is not a duplicate, it is an edited copy"). Only items with a RAW file (`assets.is_raw`) are compared, so JPEG-only photos, including edited JPEGs named like their RAW, are never grouped, and neither are videos. A RAW + JPEG pair is one item. AI tags are still given to every photo. (`duplicates::Scope::Raw`; `Scope::All` is kept for tests.)
+- **Duplicates: found on demand, per calendar day** (`capture_local_date`), from the stored vectors; nothing about the groups is stored. Two items of the same kind are linked when their 64-bit difference hashes (from the thumbnail) differ in 6 bits or fewer, or their vectors' cosine is 0.93 or more. In the same burst run, or within 15 s of each other, 0.88 is enough. Linked items join into groups. Days with more than 1,500 items compare only items within 2 hours of each other. The suggested keeper is the best rated, then the earliest.
+- **Input is the thumbnail**, the 1024 px one (else 256 px), never the original: no network drive is read again, and videos use their thumbnail frame. The `ai.analyze` job (one per asset, on the persistent queue) runs on one extra worker in the render service when AI is on. Like the fingerprint worker it pauses on battery and during imports, and it waits while thumbnail jobs are ready or running. An item without a thumbnail queues its thumbnail at the same priority and is tried again after 15 s.
+- **On demand, by date (product owner, same day: "it should not try to seek the whole catalogue… I should be able to go to a specific date and right click to select find duplicates and tag").** Turning AI on analyses nothing by itself. Right-click a year, month or day in the sidebar's calendar tree (or press the Menu key or Shift+F10) and choose **Find duplicates and tags** (`ai::analyze::enqueue_range`). That date's unanalysed items get `ai.analyze` jobs, and their thumbnails get jobs ahead of the backlog (no video proxies). The Duplicates screen then opens on those dates, showing "Analysing: n of m done…".
+  - On start, the AI worker drops queued background-class AI jobs (an earlier build of this feature had queued all 129,000).
+  - The AI worker waits only for thumbnail jobs that were asked for (on screen, or a requested date), not the backlog.
+  - `keepsake ai run [--from D --to D]` is the one way to do the whole library.
+  - Why: the first build swept the whole library, and on the product owner's library each result waited 2–3.5 s for the catalog on the USB drive while thumbnails and proxies were also writing. A single save measured under 1 ms on a copy of that catalog.
+- **Schema v9 (migration 0009).** `ai_analysis` (asset, model id `siglip2-b16-224@1`, int8 vector + scale, difference hash) is a cache. `ai_tag_rejections` (by tag path, so pruning unused tags never drops them) and `duplicate_choices` (`keeper`, `not_kept`, `not_duplicate`) are the user's decisions. Changing the model id re-runs every analysis.
+- **What is written where.** AI tags go to the catalog only (`asset_tags`, source `ai`); the background job does not rewrite 100,000 sidecars. They reach the XMP when the asset's sidecar is next written for another reason. Removed tags (`keepsake:AITagsRejected`) and duplicate decisions (`keepsake:DuplicateChoice`) are written to the XMP at once, so a rebuild keeps them. **No original is ever read beyond what thumbnails already did, and none is moved, changed or deleted.** "Not kept" only hides an item when the toolbar's **Hide not kept** is on.
+- **UI.** Sidebar → Duplicates: days, then groups. Click an item to keep it; the rest become "not kept". Not duplicates and Undo per group; keys K, N, U and the arrows. Settings → On-device AI: on/off (downloads the model), use the graphics card, progress, delete the model. The inspector shows AI tags: ✕ removes one for good, ✓ makes it your own keyword. Search finds AI tags like keywords.
+
+**Dependencies** (approved 2026-11-07):
+
+| Dependency | Version | Licence | Kind | Why |
+|---|---|---|---|---|
+| `ort` (`load-dynamic`, `directml` on Windows, `coreml` on macOS; no default features) | =2.0.0-rc.15 | MIT OR Apache-2.0 | runtime | Rust bindings for ONNX Runtime. Pulls in `ort-sys` (MIT OR Apache-2.0), `libloading` (ISC) and `smallvec` (MIT OR Apache-2.0). |
+| ONNX Runtime (`onnxruntime.dll`, `onnxruntime_providers_shared.dll`; `libonnxruntime.dylib`) | 1.24.4 (Windows), 1.31.1 (macOS) | MIT | sidecar library, loaded at run time | Runs the model. |
+| DirectML (`DirectML.dll`) | 1.15.4 | Microsoft DirectML licence (redistributable with an application) | sidecar library (Windows) | GPU inference on Windows. |
+| SigLIP 2 base p16-224 image encoder (ONNX) | onnx-community rev `ba1f3b08` | Apache-2.0 | model, downloaded by the user | Embeddings for tags and duplicates. |
+| onnxruntime, numpy, tokenizers (Python) | 1.31.1, 2.5.4, 0.23.3 | MIT, BSD-3-Clause, Apache-2.0 | developer tool only, never shipped | `scripts/make-label-vectors.py`. |
+
+Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
+
+**Not done.** Faces and semantic search; the text model would make semantic search a small step. Your own tag words (that needs the text model and a tokenizer). A sharpness score for the suggested keeper. Video frames other than the thumbnail's. Mirroring the new downloads. ONNX Runtime in the Windows ARM64 installer is untested (the setup step for ARM64 was run, not the installer), and on macOS it is not exercised (no macOS machine in this session). Per-tag cut-offs tuned on a labelled sample of the library.
+
+
+## ADR-036 — Tag with Claude: an optional cloud tagger for the photos the user picks
+
+**Status**: Accepted (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
+
+**Context.** On-device tagging (ADR-035) covers 110 fixed tags and is sometimes wrong. The product owner wants a stronger tagger for single photos, accepting that the photo leaves the computer and that it costs money. Keepsake is local-first, so this must be opt-in, per photo, and never touch originals.
+
+**Decision.**
+- **Provider: Anthropic's Claude Messages API**, called over HTTPS with the user's own API key (`POST https://api.anthropic.com/v1/messages`, `anthropic-version: 2026-10-21`). Rust has no official Anthropic SDK, so the request is plain JSON (`keepsake_core::ai::cloud`).
+- **Model: chosen in Settings → Tag with Claude.**
+  - Claude Opus 5.5 (`claude-opus-5-5`): the default, about 2¢ a photo.
+  - Claude Fable 5.1 (`claude-fable-5-1`): Anthropic's most capable, about 6¢.
+  - Claude Haiku 5.5 (`claude-haiku-5-5`): about 0.1¢, less accurate.
+  - The estimates assume about 3,000 tokens in and a few hundred out, at list prices.
+  - Effort is `low`, since this is a classification. Opus and Fable ask for the API's fallback model if they decline (`fallbacks: "default"`).
+- **What is sent: only the photos the user picks.** First a window says how many photos, to which model, and roughly what it costs, and the user presses **Send**.
+  - Each photo's 1024 px thumbnail from the render cache is re-encoded as JPEG and sent. The original is never read or sent.
+  - Nothing is sent in the background, or for a whole date or folder.
+- **What comes back: structured output** (`output_config.format`, a JSON schema).
+  - `tags` must be names from the built-in list.
+  - `new_tags` are up to 5 of Claude's own: Title Case, at most 3 words and 40 characters.
+  - The prompt forbids naming people or tagging personal traits (age, ethnicity, religion, health).
+  - Unknown list names are dropped, and a "new" tag that is on the list counts as a list tag.
+- **Where the tags go: the user's keywords**, through `MetadataService`, so they are in the catalog and the XMP sidecars and survive a rebuild.
+  - List tags keep their names (Portrait also gives People, as on-device). New tags go under **AI** (`AI|Eiffel Tower`).
+  - Keywords the photo already has stay. The user removes these like any keyword.
+  - They are not stored as on-device AI tags: they cost money, and the on-device tagger would replace them.
+- **How it runs: an `ai.claude` job per photo** on the persistent job queue, run by its own worker in the render service (`RenderService::with_claude`), never on a command thread.
+  - A photo without a thumbnail queues one and waits for it.
+  - A refused key, a refusal or a bad request fails the photo for good (`RenderError::Refused`).
+  - Busy answers (429, 529), server errors and network errors are retried with the usual back-off.
+  - The window follows the photos (`ai_claude_status`), with Stop and Hide, and shows the latest problem.
+- **The API key is kept in the operating system's credential store**: Windows Credential Manager, the macOS Keychain. It is stored under service "Keepsake", account `claude-api-key`, by `keepsake_platform::secrets`.
+  - It is never written to `config.toml`, a log or the catalog, and the UI never shows it again once saved.
+  - `KEEPSAKE_CLAUDE_KEY` overrides it (for the CLI and tests).
+  - The model id is in `config.toml` (`[ai] claude_model`).
+- **UI.**
+  - Right-click a photo or a selection in the grid (or press the Menu key or Shift+F10) and choose **Tag with Claude…**.
+  - The viewer has a **Tag with Claude** button.
+  - Settings → Tag with Claude has the model, Save key and Remove key.
+
+**Dependencies** (approved 2026-11-08):
+
+| Dependency | Version | Licence | Kind | Why |
+|---|---|---|---|---|
+| `ureq` (feature `rustls` only; no gzip) | 3.5 | MIT OR Apache-2.0 | runtime, keepsake-core | HTTPS client for the Claude API. Pulls in `rustls` (Apache-2.0 OR ISC OR MIT), `ring` (Apache-2.0 AND ISC), `webpki-roots` (CDLA-Permissive-2.0, Mozilla's root certificates), and `rustls-pki-types`, `http`, `httparse`, `log`, `percent-encoding`, `utf-8` (MIT and/or Apache-2.0). No OpenSSL. |
+| `keyring` (features `windows-native`, `apple-native`) | 3.6 | MIT OR Apache-2.0 | runtime, keepsake-platform | Keeps the API key in Windows Credential Manager / the macOS Keychain. Pulls in `windows-sys` / `security-framework` (MIT OR Apache-2.0). |
+
+- Nothing GPL.
+- `ring` builds C and assembly with the platform's compiler: MSVC on Windows. The ARM64 cross-build needs clang, which the GitHub Windows runners have.
+- Base64 is a 20-line function, not another crate.
+- The model download (ADR-035) still uses the system `curl`; it could move to `ureq` later.
+
+**Not done.**
+- Tagging a whole date or folder with Claude, on purpose (cost and privacy).
+- A spending limit, captions, and other providers.
+- A real API call is not in CI, since there is no key there. The request and the answer handling are tested with a stand-in.
+
+
+## ADR-037 — Helper processes end with the app
+
+**Status**: Accepted (2026-11-08, product owner: "got an error on install", then "Yes, fix it").
+
+**Context.** The installer stopped with "Error opening file for writing: …\Keepsake\exiftool\exiftool.exe". Two ExifTool processes from earlier sessions were still running, though Keepsake was closed. Three things caused it:
+- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows).
+- Closing Keepsake's window ends the process without running destructors, so the render service's ExifTool was never told to stop.
+- The import code keeps its ExifTool in a `static`, which is never dropped.
+
+**Decision.**
+- **On exit, stop the helpers (both OSes).** On `RunEvent::Exit` the app:
+  - stops the render service and waits up to 5 s for its jobs to finish (`render::stop_for_exit`), which stops its ExifTool;
+  - stops the import ExifTool (`import::stop_exiftool`).
+- **`ExifTool::shutdown(&self)`** stops the process (asked to finish, killed after 2 s) and waits for it. It works on one kept in a `static`; `Drop` calls it. `ExifTool::pid()` gives the running process's id, for tests.
+- **Windows: a job object as a safety net** (`keepsake_platform::close_helpers_with_app`, hand-written Win32 declarations as in ADR-020).
+  - At start-up the app puts itself in an unnamed job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Everything it starts afterwards joins the job: ExifTool, FFmpeg, ffprobe, dcraw, curl and the WebView2 processes.
+  - When the app's process ends in any way (closed, crashed, killed in Task Manager), Windows ends them all.
+  - Programs the user opens from Keepsake ("Open in", a folder in Explorer) must stay open. `external::launch` starts them with `CREATE_BREAKAWAY_FROM_JOB`, which the job allows (`JOB_OBJECT_LIMIT_BREAKAWAY_OK`). If an outer job refuses the breakaway, it starts them plainly.
+- **macOS has no job objects.** There, the exit handling above is what stops the helpers. After a crash an ExifTool can still be left behind, until the next restart of the Mac.
+
+No new dependencies.
+
+**Not done.** A macOS safety net for crashes (e.g. ExifTool watching for its parent). A render job running at exit (a long video proxy) is not cut short: after 5 s the app exits anyway; on Windows the job then ends its FFmpeg.

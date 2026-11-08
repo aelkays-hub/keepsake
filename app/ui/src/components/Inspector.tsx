@@ -10,6 +10,7 @@ import { keywordChips, selectionPayload, useEdits } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
+import { AiTags } from "./AiTags";
 import { AllMetadata } from "./AllMetadata";
 import { OpenInMenu } from "./OpenInMenu";
 import { LabelPicker, Stars } from "./Stars";
@@ -232,6 +233,7 @@ export function Inspector() {
           ))}
         </datalist>
       </div>
+      {!multi && <AiTags id={d.id} />}
       <details className="files">
         <summary>Files ({d.files.length})</summary>
         <ul>

@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type OpenChoice, type OriginalPlace } from "../api";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 export interface ItemMenuProps {
   x: number;
@@ -18,9 +18,12 @@ export interface ItemMenuProps {
   onClose: () => void;
   /** A line for a status area ("Opened with …"), where there is one. */
   onNote?: (note: string) => void;
+  /** More actions of the list it is opened in: `before` the item's own
+   * (Open), `after` them below a line (Tag with Claude). */
+  actions?: { before?: MenuItem[]; after?: MenuItem[] };
 }
 
-export function ItemMenu({ x, y, id, name, onClose, onNote }: ItemMenuProps) {
+export function ItemMenu({ x, y, id, name, onClose, onNote, actions }: ItemMenuProps) {
   const [place, setPlace] = useState<OriginalPlace | null>(null);
   const [choices, setChoices] = useState<OpenChoice[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
@@ -67,6 +70,21 @@ export function ItemMenu({ x, y, id, name, onClose, onNote }: ItemMenuProps) {
   };
 
   const manager = place?.manager ?? "folder";
+  const action = (a: MenuItem) => (
+    <button
+      key={a.label}
+      role="menuitem"
+      disabled={a.disabled}
+      title={a.title}
+      onClick={() => {
+        onClose();
+        void a.run();
+      }}
+      data-testid={a.testId}
+    >
+      {a.label}
+    </button>
+  );
   return (
     <ContextMenu
       x={x}
@@ -76,6 +94,7 @@ export function ItemMenu({ x, y, id, name, onClose, onNote }: ItemMenuProps) {
       onClose={onClose}
       ready={place !== null && choices.length}
     >
+      {actions?.before?.map(action)}
       <button
         role="menuitem"
         disabled={!place?.online}
@@ -102,6 +121,12 @@ export function ItemMenu({ x, y, id, name, onClose, onNote }: ItemMenuProps) {
           {c.app ? `Open in ${c.name}` : "Open with the system default"}
         </button>
       ))}
+      {actions?.after?.length ? (
+        <>
+          <hr />
+          {actions.after.map(action)}
+        </>
+      ) : null}
       {problem && (
         <p className="error" role="alert" data-testid="item-menu-problem">
           {problem}

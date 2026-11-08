@@ -128,9 +128,28 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
 - Import GPX track file and correlate with assets by timestamp.
 
 ### On-device AI
-- Auto-tagging: scene, subject, and activity labels without cloud round-trips.
-- Face detection and clustering with user-assignable names.
-- Semantic search: natural-language query over embedded vectors.
+- **Done early (ADR-035), off until turned on in Settings → On-device AI**, which downloads the model once (372 MB, SigLIP 2 base, Apache-2.0) into this computer's cache folder. It runs on the graphics card where it can, else the processor, from the thumbnails; no photo leaves the computer and no original is changed.
+- **Only the dates you ask about, one task at a time:** right-click a year, month or day in the sidebar's calendar tree (or press the Menu key or Shift+F10).
+  - **Find duplicates** compares that period's RAW photos and opens the Duplicates screen on it, showing how far it has got.
+  - **Tag photos** tags all of that period's photos and shows its progress in a window, with Stop and Hide.
+  - The two are separate, and nothing is analysed in the background otherwise.
+- Auto-tagging: up to 6 tags per photo from a built-in list of 110 (people, beach, dog, food, sunset, moon, mosque, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. A photo with no sure tag gets the model's best guess (one or two).
+- The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it.
+- Find duplicates and Tag photos also work on a folder and every folder below it: right-click it in the folder tree. A window shows the progress, with Stop and Hide.
+
+### Tag with Claude (optional, cloud)
+- **Only for the photos you pick (ADR-036).** Right-click a photo or a selection and choose **Tag with Claude…**, or press **Tag with Claude** in the viewer.
+- A window first says how many photos go to which model, and roughly what it costs. Nothing is sent until you press **Send**.
+- It needs your own Claude API key, saved in Settings → Tag with Claude. The key is kept in Windows Credential Manager or the macOS Keychain.
+- The model is chosen there too: Claude Opus 5.5 (the default), Claude Fable 5.1 or Claude Haiku 5.5.
+- A 1024-pixel copy of each photo is sent, never the original.
+- Claude gives tags from the built-in list, plus up to 5 of its own. They become your keywords; new ones go under AI (e.g. `AI › Eiffel Tower`). It never names people. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
+- Same-day duplicates (Sidebar → Duplicates): near-identical **RAW** photos taken on one calendar day, grouped: bursts, re-shoots, the same shot twice. A JPEG with the same name as a RAW is an edited copy, so JPEG-only photos (and videos) are never grouped. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
+- `keepsake ai status | install | run | duplicates [DAY] | retag`.
+- Still to come (v2):
+  - Face detection and clustering with user-assignable names.
+  - Semantic search: natural-language query over embedded vectors.
+  - Your own tag words.
 
 ### Tethering (optional plug-in)
 - Sony Camera Remote SDK: live view and remote shutter for supported bodies.

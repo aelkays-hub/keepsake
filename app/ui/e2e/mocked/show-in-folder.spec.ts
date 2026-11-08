@@ -29,7 +29,8 @@ test("right-click a tile, then Show in Explorer", async ({ page }) => {
   const reveal = menu.getByTestId("item-menu-reveal");
   await expect(reveal).toHaveText("Show in Explorer");
   await expect(reveal).toBeEnabled();
-  await expect(reveal).toBeFocused();
+  // In the grid, Open comes first (then Show, Open in…, Tag with Claude).
+  await expect(menu.getByTestId("item-menu-view")).toBeFocused();
   // Open in… is in the same menu: here only the system default is set up.
   await expect(menu.getByTestId("item-menu-open")).toHaveText(["Open with the system default"]);
   const id = (await calls(page, "original_place")).at(-1) as { id: string };
@@ -67,17 +68,22 @@ test("Menu key and Shift+F10 open it on the focused item; Escape closes it", asy
   await page.keyboard.press("Shift+F10");
   const menu = page.getByTestId("item-menu");
   const reveal = menu.getByTestId("item-menu-reveal");
-  await expect(reveal).toBeFocused();
+  const view = menu.getByTestId("item-menu-view");
+  await expect(view).toBeFocused();
   // Arrows stay in the menu (the grid's focus does not move).
   await page.keyboard.press("ArrowDown");
-  await expect(menu.getByTestId("item-menu-open").first()).toBeFocused();
+  await expect(reveal).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(menu.getByTestId("item-menu-open").first()).toBeFocused();
+  await page.keyboard.press("ArrowUp");
   await expect(reveal).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   await expect(tile).toBeFocused();
-  // The Menu key, then Enter: shown.
+  // The Menu key, Arrow Down, then Enter: shown.
   await page.keyboard.press("ContextMenu");
+  await expect(view).toBeFocused();
+  await page.keyboard.press("ArrowDown");
   await expect(reveal).toBeFocused();
   const before = (await calls(page, "show_in_folder")).length;
   await page.keyboard.press("Enter");

@@ -57,8 +57,16 @@ pub enum RenderError {
     /// The asset's format cannot be rendered (not retried).
     #[error("cannot render {0}")]
     Unsupported(String),
+    /// Not ready yet (e.g. AI waits for a thumbnail): tried again later,
+    /// not counted as an attempt.
+    #[error("waiting: {0}")]
+    Waiting(String),
     #[error("{0}")]
     Failed(String),
+    /// Refused for a reason that trying again will not fix (e.g. Claude
+    /// did not accept the API key; not retried).
+    #[error("{0}")]
+    Refused(String),
 }
 
 impl RenderError {
@@ -73,7 +81,7 @@ impl RenderError {
 
     /// Retrying will not help.
     pub fn is_permanent(&self) -> bool {
-        matches!(self, RenderError::Unsupported(_))
+        matches!(self, RenderError::Unsupported(_) | RenderError::Refused(_))
     }
 }
 

@@ -1,30 +1,58 @@
-// A right-click menu: placed at the pointer (kept inside the window), the
-// first item focused, arrow keys, Home and End to move, Escape or Tab to
-// close. A click elsewhere, or leaving or resizing the window, closes it.
-// Used by the sidebar's folder menu and the library items' menu.
+// A right-click menu at the pointer (or under the focused entry, for the
+// Menu key and Shift+F10), kept inside the window. The first item is
+// focused; arrows, Home and End move; Escape or Tab, a click elsewhere, or
+// leaving or resizing the window close it.
+//
+// Its items are either a list of actions (`items`: an action may return a
+// promise, and the menu stays open until it settles and shows why if it
+// fails) or any menu items the owner draws (`children`, with `ready` when
+// they load later). Used by the sidebar's date and folder menus and the
+// library items' menu.
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+export interface MenuItem {
+  label: string;
+  title?: string;
+  disabled?: boolean;
+  testId?: string;
+  run: () => void | Promise<unknown>;
+}
 
 export interface ContextMenuProps {
   /** Where to open it (viewport pixels). */
   x: number;
   y: number;
-  /** The menu's accessible name. */
+  /** What the menu is for, read out by screen readers. */
   label: string;
-  testId: string;
   onClose: () => void;
-  /** Changes when the items are ready (loaded later): focus moves to the
+  testId?: string;
+  /** The actions, drawn as menu items. */
+  items?: MenuItem[];
+  /** Or menu items drawn by the owner. */
+  children?: ReactNode;
+  /** Changes when `children` are ready (loaded later): focus moves to the
    * first one then, unless an item already has focus. */
   ready?: unknown;
-  children: ReactNode;
 }
 
 const enabled = (root: HTMLElement | null) => [
   ...(root?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
 ];
 
-export function ContextMenu({ x, y, label, testId, onClose, ready, children }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  label,
+  onClose,
+  testId,
+  items,
+  children,
+  ready,
+}: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   // The latest, so the set-up below runs once (the owner re-renders often).
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -55,19 +83,33 @@ export function ContextMenu({ x, y, label, testId, onClose, ready, children }: C
   const onKey = (e: React.KeyboardEvent) => {
     // The list's keys (and the viewer's) do not apply while it is open.
     e.stopPropagation();
-    const items = enabled(root.current);
-    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const all = enabled(root.current);
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "Escape" || e.key === "Tab") onClose();
-    else if (e.key === "ArrowDown") items[(at + 1) % items.length]?.focus();
-    else if (e.key === "ArrowUp") items[(at - 1 + items.length) % items.length]?.focus();
-    else if (e.key === "Home") items[0]?.focus();
-    else if (e.key === "End") items[items.length - 1]?.focus();
+    else if (e.key === "ArrowDown") all[(at + 1) % all.length]?.focus();
+    else if (e.key === "ArrowUp") all[(at - 1 + all.length) % all.length]?.focus();
+    else if (e.key === "Home") all[0]?.focus();
+    else if (e.key === "End") all[all.length - 1]?.focus();
     else return;
     e.preventDefault();
   };
 
+  const run = (item: MenuItem) => {
+    setProblem(null);
+    const r = item.run();
+    if (!(r instanceof Promise)) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    r.then(onClose)
+      .catch((e) => setProblem(String(e)))
+      .finally(() => setBusy(false));
+  };
+
   const left = Math.min(x, window.innerWidth - 260);
-  const top = Math.min(y, window.innerHeight - 160);
+  const rows = items?.length ?? 4;
+  const top = Math.min(y, window.innerHeight - 40 - rows * 32);
   return (
     <div
       ref={root}
@@ -85,7 +127,29 @@ export function ContextMenu({ x, y, label, testId, onClose, ready, children }: C
       }}
       data-testid={testId}
     >
+      {items?.map((item) => (
+        <button
+          key={item.label}
+          role="menuitem"
+          disabled={item.disabled || busy}
+          title={item.title}
+          onClick={() => run(item)}
+          data-testid={item.testId}
+        >
+          {item.label}
+        </button>
+      ))}
       {children}
+      {busy && (
+        <p className="busy" role="status" data-testid="menu-busy">
+          Working…
+        </p>
+      )}
+      {problem && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }

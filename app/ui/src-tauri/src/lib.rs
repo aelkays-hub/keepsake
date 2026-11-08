@@ -1,5 +1,7 @@
+mod ai;
 pub mod api;
 mod background;
+mod claude;
 mod commands;
 mod convert;
 mod diagnostics;
@@ -47,6 +49,11 @@ pub fn run() {
         std::process::exit(self_check(args.get(2)));
     }
     diagnostics::init();
+    // ExifTool and FFmpeg end with the app, so none is left running to block
+    // the next installer (Windows: a job object).
+    if let Err(e) = keepsake_platform::close_helpers_with_app() {
+        tracing::warn!("helpers may outlive the app: {e}");
+    }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
@@ -137,12 +144,45 @@ pub fn run() {
             diagnostics::crash_dismiss,
             diagnostics::ui_ready,
             diagnostics::startup_ms,
+            ai::ai_status,
+            ai::ai_enable,
+            ai::ai_install_cancel,
+            ai::ai_remove_model,
+            ai::ai_duplicates,
+            ai::ai_analyze_range,
+            ai::ai_range_status,
+            ai::ai_analyze_folder,
+            ai::ai_folder_status,
+            ai::ai_folder_stop,
+            ai::ai_range_stop,
+            ai::ai_duplicate_day,
+            ai::ai_pick_keeper,
+            ai::ai_set_choice,
+            ai::ai_tags,
+            ai::ai_tag_decide,
+            claude::ai_claude_info,
+            claude::ai_claude_set_key,
+            claude::ai_claude_set_model,
+            claude::ai_claude_tag,
+            claude::ai_claude_status,
+            claude::ai_claude_stop,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        eprintln!("Keepsake could not start: {e}");
-        std::process::exit(1);
-    }
+        .build(tauri::generate_context!());
+    let app = match result {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Keepsake could not start: {e}");
+            std::process::exit(1);
+        }
+    };
+    app.run(|handle, event| {
+        // Closing the window ends the process without dropping anything:
+        // stop the helpers first, or ExifTool keeps running.
+        if let tauri::RunEvent::Exit = event {
+            render::stop_for_exit(handle, std::time::Duration::from_secs(5));
+            import::stop_exiftool();
+        }
+    });
 }
 
 #[cfg(test)]

@@ -82,7 +82,26 @@ export interface MockState {
   opened: { id: string; member: string }[];
   uiErrors: { message: string; detail: string | null }[];
   crashSeen: boolean;
+  /** On-device AI (`?ai=off` starts with it off). */
+  ai: { enabled: boolean; gpu: boolean; modelInstalled: boolean };
+  /** Duplicate decisions: `keeper`, `not_kept`, `not_duplicate`. */
+  choice: Map<number, string>;
+  /** AI tags removed by the user. */
+  aiRejected: Map<number, string[]>;
+  /** Date ranges asked for: status polls left until they are analysed. */
+  aiRanges: Map<string, number>;
+  /** Tag with Claude (`?claude=key` starts with a key saved; `?claude=bad`
+   * with one Claude refuses). Photos asked for: status polls left. */
+  claude: { key: string | null; model: string; asked: Map<string, number> };
 }
+
+const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
+/** Groups of duplicates among the first items, all shown on item 0's day. */
+const DUP_GROUPS = [
+  [0, 1, 2],
+  [3, 4],
+  [10, 11],
+];
 
 declare global {
   interface Window {
@@ -203,6 +222,19 @@ export function installMock(): void {
     ],
     imported: new Set(),
     shift: new Map(),
+    ai: {
+      enabled: params.get("ai") !== "off",
+      gpu: true,
+      modelInstalled: params.get("ai") !== "off",
+    },
+    choice: new Map(),
+    aiRejected: new Map(),
+    aiRanges: new Map(),
+    claude: {
+      key: params.get("claude") ? `sk-ant-mock-${params.get("claude")}` : null,
+      model: "claude-opus-5-5",
+      asked: new Map(),
+    },
     history: [],
     folders: [],
     settings: {
@@ -276,6 +308,15 @@ export function installMock(): void {
   /** An item's file extensions, as the report counts them. */
   const typesOf = (it: Item) =>
     it.kind === "video" ? ["MP4"] : it.kind === "raw" ? ["ARW", "JPG"] : ["JPG"];
+  /** An item's AI tags: two of AI_LABELS, less the ones removed. */
+  const aiTagsOf = (i: number) =>
+    st.ai.enabled
+      ? [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]].filter(
+          (t) => !(st.aiRejected.get(i) ?? []).includes(t),
+        )
+      : [];
+  /** Its keywords and AI tags. */
+  const tagsOf = (i: number) => [...new Set([...(st.keywords.get(i) ?? []), ...aiTagsOf(i)])];
   const matches = (q: Query) => (it: Item) => {
     const d = day(it.t);
     if (q.undated && it.t !== null) return false;
@@ -288,6 +329,8 @@ export function installMock(): void {
     if (q.fileType !== undefined && !typesOf(it).includes(q.fileType.toUpperCase())) return false;
     if (q.kind && it.kind !== q.kind && !(q.kind === "photo" && it.kind === "raw")) return false;
     if (q.minRating && rating(it) < q.minRating) return false;
+    if (q.hideNotKept && st.choice.get(it.i) === "not_kept") return false;
+    if (q.tag && !tagsOf(it.i).some((t) => t === q.tag || t.startsWith(`${q.tag}|`))) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -453,6 +496,14 @@ export function installMock(): void {
           return {
             cameras: CAMERAS.map((c) => ({ value: c, count: Math.round(n / 4) })),
             lenses: LENSES.map((c) => ({ value: c, count: Math.round(n / 4) })),
+            tags: (() => {
+              const counts = new Map<string, number>();
+              for (const it of all)
+                for (const t of tagsOf(it.i)) counts.set(t, (counts.get(t) ?? 0) + 1);
+              return [...counts.entries()]
+                .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+                .map(([value, count]) => ({ value, count }));
+            })(),
           };
         case "sidebar":
           return {
@@ -1053,6 +1104,229 @@ export function installMock(): void {
         case "crash_dismiss":
           st.crashSeen = true;
           return null;
+        case "ai_status":
+          return {
+            enabled: st.ai.enabled,
+            gpu: st.ai.gpu,
+            modelInstalled: st.ai.modelInstalled,
+            modelBytes: 371807752,
+            runtimeFound: true,
+            accel: st.ai.enabled ? "graphics card (DirectML)" : null,
+            problem: null,
+            installing: null,
+            analysed: st.ai.enabled ? n - 1000 : 0,
+            assets: n,
+            pending: st.ai.enabled ? 1000 : 0,
+            failed: 0,
+          };
+        case "ai_enable":
+          st.ai.enabled = Boolean(a.enabled);
+          if (a.gpu !== null && a.gpu !== undefined) st.ai.gpu = Boolean(a.gpu);
+          if (st.ai.enabled && !st.ai.modelInstalled) {
+            st.ai.modelInstalled = true;
+            void emit("ai://install", {
+              done: 371807752,
+              total: 371807752,
+              finished: true,
+              error: null,
+            });
+          }
+          return null;
+        case "ai_install_cancel":
+          return null;
+        case "ai_remove_model":
+          st.ai.enabled = false;
+          st.ai.modelInstalled = false;
+          return true;
+        case "ai_duplicates":
+        case "ai_duplicate_day": {
+          const groups = DUP_GROUPS.map((g) =>
+            g.filter((i) => st.choice.get(i) !== "not_duplicate"),
+          )
+            .filter((g) => g.length >= 2)
+            .map((g) => {
+              const kept = g.find((i) => st.choice.get(i) === "keeper");
+              const keeper = kept ?? g[0];
+              return {
+                // All on the first item's day (a mock simplification).
+                date: day(time(all[0])) ?? "",
+                keeper: `a${keeper}`,
+                decided: kept !== undefined || g.every((i) => st.choice.has(i)),
+                members: g.map((i) => ({
+                  id: `a${i}`,
+                  name: all[i].name,
+                  video: all[i].kind === "video",
+                  captureMs: time(all[i]),
+                  rating: rating(all[i]),
+                  choice: st.choice.get(i) ?? null,
+                  likeness: i === keeper ? 100 : 96,
+                  exact: false,
+                  thumb: THUMBS[i % THUMBS.length],
+                })),
+              };
+            });
+          if (cmd === "ai_duplicate_day") return groups.filter((g) => g.date === a.date);
+          if (!st.ai.enabled) return { days: [], groups: 0, items: 0, undecided: 0 };
+          const inRange = (d: string) =>
+            (!a.from || d >= String(a.from)) && (!a.to || d <= String(a.to));
+          const dates = [...new Set(groups.map((g) => g.date))].filter(inRange).sort().reverse();
+          const days = dates.map((date) => {
+            const of = groups.filter((g) => g.date === date);
+            return {
+              date,
+              groups: of.length,
+              items: of.reduce((k, g) => k + g.members.length, 0),
+              undecided: of.filter((g) => !g.decided).length,
+            };
+          });
+          const shown = groups.filter((g) => inRange(g.date));
+          return {
+            days,
+            groups: shown.length,
+            items: shown.reduce((k, g) => k + g.members.length, 0),
+            undecided: shown.filter((g) => !g.decided).length,
+          };
+        }
+        case "ai_analyze_range":
+        case "ai_range_status": {
+          const key = `${a.what}|${a.from}|${a.to}`;
+          if (cmd === "ai_analyze_range") {
+            if (!st.ai.enabled)
+              throw "Turn on On-device AI in Settings first (it downloads the model once).";
+            if (!st.aiRanges.has(key)) st.aiRanges.set(key, 2);
+          }
+          const items = all.filter((it) => {
+            const d = day(time(it));
+            return d !== null && d >= String(a.from) && d <= String(a.to);
+          }).length;
+          const left = st.aiRanges.get(key);
+          if (left === undefined) return { from: a.from, to: a.to, items, analysed: 0, pending: 0 };
+          if (cmd === "ai_range_status" && left > 0) st.aiRanges.set(key, left - 1);
+          const pending = left > 0 ? Math.ceil((items * left) / 3) : 0;
+          const reply = { from: a.from, to: a.to, items, analysed: items - pending, pending };
+          // ?queueing=<ms>: queueing the work takes that long (a busy drive).
+          const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
+          return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
+        case "ai_claude_info":
+        case "ai_claude_set_key":
+        case "ai_claude_set_model": {
+          if (cmd === "ai_claude_set_key") {
+            const k = typeof a.key === "string" ? a.key.trim() : "";
+            if (k && !/^sk-ant-[A-Za-z0-9_-]{13,}$/.test(k))
+              throw "That does not look like a Claude API key (they start with sk-ant-).";
+            st.claude.key = k || null;
+          }
+          if (cmd === "ai_claude_set_model") st.claude.model = String(a.model);
+          return {
+            hasKey: st.claude.key !== null,
+            model: st.claude.model,
+            models: [
+              { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
+              { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
+              { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
+            ],
+          };
+        }
+        case "ai_claude_tag":
+        case "ai_claude_status":
+        case "ai_claude_stop": {
+          let ids = (a.ids ?? []) as string[];
+          if (cmd === "ai_claude_tag") {
+            if (!st.claude.key) throw "Add your Claude API key in Settings first.";
+            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+            st.claude.asked.set(ids.join(","), 2);
+          }
+          const key = ids.join(",");
+          const left = st.claude.asked.get(key) ?? 0;
+          if (cmd === "ai_claude_stop") {
+            st.claude.asked.set(key, 0);
+            return null;
+          }
+          const bad = st.claude.key?.endsWith("bad") ?? false;
+          if (cmd === "ai_claude_status" && left > 0) {
+            st.claude.asked.set(key, left - 1);
+            if (left === 1 && !bad)
+              for (const id of ids) {
+                const i = Number(id.slice(1));
+                const cur = st.keywords.get(i) ?? [];
+                st.keywords.set(i, [...new Set([...cur, "Beach", "AI|Sand Castle"])]);
+              }
+          }
+          const items = ids.length;
+          const pending = left > 0 ? items : 0;
+          const failed = !pending && bad ? items : 0;
+          const status = {
+            items,
+            analysed: pending || bad ? 0 : items,
+            pending,
+            failed,
+            problem: bad ? "Claude did not accept the API key: check it in Settings" : null,
+          };
+          return cmd === "ai_claude_tag" ? { ids, status } : status;
+        }
+        case "ai_range_stop": {
+          st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);
+          return null;
+        }
+        case "ai_analyze_folder":
+        case "ai_folder_status":
+        case "ai_folder_stop": {
+          const key = `${a.what}|folder|${a.volume}|${a.folder}`;
+          if (cmd === "ai_analyze_folder") {
+            if (!st.ai.enabled)
+              throw "Turn on On-device AI in Settings first (it downloads the model once).";
+            st.aiRanges.set(key, 3);
+          }
+          const q = { volume: a.volume, folder: a.folder || undefined } as unknown as Query;
+          const items = all
+            .filter(matches(q))
+            .filter((it) => a.what === "tags" || it.kind === "raw").length;
+          const left = st.aiRanges.get(key) ?? 0;
+          if (cmd === "ai_folder_stop") {
+            // What was done stays: a third, say.
+            st.aiRanges.set(key, -Math.ceil(items / 3));
+            return null;
+          }
+          if (left < 0) return { items, analysed: -left, pending: 0 };
+          if (cmd === "ai_folder_status" && left > 0) st.aiRanges.set(key, left - 1);
+          const pending = left > 0 ? Math.ceil((items * left) / 4) : 0;
+          const reply = { items, analysed: items - pending, pending };
+          const ms = cmd === "ai_analyze_folder" ? Number(params.get("queueing") ?? 0) : 0;
+          return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
+        case "ai_pick_keeper": {
+          const keeper = Number(String(a.keeper).slice(1));
+          for (const id of a.group as string[]) {
+            const i = Number(id.slice(1));
+            st.choice.set(i, i === keeper ? "keeper" : "not_kept");
+          }
+          return null;
+        }
+        case "ai_set_choice":
+          for (const id of a.ids as string[]) {
+            const i = Number(id.slice(1));
+            if (a.choice === null) st.choice.delete(i);
+            else st.choice.set(i, String(a.choice));
+          }
+          return null;
+        case "ai_tags": {
+          const i = Number(String(a.id).slice(1));
+          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [] };
+          const gone = st.aiRejected.get(i) ?? [];
+          const mine = st.keywords.get(i) ?? [];
+          const tags = [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]]
+            .filter((t) => !gone.includes(t) && !mine.includes(t))
+            .map((tag, k) => ({ tag, confidence: k === 0 ? 61 : 23 }));
+          return { enabled: true, analysed: true, tags };
+        }
+        case "ai_tag_decide": {
+          const i = Number(String(a.id).slice(1));
+          const tag = String(a.tag);
+          if (a.keep) st.keywords.set(i, [...(st.keywords.get(i) ?? []), tag]);
+          else st.aiRejected.set(i, [...(st.aiRejected.get(i) ?? []), tag]);
+          return null;
+        }
         default:
           throw new Error(`mock: unknown command ${cmd}`);
       }

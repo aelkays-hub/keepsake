@@ -2,13 +2,14 @@
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
 // video durations. Right-click, the Menu key or Shift+F10 opens an item's
-// menu (Show in Explorer / Finder, Open in…).
+// menu: Open, Show in Explorer / Finder, Open in…, and Tag with Claude for
+// the selection.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { fileUrl, type Row } from "../api";
-import { useListKeys } from "../edits";
+import { selectionPayload, useListKeys } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi } from "../state";
@@ -156,8 +157,36 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
   const listKeys = useListKeys(rows.count, cols, pageRows, onOpen);
   const tileEl = (i: number) => document.getElementById(`tile-${i}`);
-  const itemMenu = useItemMenu(rows.get, (i) =>
-    (tileEl(i) ?? parent.current)?.focus({ preventScroll: true }),
+  const itemMenu = useItemMenu(
+    rows.get,
+    (i) => (tileEl(i) ?? parent.current)?.focus({ preventScroll: true }),
+    (i) => {
+      // Tag with Claude is for the selection: the right-clicked item alone
+      // if it is not in it.
+      const cur = !sel.has(s.sel, i) ? sel.only(i) : s.sel;
+      const n = cur.ranges.length ? sel.size(cur) : 1;
+      const one = n === 1 ? rows.get(i) : null;
+      return {
+        before: [{ label: "Open", testId: "item-menu-view", run: () => onOpen(i) }],
+        after: [
+          {
+            label: "Tag with Claude…",
+            title: "Send these photos to Claude to be tagged (asks first)",
+            testId: "tile-menu-claude",
+            run: () =>
+              dispatch({
+                t: "aiJob",
+                job: {
+                  claude: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                  what: "tags",
+                },
+              }),
+          },
+        ],
+      };
+    },
   );
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
