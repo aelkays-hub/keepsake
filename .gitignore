@@ -51,3 +51,6 @@ docs/spikes/playback-timings.txt
 # Playwright output
 app/ui/test-results/
 app/ui/playwright-report/
+
+# Vite dependency cache
+app/ui/.vite/
