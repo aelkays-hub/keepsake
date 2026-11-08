@@ -8,7 +8,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -146,6 +146,8 @@ struct Worker {
     proc: Option<Proc>,
     seq: u64,
     restarts: Arc<AtomicU64>,
+    /// The running process's id (0: none).
+    pid: Arc<AtomicU32>,
 }
 
 impl Worker {
@@ -163,7 +165,9 @@ impl Worker {
 
     fn send(&mut self, args: &[String]) -> Result<u64, ProbeError> {
         if self.proc.is_none() {
-            self.proc = Some(Proc::spawn(&self.exe)?);
+            let p = Proc::spawn(&self.exe)?;
+            self.pid.store(p.child.id(), Ordering::Relaxed);
+            self.proc = Some(p);
         }
         self.seq += 1;
         let seq = self.seq;
@@ -236,6 +240,7 @@ impl Worker {
     fn discard(&mut self) {
         if let Some(p) = self.proc.take() {
             p.kill();
+            self.pid.store(0, Ordering::Relaxed);
             self.restarts.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -248,6 +253,7 @@ pub struct ExifTool {
     worker: Mutex<Option<JoinHandle<()>>>,
     timeout: Duration,
     restarts: Arc<AtomicU64>,
+    pid: Arc<AtomicU32>,
 }
 
 impl ExifTool {
@@ -262,11 +268,13 @@ impl ExifTool {
         }
         let (tx, rx) = mpsc::channel::<Msg>();
         let restarts = Arc::new(AtomicU64::new(0));
+        let pid = Arc::new(AtomicU32::new(0));
         let mut w = Worker {
             exe: exe.to_path_buf(),
             proc: None,
             seq: 0,
             restarts: Arc::clone(&restarts),
+            pid: Arc::clone(&pid),
         };
         let worker = std::thread::Builder::new()
             .name("exiftool".into())
@@ -286,6 +294,7 @@ impl ExifTool {
                 if let Some(p) = w.proc.take() {
                     p.stop();
                 }
+                w.pid.store(0, Ordering::Relaxed);
             })
             .map_err(|source| ProbeError::Spawn { tool: TOOL, source })?;
         Ok(Self {
@@ -293,25 +302,13 @@ impl ExifTool {
             worker: Mutex::new(Some(worker)),
             timeout,
             restarts,
+            pid,
         })
     }
 
-    /// Stop the process (asking it to quit, then killing it after 2 s) and
-    /// the worker, after the requests already queued. Later requests fail.
-    /// Dropping the handle does the same; this is for a handle that is
-    /// never dropped, such as one in a `static` (statics are not dropped
-    /// when the program ends, and ExifTool does not quit by itself).
-    pub fn shutdown(&self) {
-        if let Ok(tx) = self.tx.lock() {
-            let _ = tx.send(Msg::Shutdown);
-        }
-        let worker = match self.worker.lock() {
-            Ok(mut w) => w.take(),
-            Err(p) => p.into_inner().take(),
-        };
-        if let Some(w) = worker {
-            let _ = w.join();
-        }
+    /// The running process's id, if one is running.
+    pub fn pid(&self) -> Option<u32> {
+        Some(self.pid.load(Ordering::Relaxed)).filter(|p| *p != 0)
     }
 
     /// How many times the process was killed and replaced.
@@ -512,6 +509,22 @@ pub fn groups_from_json(out: &str) -> Result<Vec<MetaGroup>, ProbeError> {
             .then_with(|| a.group.cmp(&b.group))
     });
     Ok(groups)
+}
+
+impl ExifTool {
+    /// Stop the process (asked to finish, killed after 2 s) and wait for
+    /// it. Needed for one kept in a `static`, which is never dropped: a
+    /// `-stay_open` ExifTool does not end when its input closes, so it would
+    /// outlive the app. Later requests fail.
+    pub fn shutdown(&self) {
+        if let Ok(tx) = self.tx.lock() {
+            let _ = tx.send(Msg::Shutdown);
+        }
+        let worker = self.worker.lock().ok().and_then(|mut w| w.take());
+        if let Some(w) = worker {
+            let _ = w.join();
+        }
+    }
 }
 
 impl Drop for ExifTool {

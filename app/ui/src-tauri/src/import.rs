@@ -24,10 +24,9 @@ use crate::api::{
 use crate::convert;
 use crate::state::{err, ui_test, AppState, CmdResult};
 
-/// The app's one ExifTool process (see [`exiftool`]).
+/// The app's one ExifTool process (started on first use).
 static ET: OnceLock<Option<ExifTool>> = OnceLock::new();
 
-/// The app's one ExifTool process (started on first use).
 pub(crate) fn exiftool() -> Option<&'static ExifTool> {
     ET.get_or_init(|| {
         ExifTool::start(&RenderTools::discover().exiftool, Duration::from_secs(30)).ok()
@@ -35,8 +34,7 @@ pub(crate) fn exiftool() -> Option<&'static ExifTool> {
     .as_ref()
 }
 
-/// Stop the app's ExifTool process, if it was started. A static is never
-/// dropped, so without this it outlives the app.
+/// When the app closes: stop the import ExifTool, if one was started.
 pub(crate) fn stop_exiftool() {
     if let Some(Some(et)) = ET.get() {
         et.shutdown();

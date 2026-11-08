@@ -126,6 +126,47 @@ fn exiftool_serves_concurrent_requests_in_one_process() {
     assert_eq!(et.restarts(), 0);
 }
 
+/// Whether a process with this id is running.
+fn running(pid: u32) -> bool {
+    if cfg!(windows) {
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
+    } else {
+        std::process::Command::new("ps")
+            .args(["-p", &pid.to_string()])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    }
+}
+
+#[test]
+fn shutdown_ends_the_process_even_when_the_handle_is_kept() {
+    // A `-stay_open` ExifTool does not end when its input closes, and one
+    // kept in a static is never dropped: shutdown must end it.
+    let Some((t, _)) = media::tools() else {
+        return;
+    };
+    let et: &'static ExifTool = Box::leak(Box::new(
+        ExifTool::start(&t.exiftool, Duration::from_secs(30)).unwrap(),
+    ));
+    assert_eq!(et.pid(), None, "started on first use");
+    assert!(et.execute(&["-ver".to_owned()]).is_ok());
+    let pid = et.pid().unwrap();
+    assert!(running(pid));
+    et.shutdown();
+    assert_eq!(et.pid(), None);
+    assert!(!running(pid), "exiftool {pid} still running");
+    assert!(
+        et.execute(&["-ver".to_owned()]).is_err(),
+        "stopped for good"
+    );
+}
+
 #[test]
 fn exiftool_reports_missing_files() {
     let Some((t, ffmpeg)) = media::tools() else {
@@ -146,52 +187,6 @@ fn exiftool_reports_missing_files() {
         Err(ProbeError::BadPath { .. })
     ));
     assert!(ExifTool::start(&dir.path().join("no-exiftool"), Duration::from_secs(1)).is_err());
-}
-
-fn copy_dir(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for e in std::fs::read_dir(from).unwrap() {
-        let e = e.unwrap();
-        let dest = to.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &dest);
-        } else {
-            std::fs::copy(e.path(), &dest).unwrap();
-        }
-    }
-}
-
-/// `shutdown` ends the process even though the handle lives on (as the
-/// app's shared one does, in a `static`).
-#[test]
-fn exiftool_shutdown_ends_the_process() {
-    let Some((t, _)) = media::tools() else {
-        return;
-    };
-    let dir = tempfile::tempdir().unwrap();
-    // On Windows a copy of its own, so the test can tell whether it still
-    // runs: a running .exe cannot be deleted (this is what blocked builds).
-    let exe = if cfg!(windows) {
-        let own = dir.path().join("exiftool");
-        copy_dir(t.exiftool.parent().unwrap(), &own);
-        own.join(t.exiftool.file_name().unwrap())
-    } else {
-        t.exiftool.clone()
-    };
-    let et = ExifTool::start(&exe, Duration::from_secs(30)).unwrap();
-    assert!(et.execute(&["-ver".into()]).unwrap().trim().len() > 1);
-    if cfg!(windows) {
-        assert!(std::fs::remove_file(&exe).is_err(), "not running?");
-    }
-    et.shutdown();
-    assert!(matches!(
-        et.execute(&["-ver".into()]),
-        Err(ProbeError::Crashed { .. })
-    ));
-    if cfg!(windows) {
-        std::fs::remove_file(&exe).expect("ExifTool still runs after shutdown");
-    }
-    et.shutdown(); // again: nothing to do
 }
 
 /// A stand-in for ExifTool that hangs on its first start and behaves

@@ -798,3 +798,151 @@ fn a_folder_and_the_folders_in_it_can_be_tagged_and_stopped() {
     let st = analyze::target_status(&w.cat, &all, Purpose::Tags).unwrap();
     assert_eq!(st.items, 3);
 }
+
+// ── Tag with Claude (ADR-036) ──────────────────────────────────────────────
+
+/// Stands in for Claude: the answer is fixed; what was sent is kept.
+struct FakeClaude {
+    answer: Result<ai::cloud::ClaudeTags, (String, bool)>,
+    sent: std::sync::Mutex<Vec<(usize, usize)>>,
+}
+
+impl ai::cloud::Tagger for FakeClaude {
+    fn tag(&self, jpeg: &[u8], names: &[String]) -> Result<ai::cloud::ClaudeTags, ai::AiError> {
+        self.sent.lock().unwrap().push((jpeg.len(), names.len()));
+        assert_eq!(&jpeg[..2], &[0xff, 0xd8], "a JPEG is sent");
+        self.answer
+            .clone()
+            .map_err(|(message, retry)| ai::AiError::Cloud { message, retry })
+    }
+}
+
+fn claude_service(w: &World, tagger: std::sync::Arc<FakeClaude>) -> RenderService {
+    let tools = RenderTools {
+        exiftool: PathBuf::from("none"),
+        ffprobe: PathBuf::from("none"),
+        ffmpeg: PathBuf::from("none"),
+        dcraw: PathBuf::from("none"),
+    };
+    let opts = RenderOptions {
+        workers: 1,
+        proxy_workers: 0,
+        max_bytes: u64::MAX,
+        pause_on_battery: false,
+        until_empty: true,
+        forced_encoder: None,
+        evict_every: 25,
+        ai: false,
+        ai_gpu: false,
+    };
+    RenderService::new(&w.lib, tools, w.cache.clone(), opts).with_claude(tagger)
+}
+
+fn keywords(w: &mut World, id: AssetId) -> Vec<String> {
+    let mut k: Vec<String> = MetadataService::new(&w.lib, &mut w.cat)
+        .user_tags(id)
+        .unwrap()
+        .iter()
+        .map(TagPath::to_lightroom)
+        .collect();
+    k.sort();
+    k
+}
+
+#[test]
+fn claude_tags_become_keywords_from_the_thumbnail_only() {
+    let mut w = World::new(&[("a.jpg", scene(1, 800, 600)), ("b.jpg", scene(2, 800, 600))]);
+    let before = common::tree_hashes(&w.media);
+    let a = w.asset("a.jpg");
+    let b = w.asset("b.jpg");
+    // a has a thumbnail and a keyword of its own; b has no thumbnail yet.
+    let hash = keepsake_core::render::source::source_hash(&w.cat, a)
+        .unwrap()
+        .unwrap();
+    w.cache
+        .put_bytes(
+            &mut w.cat,
+            &hash,
+            keepsake_core::render::Variant::Thumb1024,
+            &jpeg(&scene(1, 1024, 768)),
+        )
+        .unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(a, &[tag("Holiday")])
+        .unwrap();
+    assert_eq!(ai::cloud::enqueue(&mut w.cat, &[a, b]).unwrap(), 2);
+    let (st, _) = ai::cloud::status(&w.cat, &[a, b]).unwrap();
+    assert_eq!((st.items, st.done, st.pending), (2, 0, 2));
+
+    let fake = std::sync::Arc::new(FakeClaude {
+        answer: Ok(ai::cloud::ClaudeTags {
+            tags: vec!["Portrait".into(), "Beach".into()],
+            new_tags: vec!["Sand Castle".into()],
+            model: "claude-opus-5-5".into(),
+        }),
+        sent: Default::default(),
+    });
+    let svc = claude_service(&w, fake.clone());
+    svc.run(&AtomicBool::new(false), &mut |_| {}).unwrap();
+
+    assert_eq!(
+        keywords(&mut w, a),
+        ["AI|Sand Castle", "Beach", "Holiday", "People", "Portrait"]
+    );
+    let sent = fake.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "only the photo with a thumbnail so far");
+    assert!(sent[0].1 > 100, "the whole tag list is sent");
+    // b waits for its thumbnail, which was queued.
+    let (st, problem) = ai::cloud::status(&w.cat, &[a, b]).unwrap();
+    assert_eq!((st.done, st.pending, st.failed), (1, 1, 0), "{problem:?}");
+    assert!(find_job(&w.cat, JOB_STILLS, b).is_some());
+    // The keywords are in a's sidecar too, so they survive a rebuild.
+    let vol = w.cat.read(|tx| tx.volumes().list()).unwrap()[0].id;
+    drop(std::mem::replace(
+        &mut w.cat,
+        Catalog::open_in_memory().unwrap(),
+    ));
+    Catalog::delete_files(&w.lib.catalog_path()).unwrap();
+    w.cat = w.lib.open_catalog().unwrap();
+    rebuild_catalog(&mut w.cat, &w.lib, vol, &w.media).unwrap();
+    // (Asset ids are kept in the sidecars.)
+    ai::cloud::enqueue(&mut w.cat, &[b]).unwrap();
+    assert!(keywords(&mut w, a).contains(&"AI|Sand Castle".to_owned()));
+    // Stop drops what is still queued.
+    assert_eq!(ai::cloud::stop(&mut w.cat, &[b]).unwrap(), 1);
+    assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
+}
+
+#[test]
+fn a_refused_key_fails_the_photo_and_says_why() {
+    let mut w = World::new(&[("a.jpg", scene(1, 800, 600))]);
+    let a = w.asset("a.jpg");
+    let hash = keepsake_core::render::source::source_hash(&w.cat, a)
+        .unwrap()
+        .unwrap();
+    w.cache
+        .put_bytes(
+            &mut w.cat,
+            &hash,
+            keepsake_core::render::Variant::Thumb1024,
+            &jpeg(&scene(1, 1024, 768)),
+        )
+        .unwrap();
+    ai::cloud::enqueue(&mut w.cat, &[a]).unwrap();
+    let fake = std::sync::Arc::new(FakeClaude {
+        answer: Err(("Claude did not accept the API key".into(), false)),
+        sent: Default::default(),
+    });
+    claude_service(&w, fake)
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    let (st, problem) = ai::cloud::status(&w.cat, &[a]).unwrap();
+    assert_eq!((st.done, st.pending, st.failed), (0, 0, 1));
+    assert_eq!(
+        problem.as_deref(),
+        Some("Claude did not accept the API key")
+    );
+    assert!(keywords(&mut w, a).is_empty());
+    // Asked again (e.g. after a new key), it is queued again.
+    assert_eq!(ai::cloud::enqueue(&mut w.cat, &[a]).unwrap(), 1);
+}

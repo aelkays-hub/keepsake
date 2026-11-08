@@ -1,6 +1,7 @@
 mod ai;
 pub mod api;
 mod background;
+mod claude;
 mod commands;
 mod convert;
 mod diagnostics;
@@ -43,18 +44,17 @@ fn self_check(out: Option<&String>) -> i32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     diagnostics::mark_start();
-    // Before any helper starts: they join the job and end with the app,
-    // even after a crash (Windows; a no-op elsewhere).
-    let job = keepsake_platform::end_helpers_with_this_process();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-check") {
         std::process::exit(self_check(args.get(2)));
     }
     diagnostics::init();
-    if let Err(e) = job {
+    // ExifTool and FFmpeg end with the app, so none is left running to block
+    // the next installer (Windows: a job object).
+    if let Err(e) = keepsake_platform::close_helpers_with_app() {
         tracing::warn!("helpers may outlive the app: {e}");
     }
-    let app = tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
@@ -158,19 +158,28 @@ pub fn run() {
             ai::ai_set_choice,
             ai::ai_tags,
             ai::ai_tag_decide,
+            claude::ai_claude_info,
+            claude::ai_claude_set_key,
+            claude::ai_claude_set_model,
+            claude::ai_claude_tag,
+            claude::ai_claude_status,
+            claude::ai_claude_stop,
         ])
         .build(tauri::generate_context!());
-    match app {
-        Ok(app) => app.run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                shutdown::on_exit(&app.state::<state::AppState>());
-            }
-        }),
+    let app = match result {
+        Ok(app) => app,
         Err(e) => {
             eprintln!("Keepsake could not start: {e}");
             std::process::exit(1);
         }
-    }
+    };
+    app.run(|handle, event| {
+        // Closing the window ends the process without dropping anything:
+        // stop the helpers first, or ExifTool keeps running.
+        if let tauri::RunEvent::Exit = event {
+            shutdown::on_exit(&handle.state::<state::AppState>());
+        }
+    });
 }
 
 #[cfg(test)]

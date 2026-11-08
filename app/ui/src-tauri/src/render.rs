@@ -93,7 +93,8 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     let mut opts = RenderOptions::from_settings(&open.settings.render).with_ai(&open.settings.ai);
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
-        .with_power(power());
+        .with_power(power())
+        .with_claude(crate::claude::tagger());
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render

@@ -1,28 +1,46 @@
-// Tag photos (a year, month, day or folder) and Find duplicates (a
-// folder): a window in the corner shows how far it has got, with Stop and
-// Hide. Hidden, a small button in the corner brings it back. The work runs
-// in the AI worker either way.
+// Tag photos (a year, month, day or folder), Find duplicates (a folder) and
+// Tag with Claude (the photos picked): a window in the corner shows how far
+// it has got, with Stop and Hide. Hidden, a small button in the corner
+// brings it back. The work runs in the background either way. Tag with
+// Claude first says what it will send and roughly what it costs.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { api, type AiFolderStatus } from "../api";
+import { api, type AiFolderStatus, type ClaudeInfo } from "../api";
+import { costOf } from "../claude";
 import * as fmt from "../format";
 import { useUi } from "../state";
 import type { AiJob } from "../uiModel";
 
-/** The job's three calls, for a folder or for dates. */
+/** How far it has got (Tag with Claude adds what failed and why). */
+type St = AiFolderStatus & { failed?: number; problem?: string | null };
+
+/** The job's three calls, for a folder, dates or picked photos. */
 function calls(job: AiJob) {
+  if ("claude" in job) {
+    // The photos are known once queued: Stop and the status use them.
+    let ids: string[] = [];
+    return {
+      start: (): Promise<St> =>
+        api.aiClaudeTag(job.claude).then((r) => {
+          ids = r.ids;
+          return r.status;
+        }),
+      status: (): Promise<St> => api.aiClaudeStatus(ids),
+      stop: () => api.aiClaudeStop(ids),
+    };
+  }
   if ("range" in job) {
     const { from, to } = job.range;
     return {
-      start: () => api.aiAnalyzeRange(from, to, job.what),
-      status: () => api.aiRangeStatus(from, to, job.what),
+      start: (): Promise<St> => api.aiAnalyzeRange(from, to, job.what),
+      status: (): Promise<St> => api.aiRangeStatus(from, to, job.what),
       stop: () => api.aiRangeStop(from, to, job.what),
     };
   }
   return {
-    start: () => api.aiAnalyzeFolder(job.volume, job.folder, job.what),
-    status: () => api.aiFolderStatus(job.volume, job.folder, job.what),
+    start: (): Promise<St> => api.aiAnalyzeFolder(job.volume, job.folder, job.what),
+    status: (): Promise<St> => api.aiFolderStatus(job.volume, job.folder, job.what),
     stop: () => api.aiFolderStop(job.volume, job.folder, job.what),
   };
 }
@@ -30,20 +48,35 @@ function calls(job: AiJob) {
 export function AiJobWindow() {
   const { s, dispatch } = useUi();
   const job = s.aiJob;
-  const [st, setSt] = useState<AiFolderStatus | null>(null);
+  const c = useMemo(() => job && calls(job), [job]);
+  const claude = job !== null && "claude" in job;
+  const [st, setSt] = useState<St | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [stopped, setStopped] = useState(false);
   const [hidden, setHidden] = useState(false);
+  /** Tag with Claude: the key and model, and the job the user said Send to
+   * (other jobs start at once). */
+  const [info, setInfo] = useState<ClaudeInfo | null>(null);
+  const [sent, setSent] = useState<AiJob | null>(null);
+  const go = job !== null && (!claude || sent === job);
 
   useEffect(() => {
     setSt(null);
     setProblem(null);
     setStopped(false);
     setHidden(false);
-    if (!job) return;
+    setInfo(null);
+    if (claude)
+      api
+        .aiClaudeInfo()
+        .then(setInfo)
+        .catch((e) => setProblem(String(e)));
+  }, [job, claude]);
+
+  useEffect(() => {
+    if (!c || !go) return;
     let live = true;
     let timer = 0;
-    const c = calls(job);
     const poll = () =>
       c
         .status()
@@ -66,14 +99,16 @@ export function AiJobWindow() {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [job, dispatch]);
+  }, [c, go, dispatch]);
 
-  if (!job) return null;
+  if (!job || !c) return null;
   const tags = job.what === "tags";
-  const running = !problem && (!st || st.pending > 0) && !stopped;
+  const asking = claude && !go;
+  const running = !asking && !problem && (!st || st.pending > 0) && !stopped;
   const pct = st && st.items > 0 ? Math.round((100 * st.analysed) / st.items) : 0;
-  const what = tags ? "Tagging" : "Finding duplicates in";
+  const what = claude ? "Tagging with Claude:" : tags ? "Tagging" : "Finding duplicates in";
   const close = () => dispatch({ t: "aiJob", job: null });
+  const model = info?.models.find((m) => m.id === info.model);
 
   if (hidden)
     return (
@@ -84,18 +119,29 @@ export function AiJobWindow() {
         title="Show progress"
       >
         {running && <span className="spinner" aria-hidden={true} />}
-        {tags ? "Tagging" : "Duplicates"} · {running ? `${pct}%` : "done"}
+        {claude ? "Claude" : tags ? "Tagging" : "Duplicates"} · {running ? `${pct}%` : "done"}
       </button>
     );
 
   let line: string;
   if (problem) line = `Could not start: ${problem}`;
+  else if (asking && !info) line = "Getting ready…";
+  else if (asking && info && !info.hasKey)
+    line = "Add your Claude API key in Settings first (Settings → Tag with Claude).";
+  else if (asking && "claude" in job)
+    line =
+      `Send ${fmt.plural(job.count, "photo")} to ${model?.name ?? "Claude"} to be tagged?` +
+      (model ? ` It costs ${costOf(job.count, model.centsPerPhoto)}, charged by Anthropic.` : "");
   else if (!st) line = "Getting ready…";
   else if (st.items === 0)
     line = `No ${tags ? "" : "RAW "}photos ${"range" in job ? "on these dates" : "in this folder"}.`;
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
+  else if (claude)
+    line =
+      `${fmt.count(st.analysed)} of ${fmt.count(st.items)} photos tagged.` +
+      (st.failed ? ` ${fmt.plural(st.failed, "photo")} could not be: ${st.problem ?? "?"}` : "");
   else
     line = tags
       ? `${fmt.count(st.analysed)} of ${fmt.count(st.items)} photos tagged.`
@@ -107,26 +153,58 @@ export function AiJobWindow() {
         {what} {job.title}
       </h2>
       <p className="muted">
-        {"range" in job ? "Photos taken on these dates." : "This folder and the folders in it."}
+        {claude
+          ? "A 1024-pixel copy of each photo is sent; the tags become keywords."
+          : "range" in job
+            ? "Photos taken on these dates."
+            : "This folder and the folders in it."}
       </p>
-      <progress
-        max={100}
-        value={st && st.items > 0 ? pct : undefined}
-        aria-label="Progress"
-        data-testid="ai-job-bar"
-      />
+      {!asking && (
+        <progress
+          max={100}
+          value={st && st.items > 0 ? pct : undefined}
+          aria-label="Progress"
+          data-testid="ai-job-bar"
+        />
+      )}
       <p role={problem ? "alert" : "status"} data-testid="ai-job-status">
         {running && <span className="spinner" aria-hidden={true} />}
         {line}
       </p>
+      {running && st?.problem && (
+        <p className="muted" data-testid="ai-job-note">
+          {st.problem}
+        </p>
+      )}
       <footer className="modal-foot">
+        {asking && info?.hasKey && (
+          <button className="primary" onClick={() => setSent(job)} data-testid="ai-job-send">
+            Send
+          </button>
+        )}
+        {asking && info && !info.hasKey && (
+          <button
+            onClick={() => {
+              dispatch({ t: "screen", screen: "settings" });
+              close();
+            }}
+            data-testid="ai-job-settings"
+          >
+            Open Settings
+          </button>
+        )}
+        {asking && (
+          <button onClick={close} data-testid="ai-job-cancel">
+            Cancel
+          </button>
+        )}
         {running && st && (
           <button
             onClick={() =>
-              calls(job)
+              c
                 .stop()
                 .then(() => setStopped(true))
-                .then(() => calls(job).status())
+                .then(() => c.status())
                 .then(setSt)
                 .catch((e) => setProblem(String(e)))
             }
@@ -140,7 +218,7 @@ export function AiJobWindow() {
             Hide
           </button>
         )}
-        {!running && !tags && !problem && st && st.items > 0 && (
+        {!running && !asking && !tags && !problem && st && st.items > 0 && (
           <button
             onClick={() => {
               dispatch({ t: "duplicates", range: null });
@@ -151,7 +229,7 @@ export function AiJobWindow() {
             Show duplicates
           </button>
         )}
-        {!running && (
+        {!running && !asking && (
           <button onClick={close} data-testid="ai-job-close">
             Close
           </button>
