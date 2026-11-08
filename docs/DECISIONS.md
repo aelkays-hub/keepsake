@@ -1393,3 +1393,69 @@ No new dependencies.
 - Searching by which AI gave a tag (offered, not chosen).
 - The on-device AI's tags are not in the per-AI rows: they are already apart, under On-device.
 - Keywords tagged by an AI before this change have no record of which AI gave them.
+
+## ADR-040 — People: name a face and find that person, on this computer
+
+**Status**: Proposed (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature"). Not built. The choices marked **To approve** below need the product owner's answer first. Extends ADR-035.
+
+**Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
+
+**How it works.**
+1. **Find faces.** A face detector marks each face in a photo: a box, 5 landmarks (eyes, nose, mouth corners) and a score.
+2. **Describe each face.** The face is straightened with its 5 landmarks to the recogniser's 112×112 template, and a face recogniser turns it into an embedding. Faces of one person have embeddings close together (cosine similarity).
+3. **Name one face** (right-click → **Name and find…**).
+4. **Find the others.** Faces close to the named one are **suggested**; the user confirms or rejects them. Each confirmed face is another reference for that person.
+
+**Different ages.** One average face per person fails across decades. So:
+- A person keeps **every confirmed face** as a reference; a face's score is its best similarity to **any** of them (nearest neighbour), not to an average.
+- Suggestions are found **out from the dates of the confirmed faces**, a few years at a time: confirming faces from 2015 lets **Find more** reach 2012, then 2009. This is how a child's photos are reached from an adult's.
+- Adults across years match well. Young children change fast: expect to confirm more of them by hand. Babies under about two are often not matched; they can still be named one by one.
+
+**Decision (proposed).**
+
+- **Models — To approve (dependency rule):** both from OpenCV Zoo, run with the ONNX Runtime the app already has (no new crates), downloaded on first use like SigLIP (pinned URL and BLAKE3, into the models folder).
+
+| Job | Model | Licence | Notes |
+|---|---|---|---|
+| Find faces | YuNet (`face_detection_yunet_2023mar.onnx`) | MIT ("All files in this directory are licensed under MIT License") | Tiny; faces about 10–300 px; WIDER Face AP easy/medium/hard 0.88 / 0.87 / 0.75 |
+| Describe faces | SFace (`face_recognition_sface_2021dec.onnx`) | Apache-2.0 | MobileFaceNet trained with the SFace loss; OpenCV Zoo lists accuracy 0.994 (the benchmark is not named); input size and embedding length to be read from its `sface.py` before building |
+
+  - **Not chosen:** InsightFace's models (`buffalo_l`, `antelopev2`) are more accurate but licensed for **non-commercial research only**; their code is MIT, their weights are not. Others (FaceNet weights trained on research-only data sets) have the same problem.
+  - The matcher only sees embeddings, so a better permissively licensed recogniser can replace SFace later: faces are scanned again, names and confirmations stay (they are on the face boxes, not the embeddings).
+
+- **Off until turned on**: Settings → On-device AI → **Recognise faces** (needs On-device AI on). Turning it off stops scanning; **Delete all face data** removes faces, embeddings and people from the catalog and the face regions from the sidecars.
+
+- **Right-click → Name and find…** (the photo menu in the grid, the viewer and the Inspector; Shift+F10 too):
+  1. The window shows the **faces in that photo** as small crops (found then if the photo was not scanned yet). One face: it is picked.
+  2. Type the **name**; names already used are suggested, so a second photo of Sara adds to the same person.
+  3. **Where to look**: All photos (default — **To approve**), or the dates or folder you are in.
+  4. **Find.** Photos not scanned yet are scanned in the background (job `ai.faces`, after thumbnails, paused on battery like other AI work). The window shows how far it has got, with Stop and Hide.
+  5. **Review**: the suggested faces, best first, grouped by year, each a crop with its photo's date. Click to reject one; **Confirm** confirms the rest. **Find more** looks again with the newly confirmed faces (the step through the years).
+- **Never named without the user — To approve.** Suggestions are always confirmed by the user, never applied by themselves. (Alternative: confirm very close matches automatically, as Google Photos does. Faster, but sometimes wrong in a way that is hard to notice.)
+- **In the Inspector and viewer:** a **People** section lists the named people in the photo. In the viewer, **Faces** (key F) draws the boxes with names; right-clicking a box gives Name…, Not this person, Not a face.
+- **Search:** each confirmed name is also a keyword `People|Sara` (**To approve**), so the Tag list and the search bar's tag chips (ADR-039) find a person, and other apps that read keywords see them.
+- **People screen (second step — To approve):** Sidebar → People: every named person with a face and a count; unnamed faces grouped by likeness, to name a group at once; rename, merge two people.
+
+- **Stored:**
+  - Catalog (schema v13): `faces` (asset, box and landmarks in 0–1 units of the picture, detector score, embedding as int8 with a scale, model, person, state `suggested` / `confirmed` / `rejected`), `people` (id, name), and the faces each person was rejected for.
+  - Embeddings and unconfirmed faces are a cache, like `ai_analysis`: rebuilt by scanning again.
+  - **The user's decisions are in the XMP sidecar**, so a rebuild keeps them and other apps see the names: confirmed faces as standard **MWG face regions** (`mwg-rs:Regions`: `Type` Face, `Name`, `Area` x/y/w/h, normalised, with the picture's size), which Lightroom, digiKam and Windows Photos read; rejections under `keepsake:`. The XMP writer needs nested structures for this (a region's `Area` inside the region list inside `Regions`); today it writes one level.
+  - Originals are never changed.
+- **What it scans:** photos and RAW photos (their preview), from the 1024 px thumbnail. A face smaller than about 40 px there (a far-away face in a group photo) is skipped at first; reading it from the full-size preview is a later step. Videos are not scanned in the first version.
+- **Speed (estimate, to measure):** YuNet and SFace are small (MobileFaceNet); a photo should take tens of milliseconds on the graphics card. All 129,000 items of the product owner's library: roughly an hour or two the first time, once. Finding a person afterwards compares embeddings only: seconds.
+
+**Plan.** Each step is its own branch and pull request, with its tests, green on Windows and macOS.
+1. **Models and face pipeline (core):** download and check the two models; `ai::faces` with the detector, the 5-point alignment (a similarity transform written here, no OpenCV) and the recogniser; unit tests for alignment, decoding the detector's output and the embedding.
+2. **Scan and store:** schema v13, `ai.faces` jobs in the render service, the setting, Delete all face data; catalog tests; worker tests with a stand-in detector and recogniser.
+3. **Name and find:** people, matching (nearest neighbour, thresholds, out from the confirmed dates), the commands and the window with Review and Find more; the menu item; mocked UI tests.
+4. **Sidecars and search:** MWG regions (nested XMP structures), `People|Name` keywords, rebuild; XMP round-trip and rebuild tests.
+5. **Inspector and viewer:** the People section, face boxes, right-click on a box; mocked UI tests.
+6. **People screen** (if approved for now).
+
+- **Thresholds** are set from the product owner's own photos: corpus tests (`KEEPSAKE_CORPUS`, skipped without it) with a few people named by hand, measuring how many suggestions are right and how many faces are missed, across years.
+
+**Limits.** Faces in profile, with sunglasses or masks, very small or blurred are often not found or not matched. Identical twins and close siblings may be suggested for each other. These are why every suggestion is reviewed.
+
+**Dependencies.** No new crates. Two model files (MIT and Apache-2.0), downloaded at run time, recorded here once approved.
+
+**To approve.** (1) YuNet and SFace. (2) Suggestions always confirmed by the user. (3) Find looks in all photos by default. (4) Names also as `People|Name` keywords. (5) The People screen in a second step, after Name and find.

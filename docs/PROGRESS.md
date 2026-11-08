@@ -56,6 +56,12 @@
 
 ---
 
+## People: name a face and find that person — plan (2026-11-08)
+
+- **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
+- **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
+- **Next:** the product owner approves or changes the five "To approve" choices; then step 1. Nothing is built yet.
+
 ## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
 
 - **Asked:** "keep track of AI tags and indicate which AI tagged them... visible in the sidebar", "an additional option in the dropdown for tag with AI to allow to tag with all", then "add tags to search". Chosen: the Inspector, AIs kept separate, tag chips in the search bar (ADR-039).
