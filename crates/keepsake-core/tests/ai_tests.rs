@@ -1012,3 +1012,36 @@ fn each_provider_has_its_own_jobs_and_one_worker_runs_them_all() {
     }
     assert_eq!(keywords(&mut w, a), ["Dog"], "a keyword once, not twice");
 }
+
+#[test]
+fn the_photos_with_no_date_can_be_tagged_and_stopped() {
+    let mut w = World::new(&[
+        ("a.jpg", scene(1, 640, 480)),
+        ("b.jpg", scene(2, 640, 480)),
+        ("c.jpg", scene(3, 640, 480)),
+    ]);
+    let (a, b, c) = (w.asset("a.jpg"), w.asset("b.jpg"), w.asset("c.jpg"));
+    // a and b have no capture time (the calendar's "No date"); c has one.
+    w.cat
+        .write(|tx| {
+            for id in [a, b] {
+                let mut x = tx.assets().require(id)?;
+                x.capture = None;
+                tx.assets().update(&x)?;
+            }
+            Ok::<_, keepsake_core::catalog::CatalogError>(())
+        })
+        .unwrap();
+    w.same_day(&["c.jpg"], 1);
+    let st = analyze::enqueue_target(&mut w.cat, &analyze::Target::Undated, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 0, 2));
+    assert!(find_job(&w.cat, JOB_AI_TAG, a).is_some());
+    assert!(find_job(&w.cat, JOB_AI_TAG, b).is_some());
+    assert!(find_job(&w.cat, JOB_AI_TAG, c).is_none());
+    assert_eq!(
+        analyze::stop_target(&mut w.cat, &analyze::Target::Undated, Purpose::Tags).unwrap(),
+        2
+    );
+    let st = analyze::target_status(&w.cat, &analyze::Target::Undated, Purpose::Tags).unwrap();
+    assert_eq!((st.items, st.pending), (2, 0));
+}

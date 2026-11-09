@@ -1344,6 +1344,28 @@ export function installMock(): void {
           const ms = cmd === "ai_analyze_folder" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
+        case "ai_analyze_undated":
+        case "ai_undated_status":
+        case "ai_undated_stop": {
+          const key = `${a.what}|undated`;
+          if (cmd === "ai_analyze_undated") {
+            if (!st.ai.enabled)
+              throw "Turn on On-device AI in Settings first (it downloads the model once).";
+            st.aiRanges.set(key, 3);
+          }
+          const items = all
+            .filter((it) => it.t === null)
+            .filter((it) => a.what === "tags" || it.kind === "raw").length;
+          const left = st.aiRanges.get(key) ?? 0;
+          if (cmd === "ai_undated_stop") {
+            st.aiRanges.set(key, -Math.ceil(items / 3));
+            return null;
+          }
+          if (left < 0) return { items, analysed: -left, pending: 0 };
+          if (cmd === "ai_undated_status" && left > 0) st.aiRanges.set(key, left - 1);
+          const pending = left > 0 ? Math.ceil((items * left) / 4) : 0;
+          return { items, analysed: items - pending, pending };
+        }
         case "ai_pick_keeper": {
           const keeper = Number(String(a.keeper).slice(1));
           for (const id of a.group as string[]) {

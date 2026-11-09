@@ -214,3 +214,26 @@ test("AI tags in the inspector: remove one, keep one as a keyword", async ({ pag
     [second, true],
   ]);
 });
+
+test("right-click No date: tag the photos with no date", async ({ page }) => {
+  await open(page);
+  await calNode(page, "undated").click({ button: "right" });
+  const menu = page.getByTestId("date-menu");
+  // No Find duplicates: those are of one day.
+  await expect(menu.getByRole("menuitem")).toHaveText(["Show", "Tag photos"]);
+  await menu.getByTestId("date-menu-tags").click();
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Tagging No date");
+  await expect(win).toContainText("Photos and videos with no date.");
+  await expect(win.getByTestId("ai-job-status")).toHaveText(/photos tagged\.$/, {
+    timeout: 15_000,
+  });
+  expect(await calls(page, "ai_analyze_undated")).toEqual([{ what: "tags" }]);
+  expect(await calls(page, "ai_analyze_range")).toEqual([]);
+});
+
+test("the Calendar entry has no date menu", async ({ page }) => {
+  await open(page);
+  await calNode(page, "cal").click({ button: "right" });
+  await expect(page.getByTestId("date-menu")).toHaveCount(0);
+});

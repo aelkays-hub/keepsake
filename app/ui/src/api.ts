@@ -256,6 +256,10 @@ export const api = {
     invoke<AiFolderStatus>("ai_analyze_folder", { volume, folder, what }),
   aiFolderStatus: (volume: string, folder: string, what: AiTask) =>
     invoke<AiFolderStatus>("ai_folder_status", { volume, folder, what }),
+  /** The same for the photos with no date (the calendar's "No date"). */
+  aiAnalyzeUndated: (what: AiTask) => invoke<AiFolderStatus>("ai_analyze_undated", { what }),
+  aiUndatedStatus: (what: AiTask) => invoke<AiFolderStatus>("ai_undated_status", { what }),
+  aiUndatedStop: (what: AiTask) => invoke<void>("ai_undated_stop", { what }),
   /** Tag with AI (ADR-036, ADR-038): each provider's key and model, the
    * provider offered first, and the photos sent to one. */
   aiCloudInfo: () => invoke<CloudInfo>("ai_cloud_info"),
