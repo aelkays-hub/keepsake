@@ -463,11 +463,12 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
     // Nothing is suggested before a face is named for that person.
     let nobody = w.cat.write(|tx| tx.faces().add_person("Ali", 1)).unwrap();
-    assert!(people::suggest(&mut w.cat, nobody).is_err());
+    assert!(people::suggest(&mut w.cat, nobody, people::DEFAULT_MATCH).is_err());
 
-    let r = people::suggest(&mut w.cat, sara).unwrap();
+    let r = people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
     assert_eq!((r.added, r.waiting, r.confirmed), (3, 3, 1));
-    assert_eq!((r.from_year, r.to_year), (Some(2016), Some(2022)));
+    // The years around the confirmed photo (2020), by year.
+    assert_eq!((r.from_year, r.to_year), (Some(2017), Some(2023)));
     let mut want = vec![b, d, e];
     want.sort();
     assert_eq!(suggested(&w, sara), want, "not c; not the other face in a");
@@ -478,7 +479,12 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     let dd = rev.iter().find(|f| f.asset_id == d).unwrap();
     assert_eq!(dd.id, face_of(&w, d, 1), "the better of d's two faces");
     // Suggesting again adds nothing new.
-    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+    assert_eq!(
+        people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH)
+            .unwrap()
+            .added,
+        0
+    );
 
     // The answers: b and d are Sara; e is not.
     let fe = face_of(&w, e, 0);
@@ -489,7 +495,12 @@ fn name_and_find_suggests_the_faces_most_like_the_named_one() {
     let f = w.cat.read(|tx| tx.faces().get(fe)).unwrap().unwrap();
     assert_eq!((f.person, f.state), (None, FaceState::Unknown));
     // A rejected face is not suggested for her again.
-    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+    assert_eq!(
+        people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH)
+            .unwrap()
+            .added,
+        0
+    );
     // Faces not suggested for her are left alone by her answers.
     let other = face_of(&w, c, 0);
     assert_eq!(
@@ -536,7 +547,7 @@ fn find_more_steps_back_through_the_years() {
 
     let mut reached = Vec::new();
     for want in [vec![p2018, undated], vec![p2016], vec![p2014]] {
-        people::suggest(&mut w.cat, sara).unwrap();
+        people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
         let mut want = want;
         want.sort();
         let got = suggested(&w, sara);
@@ -549,7 +560,12 @@ fn find_more_steps_back_through_the_years() {
         people::decide(&w.lib, &mut w.cat, sara, &ids, &[]).unwrap();
         reached.extend(got);
     }
-    assert_eq!(people::suggest(&mut w.cat, sara).unwrap().added, 0);
+    assert_eq!(
+        people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH)
+            .unwrap()
+            .added,
+        0
+    );
 }
 
 // ── Names in the sidecars and search (step 4) ──────────────────────────────
@@ -599,7 +615,7 @@ fn names_go_into_keywords_and_sidecars_and_a_rebuild_keeps_them() {
     let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
     assert_eq!(keywords_of(&mut w, a), ["Holiday", "People|Sara"]);
     // b's face: suggested, then confirmed; a's other face: not Ali.
-    people::suggest(&mut w.cat, sara).unwrap();
+    people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
     let fb = face_of(&w, b, 0);
     people::decide(&w.lib, &mut w.cat, sara, &[fb], &[]).unwrap();
     assert_eq!(keywords_of(&mut w, b), ["People|Sara"]);
@@ -765,6 +781,141 @@ fn not_this_person_and_not_a_face() {
         .any(|f| f.id == f1 && f.state == FaceState::Hidden));
     // A hidden face is never suggested.
     let ok = people::name_face(&w.lib, &mut w.cat, f0, "Sara", 2).unwrap();
-    people::suggest(&mut w.cat, ok).unwrap();
+    people::suggest(&mut w.cat, ok, people::DEFAULT_MATCH).unwrap();
     assert!(people::review(&w.cat, ok).unwrap().is_empty());
+}
+
+// ── Better matching (ADR-040, tuned on the product owner's library) ────────
+
+/// An embedding unlike `emb(n)`: alternate signs (cosine 0 with all +).
+fn stranger(shift: usize) -> Vec<i8> {
+    (0..EMBEDDING_LEN)
+        .map(|i| {
+            if (i + shift).is_multiple_of(2) {
+                100
+            } else {
+                -100
+            }
+        })
+        .collect()
+}
+
+fn photos(w: &mut World, n: usize) -> Vec<AssetId> {
+    (0..n)
+        .map(|i| {
+            let name = format!("p{i}.jpg");
+            photo_with(w, &name, Some(Y2020), &[face_with(0.1, emb(128 - i % 3))])
+        })
+        .collect()
+}
+
+fn world(n: usize) -> World {
+    let names: Vec<String> = (0..n).map(|i| format!("p{i}.jpg")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    World::new(&refs)
+}
+
+#[test]
+fn one_wrong_confirmation_does_not_pull_in_that_stranger() {
+    // Five photos of Sara and one of a stranger, wrongly confirmed as her;
+    // then another photo of the stranger.
+    let mut w = world(7);
+    let sara_photos = photos(&mut w, 5);
+    let wrong = w.asset("p5.jpg");
+    let again = w.asset("p6.jpg");
+    for (id, e) in [(wrong, stranger(0)), (again, stranger(0))] {
+        w.cat
+            .write(|tx| {
+                tx.faces()
+                    .save_scan(
+                        id,
+                        faces::MODEL_ID,
+                        1024,
+                        768,
+                        &[face_with(0.1, e.clone())],
+                        1,
+                    )
+                    .map(|_| ())
+            })
+            .unwrap();
+    }
+    let f0 = face_of(&w, sara_photos[0], 0);
+    let sara = people::name_face(&w.lib, &mut w.cat, f0, "Sara", 1).unwrap();
+    let mut confirm = Vec::new();
+    for p in &sara_photos[1..] {
+        confirm.push(face_of(&w, *p, 0));
+    }
+    confirm.push(face_of(&w, wrong, 0));
+    for f in &confirm {
+        w.cat
+            .write(|tx| {
+                tx.faces()
+                    .set_person(*f, Some((sara, FaceState::Confirmed)))
+            })
+            .unwrap();
+    }
+    // The nearest-face matching suggested the stranger's other photo (it is
+    // the same face as a confirmed one); the average face does not.
+    people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
+    assert!(suggested(&w, sara).is_empty(), "{:?}", suggested(&w, sara));
+    // And Check puts the wrong one first.
+    let checked = people::check(&w.cat, sara).unwrap();
+    assert_eq!(checked.len(), 6);
+    assert_eq!(checked[0].0.asset_id, wrong);
+    assert!(
+        checked[0].1 < 0.3 && checked[5].1 > 0.9,
+        "{:?}",
+        checked.iter().map(|c| c.1).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_face_like_one_rejected_for_her_is_not_suggested() {
+    let mut w = world(3);
+    let a = photo_with(&mut w, "p0.jpg", Some(Y2020), &[face_with(0.1, emb(128))]);
+    // 104 of 128 alike: cosine 0.625 with Sara, over the cut-off.
+    let b = photo_with(&mut w, "p1.jpg", Some(Y2020), &[face_with(0.1, emb(104))]);
+    let fa = face_of(&w, a, 0);
+    let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
+    people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
+    assert_eq!(suggested(&w, sara), [b]);
+    let fb = face_of(&w, b, 0);
+    people::decide(&w.lib, &mut w.cat, sara, &[], &[fb]).unwrap();
+    // The same face in another photo: more like the rejected one than her.
+    let c = photo_with(&mut w, "p2.jpg", Some(Y2020), &[face_with(0.1, emb(104))]);
+    people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
+    assert!(!suggested(&w, sara).contains(&c));
+}
+
+#[test]
+fn small_faces_are_not_matched_and_the_cut_off_can_be_stricter() {
+    let mut w = world(3);
+    let a = photo_with(&mut w, "p0.jpg", Some(Y2020), &[face_with(0.1, emb(128))]);
+    // 0.04 of 1024 px: 41 px wide, too small.
+    let small = NewFace {
+        w: 0.04,
+        h: 0.05,
+        ..face_with(0.5, emb(127))
+    };
+    let tiny = photo_with(&mut w, "p1.jpg", Some(Y2020), &[small]);
+    let fair = photo_with(&mut w, "p2.jpg", Some(Y2020), &[face_with(0.1, emb(104))]);
+    let fa = face_of(&w, a, 0);
+    let sara = people::name_face(&w.lib, &mut w.cat, fa, "Sara", 1).unwrap();
+    let r = people::suggest(&mut w.cat, sara, people::DEFAULT_MATCH).unwrap();
+    assert_eq!(suggested(&w, sara), [fair], "not the tiny face");
+    assert_eq!((r.from_year, r.to_year), (Some(2017), Some(2023)));
+    // Stricter: the 0.625 suggestion is taken off; looser again: back.
+    assert_eq!(people::rescore(&mut w.cat, sara, 0.7).unwrap(), 1);
+    assert!(suggested(&w, sara).is_empty());
+    let ff = face_of(&w, fair, 0);
+    let f = w.cat.read(|tx| tx.faces().get(ff)).unwrap().unwrap();
+    assert_eq!(
+        (f.person, f.state, f.likeness),
+        (None, FaceState::Unknown, None)
+    );
+    people::suggest(&mut w.cat, sara, 0.6).unwrap();
+    assert_eq!(suggested(&w, sara), [fair]);
+    assert!(!suggested(&w, sara).contains(&tiny));
+    // rescore_all scores everyone's again.
+    assert_eq!(people::rescore_all(&mut w.cat, 0.75).unwrap(), 1);
 }

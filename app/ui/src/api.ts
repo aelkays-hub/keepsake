@@ -275,7 +275,11 @@ export const api = {
   facesName: (face: number, name: string) => invoke<PersonDto>("faces_name", { face, name }),
   /** Search every photo not searched yet; returns how many were queued. */
   facesFind: () => invoke<number>("faces_find"),
-  facesSuggest: (person: number) => invoke<SuggestDto>("faces_suggest", { person }),
+  /** `matchPct`: a new cut-off (stricter or looser), kept for next time. */
+  facesSuggest: (person: number, matchPct: number | null = null) =>
+    invoke<SuggestDto>("faces_suggest", { person, matchPct }),
+  /** A person's confirmed faces, least like the others first. */
+  facesCheck: (person: number) => invoke<FaceDto[]>("faces_check", { person }),
   facesReview: (person: number) => invoke<FaceDto[]>("faces_review", { person }),
   /** Returns [confirmed, rejected]. */
   facesDecide: (person: number, confirm: number[], reject: number[]) =>

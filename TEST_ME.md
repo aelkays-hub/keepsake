@@ -1,8 +1,25 @@
-# Manual Test Steps — Thumbnails after background fingerprinting, Making every missing thumbnail without the app, Open in for photos on a network drive, Show in Explorer / Finder, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Face matching tuned (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/name-find.spec.ts e2e/mocked/people.spec.ts
+```
+
+Manual (both OSes), on a library where people are named:
+1. Open Name and find on any photo. **Expected:** the suggestions waiting for each person are scored again: far fewer remain, and those are clearly them (on the product owner's library, about 16,000 became about 900).
+2. Name and find someone; in Review, move **Looser ↔ Stricter**. **Expected:** after a moment the suggestions change (fewer when stricter); the next time the window opens it remembers the setting.
+3. A photo of someone who was wrongly confirmed (e.g. the bald man with glasses confirmed as a woman): **Expected:** his other photos are no longer suggested for her.
+4. After Confirm, press **Check <name>'s faces** (or click a name in the Inspector's **People**). **Expected:** her confirmed faces, least alike first (with a %); the wrong ones are near the top. Click them and press **Remove N faces from <name>**: **Expected:** they go from the list, their People keyword and face region are taken off, and they are not suggested for her again.
+5. Very small faces (far away in group photos) are no longer suggested.
 
 ---
 
@@ -178,44 +195,12 @@ Manual (both OSes):
 14. Originals: a tagged photo's file is unchanged (size and modified time); the keywords are in its `.xmp` sidecar.
 15. Claude still works as before (ADR-036): a Claude key saved before this change is still there and tags photos.
 
-## Making every missing thumbnail without the app
-
-Automated:
-```
-cargo test -p keepsake-core --test backfill_tests
-cargo test -p keepsake-cli --test cli_tests renders_thumbnails
-```
-
-Manual (both OSes; on macOS use `./target/release/keepsake` and a library such as `~/Pictures/Keepsake`, and stop a run with `kill -9 <pid>` instead of Task Manager). The app may stay open. Build first: `cargo build -p keepsake-cli --release`.
-1. Run `keepsake renders thumbnails`. **Expected:** "Making missing thumbnails in batches of 100 …", then one line per batch: "batch 1 saved: … made, … already had them, … failed, … offline (position #…)". Files that cannot be rendered appear as `FAILED <file>: <error>` on one line and the run goes on.
-2. After a few batches, end the process the hard way (Task Manager → End task on `keepsake.exe`, or `kill -9`). Note the last "position #N".
-3. Run the command again. **Expected:** "Continuing after asset #N" with the number from step 2 (at most one unsaved batch is redone), and the batches carry on from there.
-4. Press Ctrl-C once during a batch. **Expected:** it stops after the files in hand, prints "Stopped. Run `keepsake renders thumbnails` to continue from here." and exits with 130; the next run continues from that point.
-5. Run `keepsake renders thumbnails --failures-log failed.txt > run.log` (redirected). **Expected:** `run.log` has the batch lines, and `failed.txt` one line per failed file: path, a tab, the error.
-6. Disconnect the network share (or unplug the drive) and run it again. **Expected:** "Stopped: the next 100 asset(s) after #N are all offline …", exit status 2, and the position does not move. Reconnect and run again: it continues from #N.
-7. In the app, scroll to photos from step 1. **Expected:** their thumbnails show without waiting. No original file changed (modified dates in Explorer / Finder are the same).
-8. Once it reaches the end ("Reached the end of the library"), run it again. **Expected:** "0 asset(s) looked at" unless new photos were added. `--restart` walks the whole library again and retries the failed files.
-
----
-
-## Tag the photos with no date
-
-Needs Settings → On-device AI on.
-
-1. In the sidebar's calendar tree, right-click **No date**. **Expected:** a menu with **Show** and **Tag photos** (no Find duplicates). Right-clicking **Calendar** shows no menu.
-2. Choose **Tag photos**. **Expected:** the library shows the items with no date, and a window "Tagging No date" says "Photos and videos with no date." with a progress bar, Stop and Hide; it ends with "N of N photos tagged."
-3. Select one of them. **Expected:** the Inspector's AI tags list what it shows. Searching or the Tag list finds them by those tags.
-4. Start it again and press **Stop**. **Expected:** "Stopped: … done. What was done stays."
-
----
-
 ## Helpers end with the app
 
 Automated:
 ```
 cargo test -p keepsake-core --test probe_tests shutdown
 cargo test -p keepsake-platform job
-cargo test -p keepsake-app shutdown
 ```
 
 Manual:
@@ -224,10 +209,6 @@ Manual:
 3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
 4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
 5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
-6. **Both:** start an import of a card (or a backup, or the AI model download in Settings) and close Keepsake while it runs. **Expected:** the app closes within about 5 s; nothing of `exiftool`, `curl` or `ffmpeg` is left. Start it again: the import or backup can be resumed as after any interruption.
-7. **macOS, known gap:** after a crash or Force Quit, an `exiftool` can stay (it does not end when its input closes). End it with `pkill -f exiftool`.
-
----
 
 ## On-device AI: tags and same-day duplicates
 
@@ -274,63 +255,6 @@ Manual (both OSes), with a library that has some bursts or repeated shots:
 20. Windows only: run the installed app (not from source) and turn AI on. **Expected:** it works without `vendor/`, because ONNX Runtime and DirectML are in the app's `onnxruntime\` folder. Their licences are in `licenses\`.
 
 macOS notes: CoreML is tried first, then the CPU. The installer does not bundle ONNX Runtime yet (no macOS app bundle of the sidecars), so on a Mac test from source.
-
-## Show in Explorer / Finder (item right-click menu)
-
-Automated:
-```
-cargo test -p keepsake-core --test reveal_tests
-cargo test -p keepsake-platform reveal
-cargo test -p keepsake-app reveal
-cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/show-in-folder.spec.ts
-```
-
-Manual, with a library that has photos and videos on a connected drive, and (for step 7) some on a drive you can unplug. **Windows** says "Explorer", **macOS** says "Finder".
-1. In the grid, right-click a photo. **Expected:** a small menu opens at the pointer with **Show in Explorer** (macOS: **Show in Finder**) focused, a line, then **Open in …** for each application set in Settings and **Open with the system default**.
-2. Click **Show in Explorer / Finder**. **Expected:** the menu closes; a window opens on the folder holding the photo's original, with that file selected (highlighted). On macOS Finder comes to the front with the file selected. Try a file whose folder name has spaces: it still works.
-3. Do the same for a video, and for a RAW + JPEG item. **Expected:** the original file is selected (for the pair, the file the catalog holds as the original).
-4. Select three tiles (Ctrl/⌘-click), then right-click the third. **Expected:** all three stay selected, the menu is for the third (hover over the menu: its name is that file), and Show selects that file.
-5. Click a tile, press **Shift+F10**. **Expected:** the menu opens on the tile; ↓ and ↑ move through the items; **Esc** closes it and the tile keeps focus. On a Windows keyboard with a Menu key, press it: same menu. Press Enter on Show: the folder opens.
-6. Press Ctrl+3 (details table) and right-click a row, then open the viewer (Enter) and right-click the picture, or press Shift+F10. **Expected:** the same menu in both. In the viewer, Esc closes the menu but not the viewer, and after Show the bottom line says "Shown in Explorer" ("Shown in Finder").
-6b. **macOS:** Ctrl+click two tiles. **Expected:** each Ctrl+click adds or removes the tile from the selection and no menu opens; the arrow keys still move in the grid. A two-finger click (secondary click) opens the menu.
-7. Unplug the drive holding some items, then right-click one of them (it has an "offline" badge). **Expected:** **Show in Explorer / Finder** is greyed out, the menu says **Drive not connected (drive name)**, and there are no Open in items. Esc closes it. Plug the drive back in and try again: Show works.
-8. Check the originals did not change: their modified dates and sizes are the same as before. Nothing is moved, renamed or deleted.
-
-## Open in for photos on a network drive
-
-Automated:
-```
-cargo test -p keepsake-core --lib external
-```
-
-Manual, **Windows**, with a library folder on a network share (e.g. `\\MYCLOUD-92LNT0\aelkays\Photos-OldAcer`) and Photoshop / Topaz Photo set in Settings for ARW and JPG:
-1. Select a JPG from the network share, open **Open in** in the inspector and choose **Photoshop**. **Expected:** Photoshop opens that photo; the inspector says "Opened with Photoshop".
-2. Do the same with an ARW and **Topaz Photo**. **Expected:** Topaz Photo opens that RAW.
-3. Press Ctrl+O on a network photo. **Expected:** it opens in the first app set for its type.
-4. Choose **System default**. **Expected:** the photo opens in Windows' default app for that type.
-5. Repeat step 1 with a photo on a local drive (e.g. `E:\Pictures`). **Expected:** still opens as before.
-
-Manual, **macOS**, with a library on a mounted SMB share (`/Volumes/…`): choose an app from **Open in**. **Expected:** it opens the photo (macOS paths are unchanged by this fix; this checks nothing broke).
-
-## Thumbnails after background fingerprinting
-
-Automated:
-```
-cargo test -p keepsake-core --test fingerprint_tests
-cargo test -p keepsake-core --test safety_audit_tests
-```
-
-Manual, an existing library with blank tiles (both OSes; on macOS use `~/Pictures/…` paths and Finder instead of Explorer). **Back up `catalog.db` first** (copy it while Keepsake is closed):
-1. Close Keepsake. In a terminal run `keepsake renders repair`. **Expected:** "Renamed N rendition(s); dropped M whose file was gone." On the Windows test library (`E:\Pictures\2026`) N is about 100,000 the first time. Run it again. **Expected:** "Renamed 0 rendition(s); dropped 0 …".
-2. Start the app and open the library. **Expected:** the photos that had blank tiles show their thumbnails at once (they are renamed, not made again).
-3. Instead of step 1, on a second copy of the broken library, just start the app. **Expected:** within a minute or two (the time to rename the files) the grid reloads and the blank tiles fill in, with no restart.
-4. In the cache folder (Settings → Cache folder), open `thumbnail\` and any two-letter sub-folder. **Expected:** every file is named `<64 hex>-<64 hex>.jpg`; no original photo was touched (their modified dates in Explorer / Finder are unchanged).
-
-Manual, a new folder (both OSes):
-1. Add a folder of a few hundred photos (Folders → Add a folder). Wait until the thumbnails show.
-2. Leave the app running until `keepsake renders status` (in another terminal) shows no fingerprint jobs queued.
-3. Scroll through the folder in the grid. **Expected:** every tile keeps its thumbnail while and after the fingerprints are made; none turns blank or broken.
-4. Close and reopen the app. **Expected:** the thumbnails show at once and no thumbnail work starts for them.
 
 ---
 

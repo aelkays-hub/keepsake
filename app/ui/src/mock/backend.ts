@@ -90,6 +90,8 @@ export interface MockState {
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
+  /** The face cut-off, in percent. */
+  facesMatch: number;
   facesAsked: Set<number>;
   people: { id: number; name: string }[];
   /** Duplicate decisions: `keeper`, `not_kept`, `not_duplicate`. */
@@ -316,6 +318,7 @@ export function installMock(): void {
       left: 0,
     },
     faceRows: new Map(),
+    facesMatch: 55,
     facesAsked: new Set(),
     people: [],
     choice: new Map(),
@@ -1238,6 +1241,7 @@ export function installMock(): void {
         case "faces_suggest":
         case "faces_review":
         case "faces_decide":
+        case "faces_check":
         case "faces_not_person":
         case "faces_not_face": {
           if (
@@ -1278,6 +1282,7 @@ export function installMock(): void {
             h: 0.45,
             person:
               f.person === null ? null : (st.people.find((p) => p.id === f.person)?.name ?? null),
+            personId: f.person,
             state: f.state,
             likeness: f.likeness,
             date: day(all[f.photo]?.t ?? null),
@@ -1332,7 +1337,15 @@ export function installMock(): void {
             return left;
           }
           const person = Number(a.person);
+          if (cmd === "faces_check") {
+            // Least alike first.
+            return [...st.faceRows.values()]
+              .filter((f) => f.person === person && f.state === "confirmed")
+              .map((f) => ({ ...dto(f), likeness: 30 + ((f.photo * 13) % 70) }))
+              .sort((x, y) => x.likeness - y.likeness);
+          }
           if (cmd === "faces_suggest") {
+            if (typeof a.matchPct === "number") st.facesMatch = a.matchPct;
             all.forEach((_, i) => facesOf(i));
             const mine = [...st.faceRows.values()].filter(
               (f) => f.person === person && f.state === "confirmed",
@@ -1355,7 +1368,14 @@ export function installMock(): void {
             const waiting = [...st.faceRows.values()].filter(
               (f) => f.person === person && f.state === "suggested",
             ).length;
-            return { added, waiting, confirmed: mine.length, fromYear: 2012, toYear: 2020 };
+            return {
+              added,
+              waiting,
+              confirmed: mine.length,
+              fromYear: 2012,
+              toYear: 2020,
+              matchPct: st.facesMatch,
+            };
           }
           if (cmd === "faces_review")
             return [...st.faceRows.values()]

@@ -116,3 +116,40 @@ test("the viewer opens Name and find for its photo", async ({ page }) => {
   }
   throw new Error("no photo opened in the viewer");
 });
+
+test("Looser or Stricter, and Check her faces to take mistakes off", async ({ page }) => {
+  await page.goto("/?items=60&faces=on");
+  await expect(page.getByTestId("count")).toHaveText("60 items");
+  const win = await openOnAFace(page);
+  await win.getByTestId("nf-name").fill("Sara");
+  await win.getByTestId("nf-start").click();
+  await expect(win.getByTestId("nf-found")).toContainText("that may be Sara", { timeout: 15_000 });
+  // The cut-off: 55% to start with; Stricter suggests again with it.
+  const match = win.getByTestId("nf-match");
+  await expect(match).toHaveValue("55");
+  await match.fill("70");
+  await expect
+    .poll(async () => (await calls(page, "faces_suggest")).at(-1))
+    .toMatchObject({ matchPct: 70 });
+  await win.getByTestId("nf-confirm").click();
+  await expect(win.getByTestId("nf-note")).toContainText("confirmed as Sara");
+
+  // Check: her confirmed faces, least alike first; take one off.
+  await win.getByTestId("nf-check-open").click();
+  await expect(win.getByRole("heading")).toHaveText("Check Sara's faces");
+  await expect(win.getByTestId("nf-check-status")).toContainText("least alike first");
+  const faces = win.getByTestId("nf-checked");
+  const n = await faces.count();
+  expect(n).toBeGreaterThan(1);
+  await expect(win.getByTestId("nf-remove")).toBeDisabled();
+  await faces.first().click();
+  await win.getByTestId("nf-remove").click();
+  await expect(win.getByTestId("nf-note")).toHaveText("1 face taken off Sara.");
+  await expect(faces).toHaveCount(n - 1);
+  const decided = (await calls(page, "faces_decide")).at(-1) as {
+    confirm: number[];
+    reject: number[];
+  };
+  expect(decided.confirm).toEqual([]);
+  expect(decided.reject).toHaveLength(1);
+});

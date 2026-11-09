@@ -254,6 +254,7 @@ fn face_dto(cat: &Catalog, cache: &Cache, f: &FaceRow) -> CmdResult<FaceDto> {
         w: f.face.w,
         h: f.face.h,
         person,
+        person_id: f.person,
         state: f.state.as_str().to_owned(),
         likeness: f
             .likeness
@@ -265,14 +266,22 @@ fn face_dto(cat: &Catalog, cache: &Cache, f: &FaceRow) -> CmdResult<FaceDto> {
     })
 }
 
-fn suggest_dto(o: people::SuggestOutcome) -> SuggestDto {
+fn suggest_dto(o: people::SuggestOutcome, match_pct: u8) -> SuggestDto {
     SuggestDto {
         added: o.added,
         waiting: o.waiting,
         confirmed: o.confirmed,
         from_year: o.from_year,
         to_year: o.to_year,
+        match_pct,
     }
+}
+
+/// The face cut-off in the settings, as a cosine and in percent.
+fn face_match() -> CmdResult<(f32, u8)> {
+    let s = Settings::load().map_err(err)?;
+    let m = s.ai.face_match();
+    Ok((m, (m * 100.0).round() as u8))
 }
 
 /// The faces in a photo (not those hidden as "not a face"). One not
@@ -319,6 +328,13 @@ pub fn faces_of_photo(
 #[tauri::command(async)]
 pub fn faces_people(state: State<'_, AppState>) -> CmdResult<Vec<PersonDto>> {
     let open = state.open()?;
+    // Suggestions made with older matching (or another cut-off) are scored
+    // again: those no longer alike enough are taken off.
+    {
+        let (cut, _) = face_match()?;
+        let mut cat = open.writer()?;
+        people::rescore_all(&mut cat, cut).map_err(err)?;
+    }
     let cat = open.cat()?;
     let list = cat.read(|tx| tx.faces().people()).map_err(err)?;
     list.into_iter()
@@ -383,11 +399,43 @@ pub fn faces_find(app: AppHandle, state: State<'_, AppState>) -> CmdResult<u64> 
 
 /// Suggest the person's faces among the faces found so far (Find more:
 /// again, with the faces confirmed since).
+/// `match_pct`: a new cut-off (the stricter/looser control), kept for next
+/// time; the waiting suggestions are scored again with it.
 #[tauri::command(async)]
-pub fn faces_suggest(state: State<'_, AppState>, person: i64) -> CmdResult<SuggestDto> {
+pub fn faces_suggest(
+    state: State<'_, AppState>,
+    person: i64,
+    match_pct: Option<u8>,
+) -> CmdResult<SuggestDto> {
+    if let Some(p) = match_pct {
+        let mut s = Settings::load().map_err(err)?;
+        s.ai.face_match_pct = p;
+        s.save().map_err(err)?;
+    }
+    let (cut, pct) = face_match()?;
     let open = state.open()?;
     let mut cat = open.writer()?;
-    Ok(suggest_dto(people::suggest(&mut cat, person).map_err(err)?))
+    Ok(suggest_dto(
+        people::suggest(&mut cat, person, cut).map_err(err)?,
+        pct,
+    ))
+}
+
+/// A person's confirmed faces, least like the others first (with how
+/// alike, 0–100): to find mistakes.
+#[tauri::command(async)]
+pub fn faces_check(state: State<'_, AppState>, person: i64) -> CmdResult<Vec<FaceDto>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    people::check(&cat, person)
+        .map_err(err)?
+        .iter()
+        .map(|(f, like)| {
+            let mut d = face_dto(&cat, &open.cache, f)?;
+            d.likeness = Some((like.clamp(0.0, 1.0) * 100.0).round() as u8);
+            Ok(d)
+        })
+        .collect()
 }
 
 /// The person's suggestions waiting for an answer, best first.

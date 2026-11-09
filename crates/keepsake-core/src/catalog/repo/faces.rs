@@ -74,6 +74,15 @@ pub struct FaceRow {
     pub likeness: Option<f32>,
     /// When its photo was taken (UTC ms), if known.
     pub capture_ms: Option<i64>,
+    /// The width of the picture it was found in (pixels), if searched.
+    pub picture_width: Option<u32>,
+}
+
+impl FaceRow {
+    /// The face's width in the picture it was found in, in pixels.
+    pub fn width_px(&self) -> Option<f32> {
+        self.picture_width.map(|w| self.face.w * w as f32)
+    }
 }
 
 /// An asset's face scan.
@@ -175,7 +184,8 @@ pub fn name_key(name: &str) -> String {
 
 const FACE_COLS: &str = "f.id, f.asset_id, f.x, f.y, f.w, f.h, f.landmarks, f.score, f.model,
     f.embedding, f.emb_scale, f.person_id, f.state, f.likeness,
-    (SELECT a.capture_ts_ms FROM assets a WHERE a.id = f.asset_id)";
+    (SELECT a.capture_ts_ms FROM assets a WHERE a.id = f.asset_id),
+    (SELECT s.width FROM face_scans s WHERE s.asset_id = f.asset_id)";
 
 fn face_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FaceRow> {
     let lm: Vec<u8> = r.get(6)?;
@@ -208,6 +218,7 @@ fn face_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FaceRow> {
         state,
         likeness: r.get::<_, Option<f64>>(13)?.map(|v| v as f32),
         capture_ms: r.get(14)?,
+        picture_width: r.get(15)?,
     })
 }
 
@@ -445,6 +456,18 @@ impl<M> Faces<'_, M> {
              UNION SELECT asset_id FROM face_rejections_pending",
         )?;
         let v = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(v)
+    }
+
+    /// The faces said not to be `person` (that still exist).
+    pub fn rejected_faces(&self, person: i64) -> Result<Vec<FaceRow>, CatalogError> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {FACE_COLS} FROM faces f JOIN face_rejections r ON r.face_id = f.id
+              WHERE r.person_id = ?1"
+        ))?;
+        let v = st
+            .query_map([person], face_row)?
+            .collect::<Result<_, _>>()?;
         Ok(v)
     }
 
@@ -742,6 +765,15 @@ impl Faces<'_, Rw> {
             "UPDATE faces SET person_id = ?2, state = 'suggested', likeness = ?3
               WHERE id = ?1 AND state = 'unknown'",
             params![face, person, f64::from(likeness)],
+        )?;
+        Ok(())
+    }
+
+    /// A suggestion's likeness, scored again.
+    pub fn set_likeness(&self, face: i64, likeness: f32) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "UPDATE faces SET likeness = ?2 WHERE id = ?1 AND state = 'suggested'",
+            params![face, f64::from(likeness)],
         )?;
         Ok(())
     }
