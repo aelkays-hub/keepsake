@@ -63,6 +63,12 @@ Since 8 Nov 2026 GitHub refuses the `macos-14` runner ("The configuration 'macos
 The first macos-15 run then failed one UI test, `library.spec.ts` multi-select: on a Mac, Ctrl+click also fires a right-click, and the photo menu from Tag with Claude (ADR-036) opened and took the keyboard. The grid now ignores that event when Ctrl is down, so Ctrl+click only toggles the selection; a right-click, the Menu key and Shift+F10 still open the menu. New mocked test: "Ctrl+click toggles the selection and opens no photo menu" (`claude.spec.ts`).
 
 ---
+## Tag the photos with no date (2026-11-08)
+
+- **Asked:** "I have around 1700 pictures that have no date but I can't tag them". Right-clicking **No date** in the calendar did nothing: Tag photos took only a date range.
+- **Built:** `ai::Target::Undated` (items with no capture time); app `ai_analyze_undated`, `ai_undated_status`, `ai_undated_stop`; the sidebar's **No date** has a menu with Show and Tag photos (not Find duplicates: those are of one day; "Calendar" still has no menu); the progress window says "Photos and videos with no date."
+- **Tests, run here:** `the_photos_with_no_date_can_be_tagged_and_stopped` (ai_tests); mocked Playwright `right-click No date: tag the photos with no date` and `the Calendar entry has no date menu` (ai.spec), with the calendar-tree, keyboard and a11y specs; app and core tests; clippy, ESLint, Prettier.
+
 
 ## Helpers end with the app (2026-11-08)
 

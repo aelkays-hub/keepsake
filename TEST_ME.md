@@ -1,4 +1,4 @@
-# Manual Test Steps — Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Tag the photos with no date, Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -11,6 +11,17 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 Nothing to test in the app. On the pull request, check that a check named **macos-15 (Rust)** runs and passes next to **windows-latest**, and that no check named macos-14 is left waiting.
 
 On a Mac: click a photo, then Ctrl+click another. Expected: both are selected and no menu opens; Ctrl+click it again and it is no longer selected. A two-finger click (or right-click) still opens the photo menu. On Windows: Ctrl+click toggles the selection and a right-click opens the menu.
+
+---
+
+## Tag the photos with no date
+
+Needs Settings → On-device AI on.
+
+1. In the sidebar's calendar tree, right-click **No date**. **Expected:** a menu with **Show** and **Tag photos** (no Find duplicates). Right-clicking **Calendar** shows no menu.
+2. Choose **Tag photos**. **Expected:** the library shows the items with no date, and a window "Tagging No date" says "Photos and videos with no date." with a progress bar, Stop and Hide; it ends with "N of N photos tagged."
+3. Select one of them. **Expected:** the Inspector's AI tags list what it shows. Searching or the Tag list finds them by those tags.
+4. Start it again and press **Stop**. **Expected:** "Stopped: … done. What was done stays."
 
 ---
 
