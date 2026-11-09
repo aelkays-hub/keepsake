@@ -30,6 +30,13 @@ function calls(job: AiJob) {
       stop: () => api.aiClaudeStop(ids),
     };
   }
+  if ("undated" in job) {
+    return {
+      start: (): Promise<St> => api.aiAnalyzeUndated(job.what),
+      status: (): Promise<St> => api.aiUndatedStatus(job.what),
+      stop: () => api.aiUndatedStop(job.what),
+    };
+  }
   if ("range" in job) {
     const { from, to } = job.range;
     return {
@@ -134,7 +141,9 @@ export function AiJobWindow() {
       (model ? ` It costs ${costOf(job.count, model.centsPerPhoto)}, charged by Anthropic.` : "");
   else if (!st) line = "Getting ready…";
   else if (st.items === 0)
-    line = `No ${tags ? "" : "RAW "}photos ${"range" in job ? "on these dates" : "in this folder"}.`;
+    line = `No ${tags ? "" : "RAW "}photos ${
+      "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder"
+    }.`;
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
@@ -155,9 +164,11 @@ export function AiJobWindow() {
       <p className="muted">
         {claude
           ? "A 1024-pixel copy of each photo is sent; the tags become keywords."
-          : "range" in job
-            ? "Photos taken on these dates."
-            : "This folder and the folders in it."}
+          : "undated" in job
+            ? "Photos and videos with no date."
+            : "range" in job
+              ? "Photos taken on these dates."
+              : "This folder and the folders in it."}
       </p>
       {!asking && (
         <progress

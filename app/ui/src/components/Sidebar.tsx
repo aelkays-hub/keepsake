@@ -203,10 +203,12 @@ export function Sidebar() {
   /** The open folder menu: where, and for which entry. */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; at: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  /** A year, month or day: it has a right-click menu (not "Calendar" or "No date"). */
+  /** A year, month or day (not "Calendar" or "No date"). */
   const dated = (e: Entry) => (e.cal && e.cal.year !== null ? e.cal : null);
   const menuFor = (entry: Entry, at: number, x: number, y: number) => {
-    if (entry.fold || dated(entry)) setMenu({ x, y, entry, at });
+    // "No date" has a menu too (Tag photos), but no Find duplicates: those
+    // are of one day. "Calendar" has none.
+    if (entry.fold || dated(entry) || entry.cal?.key === "undated") setMenu({ x, y, entry, at });
   };
   const move = (to: number) => {
     const i = Math.max(0, Math.min(flat.length - 1, to));
@@ -325,7 +327,7 @@ export function Sidebar() {
                       }}
                       onFocus={() => setFocus(i)}
                       onContextMenu={(ev) => {
-                        if (!e.fold && !dated(e)) return;
+                        if (!e.fold && !dated(e) && e.cal?.key !== "undated") return;
                         ev.preventDefault();
                         setFocus(i);
                         menuFor(e, i, ev.clientX, ev.clientY);
@@ -366,43 +368,61 @@ export function Sidebar() {
           </section>
         ),
       )}
-      {menu && dated(menu.entry) && (
+      {menu && menu.entry.cal && !menu.entry.fold && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           label={`${menu.entry.label} (date)`}
           testId="date-menu"
-          items={[
-            { label: "Show", run: () => openEntry(menu.entry) },
-            {
-              label: "Find duplicates",
-              title:
-                "Compare the RAW photos of these dates on this computer, then show the duplicates",
-              testId: "date-menu-dups",
-              run: () => {
-                const c = dated(menu.entry);
-                const r = c && calRange(c.year, c.month, c.day);
-                if (!r) return;
-                return api
-                  .aiAnalyzeRange(r.from, r.to, "duplicates")
-                  .then(() => dispatch({ t: "duplicates", range: r }));
-              },
-            },
-            {
-              label: "Tag photos",
-              title: "Tag the photos of these dates by what they show, on this computer",
-              testId: "date-menu-tags",
-              run: () => {
-                const c = dated(menu.entry);
-                const r = c && calRange(c.year, c.month, c.day);
-                if (!r) return;
-                // At once: the progress window shows it getting ready,
-                // queues the work and follows it.
-                openEntry(menu.entry);
-                dispatch({ t: "aiJob", job: { range: r, title: r.title, what: "tags" } });
-              },
-            },
-          ]}
+          items={
+            !dated(menu.entry)
+              ? [
+                  { label: "Show", run: () => openEntry(menu.entry) },
+                  {
+                    label: "Tag photos",
+                    title: "Tag the photos with no date by what they show, on this computer",
+                    testId: "date-menu-tags",
+                    run: () => {
+                      openEntry(menu.entry);
+                      dispatch({
+                        t: "aiJob",
+                        job: { undated: true, title: "No date", what: "tags" },
+                      });
+                    },
+                  },
+                ]
+              : [
+                  { label: "Show", run: () => openEntry(menu.entry) },
+                  {
+                    label: "Find duplicates",
+                    title:
+                      "Compare the RAW photos of these dates on this computer, then show the duplicates",
+                    testId: "date-menu-dups",
+                    run: () => {
+                      const c = dated(menu.entry);
+                      const r = c && calRange(c.year, c.month, c.day);
+                      if (!r) return;
+                      return api
+                        .aiAnalyzeRange(r.from, r.to, "duplicates")
+                        .then(() => dispatch({ t: "duplicates", range: r }));
+                    },
+                  },
+                  {
+                    label: "Tag photos",
+                    title: "Tag the photos of these dates by what they show, on this computer",
+                    testId: "date-menu-tags",
+                    run: () => {
+                      const c = dated(menu.entry);
+                      const r = c && calRange(c.year, c.month, c.day);
+                      if (!r) return;
+                      // At once: the progress window shows it getting ready,
+                      // queues the work and follows it.
+                      openEntry(menu.entry);
+                      dispatch({ t: "aiJob", job: { range: r, title: r.title, what: "tags" } });
+                    },
+                  },
+                ]
+          }
           onClose={() => {
             const at = menu.at;
             closeMenu();
