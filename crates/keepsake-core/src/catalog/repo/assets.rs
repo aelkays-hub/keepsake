@@ -93,6 +93,34 @@ impl<M> Assets<'_, M> {
         Ok(rows)
     }
 
+    /// Up to `limit` assets with `seq` above `after`, in `seq` order, with
+    /// their `seq`: a stable walk over the whole library that can stop and
+    /// pick up where it left off (assets added meanwhile come last).
+    pub fn page_after(
+        &self,
+        after: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, AssetId)>, CatalogError> {
+        let mut st = self
+            .conn
+            .prepare("SELECT seq, id FROM assets WHERE seq > ?1 ORDER BY seq LIMIT ?2")?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = st
+            .query_map(params![after, limit], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Number of assets with `seq` above `after`.
+    pub fn count_after(&self, after: i64) -> Result<u64, CatalogError> {
+        let n: i64 =
+            self.conn
+                .query_row("SELECT count(*) FROM assets WHERE seq > ?1", [after], |r| {
+                    r.get(0)
+                })?;
+        super::to_u64(n, "count")
+    }
+
     pub fn list_ids(&self) -> Result<Vec<AssetId>, CatalogError> {
         let mut st = self
             .conn

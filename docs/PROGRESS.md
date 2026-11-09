@@ -18,6 +18,7 @@
 | — | Select many to edit: tick-box on tiles, Select mode, drag a rectangle; inspector shows what the selection shares; comment for all | ✅ Done (Windows; macOS via CI) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
+| — | Headless thumbnail backfill (`keepsake renders thumbnails`): every missing thumbnail, 100 per saved batch, resumes after a kill, passes bad files | ✅ Done (Windows; macOS via CI) |
 | — | Faster thumbnails on a network drive: fingerprints wait for thumbnails; camera JPEG thumbnails from the built-in preview | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
@@ -351,6 +352,36 @@ not find the file. Photos on a local drive were not affected.
 
 ### Not done
 Not yet tried by hand in the running app; CI not yet run.
+
+---
+
+## Headless thumbnail backfill (2026-11-05)
+
+### What was asked
+- A program with no UI that walks every picture in the library and makes the missing thumbnails unattended: 100 items, one commit, next 100; resumable after a crash, a kill or a bad file.
+
+### What was built (ADR-033)
+- `keepsake renders thumbnails`, a subcommand rather than a new binary: the CLI already finds the library, settings and tools, handles Ctrl-C and ships with the app.
+- `keepsake_core::render::backfill`: walks `assets` by `seq` from a position saved in `library_meta` (`render.backfill.cursor`). Each batch is rendered first (files only), then one short write records the batch's `renditions` rows and the position. Thumbnails only (256 and 1024 px), from a camera JPEG's built-in preview when it has one. Workers from the settings (4 here).
+- A failed file, or a decoder panic, is reported (`FAILED <file>: <error>`, one line, and `--failures-log`) and passed. A batch whose media is all offline stops the run without moving past it (`--skip-offline` to move on). `--restart` walks everything again to retry failures; `--max-batches` stops early.
+- Refactor: `Cache::store_bytes` and `still::make_stills` write rendition files and return the rows unwritten; `render_stills_of` now records an asset's renditions in one write. `Assets::page_after` / `count_after` for the walk.
+
+### Tests
+- `backfill_tests` (9, no tools needed): batches of 100 saved one by one (seen from another connection); a stopped run resumes after the saved batch and no asset is rendered twice; a catalog failure mid-batch keeps the earlier batch and loses only the current one; bad files and a panicking renderer are reported and passed; an all-offline batch stops without moving, then continues when the media is back; `skip_offline`; Ctrl-C saves the finished part; assets added later are picked up.
+- `cli_tests::renders_thumbnails_saves_batches_resumes_and_logs_failed_files`: batch size 2, `--max-batches 1`, resume, failures log, JSON Lines.
+
+### Run on the real library
+- `E:\Pictures\2026` (129,127 assets, media on `\\MYCLOUD-92LNT0`), with the app open. Run 1 walked to #3,700 (mostly assets that already had thumbnails) and was killed with `Stop-Process -Force`; run 2 printed "Continuing after asset #3700" and made 100 thumbnails per batch (about 130 a minute from the share), was killed at #4,300; a third run continued after #4,300. No file failed in those batches.
+- 5 of the first ~37 batch writes took 2–3.6 s ("slow catalog write"), the rest were quick; later batches had none. The writes are 200 rows and one key, so the time is the disk (WAL checkpoint and flush on E:), not the batch size.
+
+### Bugs found and fixed on the way
+- FFmpeg errors span several lines; failures are now folded to one line per file.
+- With output redirected to a file, the hidden progress bar dropped every line; they now go to stdout.
+
+### Not done
+- The backfill does not trim the cache; the app's render service does (the cache was at 19.4 of 21.5 GB, so older previews will be evicted to make room).
+- The app's queued `render.stills` jobs are left alone: they find the thumbnails and make only the preview.
+- The same hidden-bar problem affects `keepsake renders run` when its output is redirected (not changed here).
 
 ---
 

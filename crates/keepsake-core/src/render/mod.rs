@@ -8,10 +8,13 @@
 //! - [`still`] and [`video`]: the renderers. Originals are only read.
 //! - [`service::RenderService`]: workers on the job queue, with pauses and
 //!   progress events.
+//! - [`backfill::Backfill`]: a headless walk that makes every missing
+//!   thumbnail in batches, resuming where the last run stopped.
 //!
 //! Job kinds: [`JOB_STILLS`] makes the preview and both thumbnails in one
 //! pass (the source is decoded once); [`JOB_PROXY`] makes the proxy.
 
+pub mod backfill;
 pub mod cache;
 pub mod card;
 pub mod full;

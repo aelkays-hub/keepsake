@@ -1,4 +1,4 @@
-# Manual Test Steps — Open in for photos on a network drive, Show in Explorer / Finder, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Making every missing thumbnail without the app, Open in for photos on a network drive, Show in Explorer / Finder, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -178,6 +178,24 @@ Manual (both OSes):
 14. Originals: a tagged photo's file is unchanged (size and modified time); the keywords are in its `.xmp` sidecar.
 15. Claude still works as before (ADR-036): a Claude key saved before this change is still there and tags photos.
 
+## Making every missing thumbnail without the app
+
+Automated:
+```
+cargo test -p keepsake-core --test backfill_tests
+cargo test -p keepsake-cli --test cli_tests renders_thumbnails
+```
+
+Manual (both OSes; on macOS use `./target/release/keepsake` and a library such as `~/Pictures/Keepsake`, and stop a run with `kill -9 <pid>` instead of Task Manager). The app may stay open. Build first: `cargo build -p keepsake-cli --release`.
+1. Run `keepsake renders thumbnails`. **Expected:** "Making missing thumbnails in batches of 100 …", then one line per batch: "batch 1 saved: … made, … already had them, … failed, … offline (position #…)". Files that cannot be rendered appear as `FAILED <file>: <error>` on one line and the run goes on.
+2. After a few batches, end the process the hard way (Task Manager → End task on `keepsake.exe`, or `kill -9`). Note the last "position #N".
+3. Run the command again. **Expected:** "Continuing after asset #N" with the number from step 2 (at most one unsaved batch is redone), and the batches carry on from there.
+4. Press Ctrl-C once during a batch. **Expected:** it stops after the files in hand, prints "Stopped. Run `keepsake renders thumbnails` to continue from here." and exits with 130; the next run continues from that point.
+5. Run `keepsake renders thumbnails --failures-log failed.txt > run.log` (redirected). **Expected:** `run.log` has the batch lines, and `failed.txt` one line per failed file: path, a tab, the error.
+6. Disconnect the network share (or unplug the drive) and run it again. **Expected:** "Stopped: the next 100 asset(s) after #N are all offline …", exit status 2, and the position does not move. Reconnect and run again: it continues from #N.
+7. In the app, scroll to photos from step 1. **Expected:** their thumbnails show without waiting. No original file changed (modified dates in Explorer / Finder are the same).
+8. Once it reaches the end ("Reached the end of the library"), run it again. **Expected:** "0 asset(s) looked at" unless new photos were added. `--restart` walks the whole library again and retries the failed files.
+
 ---
 
 ## Tag the photos with no date
@@ -208,6 +226,8 @@ Manual:
 5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
 6. **Both:** start an import of a card (or a backup, or the AI model download in Settings) and close Keepsake while it runs. **Expected:** the app closes within about 5 s; nothing of `exiftool`, `curl` or `ffmpeg` is left. Start it again: the import or backup can be resumed as after any interruption.
 7. **macOS, known gap:** after a crash or Force Quit, an `exiftool` can stay (it does not end when its input closes). End it with `pkill -f exiftool`.
+
+---
 
 ## On-device AI: tags and same-day duplicates
 
