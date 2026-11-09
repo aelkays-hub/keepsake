@@ -87,6 +87,7 @@ export function useRows(view: ViewInfo | null, revision: number): RowSource {
       stale.current.clear();
     }, 300);
     const un = events.thumbs((e) => {
+      if (e.all) for (const p of pages.current.keys()) stale.current.add(p);
       for (const id of e.ids) {
         const i = byId.current.get(id);
         if (i !== undefined) stale.current.add(Math.floor(i / PAGE));

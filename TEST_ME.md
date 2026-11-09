@@ -1,4 +1,4 @@
-# Manual Test Steps — Making every missing thumbnail without the app, Open in for photos on a network drive, Show in Explorer / Finder, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Thumbnails after background fingerprinting, Making every missing thumbnail without the app, Open in for photos on a network drive, Show in Explorer / Finder, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -311,6 +311,26 @@ Manual, **Windows**, with a library folder on a network share (e.g. `\\MYCLOUD-9
 5. Repeat step 1 with a photo on a local drive (e.g. `E:\Pictures`). **Expected:** still opens as before.
 
 Manual, **macOS**, with a library on a mounted SMB share (`/Volumes/…`): choose an app from **Open in**. **Expected:** it opens the photo (macOS paths are unchanged by this fix; this checks nothing broke).
+
+## Thumbnails after background fingerprinting
+
+Automated:
+```
+cargo test -p keepsake-core --test fingerprint_tests
+cargo test -p keepsake-core --test safety_audit_tests
+```
+
+Manual, an existing library with blank tiles (both OSes; on macOS use `~/Pictures/…` paths and Finder instead of Explorer). **Back up `catalog.db` first** (copy it while Keepsake is closed):
+1. Close Keepsake. In a terminal run `keepsake renders repair`. **Expected:** "Renamed N rendition(s); dropped M whose file was gone." On the Windows test library (`E:\Pictures\2026`) N is about 100,000 the first time. Run it again. **Expected:** "Renamed 0 rendition(s); dropped 0 …".
+2. Start the app and open the library. **Expected:** the photos that had blank tiles show their thumbnails at once (they are renamed, not made again).
+3. Instead of step 1, on a second copy of the broken library, just start the app. **Expected:** within a minute or two (the time to rename the files) the grid reloads and the blank tiles fill in, with no restart.
+4. In the cache folder (Settings → Cache folder), open `thumbnail\` and any two-letter sub-folder. **Expected:** every file is named `<64 hex>-<64 hex>.jpg`; no original photo was touched (their modified dates in Explorer / Finder are unchanged).
+
+Manual, a new folder (both OSes):
+1. Add a folder of a few hundred photos (Folders → Add a folder). Wait until the thumbnails show.
+2. Leave the app running until `keepsake renders status` (in another terminal) shows no fingerprint jobs queued.
+3. Scroll through the folder in the grid. **Expected:** every tile keeps its thumbnail while and after the fingerprints are made; none turns blank or broken.
+4. Close and reopen the app. **Expected:** the thumbnails show at once and no thumbnail work starts for them.
 
 ---
 

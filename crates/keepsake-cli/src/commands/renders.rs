@@ -50,6 +50,10 @@ pub enum RendersAction {
         #[arg(long)]
         max_bytes: Option<u64>,
     },
+    /// Move cached renditions left under an old name (from before their
+    /// file's fingerprint was known) to their proper name. The app and
+    /// `renders run` also do this when they start.
+    Repair,
     /// Measure items per minute per type on this machine (writes nothing
     /// outside a temporary folder).
     Bench(BenchArgs),
@@ -194,6 +198,18 @@ pub fn run(ctx: &Ctx, action: RendersAction) -> Result<u8> {
                         human_bytes(rep.kept_offline_bytes)
                     );
                 }
+            })?;
+            Ok(EXIT_OK)
+        }
+        RendersAction::Repair => {
+            let e = env(ctx)?;
+            let mut cat = e.lib.open_catalog()?;
+            let rep = e.cache.repair_names(&mut cat)?;
+            ctx.emit(&json!({ "repair": rep }), || {
+                println!(
+                    "Renamed {} rendition(s); dropped {} whose file was gone.",
+                    rep.renamed, rep.dropped
+                )
             })?;
             Ok(EXIT_OK)
         }
@@ -355,6 +371,11 @@ fn run_queue(ctx: &Ctx, a: RunArgs) -> Result<u8> {
                     "Stopped after the current job(s). Run `keepsake renders run` to continue."
                 );
             }
+        } else if let RenderEvent::Repaired { report } = ev {
+            pb.println(format!(
+                "cache names repaired: {} rendition(s) renamed, {} dropped",
+                report.renamed, report.dropped
+            ));
         } else if let RenderEvent::Evicted { report } = ev {
             pb.println(format!(
                 "cache trimmed: {} rendition(s), {} freed",

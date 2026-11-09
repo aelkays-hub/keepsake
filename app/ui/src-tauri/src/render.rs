@@ -109,40 +109,52 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
             if let Ok(mut cat) = lib.open_catalog() {
                 let _ = render::enqueue_backlog(&mut cat);
             }
-            let result = svc.run(&cancel, &mut |ev| {
-                match ev {
-                    RenderEvent::AiReady { accel } => {
-                        let st = app.state::<AppState>();
-                        st.ai.note(Some(accel.describe().to_owned()), None);
-                        let _ = app.emit("ai://status", ());
-                    }
-                    RenderEvent::AiUnavailable { reason } => {
-                        let st = app.state::<AppState>();
-                        st.ai.note(None, Some(reason.clone()));
-                        let _ = app.emit("ai://status", ());
-                    }
-                    RenderEvent::FacesReady { accel } => {
-                        let st = app.state::<AppState>();
-                        st.faces.note(Some(accel.describe().to_owned()), None);
-                        let _ = app.emit("faces://status", ());
-                    }
-                    RenderEvent::FacesUnavailable { reason } => {
-                        let st = app.state::<AppState>();
-                        st.faces.note(None, Some(reason.clone()));
-                        let _ = app.emit("faces://status", ());
-                    }
-                    _ => {}
+            let result = svc.run(&cancel, &mut |ev| match ev {
+                RenderEvent::AiReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.ai.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("ai://status", ());
                 }
-                if let RenderEvent::Done { asset, made, .. } = ev {
-                    if made.iter().any(|m| m == "thumb-256") {
-                        let _ = app.emit(
-                            "render://thumbs",
-                            ThumbsReady {
-                                ids: vec![asset.to_string()],
-                            },
-                        );
-                    }
+                RenderEvent::AiUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.ai.note(None, Some(reason.clone()));
+                    let _ = app.emit("ai://status", ());
                 }
+                RenderEvent::FacesReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.faces.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("faces://status", ());
+                }
+                RenderEvent::FacesUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.faces.note(None, Some(reason.clone()));
+                    let _ = app.emit("faces://status", ());
+                }
+                // A new thumbnail, or a fingerprint that moved the item's
+                // thumbnails to their new name (ADR-034).
+                RenderEvent::Done {
+                    asset, made, kind, ..
+                } if made.iter().any(|m| m == "thumb-256")
+                    || kind == keepsake_core::fingerprint::JOB_FINGERPRINT =>
+                {
+                    let _ = app.emit(
+                        "render://thumbs",
+                        ThumbsReady {
+                            ids: vec![asset.to_string()],
+                            all: false,
+                        },
+                    );
+                }
+                RenderEvent::Repaired { report } if report.renamed > 0 => {
+                    let _ = app.emit(
+                        "render://thumbs",
+                        ThumbsReady {
+                            ids: Vec::new(),
+                            all: true,
+                        },
+                    );
+                }
+                _ => {}
             });
             if let Err(e) = result {
                 tracing::error!("render service: {e}");

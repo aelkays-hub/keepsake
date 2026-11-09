@@ -594,6 +594,9 @@ dto! {
     /// `render://thumbs`: thumbnails that just became available.
     pub struct ThumbsReady {
         pub ids: Vec<String>,
+        /// Thumbnails of any item may have changed (cache names were
+        /// repaired): reload every row on screen.
+        pub all: bool,
     }
 
     /// `device://card`: a Sony card was inserted (or removed).

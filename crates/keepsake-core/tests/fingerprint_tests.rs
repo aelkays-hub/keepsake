@@ -18,6 +18,7 @@ use keepsake_core::ingest::fault::FaultPlan;
 use keepsake_core::library::Library;
 use keepsake_core::rebuild::{add_folder, RebuildOptions, BATCH_FILES};
 use keepsake_core::relpath::RelPath;
+use keepsake_core::render::{Cache, RepairReport, Variant};
 use keepsake_core::verify::{verify, Problem};
 
 /// A folder of `n` photos, each 3 MiB so the quick hash leaves the middle unread.
@@ -56,7 +57,7 @@ fn all_files(cat: &Catalog) -> Vec<File> {
 fn fingerprint_all(cat: &mut Catalog, lib: &Library) -> u64 {
     let mut n = 0;
     for id in cat.read(|tx| tx.files().assets_unfingerprinted()).unwrap() {
-        n += fingerprint_asset(cat, lib, id).unwrap();
+        n += fingerprint_asset(cat, lib, &cache_of(lib), id).unwrap();
     }
     n
 }
@@ -138,7 +139,7 @@ fn a_file_changed_after_adding_is_not_fingerprinted() {
         .unwrap()
         .set_modified(later)
         .unwrap();
-    match fingerprint_asset(&mut cat, &lib, f.asset_id) {
+    match fingerprint_asset(&mut cat, &lib, &cache_of(&lib), f.asset_id) {
         Err(FingerprintError::Changed(p)) => assert_eq!(p, f.rel_path.to_string()),
         other => panic!("expected a change, got {other:?}"),
     }
@@ -152,7 +153,7 @@ fn a_file_changed_after_adding_is_not_fingerprinted() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        fingerprint_asset(&mut cat, &lib, again.asset_id).unwrap(),
+        fingerprint_asset(&mut cat, &lib, &cache_of(&lib), again.asset_id).unwrap(),
         1
     );
     let done = cat.read(|tx| tx.files().get(again.id)).unwrap().unwrap();
@@ -170,58 +171,259 @@ fn a_disconnected_drive_is_left_for_later() {
     let moved = tmp.path().join("unplugged");
     std::fs::rename(&dir, &moved).unwrap();
     assert!(matches!(
-        fingerprint_asset(&mut cat, &lib, f.asset_id),
+        fingerprint_asset(&mut cat, &lib, &cache_of(&lib), f.asset_id),
         Err(FingerprintError::Offline)
     ));
     std::fs::rename(&moved, &dir).unwrap();
-    assert_eq!(fingerprint_asset(&mut cat, &lib, f.asset_id).unwrap(), 1);
+    assert_eq!(
+        fingerprint_asset(&mut cat, &lib, &cache_of(&lib), f.asset_id).unwrap(),
+        1
+    );
 }
 
-#[test]
-fn thumbnails_made_before_the_fingerprint_are_kept() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = photos(tmp.path(), 1);
-    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+/// The rendition cache the tests use: next to the library.
+fn cache_of(lib: &Library) -> Cache {
+    Cache::new(lib.root().join("cache"))
+}
+
+/// The grid's check (`convert::cached` in the app): the file at the name
+/// computed from the hash, with no catalog.
+fn grid_thumb(cache: &Cache, hash: &Blake3Hash, v: Variant) -> Option<PathBuf> {
+    let p = Cache::rel_path(hash, v).unwrap().to_fs_path(cache.root());
+    p.is_file().then_some(p)
+}
+
+/// One photo added in batches (a stand-in key), and its real BLAKE3.
+fn one_pending(tmp: &Path) -> (Library, Catalog, File, Blake3Hash) {
+    let dir = photos(tmp, 1);
+    let lib = Library::create(&tmp.join("lib")).unwrap();
     let mut cat = lib.open_catalog().unwrap();
     add(&mut cat, &lib, &dir, true);
     let f = all_files(&cat).remove(0);
-    let recipe = Blake3Hash::of(b"thumb-256");
+    assert!(!f.hash.is_full());
+    let real = Blake3Hash::of(&std::fs::read(dir.join("May/DSC00000.JPG")).unwrap());
+    (lib, cat, f, real)
+}
+
+fn bytes_at(p: &Path) -> Vec<u8> {
+    std::fs::read(p).unwrap()
+}
+
+#[test]
+fn thumbnails_made_before_the_fingerprint_follow_it_to_the_new_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, mut cat, f, real) = one_pending(tmp.path());
+    let cache = cache_of(&lib);
+    let old = f.hash.key();
+    let thumbs = [Variant::Thumb256, Variant::Thumb1024];
+    for v in thumbs {
+        cache
+            .put_bytes(&mut cat, &old, v, v.name().as_bytes())
+            .unwrap();
+        assert!(grid_thumb(&cache, &old, v).is_some());
+    }
+
+    fingerprint_asset(&mut cat, &lib, &cache, f.asset_id).unwrap();
+
+    for v in thumbs {
+        // The grid finds the thumbnail under the real fingerprint...
+        let p = grid_thumb(&cache, &real, v).expect("the grid finds the thumbnail");
+        assert_eq!(bytes_at(&p), v.name().as_bytes());
+        // ...the row names that file...
+        let r = cat
+            .read(|tx| tx.renditions().find(&real, &v.recipe_hash(), v.kind()))
+            .unwrap()
+            .expect("the row moved to the real fingerprint");
+        assert_eq!(r.rel_path, Cache::rel_path(&real, v).unwrap());
+        // ...and nothing is left under the stand-in key.
+        assert!(grid_thumb(&cache, &old, v).is_none());
+        assert!(cat
+            .read(|tx| tx.renditions().find(&old, &v.recipe_hash(), v.kind()))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            cache.find(&mut cat, &real, v).unwrap().unwrap().1,
+            p,
+            "the cache agrees"
+        );
+    }
+}
+
+#[test]
+fn a_thumbnail_already_made_under_the_real_key_wins() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, mut cat, f, real) = one_pending(tmp.path());
+    let cache = cache_of(&lib);
+    let old = f.hash.key();
+    let v = Variant::Thumb256;
+    cache.put_bytes(&mut cat, &old, v, b"stand-in").unwrap();
+    cache.put_bytes(&mut cat, &real, v, b"real").unwrap();
+
+    fingerprint_asset(&mut cat, &lib, &cache, f.asset_id).unwrap();
+
+    let p = grid_thumb(&cache, &real, v).unwrap();
+    assert_eq!(bytes_at(&p), b"real");
+    assert!(
+        grid_thumb(&cache, &old, v).is_none(),
+        "the leftover is removed"
+    );
+    assert!(cat
+        .read(|tx| tx.renditions().find(&old, &v.recipe_hash(), v.kind()))
+        .unwrap()
+        .is_none());
+    assert_eq!(cat.read(|tx| tx.renditions().totals()).unwrap().0, 1);
+}
+
+#[test]
+fn a_crash_between_the_row_and_the_file_is_mended_on_the_next_look() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, mut cat, f, real) = one_pending(tmp.path());
+    let cache = cache_of(&lib);
+    let v = Variant::Thumb256;
+    cache
+        .put_bytes(&mut cat, &f.hash.key(), v, b"thumb")
+        .unwrap();
+    // The catalog step only (as a version without the file move did, or a
+    // crash right after it): the row has the new key, the file the old name.
+    assert!(cat
+        .write(|tx| tx.files().set_fingerprint(f.id, &real))
+        .unwrap());
+    assert!(grid_thumb(&cache, &real, v).is_none());
+
+    // The cache does not report a misnamed file as present: it moves it.
+    let (r, p) = cache.find(&mut cat, &real, v).unwrap().unwrap();
+    assert_eq!(r.rel_path, Cache::rel_path(&real, v).unwrap());
+    assert_eq!(grid_thumb(&cache, &real, v), Some(p));
+    let again = cat
+        .read(|tx| tx.renditions().find(&real, &v.recipe_hash(), v.kind()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.rel_path, r.rel_path);
+}
+
+#[test]
+fn a_misnamed_row_whose_file_is_gone_counts_as_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, mut cat, f, real) = one_pending(tmp.path());
+    let cache = cache_of(&lib);
+    let v = Variant::Thumb256;
+    let made = cache
+        .put_bytes(&mut cat, &f.hash.key(), v, b"thumb")
+        .unwrap();
+    cat.write(|tx| tx.files().set_fingerprint(f.id, &real))
+        .unwrap();
+    std::fs::remove_file(made).unwrap();
+
+    assert!(cache.find(&mut cat, &real, v).unwrap().is_none());
+    assert_eq!(cat.read(|tx| tx.renditions().totals()).unwrap().0, 0);
+}
+
+/// A row as an older version left it: `source` in the catalog, the file
+/// named after `named`.
+fn misnamed_row(
+    cat: &mut Catalog,
+    cache: &Cache,
+    source: Blake3Hash,
+    named: Blake3Hash,
+    file: Option<&[u8]>,
+) -> RenditionId {
+    let v = Variant::Thumb256;
+    let rel = Cache::rel_path(&named, v).unwrap();
+    if let Some(b) = file {
+        let p = rel.to_fs_path(cache.root());
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b).unwrap();
+    }
+    let id = RenditionId::new_random();
     cat.write(|tx| {
         tx.renditions().upsert(&Rendition {
-            id: RenditionId::new_random(),
-            source_hash: f.hash.key(),
-            recipe_hash: recipe,
+            id,
+            source_hash: source,
+            recipe_hash: v.recipe_hash(),
             kind: RenditionKind::Thumbnail,
-            rel_path: RelPath::parse("thumbnail/ab/x.jpg").unwrap(),
-            size_bytes: 10,
+            rel_path: rel.clone(),
+            size_bytes: 1,
             created_ms: 1,
             last_used_ms: 1,
         })
     })
     .unwrap();
-    fingerprint_asset(&mut cat, &lib, f.asset_id).unwrap();
-    let real = cat
-        .read(|tx| tx.files().get(f.id))
+    id
+}
+
+#[test]
+fn repair_names_mends_a_library_with_misnamed_thumbnails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&tmp.path().join("lib")).unwrap();
+    let mut cat = lib.open_catalog().unwrap();
+    let cache = cache_of(&lib);
+    let v = Variant::Thumb256;
+    let h = |s: &str| Blake3Hash::of(s.as_bytes());
+
+    // More than one batch of plain misnamed rows with their files.
+    let many = 1_203;
+    for i in 0..many {
+        let s = format!("{i}");
+        misnamed_row(
+            &mut cat,
+            &cache,
+            h(&format!("real {s}")),
+            h(&format!("old {s}")),
+            Some(s.as_bytes()),
+        );
+    }
+    // Its file is gone.
+    misnamed_row(&mut cat, &cache, h("gone"), h("old gone"), None);
+    // The proper name is already taken by the same rendition.
+    let p = Cache::rel_path(&h("taken"), v)
         .unwrap()
-        .unwrap()
-        .hash
-        .full()
-        .unwrap();
-    let r = cat
-        .read(|tx| {
-            tx.renditions()
-                .find(&real, &recipe, RenditionKind::Thumbnail)
-        })
-        .unwrap()
-        .expect("the thumbnail moved to the real fingerprint");
-    assert_eq!(r.rel_path.as_str(), "thumbnail/ab/x.jpg");
+        .to_fs_path(cache.root());
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, b"kept").unwrap();
+    misnamed_row(&mut cat, &cache, h("taken"), h("old taken"), Some(b"old"));
+    // A correct row, and a row wrongly pointing at its file.
+    cache.put_bytes(&mut cat, &h("right"), v, b"right").unwrap();
+    misnamed_row(&mut cat, &cache, h("stray"), h("right"), None);
+
+    let rep = cache.repair_names(&mut cat).unwrap();
+    assert_eq!(rep.renamed, many + 1, "{rep:?}");
+    assert_eq!(rep.dropped, 2, "{rep:?}");
+
+    for i in [0, 600, many - 1] {
+        let s = format!("{i}");
+        let p = grid_thumb(&cache, &h(&format!("real {s}")), v).unwrap();
+        assert_eq!(bytes_at(&p), s.as_bytes());
+        assert!(grid_thumb(&cache, &h(&format!("old {s}")), v).is_none());
+    }
     assert!(cat
-        .read(|tx| {
-            tx.renditions()
-                .find(&f.hash.key(), &recipe, RenditionKind::Thumbnail)
-        })
+        .read(|tx| tx.renditions().find(&h("gone"), &v.recipe_hash(), v.kind()))
         .unwrap()
         .is_none());
+    assert_eq!(
+        bytes_at(&grid_thumb(&cache, &h("taken"), v).unwrap()),
+        b"kept"
+    );
+    assert!(grid_thumb(&cache, &h("old taken"), v).is_none());
+    assert_eq!(
+        bytes_at(&grid_thumb(&cache, &h("right"), v).unwrap()),
+        b"right",
+        "another row's file is never moved or removed"
+    );
+    assert!(cat
+        .read(|tx| tx
+            .renditions()
+            .find(&h("stray"), &v.recipe_hash(), v.kind()))
+        .unwrap()
+        .is_none());
+    // Every row now names its own file, and a second pass has nothing to do.
+    for r in cat.read(|tx| tx.renditions().list_lru()).unwrap() {
+        assert_eq!(r.rel_path, Cache::expected_rel_path(&r).unwrap());
+        assert!(r.rel_path.to_fs_path(cache.root()).is_file());
+    }
+    assert_eq!(
+        cache.repair_names(&mut cat).unwrap(),
+        RepairReport::default()
+    );
 }
 
 #[test]
