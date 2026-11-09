@@ -61,6 +61,8 @@ export type AiJob = (
       folder: string;
     }
   | { range: DateRange }
+  /** The calendar's "No date": items with no capture time. */
+  | { undated: true }
   /** Tag with Claude: the photos picked, and how many. */
   | { claude: Selection; count: number }
 ) & {
