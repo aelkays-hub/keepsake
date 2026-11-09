@@ -331,6 +331,27 @@
 ### Not done
 - Not yet tried by hand on macOS (Finder); CI runs the tests there.
 
+## Open in works for photos on a network drive (2026-11-05)
+
+### What was asked
+Choosing Photoshop or Topaz Photo from Open in did nothing.
+
+### What was found
+The photos are on a network share, which Windows hands Keepsake as
+`\\?\UNC\server\share\…`. `external::command_for` removed only `\\?\`,
+so the editor was given `UNC\server\share\…` — not a real path — and could
+not find the file. Photos on a local drive were not affected.
+
+### What was built
+`external::command_for` now turns `\\?\UNC\srv\x` into `\\srv\x` (and
+`\\?\E:\x` into `E:\x`, as before), the same way the rest of the code does.
+
+### Tests
+`external::tests::network_share_paths_keep_their_double_backslash`.
+
+### Not done
+Not yet tried by hand in the running app; CI not yet run.
+
 ---
 
 ## Faster thumbnails on a network drive (2026-11-02)

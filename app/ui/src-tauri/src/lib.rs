@@ -14,7 +14,6 @@ mod prefs;
 mod render;
 mod report;
 mod reveal;
-
 mod shutdown;
 mod state;
 mod viewer;
