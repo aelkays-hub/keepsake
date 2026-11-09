@@ -379,6 +379,45 @@ pub fn ai_folder_stop(
     Ok(())
 }
 
+/// Find duplicates or tag the photos with no date (the calendar's "No
+/// date"), as for a folder.
+#[tauri::command(async)]
+pub fn ai_analyze_undated(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    what: String,
+) -> CmdResult<AiFolderStatus> {
+    let purpose = purpose(&what)?;
+    if !Settings::load().map_err(err)?.ai.enabled {
+        return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
+    }
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let s = ai::enqueue_target(&mut cat, &ai::Target::Undated, purpose).map_err(err)?;
+    crate::render::start_service(&app)?;
+    Ok(folder_dto(s))
+}
+
+#[tauri::command(async)]
+pub fn ai_undated_status(state: State<'_, AppState>, what: String) -> CmdResult<AiFolderStatus> {
+    let purpose = purpose(&what)?;
+    let open = state.open()?;
+    let cat = open.cat()?;
+    Ok(folder_dto(
+        ai::target_status(&cat, &ai::Target::Undated, purpose).map_err(err)?,
+    ))
+}
+
+/// Stop: drop the queued jobs of `what` for the photos with no date.
+#[tauri::command(async)]
+pub fn ai_undated_stop(state: State<'_, AppState>, what: String) -> CmdResult<()> {
+    let purpose = purpose(&what)?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    ai::stop_target(&mut cat, &ai::Target::Undated, purpose).map_err(err)?;
+    Ok(())
+}
+
 /// Keep `keeper`; the rest of `group` become "not kept" (nothing deleted).
 #[tauri::command(async)]
 pub fn ai_pick_keeper(

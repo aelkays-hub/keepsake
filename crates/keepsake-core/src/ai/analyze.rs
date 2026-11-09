@@ -349,6 +349,8 @@ pub enum Target {
     /// Items with an original in this folder of the volume or below it
     /// (`""`: the whole volume).
     Folder { volume: VolumeId, folder: String },
+    /// Items with no capture time (the calendar's "No date").
+    Undated,
 }
 
 impl Target {
@@ -365,6 +367,10 @@ impl Target {
             Target::Folder { volume, folder } => SearchQuery {
                 volume: Some(*volume),
                 folder: Some(folder.trim_matches('/').to_owned()).filter(|f| !f.is_empty()),
+                ..Default::default()
+            },
+            Target::Undated => SearchQuery {
+                undated: true,
                 ..Default::default()
             },
         })

@@ -1,4 +1,4 @@
-# Manual Test Steps — Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Tag the photos with no date, Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -177,6 +177,19 @@ Manual (both OSes):
 13. Unplug the network and tag a photo. **Expected:** "could not reach ChatGPT: …" (or the AI chosen), retried after 30 s and 60 s; plug back in within a minute and it finishes.
 14. Originals: a tagged photo's file is unchanged (size and modified time); the keywords are in its `.xmp` sidecar.
 15. Claude still works as before (ADR-036): a Claude key saved before this change is still there and tags photos.
+
+---
+
+## Tag the photos with no date
+
+Needs Settings → On-device AI on.
+
+1. In the sidebar's calendar tree, right-click **No date**. **Expected:** a menu with **Show** and **Tag photos** (no Find duplicates). Right-clicking **Calendar** shows no menu.
+2. Choose **Tag photos**. **Expected:** the library shows the items with no date, and a window "Tagging No date" says "Photos and videos with no date." with a progress bar, Stop and Hide; it ends with "N of N photos tagged."
+3. Select one of them. **Expected:** the Inspector's AI tags list what it shows. Searching or the Tag list finds them by those tags.
+4. Start it again and press **Stop**. **Expected:** "Stopped: … done. What was done stays."
+
+---
 
 ## Helpers end with the app
 
