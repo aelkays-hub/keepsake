@@ -199,6 +199,9 @@ pub struct AiSettings {
     /// until the user turns it on (which downloads the face models); needs
     /// `enabled`.
     pub faces: bool,
+    /// How alike a face must be to a person's average face to be suggested
+    /// for them, in percent (cosine × 100; ADR-040): stricter is higher.
+    pub face_match_pct: u8,
     /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
     /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
@@ -213,6 +216,11 @@ impl AiSettings {
     /// The provider offered first (Claude if the setting names none known).
     pub fn cloud_provider(&self) -> crate::ai::Provider {
         crate::ai::Provider::parse(&self.cloud_provider).unwrap_or_default()
+    }
+
+    /// The face cut-off as a cosine, kept in range.
+    pub fn face_match(&self) -> f32 {
+        crate::ai::faces::people::clamp_match(f32::from(self.face_match_pct) / 100.0)
     }
 
     /// "All" was used last: every AI with a key is offered first.
@@ -253,6 +261,7 @@ impl Default for AiSettings {
             enabled: false,
             gpu: true,
             faces: false,
+            face_match_pct: 55,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),
             gemini_model: Provider::Gemini.default_model().id().to_owned(),

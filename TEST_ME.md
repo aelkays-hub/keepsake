@@ -1,8 +1,25 @@
-# Manual Test Steps — Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Face matching tuned (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/name-find.spec.ts e2e/mocked/people.spec.ts
+```
+
+Manual (both OSes), on a library where people are named:
+1. Open Name and find on any photo. **Expected:** the suggestions waiting for each person are scored again: far fewer remain, and those are clearly them (on the product owner's library, about 16,000 became about 900).
+2. Name and find someone; in Review, move **Looser ↔ Stricter**. **Expected:** after a moment the suggestions change (fewer when stricter); the next time the window opens it remembers the setting.
+3. A photo of someone who was wrongly confirmed (e.g. the bald man with glasses confirmed as a woman): **Expected:** his other photos are no longer suggested for her.
+4. After Confirm, press **Check <name>'s faces** (or click a name in the Inspector's **People**). **Expected:** her confirmed faces, least alike first (with a %); the wrong ones are near the top. Click them and press **Remove N faces from <name>**: **Expected:** they go from the list, their People keyword and face region are taken off, and they are not suggested for her again.
+5. Very small faces (far away in group photos) are no longer suggested.
 
 ---
 

@@ -56,6 +56,13 @@
 
 ---
 
+## Face matching tuned (2026-11-09)
+
+- **Asked:** "it is matching a bald man with glasses to a woman wearing a headscarf …what can we do", then "Yes, build them".
+- **Found** (read-only, on the product owner's library): 7,502 confirmed and 8,616 suggested faces for one person; most suggestions at 0.4–0.5. Matching by the nearest confirmed face with a 0.363 cut-off let strangers in. Tested on the user's own confirmations and rejections: the person's average face at 0.55 separates them far better (see ADR-040).
+- **Built:** scoring against the average face of the same years; cut-off 0.55 with Looser / Stricter (`[ai] face_match_pct`); faces like a rejected one not suggested; faces under 60 px not used; waiting suggestions scored again (estimated on that library: about 16,000 → about 900); **Check <name>'s faces** (least alike first, Remove). App: `faces_suggest(person, matchPct)`, `faces_check`; `faces_people` re-scores everyone's suggestions; `FaceDto.personId`, `SuggestDto.matchPct`.
+- **Tests, run here:** face_store_tests (+3: one wrong confirmation does not pull in a stranger and Check lists it first; a face like a rejected one is not suggested; small faces, Stricter takes suggestions off, rescore_all), the Find-more and Name-and-find tests still pass; core library, app tests (bindings), clippy; Vitest; mocked Playwright name-find (+1: Looser/Stricter, Check and Remove), people (a name opens Check), faces, a11y.
+
 ## People: name a face and find that person — plan, steps 1–5 (2026-11-08)
 
 - **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".

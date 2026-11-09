@@ -1601,6 +1601,22 @@ pre.report {
   color: #ffffff;
 }
 
+/* Looser / Stricter, and a person's name that opens Check (ADR-040) */
+.nf-match input[type="range"] {
+  flex: 1;
+  max-width: 260px;
+}
+.chips button.link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.chips button.link:hover {
+  text-decoration: underline;
+}
+
 /* Delete all face data (ADR-040) */
 button.danger {
   border-color: var(--bad);

@@ -15,4 +15,8 @@ waiting: number, confirmed: number,
 /**
  * The years looked at (none: every year).
  */
-fromYear: number | null, toYear: number | null, };
+fromYear: number | null, toYear: number | null, 
+/**
+ * The cut-off used, in percent (the stricter/looser control).
+ */
+matchPct: number, };

@@ -162,6 +162,8 @@ dto! {
         pub h: f32,
         /// Whose face it is (confirmed or suggested), if anyone's.
         pub person: Option<String>,
+        #[ts(type = "number | null")]
+        pub person_id: Option<i64>,
         /// `unknown`, `suggested` or `confirmed`.
         pub state: String,
         /// A suggestion's likeness to the person, 0–100.
@@ -199,6 +201,8 @@ dto! {
         /// The years looked at (none: every year).
         pub from_year: Option<i32>,
         pub to_year: Option<i32>,
+        /// The cut-off used, in percent (the stricter/looser control).
+        pub match_pct: u8,
     }
 
     /// How far "Find duplicates" or "Tag photos" has got for a date range.

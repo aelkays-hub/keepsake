@@ -1396,7 +1396,7 @@ No new dependencies.
 
 ## ADR-040 — People: name a face and find that person, on this computer
 
-**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–5 built; step 6 (the People screen) to come. Extends ADR-035.
+**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–5 built, matching tuned; step 6 (the People screen) to come. Extends ADR-035.
 
 **Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
 
@@ -1493,6 +1493,14 @@ No new dependencies.
 - **Rebuild.** People, confirmed faces and rejections come back from the sidecars. A restored face has no description (`faces.model = 'sidecar'`) and is never used to find others; the next search of its photo finds the face again and gives it one, keeping the name (`save_scan`). A rejection whose face is not found yet waits by its box (`face_rejections_pending`, schema v13) and is applied when a search finds a face there.
 - **Delete all face data** first takes every name off and writes the photos' sidecars and keywords again (while the people are known), then empties the tables. The user's own `People|…` keywords stay.
 - Originals are never changed: only sidecars (or their mirror for read-only drives) and the catalog.
+
+**Matching, tuned (2026-11-09, product owner: "it is matching a bald man with glasses to a woman wearing a headscarf … what can we do", then "Yes, build them").** Measured on the product owner's library (four people; 9,000 confirmed faces, 16,000 suggestions, 2,900 rejections): scoring a face by its *nearest* confirmed face with OpenCV's 1:1 threshold (0.363) let one wrong confirmation pull in look-alikes of a stranger, and with thousands of references nearly anything found a close enough one; most suggestions scored 0.4–0.5. Re-scored against the user's own answers (confirmed vs rejected), the person's *average* face did best: at 0.55 it kept 92–99% of confirmed faces and let through 9–43% of the rejected ones, against 51–82% for the nearest face. Changes:
+1. A face is scored against the person's **average face from around the same years** (the confirmed faces within 3 years of its photo, kept as sums per year; undated: all of them), so matching still steps through the years.
+2. The cut-off is **0.55** by default; **Looser / Stricter** in Review (0.40–0.75, `[ai] face_match_pct`, kept).
+3. A face that looks **more like a face rejected for that person** than like their average face is not suggested.
+4. Faces narrower than **60 px** in the searched picture are not used (neither as references nor as suggestions).
+5. Each Find (and opening Name and find) **scores the waiting suggestions again** with the current cut-off: on that library about 16,000 become about 900. **Check <name>'s faces** lists a person's confirmed faces least like the others first, to take mistakes off (from the Name and find window, or a name in the Inspector's People).
+A stronger recogniser than SFace would help more; most are not licensed for this use, so that is left for later.
 
 **Step 5, as built** (the Inspector and the viewer; approved by the product owner, 2026-11-08):
 - **Inspector → People** (one photo, not a video): the people confirmed in it, how many faces have no name, and **Name and find…**. It never starts a search: a photo not searched yet says so (`faces_of_photo` with `search: false`).

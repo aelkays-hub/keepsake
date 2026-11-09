@@ -31,7 +31,11 @@ export function PeopleBlock({ id, title }: { id: string; title: string }) {
   }, [id, s.revision]);
   if (off || !faces) return null;
   const named = [
-    ...new Set(faces.filter((f) => f.state === "confirmed" && f.person).map((f) => f.person!)),
+    ...new Map(
+      faces
+        .filter((f) => f.state === "confirmed" && f.person && f.personId !== null)
+        .map((f) => [f.personId!, f.person!] as const),
+    ),
   ];
   const unnamed = faces.filter((f) => !f.person).length;
   return (
@@ -39,8 +43,22 @@ export function PeopleBlock({ id, title }: { id: string; title: string }) {
       People
       {named.length > 0 && (
         <ul className="chips" aria-label="People in this photo">
-          {named.map((n) => (
-            <li key={n}>{n}</li>
+          {named.map(([pid, n]) => (
+            <li key={pid}>
+              <button
+                className="link"
+                title={`Check ${n}'s faces: the least alike first, to take mistakes off`}
+                onClick={() =>
+                  dispatch({
+                    t: "nameFind",
+                    photo: { photo: id, title, check: { id: pid, name: n } },
+                  })
+                }
+                data-testid="people-person"
+              >
+                {n}
+              </button>
+            </li>
           ))}
         </ul>
       )}

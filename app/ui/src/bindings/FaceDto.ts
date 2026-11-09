@@ -24,7 +24,7 @@ x: number, y: number, w: number, h: number,
 /**
  * Whose face it is (confirmed or suggested), if anyone's.
  */
-person: string | null, 
+person: string | null, personId: number | null, 
 /**
  * `unknown`, `suggested` or `confirmed`.
  */

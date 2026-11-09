@@ -179,6 +179,7 @@ pub fn run() {
             faces::faces_suggest,
             faces::faces_review,
             faces::faces_decide,
+            faces::faces_check,
             faces::faces_not_person,
             faces::faces_not_face,
         ])

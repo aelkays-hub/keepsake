@@ -45,8 +45,13 @@ test("the Inspector lists the people in the photo", async ({ page }) => {
   await tiles.nth(i).click();
   const people = page.getByTestId("people");
   await expect(people.getByRole("list", { name: "People in this photo" })).toHaveText("Sara");
+  await expect(people.getByTestId("people-person")).toHaveText(["Sara"]);
   for (const c of await calls(page, "faces_of_photo"))
     if ((c as { search?: boolean }).search === false) expect(c).toMatchObject({ search: false });
+  // A name opens Check for that person.
+  await people.getByTestId("people-person").first().click();
+  await expect(page.getByTestId("name-find").getByRole("heading")).toHaveText("Check Sara's faces");
+  await page.getByTestId("name-find").getByTestId("nf-close").click();
   // Name and find… from the Inspector opens the window on this photo.
   await people.getByTestId("people-name-find").click();
   await expect(page.getByTestId("name-find")).toBeVisible();

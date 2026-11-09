@@ -8,10 +8,13 @@
 //    faces most like that person's are suggested.
 // 4. Review: the suggestions, best first, by year. Click one that is not
 //    them; Confirm confirms the rest. Find more looks again with the faces
-//    just confirmed: each time it reaches a few years further.
+//    just confirmed: each time it reaches a few years further. Looser /
+//    Stricter changes how alike a face must be (kept for next time).
+// 5. Check <name>'s faces: their confirmed faces, least alike first, to
+//    take mistakes off.
 // Nothing is named without the user. Everything stays on this computer.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
@@ -25,7 +28,10 @@ import { byYear, cropStyle, searchLine } from "../faces";
 import * as fmt from "../format";
 import { useUi } from "../state";
 
-type Phase = "faces" | "searching" | "review" | "done";
+type Phase = "faces" | "searching" | "review" | "done" | "check";
+
+/** Faces shown at once in Check. */
+const CHECK_MAX = 300;
 
 /** One face, cut out of its photo's thumbnail. */
 function FaceCrop({ face, width, label }: { face: FaceDto; width: number; label: string }) {
@@ -60,11 +66,30 @@ export function NameFindWindow() {
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The cut-off, in percent (Looser / Stricter). */
+  const [matchPct, setMatchPct] = useState<number | null>(null);
+  const matchTimer = useRef(0);
   const close = useCallback(() => dispatch({ t: "nameFind", photo: null }), [dispatch]);
+
+  /** Check <name>'s faces: their confirmed faces, least alike first. */
+  const loadCheck = useCallback(async (who: PersonDto) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const list = await api.facesCheck(who.id);
+      setReview(list);
+      setRejected(new Set());
+      setPhase("check");
+    } catch (e) {
+      setProblem(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   // A new photo: start again.
   useEffect(() => {
-    setPhase("faces");
+    setPhase(job?.check ? "check" : "faces");
     setFaces(null);
     setSearched(false);
     setPicked(null);
@@ -82,7 +107,12 @@ export function NameFindWindow() {
         .facesPeople()
         .then(setPeople)
         .catch(() => setPeople([]));
-  }, [job]);
+    if (job?.check) {
+      const who = { id: job.check.id, name: job.check.name, confirmed: 0 };
+      setPerson(who);
+      void loadCheck(who);
+    }
+  }, [job, loadCheck]);
 
   // The photo's faces, asked again until it has been searched.
   useEffect(() => {
@@ -117,12 +147,13 @@ export function NameFindWindow() {
   }, [faces, picked]);
 
   const suggest = useCallback(
-    async (who: PersonDto) => {
+    async (who: PersonDto, pct: number | null = null) => {
       setBusy(true);
       setProblem(null);
       try {
-        const r = await api.facesSuggest(who.id);
+        const r = await api.facesSuggest(who.id, pct);
         setFound(r);
+        setMatchPct(r.matchPct);
         const list = await api.facesReview(who.id);
         setReview(list);
         setRejected(new Set());
@@ -206,6 +237,29 @@ export function NameFindWindow() {
     }
   };
 
+  /** Check: take the faces clicked off the person. */
+  const removeChecked = async () => {
+    if (!person) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const [, r] = await api.facesDecide(person.id, [], [...rejected]);
+      dispatch({ t: "edited" });
+      setNote(`${fmt.plural(r, "face")} taken off ${person.name}.`);
+      await loadCheck(person);
+    } catch (e) {
+      setProblem(String(e));
+      setBusy(false);
+    }
+  };
+
+  /** Looser / Stricter: suggest again after a short pause. */
+  const changeMatch = (pct: number) => {
+    setMatchPct(pct);
+    window.clearTimeout(matchTimer.current);
+    if (person) matchTimer.current = window.setTimeout(() => void suggest(person, pct), 300);
+  };
+
   const toggle = (id: number) =>
     setRejected((r) => {
       const n = new Set(r);
@@ -232,7 +286,11 @@ export function NameFindWindow() {
         }}
       >
         <h2 id="nf-title">
-          {phase === "faces" ? `Name and find: ${job.title}` : `Finding ${who}`}
+          {phase === "faces"
+            ? `Name and find: ${job.title}`
+            : phase === "check"
+              ? `Check ${who}'s faces`
+              : `Finding ${who}`}
         </h2>
 
         {phase === "faces" && (
@@ -351,6 +409,73 @@ export function NameFindWindow() {
           </>
         )}
 
+        {phase === "review" && (
+          <label className="row nf-match">
+            Looser
+            <input
+              type="range"
+              min={40}
+              max={75}
+              step={5}
+              value={matchPct ?? 55}
+              onChange={(e) => changeMatch(Number(e.target.value))}
+              aria-label="How alike a face must be to be suggested"
+              data-testid="nf-match"
+            />
+            Stricter
+          </label>
+        )}
+
+        {phase === "check" && (
+          <>
+            <p role="status" data-testid="nf-check-status">
+              {review.length === 0
+                ? `No faces confirmed as ${who} yet.`
+                : `${fmt.plural(review.length, "face")} confirmed as ${who}, least alike first. ` +
+                  `Click any that is not ${who}, then Remove.`}
+            </p>
+            {note && (
+              <p className="muted" data-testid="nf-note">
+                {note}
+              </p>
+            )}
+            <div className="face-review" data-testid="nf-check">
+              <div className="face-row">
+                {review.slice(0, CHECK_MAX).map((f) => {
+                  const no = rejected.has(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      className={`face-pick${no ? " rejected" : ""}`}
+                      aria-pressed={no}
+                      title={`${f.date ?? "No date"} · ${f.likeness ?? 0}% alike${no ? ` · not ${who}` : ""}`}
+                      onClick={() => toggle(f.id)}
+                      data-testid="nf-checked"
+                    >
+                      <FaceCrop
+                        face={f}
+                        width={72}
+                        label={`${no ? "Not " : ""}${who}? ${f.likeness ?? 0}% alike`}
+                      />
+                      <span className="face-name">{f.likeness ?? 0}%</span>
+                      {no && (
+                        <span className="face-no" aria-hidden={true}>
+                          ✕
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {review.length > CHECK_MAX && (
+                <p className="muted">
+                  And {fmt.count(review.length - CHECK_MAX)} more, more alike.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
         {phase === "done" && note && (
           <p role="status" data-testid="nf-note">
             {note}
@@ -397,6 +522,27 @@ export function NameFindWindow() {
               data-testid="nf-more"
             >
               Find more
+            </button>
+          )}
+          {phase === "done" && person && (
+            <button
+              disabled={busy}
+              onClick={() => void loadCheck(person)}
+              data-testid="nf-check-open"
+            >
+              Check {person.name}&apos;s faces
+            </button>
+          )}
+          {phase === "check" && person && (
+            <button
+              className="primary"
+              disabled={busy || rejected.size === 0}
+              onClick={() => void removeChecked()}
+              data-testid="nf-remove"
+            >
+              {rejected.size === 0
+                ? "Remove"
+                : `Remove ${fmt.plural(rejected.size, "face")} from ${person.name}`}
             </button>
           )}
           <button onClick={close} disabled={busy} data-testid="nf-close">
