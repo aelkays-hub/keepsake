@@ -1095,6 +1095,7 @@ fn each_ai_is_recorded_for_the_keywords_it_gave_and_it_survives_a_rebuild() {
         [pair("gemini", "Dog"), pair("openai", "Dog")]
     );
     assert_eq!(common::tree_hashes(&w.media), before, "originals unchanged");
+}
 
 #[test]
 fn the_photos_with_no_date_can_be_tagged_and_stopped() {

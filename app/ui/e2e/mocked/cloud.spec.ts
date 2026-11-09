@@ -178,7 +178,9 @@ test("the Menu key opens the photo menu", async ({ page }) => {
   await page.getByTestId("tile").nth(4).click();
   await page.getByTestId("grid").press("Shift+F10");
   await expect(page.getByTestId("item-menu")).toBeVisible();
-  await expect(page.getByTestId("item-menu").getByRole("menuitem", { name: "Open", exact: true })).toBeFocused();
+  await expect(
+    page.getByTestId("item-menu").getByRole("menuitem", { name: "Open", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("item-menu")).toHaveCount(0);
 });

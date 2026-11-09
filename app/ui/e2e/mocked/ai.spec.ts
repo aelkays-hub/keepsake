@@ -247,6 +247,7 @@ test("tags in the search bar: suggested as you type, every chip must match", asy
   await page.getByRole("button", { name: "Remove tag Dog from the search" }).click();
   await expect(page.getByTestId("search-chip")).toHaveCount(0);
   await expect(page.getByTestId("count")).toHaveText("1,000 items");
+});
 
 test("right-click No date: tag the photos with no date", async ({ page }) => {
   await open(page);

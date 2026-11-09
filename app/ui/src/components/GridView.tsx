@@ -192,7 +192,8 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
             disabled: rows.get(i)?.kind === "video",
             run: () => {
               const r = rows.get(i);
-              if (r) dispatch({ t: "nameFind", photo: { photo: r.id, title: r.name ?? "this photo" } });
+              if (r)
+                dispatch({ t: "nameFind", photo: { photo: r.id, title: r.name ?? "this photo" } });
             },
           },
         ],
