@@ -21,31 +21,42 @@ use crate::state::{err, AppState, CmdResult};
 pub struct RenderState {
     cancel: Mutex<Arc<AtomicBool>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// Services stopped by a restart, finishing their current jobs.
+    retired: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl RenderState {
-    fn stop(&self) {
+    /// Ask the service to stop after its current jobs.
+    pub(crate) fn stop(&self) {
         if let Ok(c) = self.cancel.lock() {
             c.store(true, Ordering::SeqCst);
         }
     }
-}
 
-/// When the app closes: stop the service and wait up to `wait` for its
-/// current jobs to finish, so its ExifTool is stopped too.
-pub fn stop_for_exit(app: &AppHandle, wait: std::time::Duration) {
-    let state = app.state::<AppState>();
-    state.render.stop();
-    let worker = state.render.worker.lock().ok().and_then(|mut w| w.take());
-    if let Some(w) = worker {
-        let deadline = std::time::Instant::now() + wait;
-        while !w.is_finished() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    /// No service thread is running, a restarted one included (finished
+    /// ones are joined). A service's ExifTool ends with its thread.
+    pub(crate) fn finished(&self) -> bool {
+        let (Ok(mut slot), Ok(mut retired)) = (self.worker.lock(), self.retired.lock()) else {
+            return false;
+        };
+        retired.extend(slot.take());
+        let (done, running): (Vec<_>, Vec<_>) =
+            retired.drain(..).partition(JoinHandle::is_finished);
+        for h in done {
+            let _ = h.join();
         }
-        if w.is_finished() {
-            let _ = w.join();
-        } else {
-            tracing::warn!("render service still busy at exit");
+        *retired = running;
+        retired.is_empty()
+    }
+
+    /// Track `worker`, stopped by `cancel` (tests).
+    #[cfg(test)]
+    pub(crate) fn adopt(&self, cancel: Arc<AtomicBool>, worker: JoinHandle<()>) {
+        if let Ok(mut c) = self.cancel.lock() {
+            *c = cancel;
+        }
+        if let Ok(mut w) = self.worker.lock() {
+            *w = Some(worker);
         }
     }
 }
@@ -55,8 +66,10 @@ pub fn stop_for_exit(app: &AppHandle, wait: std::time::Duration) {
 pub fn restart_service(app: &AppHandle) -> CmdResult<bool> {
     let state = app.state::<AppState>();
     state.render.stop();
-    if let Ok(mut slot) = state.render.worker.lock() {
-        slot.take();
+    if let (Ok(mut slot), Ok(mut retired)) =
+        (state.render.worker.lock(), state.render.retired.lock())
+    {
+        retired.extend(slot.take());
     }
     start_service(app)
 }

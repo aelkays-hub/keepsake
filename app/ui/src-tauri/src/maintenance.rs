@@ -293,9 +293,20 @@ pub fn verify_run(app: AppHandle, state: State<'_, AppState>, volume: String) ->
 /// Stop the running backup or verify after the current file.
 #[tauri::command(async)]
 pub fn maint_cancel(state: State<'_, AppState>) {
-    if let Ok(slot) = state.maint.cancel.lock() {
-        if let Some(c) = slot.as_ref() {
-            c.store(true, Ordering::SeqCst);
+    state.maint.request_stop();
+}
+
+impl MaintState {
+    /// Ask the running job, if any, to stop after the current file.
+    pub(crate) fn request_stop(&self) {
+        if let Ok(slot) = self.cancel.lock() {
+            if let Some(c) = slot.as_ref() {
+                c.store(true, Ordering::SeqCst);
+            }
         }
+    }
+
+    pub(crate) fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 }

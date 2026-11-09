@@ -91,7 +91,7 @@ SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`)
 
 ### Probe
 Reads media metadata without decoding pixels (`keepsake_core::probe`):
-- `ExifTool`: one long-lived `-stay_open` process behind a request queue, with per-request timeouts and automatic restart.
+- `ExifTool`: one long-lived `-stay_open` process behind a request queue, with per-request timeouts and automatic restart. It never quits by itself: `shutdown()` (or dropping the handle) stops it. The app does this on exit, and on Windows its helpers share a kill-on-close job, so they end with it even after a crash (ADR-037).
 - `ffprobe`: streams, duration, codec/profile, bit depth, chroma, rotation, timecode, container creation time.
 - `sony_xml`: XAVC `NonRealTimeMeta` sidecars (creation date with offset, frames → duration, timecode, model, serial, lens, recording mode, GPS).
 - `avchd`: playlists and clip info (split recordings), MDPM capture date.

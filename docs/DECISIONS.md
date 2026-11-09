@@ -1302,13 +1302,13 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 **Status**: Accepted (2026-11-08, product owner: "got an error on install", then "Yes, fix it").
 
 **Context.** The installer stopped with "Error opening file for writing: …\Keepsake\exiftool\exiftool.exe". Two ExifTool processes from earlier sessions were still running, though Keepsake was closed. Three things caused it:
-- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows).
+- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows; `ReadStayOpen` in `exiftool.pl` polls a closed input every 10 ms forever, so macOS too).
 - Closing Keepsake's window ends the process without running destructors, so the render service's ExifTool was never told to stop.
 - The import code keeps its ExifTool in a `static`, which is never dropped.
 
 **Decision.**
 - **On exit, stop the helpers (both OSes).** On `RunEvent::Exit` the app:
-  - stops the render service and waits up to 5 s for its jobs to finish (`render::stop_for_exit`), which stops its ExifTool;
+  - asks the render service (restarted ones too), a running import, a backup or verify and an AI model download to stop, and waits up to 5 s for them (`shutdown::on_exit`); the render service's ExifTool stops with it;
   - stops the import ExifTool (`import::stop_exiftool`).
 - **`ExifTool::shutdown(&self)`** stops the process (asked to finish, killed after 2 s) and waits for it. It works on one kept in a `static`; `Drop` calls it. `ExifTool::pid()` gives the running process's id, for tests.
 - **Windows: a job object as a safety net** (`keepsake_platform::close_helpers_with_app`, hand-written Win32 declarations as in ADR-020).

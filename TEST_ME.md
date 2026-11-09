@@ -197,6 +197,7 @@ Automated:
 ```
 cargo test -p keepsake-core --test probe_tests shutdown
 cargo test -p keepsake-platform job
+cargo test -p keepsake-app shutdown
 ```
 
 Manual:
@@ -205,6 +206,8 @@ Manual:
 3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
 4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
 5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
+6. **Both:** start an import of a card (or a backup, or the AI model download in Settings) and close Keepsake while it runs. **Expected:** the app closes within about 5 s; nothing of `exiftool`, `curl` or `ffmpeg` is left. Start it again: the import or backup can be resumed as after any interruption.
+7. **macOS, known gap:** after a crash or Force Quit, an `exiftool` can stay (it does not end when its input closes). End it with `pkill -f exiftool`.
 
 ## On-device AI: tags and same-day duplicates
 

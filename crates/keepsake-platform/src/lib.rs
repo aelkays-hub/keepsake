@@ -26,8 +26,9 @@ pub use reveal::{file_manager_name, FakeReveal, FileReveal, SystemReveal};
 
 /// End Keepsake's helper processes (ExifTool, FFmpeg, …) when the app ends,
 /// however it ends; call once at start-up. On Windows the app joins a job
-/// object that does this. On macOS a helper sees its input close and ends
-/// by itself, so this does nothing there.
+/// object that does this. On macOS this does nothing: the app's exit hook
+/// stops ExifTool, but after a crash or Force Quit a `-stay_open` ExifTool
+/// keeps running (it polls a closed input forever, it does not end).
 pub fn close_helpers_with_app() -> Result<(), PlatformError> {
     #[cfg(windows)]
     {

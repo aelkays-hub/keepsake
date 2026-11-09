@@ -14,6 +14,8 @@ mod prefs;
 mod render;
 mod report;
 mod reveal;
+
+mod shutdown;
 mod state;
 mod viewer;
 
@@ -200,8 +202,7 @@ pub fn run() {
         // Closing the window ends the process without dropping anything:
         // stop the helpers first, or ExifTool keeps running.
         if let tauri::RunEvent::Exit = event {
-            render::stop_for_exit(handle, std::time::Duration::from_secs(5));
-            import::stop_exiftool();
+            shutdown::on_exit(&handle.state::<state::AppState>());
         }
     });
 }

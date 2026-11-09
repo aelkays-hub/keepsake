@@ -139,6 +139,19 @@
 - **Built:** `ai::Target::Undated` (items with no capture time); app `ai_analyze_undated`, `ai_undated_status`, `ai_undated_stop`; the sidebar's **No date** has a menu with Show and Tag photos (not Find duplicates: those are of one day; "Calendar" still has no menu); the progress window says "Photos and videos with no date."
 - **Tests, run here:** `the_photos_with_no_date_can_be_tagged_and_stopped` (ai_tests); mocked Playwright `right-click No date: tag the photos with no date` and `the Calendar entry has no date menu` (ai.spec), with the calendar-tree, keyboard and a11y specs; app and core tests; clippy, ESLint, Prettier.
 
+
+
+---
+
+## Exit also stops imports, backups and the AI download (2026-11-08)
+
+- **Built (on top of ADR-037, from PR #24):** the exit hook is now `shutdown::on_exit`. It asks the render service, a running import, a backup or verify (or folder scan) and an AI model download to stop, waits up to 5 s for all of them, then stops the import ExifTool. Render services left finishing their jobs by a restart (Settings) are waited for too, so their ExifTool is stopped as well.
+- **Corrected:** the comment on `close_helpers_with_app` said a macOS helper ends by itself when its input closes. It does not: ExifTool's `-stay_open` reader polls a closed input every 10 ms forever (`ReadStayOpen` in `exiftool.pl`), on macOS as on Windows.
+- **Tests:** `shutdown` tests in the app crate: the exit stops a service and drops what it owns, stops an import, and gives up after its wait.
+- **Not done:** a macOS safety net for crashes.
+
+---
+
 ## Helpers end with the app (2026-11-08)
 
 - **Asked:** "got an error on install". The installer could not replace `exiftool.exe`: two ExifTool processes from earlier sessions were still running. Then "Yes, fix it" (ADR-037).

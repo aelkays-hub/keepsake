@@ -162,10 +162,17 @@ pub fn ai_enable(app: AppHandle, enabled: bool, gpu: Option<bool>) -> CmdResult<
 
 #[tauri::command(async)]
 pub fn ai_install_cancel(state: State<'_, AppState>) -> CmdResult<()> {
-    if let Some((c, _)) = get(&state.ai.install).flatten() {
-        c.store(true, Ordering::SeqCst);
-    }
+    state.ai.stop_install();
     Ok(())
+}
+
+impl AiState {
+    /// Stop the model download, if one is running (its curl ends with it).
+    pub(crate) fn stop_install(&self) {
+        if let Some((c, _)) = get(&self.install).flatten() {
+            c.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 /// Turn AI off and delete the downloaded model. AI tags and decisions stay.
