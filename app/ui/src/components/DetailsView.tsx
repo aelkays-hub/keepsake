@@ -1,4 +1,5 @@
-// The details table: virtualized rows, sortable columns.
+// The details table: virtualized rows, sortable columns. Right-click, the
+// Menu key or Shift+F10 opens an item's menu (Show in Explorer / Finder).
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef } from "react";
@@ -12,6 +13,7 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
+import { isMenuClick, isMenuKey, useItemMenu } from "./useItemMenu";
 import { useRovingFocus } from "../a11y";
 
 const ROW = 30;
@@ -49,7 +51,19 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
   }, [s.sel.focus, v]);
   useRovingFocus(parent, s.sel.focus, [first, last]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / ROW) - 1);
-  const onKey = useListKeys(rows.count, 1, pageRows, onOpen);
+  const listKeys = useListKeys(rows.count, 1, pageRows, onOpen);
+  const rowEl = (i: number) => parent.current?.querySelector<HTMLElement>(`[data-index="${i}"]`);
+  const itemMenu = useItemMenu(rows.get, (i) =>
+    (rowEl(i) ?? parent.current)?.focus({ preventScroll: true }),
+  );
+  const onKey = (e: React.KeyboardEvent) => {
+    if (isMenuKey(e)) {
+      if (s.sel.focus !== null) itemMenu.openOn(s.sel.focus, rowEl(s.sel.focus) ?? null);
+      e.preventDefault();
+      return;
+    }
+    listKeys(e);
+  };
   const sortBy = (key: SortKey) => {
     const next: SortSpec =
       s.sort.field === key
@@ -59,85 +73,101 @@ export function DetailsView({ onOpen }: { onOpen: (i: number) => void }) {
   };
   const pick = (i: number, e: React.MouseEvent) => {
     parent.current?.focus();
+    if (e.button !== 0) {
+      // Right-click keeps a selection it lands in.
+      if (!sel.has(s.sel, i)) dispatch({ t: "sel", sel: sel.only(i) });
+      return;
+    }
     if (e.shiftKey) dispatch({ t: "sel", sel: sel.extend(s.sel, i) });
     else if (e.ctrlKey || e.metaKey || s.selecting)
       dispatch({ t: "sel", sel: sel.toggle(s.sel, i) });
     else dispatch({ t: "sel", sel: sel.only(i) });
   };
   return (
-    <div className="details" role="table" aria-label="Items" aria-rowcount={rows.count}>
-      <div className="details-head" role="row" style={{ gridTemplateColumns: TEMPLATE }}>
-        {COLUMNS.map((c) => {
-          const active = s.sort.field === c.key;
-          return (
-            <button
-              key={c.key}
-              role="columnheader"
-              aria-sort={active ? (s.sort.descending ? "descending" : "ascending") : "none"}
-              className={active ? "active" : ""}
-              onClick={() => sortBy(c.key)}
-              data-testid={`sort-${c.key}`}
-            >
-              {c.title} {active ? (s.sort.descending ? "▼" : "▲") : ""}
-            </button>
-          );
-        })}
-      </div>
-      <div
-        ref={parent}
-        className="details-scroll"
-        role="rowgroup"
-        tabIndex={0}
-        data-testid="details"
-        data-count={rows.count}
-        onKeyDown={onKey}
-      >
-        <div style={{ height: v.getTotalSize(), position: "relative" }}>
-          {items.map((vr) => {
-            const r = rows.get(vr.index);
-            const i = vr.index;
+    <>
+      <div className="details" role="table" aria-label="Items" aria-rowcount={rows.count}>
+        <div className="details-head" role="row" style={{ gridTemplateColumns: TEMPLATE }}>
+          {COLUMNS.map((c) => {
+            const active = s.sort.field === c.key;
             return (
-              <div
-                key={vr.key}
-                role="row"
-                aria-selected={sel.has(s.sel, i)}
-                data-index={i}
-                data-testid="drow"
-                tabIndex={s.sel.focus === i ? 0 : -1}
-                className={`drow${sel.has(s.sel, i) ? " selected" : ""}${s.sel.focus === i ? " focused" : ""}${r && !r.online ? " offline" : ""}`}
-                style={{
-                  transform: `translateY(${vr.start}px)`,
-                  height: ROW,
-                  gridTemplateColumns: TEMPLATE,
-                }}
-                onMouseDown={(e) => pick(i, e)}
-                onDoubleClick={() => onOpen(i)}
+              <button
+                key={c.key}
+                role="columnheader"
+                aria-sort={active ? (s.sort.descending ? "descending" : "ascending") : "none"}
+                className={active ? "active" : ""}
+                onClick={() => sortBy(c.key)}
+                data-testid={`sort-${c.key}`}
               >
-                <span role="cell" className="name">
-                  {r?.label && <span className="dot" style={{ background: labelColor(r.label) }} />}
-                  {r?.name ?? "…"}
-                  {r && !r.online && <span className="badge off">offline</span>}
-                </span>
-                <span role="cell">{fmt.dateTime(r?.captured)}</span>
-                <span role="cell">{r?.camera ?? "—"}</span>
-                <span role="cell">{r?.lens ?? "—"}</span>
-                <span role="cell">
-                  {r ? { photo: "Photo", video: "Video", raw: "RAW" }[r.kind] : ""}
-                </span>
-                <span role="cell" className="num">
-                  {fmt.bytes(r?.size)}
-                </span>
-                <span role="cell" className="num">
-                  {r?.kind === "video" ? fmt.duration(r.durationMs) : "—"}
-                </span>
-                <span role="cell">
-                  <Stars value={r?.rating ?? 0} size="sm" />
-                </span>
-              </div>
+                {c.title} {active ? (s.sort.descending ? "▼" : "▲") : ""}
+              </button>
             );
           })}
         </div>
+        <div
+          ref={parent}
+          className="details-scroll"
+          role="rowgroup"
+          tabIndex={0}
+          data-testid="details"
+          data-count={rows.count}
+          onKeyDown={onKey}
+        >
+          <div style={{ height: v.getTotalSize(), position: "relative" }}>
+            {items.map((vr) => {
+              const r = rows.get(vr.index);
+              const i = vr.index;
+              return (
+                <div
+                  key={vr.key}
+                  role="row"
+                  aria-selected={sel.has(s.sel, i)}
+                  data-index={i}
+                  data-testid="drow"
+                  tabIndex={s.sel.focus === i ? 0 : -1}
+                  className={`drow${sel.has(s.sel, i) ? " selected" : ""}${s.sel.focus === i ? " focused" : ""}${r && !r.online ? " offline" : ""}`}
+                  style={{
+                    transform: `translateY(${vr.start}px)`,
+                    height: ROW,
+                    gridTemplateColumns: TEMPLATE,
+                  }}
+                  onMouseDown={(e) => pick(i, e)}
+                  onDoubleClick={() => onOpen(i)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (!isMenuClick(e)) return;
+                    if (e.clientX === 0 && e.clientY === 0) itemMenu.openOn(i, e.currentTarget);
+                    else itemMenu.open(i, e.clientX, e.clientY);
+                  }}
+                >
+                  <span role="cell" className="name">
+                    {r?.label && (
+                      <span className="dot" style={{ background: labelColor(r.label) }} />
+                    )}
+                    {r?.name ?? "…"}
+                    {r && !r.online && <span className="badge off">offline</span>}
+                  </span>
+                  <span role="cell">{fmt.dateTime(r?.captured)}</span>
+                  <span role="cell">{r?.camera ?? "—"}</span>
+                  <span role="cell">{r?.lens ?? "—"}</span>
+                  <span role="cell">
+                    {r ? { photo: "Photo", video: "Video", raw: "RAW" }[r.kind] : ""}
+                  </span>
+                  <span role="cell" className="num">
+                    {fmt.bytes(r?.size)}
+                  </span>
+                  <span role="cell" className="num">
+                    {r?.kind === "video" ? fmt.duration(r.durationMs) : "—"}
+                  </span>
+                  <span role="cell">
+                    <Stars value={r?.rating ?? 0} size="sm" />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
-    </div>
+      {itemMenu.element}
+    </>
   );
 }

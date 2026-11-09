@@ -29,6 +29,7 @@
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
+| — | Show in Explorer / Finder: an item's right-click menu (grid, details, viewer) opens its original's folder with the file selected | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
@@ -295,6 +296,27 @@
 - Mirroring the new downloads on `vendor-binaries`.
 - macOS was not run (no Mac in this session), and the ARM64 installer was not tried.
 - Per-tag thresholds tuned on a labelled sample.
+
+## Show in Explorer / Finder from an item's right-click menu (2026-11-04)
+
+### What was asked
+- A right-click menu on a photo or video in the library that opens the folder holding its original in Explorer (Windows) or Finder (macOS), with the file selected; from grid tiles, details rows and the viewer, and from the keyboard (Menu key, Shift+F10).
+
+### What was built
+- `keepsake-core::reveal::original_location`: the item's original joined to its volume's current mount point. It answers Online (the absolute path), Offline (the drive's name) or Missing (the drive is there, the file is not). Only reads.
+- `keepsake-platform::reveal`: a `FileReveal` trait with `SystemReveal` (Windows `explorer /select,"<path>"`, passed as one raw argument so paths with spaces work; macOS `open -R <path>`) and `FakeReveal` for tests. Explorer's exit code is not checked, since it is 1 even when it works.
+- Tauri commands `original_place` (for the menu: online, path, problem, "Explorer"/"Finder") and `show_in_folder`, in `src-tauri/src/reveal.rs`.
+- UI: a shared `ContextMenu` (placed at the pointer, first item focused, arrows, Escape/Tab, closes on a click elsewhere, blur or resize) now backs both the sidebar's `FolderMenu` and the new `ItemMenu`. `ItemMenu` has **Show in Explorer/Finder** and the item's **Open in** applications. Grid and details open it on right-click (keeping a selection it lands in, acting on the right-clicked item) or the Menu key / Shift+F10 on the focused item; the viewer on right-click on the picture or the same keys. Focus goes back to the item when it closes. In the viewer, Escape closes the menu but not the viewer, and the status line says "Shown in Explorer".
+- No new dependencies.
+
+### Tests
+- `reveal_tests` (core): online gives an absolute path under the volume; unplugged (folder gone, volume marked offline) gives Offline with the drive's name, and plugged back gives the same, unchanged file; a deleted file gives Missing; an unknown item is an error.
+- `keepsake-platform` unit tests: the command for each OS (the verbatim `\\?\` prefix removed, spaces kept), a missing file is refused, the fake records and leaves the file alone.
+- `keepsake-app` unit test: Online is revealed, Offline and Missing are refused with "Drive not connected (Card A)" / the path.
+- Mocked Playwright `show-in-folder.spec.ts`: right-click a tile and Show (the `show_in_folder` call); multi-select keeps the selection and acts on the right-clicked item; Shift+F10 and the Menu key, arrows, Escape back to the tile, a click elsewhere; an unplugged item (disabled, "Drive not connected (Archive)"); the details table; the viewer.
+
+### Not done
+- Not yet tried by hand on macOS (Finder); CI runs the tests there.
 
 ---
 

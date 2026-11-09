@@ -1386,6 +1386,12 @@ pre.report {
   margin: 4px 8px;
   font-size: 12px;
 }
+.context-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
 .context-menu p.busy {
   color: var(--muted);
 }

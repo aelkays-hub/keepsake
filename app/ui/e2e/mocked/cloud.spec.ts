@@ -76,7 +76,7 @@ test("right-click photos: Tag with AI asks first, then tags them", async ({ page
   await tiles.nth(0).click();
   await tiles.nth(2).click({ modifiers: ["Shift"] });
   await tiles.nth(1).click({ button: "right" });
-  const menu = page.getByTestId("tile-menu");
+  const menu = page.getByTestId("item-menu");
   await expect(menu).toBeVisible();
   await menu.getByTestId("tile-menu-cloud").click();
   await expect(menu).toHaveCount(0);
@@ -177,10 +177,10 @@ test("the Menu key opens the photo menu", async ({ page }) => {
   await open(page, "&claude=key");
   await page.getByTestId("tile").nth(4).click();
   await page.getByTestId("grid").press("Shift+F10");
-  await expect(page.getByTestId("tile-menu")).toBeVisible();
-  await expect(page.getByTestId("tile-menu").getByRole("menuitem", { name: "Open" })).toBeFocused();
+  await expect(page.getByTestId("item-menu")).toBeVisible();
+  await expect(page.getByTestId("item-menu").getByRole("menuitem", { name: "Open", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("tile-menu")).toHaveCount(0);
+  await expect(page.getByTestId("item-menu")).toHaveCount(0);
 });
 
 test("All sends the photos to every AI with a key, and the inspector shows who gave what", async ({
