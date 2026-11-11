@@ -5,6 +5,7 @@ mod ai;
 mod assets;
 mod browse;
 mod events;
+mod faces;
 mod files;
 mod imports;
 mod jobs;
@@ -19,13 +20,17 @@ mod sidecars;
 mod tags;
 mod volumes;
 
-pub use ai::{Ai, AiCounts, DayItem, RangeItem};
+pub use ai::{Ai, AiCounts, DayItem, EditAdviceRow, RangeItem};
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,
     SortField,
 };
 pub use events::{EventSpan, Events};
+pub use faces::{
+    box_iou, name_key, FaceCounts, FaceRow, FaceScan, FaceState, Faces, NewFace, Person,
+    RESTORED_MODEL, SAME_FACE_IOU,
+};
 pub use files::Files;
 pub use imports::Imports;
 pub use jobs::{Job, JobCounts, JobState, Jobs, NewJob, Priority};

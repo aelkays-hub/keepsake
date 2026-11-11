@@ -303,6 +303,15 @@ impl Jobs<'_, Rw> {
         Ok(n)
     }
 
+    /// Delete every queued job of `kind`, whatever its priority (not
+    /// running or finished ones). Returns how many.
+    pub fn remove_all_queued(&self, kind: &str) -> Result<u64, CatalogError> {
+        Ok(self.conn.execute(
+            "DELETE FROM jobs WHERE kind = ?1 AND state = 'queued'",
+            [kind],
+        )? as u64)
+    }
+
     /// Delete queued jobs of `kind` whose class is `class` (not running or
     /// finished ones). Returns how many.
     pub fn remove_queued(&self, kind: &str, class: Priority) -> Result<u64, CatalogError> {

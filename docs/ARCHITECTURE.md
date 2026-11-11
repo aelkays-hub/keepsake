@@ -91,7 +91,7 @@ SQLite database in WAL mode with FTS5 full-text index (`keepsake_core::catalog`)
 
 ### Probe
 Reads media metadata without decoding pixels (`keepsake_core::probe`):
-- `ExifTool`: one long-lived `-stay_open` process behind a request queue, with per-request timeouts and automatic restart.
+- `ExifTool`: one long-lived `-stay_open` process behind a request queue, with per-request timeouts and automatic restart. It never quits by itself: `shutdown()` (or dropping the handle) stops it. The app does this on exit, and on Windows its helpers share a kill-on-close job, so they end with it even after a crash (ADR-037).
 - `ffprobe`: streams, duration, codec/profile, bit depth, chroma, rotation, timecode, container creation time.
 - `sony_xml`: XAVC `NonRealTimeMeta` sidecars (creation date with offset, frames → duration, timecode, model, serial, lens, recording mode, GPS).
 - `avchd`: playlists and clip info (split recordings), MDPM capture date.
@@ -128,6 +128,11 @@ Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offl
   - Identical originals share renditions. A recipe change gives new names.
   - LRU eviction keeps the cache under `max_bytes`, previews and proxies before thumbnails, but never removes a rendition whose original is not on a mounted volume. The render service trims to 90% of the limit, and while the cache is above 80% its background jobs make thumbnails only; opening an item makes the rest (ADR-031). Thumbnails alone of a camera JPEG are made from its built-in MPF preview, without reading the whole file (ADR-032).
   - The root is `[render] cache_dir` in `config.toml` (default: the OS cache folder).
+- **Thumbnail backfill** (`render::backfill`, `keepsake renders thumbnails`, ADR-033): a headless walk, separate from the job queue, that makes every missing 256/1024 px thumbnail (never the preview or a proxy).
+  - It walks `assets` in `seq` order from a saved position (`library_meta` key `render.backfill.cursor`), 100 assets per batch.
+  - A batch is rendered first (files into the cache through `.tmp` and a rename; `Cache::store_bytes` and `still::make_stills` return the rows unwritten), with `workers` threads that each have their own read connection. Then one short write records all the batch's `renditions` rows and the new position, retried for up to two minutes while another writer holds the catalog. A kill loses at most the batch in progress, whose files are made again next time.
+  - A file that fails (or panics in a decoder) is reported (`BackfillEvent::ItemFailed`) and passed; only catalog errors stop the run. A batch whose media is all offline stops the run without saving a position past it, unless `skip_offline`. Ctrl-C saves the finished part of the batch.
+  - At the end the position stays on the last asset, so the next run looks only at assets added since; `restart` walks everything again, which retries failures. It does not touch `jobs`: the app's queued `render.stills` jobs for those assets finish at once for the thumbnails and still make the preview.
 
 ### VideoOps
 Wraps FFmpeg for all video operations: trim (stream copy or smart-cut re-encode), combine, rotate, frame grab, MP4 conversion, proxy generation, time-lapse assembly, deflicker. Every operation produces a new file; no in-place modification.
@@ -143,12 +148,45 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
 - Face clustering and semantic search are not built yet.
 
-### Claude tagger
-Tag with Claude (`keepsake_core::ai::cloud`, ADR-036).
-- There is one `ai.claude` job per photo the user picked. Its own worker in the render service runs them when the service has a tagger (`RenderService::with_claude`); the app always gives it one.
-- The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it to the Claude Messages API through a `Tagger` (`Claude`, over `Http` = `UreqHttp`).
-- The key comes from `keepsake_platform::secrets` (the OS credential store), and the model from `config.toml`. Both are looked up for each photo.
-- The tags in the answer are added to the photo's keywords through `MetadataService` (catalog and XMP).
+### Aircraft (ADR-041)
+`keepsake_core::ai::aircraft`, on this computer only.
+- `ocr::TextReader`: PP-OCRv5's detector (sides multiples of 32, long side at most `max_side`; blue, green, red planes, ImageNet mean and deviation) gives a text probability map. `ocr::boxes` joins pixels over 0.3 into regions, keeps those averaging 0.5 or more, takes the smallest rectangle around each (convex hull, every edge tried) and grows it (DBNet's unclip, 1.6). `ocr::crop` straightens a rectangle out of the full picture (at most 96 px high); `rec_input` scales it to 48 px high; `ctc_decode` reads the recogniser's output with its dictionary. The detector uses `model::open_session` (graphics card first); the recogniser runs on the processor.
+- `marks`: `registration` (country shapes), `Airlines::find` (`airlines.tsv`), `painted_type`, and `interpret`, which turns a picture's lines into `Marks`.
+- `types::TypeList`: a second `labels::LabelSet` (`aircraft-types.tsv` and its vectors); `guess` gives the best type only when it stands out.
+- `scan`: `ai.aircraft` jobs, queued for the picked items (`enqueue`, `status`, `stop` by ids; the status is `cloud::job_status`). The aircraft worker (`RenderService`, when `[ai] aircraft`; `with_aircraft` gives tests a stand-in `Reader`) runs one job at a time: `picture` decodes the photo at full size (`render::full::decode_full`, nothing cached) or falls back to the thumbnail; `examine` reads it and, without a painted type, asks for the look (the stored `ai_analysis` embedding, else the image encoder if installed); the keywords are added with `MetadataService::add_ai_keywords(asset, "aircraft", …)`.
+- A folder or dates at once: `scan::target_items` gives the items of an `ai::Target` that carry one of `AIRCRAFT_TAGS` (one tag search each, joined); `enqueue_target` queues those not read yet, `target_status` and `stop_target` follow and stop them. The app's `ai_analyze_folder` / `ai_analyze_range` and their status and stop commands hand `what` = `aircraft` to `aircraft::target_*`.
+- `install`: the two pinned models (`ai::install::ModelFile`, shared with the face models), `KEEPSAKE_TEXT_DETECTOR` / `KEEPSAKE_TEXT_RECOGNIZER`.
+- The app's `aircraft_*` commands are thin wrappers; the UI is `AircraftSettings`, the item menu's Read aircraft, the viewer's button, and `AiJobWindow` (the `aircraft` job).
+
+### Edit suggestions (ADR-042)
+`keepsake_core::ai::suggest`, for one photo at a time.
+- `measure::measure(image)` works on the 1024 px thumbnail (`analyze::thumbnail`): a luma histogram (tones, percentiles), blown and black shares, average saturation, a cast from near-grey pixels, grain (Immerkær's mask in 16 px blocks, 20th percentile), sharpness (99th percentile of the 4-neighbour Laplacian) and tilt (Sobel gradients of a half-size copy, a histogram of angles within 15° of level). It returns `Measures` (serialisable).
+- `rules::suggest` / `describe` / `summary` turn `Measures` into `Suggestion`s (title, why, Photoshop, Topaz Photo) and lines of what was measured.
+- `ask`: the AI's `Task` (system text, the question with the measurements, the schema), `tidy`, and `CloudAdviser` (an `Adviser` over `cloud::send`). `cloud::Task` and `cloud::send` are shared with tagging; each provider module has `body(…, task)` and `answer(status, body, task)`.
+- Storage: `edit_suggestions` (schema v15), through `Ai::{edit_advice, put_edit_measures, put_edit_ai}`. `suggest::{stored, advice, measure_asset}` read and measure; `ask_asset` is one job; `enqueue_ask`, `stop_asking` and `asking` queue, stop and follow the `ai.suggest.<provider>` jobs.
+- The render service's cloud worker (`JOB_AI_CLAUDE`, started when it has a tagger or an adviser) claims `CLOUD_JOBS` and `SUGGEST_JOBS`; `with_adviser` gives it the `Adviser` (tests use a stand-in).
+- The app's `edit_suggestions*` commands (`src-tauri/src/suggest.rs`) are thin; the UI is `EditAdviceWindow`, opened from the grid's item menu and the viewer (`editAdvice` in the UI state). Open in uses `open_choices` and `open_external`.
+
+### Faces (ADR-040)
+`keepsake_core::ai::faces`, on this computer only. Steps 1 (models and pipeline), 2 (searching and storing), 3 (Name and find), 4 (sidecars and search) and 5 (Inspector and viewer) are built; the People screen comes next.
+- `FaceModels::find(picture)`: the picture is fitted into YuNet's fixed 640 × 640 input (blue, green, red, 0–255, black padding right and bottom). Its three grids (8, 16, 32 px cells) are decoded as OpenCV does (score √(cls·obj), box from centre offsets and log size, 5 landmarks), faces scoring under 0.8 dropped and overlapping ones merged (IoU 0.3). Boxes come back in the picture's pixels.
+- `FaceModels::describe(picture, face)`: the face is straightened onto SFace's 112 × 112 five-point template (closest similarity transform, bilinear) and SFace gives 128 numbers, made unit length (`Embedding`). A cosine similarity of 0.363 or more: likely the same person.
+- Both sessions come from `model::open_session` (DirectML / Core ML, else the CPU), like the image encoder. Models: `faces::install` (pinned, BLAKE3-checked, user cache or `vendor/models/`).
+- `faces::scan`: `ai.faces` jobs, one per photo. The face worker (`RenderService`, when `[ai] enabled` and `faces`; `with_faces` gives tests a stand-in `FaceFinder`) reads the 1024 px thumbnail, keeps faces at least 40 px wide and stores them with `Faces::save_scan` (catalog `faces`, `face_scans`; `people`, `face_rejections` for the user's decisions). Named faces survive a new search.
+- Thumbnail waits: `Shared::stills_live` counts the running thumbnail workers; the AI and face workers wait for thumbnails only while one is running.
+- Sidecars and search (step 4): `metadata::project` writes the confirmed faces as MWG face regions (`xmp::FaceRegion`, nested `xmp::Value`), the rejections and the names Keepsake manages; `MetadataService::sync_faces` keeps a photo's `People|<name>` keywords and sidecar in step with its confirmed faces, called by `people::name_face` / `decide` and `scan::delete_all`. A rebuild restores people, named faces (`Faces::restore_confirmed`, model `sidecar` until searched) and rejections (`restore_rejection`, waiting in `face_rejections_pending` for a face).
+- Inspector and viewer (step 5): `PeopleBlock` (Inspector) and the viewer's face layer read `faces_of_photo(search: false)`. `PhotoStage` takes an `overlay` drawn in a layer with the picture's own size and transform, so the boxes follow zoom and pan; the box menu calls `faces_not_person` / `faces_not_face` (`people::not_this_person`, `not_a_face`; state `hidden`).
+- Matching (tuned): `people::Matcher` keeps a person's confirmed descriptions as sums per year; a candidate is scored against the average of the years within 3 of its photo, skipped under the cut-off (`[ai] face_match_pct`, default 55), under 60 px, or when closer to a face rejected for that person. `rescore` / `rescore_all` re-score waiting suggestions; `check` lists confirmed faces least like the others first.
+- `faces::people` (Name and find): `name_face` (confirm a face as a named person), `suggest` (nearest-confirmed-face cosine ≥ 0.363, within 3 years of a confirmed face's date, one face a photo; stored as `state = 'suggested'` with `likeness`), `review`, `decide` (confirm, or reject into `face_rejections`). The app's `faces_*` commands are thin wrappers; the window (`NameFindWindow`) polls `faces_of_photo` and `faces_status` and cuts faces out of thumbnails with CSS (`faces.ts::cropStyle`, the box widened by a fifth, at the face's own shape from the searched picture's size).
+
+### Cloud tagger
+Tag with AI (`keepsake_core::ai::cloud`, ADR-036, ADR-038): Claude, ChatGPT or Gemini.
+- There is one job per photo the user picked and provider: `ai.claude`, `ai.openai` or `ai.gemini`. One worker in the render service claims all three when the service has a tagger (`RenderService::with_cloud`); the app always gives it one.
+- The worker reads the 1024 px thumbnail and re-encodes it as JPEG. It sends it through a `Tagger` (`CloudTagger`, over `Http` = `UreqHttp`), which builds the provider's request and reads its answer (`cloud::{claude, openai, gemini}`).
+- The shared parts are in `cloud`: the prompt, the tag schema, tidying the answer (`tidy`) and what an HTTP status means (`http_error`).
+- Each provider's key comes from `keepsake_platform::secrets` (the OS credential store, account `<id>-api-key`), and its model from `config.toml` (`[ai] claude_model`, `openai_model`, `gemini_model`). Both are looked up for each photo.
+- The tags in the answer are added to the photo's keywords through `MetadataService::add_ai_keywords` (catalog and XMP), which also records which AI gave each one (`ai_tag_sources`, `keepsake:AITagSources`; ADR-039). Removing a keyword forgets who gave it.
+- **All** (ADR-039) is the UI queueing the same photos for each AI with a key; each AI's jobs are followed on their own.
 - Permanent problems fail the job (`RenderError::Refused`); others are retried.
 
 ---
@@ -355,7 +393,9 @@ One sidecar per copy of an asset's original, named `<name>.<ext>.xmp` beside it.
 | Capture time | `exif:DateTimeOriginal`, `photoshop:DateCreated` (already shifted) | `xmp:CreateDate` |
 | Time-shift | `keepsake:CaptureShiftSeconds` | |
 | Camera, lens, duration | `tiff:Make`, `tiff:Model`, `exifEX:LensModel`, `xmpDM:duration` | |
+| Named faces (ADR-040) | `mwg-rs:Regions` (`AppliedToDimensions`, `RegionList` of `Type` Face, `Name`, `Area` centre x/y, w, h, normalized); `keepsake:FaceNames` (the names Keepsake wrote); `keepsake:FaceRejections` | every named face region, Lightroom's and digiKam's; other regions kept as they are |
 | Identity, event, AI tags, recipes, member files | `keepsake:AssetID`, `keepsake:Event`, `keepsake:AITags`, `keepsake:Recipes`, `keepsake:Files` | |
+| Which AI gave each keyword (Tag with AI; Read aircraft, ADR-041, as `aircraft`) | `keepsake:AITagSources` (`Name`, `By`) | rows of unknown AIs are left out |
 
 The `keepsake:` namespace is `http://ns.keepsake.app/xmp/1.0/`. `xmp:MetadataDate` decides which sidecar wins when two disagree.
 

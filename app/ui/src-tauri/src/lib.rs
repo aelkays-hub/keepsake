@@ -1,18 +1,23 @@
 mod ai;
+mod aircraft;
 pub mod api;
 mod background;
-mod claude;
+mod cloud;
 mod commands;
 mod convert;
 mod diagnostics;
 mod edit;
+mod faces;
 mod folders;
 mod import;
 mod maintenance;
 mod prefs;
 mod render;
 mod report;
+mod reveal;
+mod shutdown;
 mod state;
+mod suggest;
 mod viewer;
 
 use tauri::Manager;
@@ -120,6 +125,8 @@ pub fn run() {
             viewer::open_external,
             viewer::metadata_all,
             viewer::open_choices,
+            reveal::original_place,
+            reveal::show_in_folder,
             edit::time_shift_preview,
             edit::time_shift_apply,
             maintenance::backup_overview,
@@ -160,12 +167,40 @@ pub fn run() {
             ai::ai_set_choice,
             ai::ai_tags,
             ai::ai_tag_decide,
-            claude::ai_claude_info,
-            claude::ai_claude_set_key,
-            claude::ai_claude_set_model,
-            claude::ai_claude_tag,
-            claude::ai_claude_status,
-            claude::ai_claude_stop,
+            cloud::ai_cloud_info,
+            cloud::ai_cloud_set_key,
+            cloud::ai_cloud_set_model,
+            cloud::ai_cloud_set_default,
+            cloud::ai_cloud_tag,
+            cloud::ai_cloud_status,
+            cloud::ai_cloud_stop,
+            aircraft::aircraft_status,
+            aircraft::aircraft_enable,
+            aircraft::aircraft_install_cancel,
+            aircraft::aircraft_remove_models,
+            aircraft::aircraft_read,
+            aircraft::aircraft_read_status,
+            aircraft::aircraft_read_stop,
+            suggest::edit_suggestions,
+            suggest::edit_suggestions_ask,
+            suggest::edit_suggestions_stop,
+            faces::faces_status,
+            faces::faces_enable,
+            faces::faces_install_cancel,
+            faces::faces_scan_all,
+            faces::faces_stop,
+            faces::faces_delete_all,
+            faces::faces_remove_models,
+            faces::faces_of_photo,
+            faces::faces_people,
+            faces::faces_name,
+            faces::faces_find,
+            faces::faces_suggest,
+            faces::faces_review,
+            faces::faces_decide,
+            faces::faces_check,
+            faces::faces_not_person,
+            faces::faces_not_face,
         ])
         .build(tauri::generate_context!());
     let app = match result {
@@ -179,8 +214,7 @@ pub fn run() {
         // Closing the window ends the process without dropping anything:
         // stop the helpers first, or ExifTool keeps running.
         if let tauri::RunEvent::Exit = event {
-            render::stop_for_exit(handle, std::time::Duration::from_secs(5));
-            import::stop_exiftool();
+            shutdown::on_exit(&handle.state::<state::AppState>());
         }
     });
 }

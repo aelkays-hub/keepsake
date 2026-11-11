@@ -1,0 +1,92 @@
+# Aircraft types the look of a plane is compared with (ADR-041).
+# Name<TAB>phrase|phrase   as labels.tsv; each phrase is embedded as
+# "a photo of <phrase>." by scripts/make-label-vectors.py:
+#   python scripts/make-label-vectors.py <model dir> aircraft-types
+# Airliners are families: variants look too alike to tell apart this way.
+
+# Airbus
+Airbus A220	an Airbus A220 airliner|a Bombardier CSeries airliner
+Airbus A300	an Airbus A300 airliner
+Airbus A310	an Airbus A310 airliner
+Airbus A320 family	an Airbus A320 airliner|an Airbus A321 airliner|an Airbus A319 airliner
+Airbus A330	an Airbus A330 airliner
+Airbus A340	an Airbus A340 airliner with four engines
+Airbus A350	an Airbus A350 airliner
+Airbus A380	an Airbus A380 double-deck airliner
+Airbus Beluga	an Airbus Beluga transport aircraft
+
+# Boeing
+Boeing 707	a Boeing 707 airliner
+Boeing 717	a Boeing 717 airliner
+Boeing 727	a Boeing 727 airliner with three engines at the tail
+Boeing 737	a Boeing 737 airliner|a Boeing 737 MAX airliner
+Boeing 747	a Boeing 747 jumbo jet
+Boeing 757	a Boeing 757 airliner
+Boeing 767	a Boeing 767 airliner
+Boeing 777	a Boeing 777 airliner
+Boeing 787	a Boeing 787 Dreamliner airliner
+
+# Other airliners
+McDonnell Douglas MD-80	a McDonnell Douglas MD-80 airliner|a McDonnell Douglas DC-9 airliner
+McDonnell Douglas MD-11	a McDonnell Douglas MD-11 airliner|a McDonnell Douglas DC-10 airliner
+Embraer E-Jet	an Embraer E175 airliner|an Embraer E190 airliner
+Embraer ERJ	an Embraer ERJ 145 regional jet
+Bombardier CRJ	a Bombardier CRJ regional jet
+De Havilland Dash 8	a De Havilland Dash 8 Q400 turboprop airliner
+ATR 72	an ATR 72 turboprop airliner|an ATR 42 turboprop airliner
+BAe 146	a BAe 146 airliner|an Avro RJ airliner
+Fokker 100	a Fokker 100 airliner
+Saab 340	a Saab 340 turboprop airliner
+Concorde	Concorde supersonic airliner
+Antonov An-124	an Antonov An-124 cargo aircraft
+Antonov An-225	an Antonov An-225 Mriya cargo aircraft
+Ilyushin Il-76	an Ilyushin Il-76 cargo aircraft
+
+# Business and light aircraft
+Business jet	a private business jet|a Gulfstream business jet|a Learjet|a Bombardier Challenger business jet|a Cessna Citation jet
+Cessna 172	a Cessna 172 light aircraft|a small single-engine Cessna
+Piper Cub	a Piper Cub light aircraft
+Beechcraft King Air	a Beechcraft King Air turboprop
+Pilatus PC-12	a Pilatus PC-12 turboprop
+De Havilland Beaver	a De Havilland Beaver floatplane
+De Havilland Twin Otter	a De Havilland Twin Otter aircraft
+Canadair CL-415	a Canadair CL-415 water bomber
+Glider	a glider aircraft|a sailplane
+
+# Military transport and bombers
+Lockheed C-130 Hercules	a Lockheed C-130 Hercules transport aircraft
+Boeing C-17 Globemaster	a Boeing C-17 Globemaster transport aircraft
+Lockheed C-5 Galaxy	a Lockheed C-5 Galaxy transport aircraft
+Airbus A400M	an Airbus A400M Atlas transport aircraft
+Boeing KC-135	a Boeing KC-135 tanker aircraft
+Boeing E-3 Sentry	a Boeing E-3 Sentry AWACS aircraft
+Boeing B-52	a Boeing B-52 Stratofortress bomber
+Rockwell B-1	a Rockwell B-1 Lancer bomber
+Northrop B-2	a Northrop B-2 Spirit stealth bomber
+Bell Boeing V-22 Osprey	a V-22 Osprey tiltrotor aircraft
+
+# Fighters and trainers
+F-16 Fighting Falcon	an F-16 Fighting Falcon fighter jet
+F-18 Hornet	an F/A-18 Hornet fighter jet|a CF-18 Hornet fighter jet
+F-15 Eagle	an F-15 Eagle fighter jet
+F-22 Raptor	an F-22 Raptor fighter jet
+F-35 Lightning II	an F-35 Lightning II fighter jet
+A-10 Thunderbolt II	an A-10 Thunderbolt II Warthog attack aircraft
+Eurofighter Typhoon	a Eurofighter Typhoon fighter jet
+Dassault Rafale	a Dassault Rafale fighter jet
+Canadair CT-114 Tutor	a Canadair CT-114 Tutor jet of the Snowbirds|the Snowbirds aerobatic team flying in formation
+BAE Hawk	a BAE Hawk jet trainer|the Red Arrows aerobatic team
+T-38 Talon	a Northrop T-38 Talon jet trainer
+Aero L-39	an Aero L-39 Albatros jet trainer
+
+# Warbirds
+Supermarine Spitfire	a Supermarine Spitfire fighter
+Hawker Hurricane	a Hawker Hurricane fighter
+P-51 Mustang	a North American P-51 Mustang fighter
+Avro Lancaster	an Avro Lancaster bomber
+B-17 Flying Fortress	a Boeing B-17 Flying Fortress bomber
+B-25 Mitchell	a North American B-25 Mitchell bomber
+Douglas DC-3	a Douglas DC-3 airliner|a Douglas C-47 Dakota
+T-6 Harvard	a North American T-6 Texan trainer|a Harvard trainer aircraft
+Boeing Stearman	a Boeing Stearman biplane|a vintage biplane
+Consolidated PBY Catalina	a Consolidated PBY Catalina flying boat

@@ -59,6 +59,7 @@ pub fn query(q: &Query) -> Result<SearchQuery, String> {
         file_type: q.file_type.clone(),
         hide_not_kept: q.hide_not_kept.unwrap_or(false),
         tag: q.tag.clone().filter(|t| !t.trim().is_empty()),
+        tags: q.tags.clone().unwrap_or_default(),
         limit: None,
     })
 }

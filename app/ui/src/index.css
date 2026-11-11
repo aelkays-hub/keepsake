@@ -137,6 +137,61 @@ textarea {
 .toolbar #search {
   width: 240px;
 }
+/* Tag chips and tag suggestions in the search bar */
+.search-box {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1px 2px 1px 8px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.search-chip button {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+}
+.search-tags {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+.search-tags li {
+  padding: 3px 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+.search-tags li[aria-selected="true"],
+.search-tags li:hover {
+  background: var(--accent-fill);
+  color: var(--accent-text);
+}
+.search-tags li[aria-selected="true"] .muted,
+.search-tags li:hover .muted {
+  color: inherit;
+}
+.search-tags .tag-icon {
+  opacity: 0.6;
+  margin-right: 4px;
+}
 .toolbar .filter {
   display: flex;
   gap: 4px;
@@ -1331,6 +1386,12 @@ pre.report {
   margin: 4px 8px;
   font-size: 12px;
 }
+.context-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
 .context-menu p.busy {
   color: var(--muted);
 }
@@ -1454,6 +1515,147 @@ pre.report {
   border-style: dotted;
   background: transparent;
 }
+/* Name and find (ADR-040) */
+.name-find .face-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.face-crop {
+  display: block;
+  border-radius: 6px;
+  background-color: var(--panel-2);
+  background-repeat: no-repeat;
+}
+.face-pick {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.face-pick[aria-checked="true"] {
+  border-color: var(--accent);
+}
+.face-pick.rejected .face-crop {
+  opacity: 0.35;
+}
+.face-no {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-weight: 700;
+  color: var(--bad);
+}
+.face-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+.face-review {
+  max-height: 52vh;
+  overflow: auto;
+}
+.face-review h3 {
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.name-find progress {
+  width: 100%;
+}
+
+/* Faces over a photo in the viewer (ADR-040) */
+.face-layer {
+  pointer-events: none;
+}
+.viewer .face-layer .face-box {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid #ffd54a;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.viewer .face-layer .face-box.unknown {
+  border-style: dashed;
+  border-color: #ffffff;
+}
+.viewer .face-layer .face-box.suggested {
+  border-style: dotted;
+}
+.viewer .face-layer .face-box:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.face-label {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: rgb(0 0 0 / 0.7);
+  color: #ffffff;
+}
+
+/* Looser / Stricter, and a person's name that opens Check (ADR-040) */
+.nf-match input[type="range"] {
+  flex: 1;
+  max-width: 260px;
+}
+.chips button.link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.chips button.link:hover {
+  text-decoration: underline;
+}
+
+/* Delete all face data (ADR-040) */
+button.danger {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: var(--accent-text);
+}
+
+/* Which AI gave a tag (ADR-039) */
+.ai-badge {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-left: 4px;
+  align-self: flex-start;
+  width: fit-content;
+}
+.ai-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ai-source .ai-badge {
+  margin-left: 0;
+  flex: none;
+  min-width: 56px;
+  text-align: center;
+  color: var(--text);
+}
 .dup-layout {
   display: grid;
   grid-template-columns: minmax(180px, 240px) 1fr;
@@ -1506,4 +1708,48 @@ pre.report {
 }
 .dup-badge {
   color: var(--ok);
+}
+
+/* Edit suggestions (ADR-042) */
+.edit-advice .advice-list {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.edit-advice .advice-list li {
+  margin-bottom: 10px;
+}
+.edit-advice .advice-list p {
+  margin: 2px 0;
+}
+.edit-advice .advice-app {
+  font-weight: 600;
+}
+.edit-advice .advice-measured dl {
+  margin: 6px 0;
+}
+.edit-advice .advice-measured .row {
+  display: flex;
+  gap: 12px;
+}
+.edit-advice .advice-measured dt {
+  width: 7em;
+  color: var(--muted);
+}
+.edit-advice .advice-measured dd {
+  margin: 0;
+}
+.edit-advice .advice-ai {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.edit-advice .advice-ai h3 {
+  margin: 4px 0;
+  font-size: 1em;
+}
+.edit-advice .advice-ai .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }

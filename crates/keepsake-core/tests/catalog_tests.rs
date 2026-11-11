@@ -399,6 +399,24 @@ fn hierarchical_tags_and_search() {
     assert_eq!(with("Travel|Japan|Tokyo"), vec![a.id]);
     assert_eq!(with("Beach"), vec![b.id], "AI tags too");
     assert!(with("Trav").is_empty(), "whole names only");
+    // The search bar's tag chips: items with every one of them.
+    let with_all = |ts: &[&str]| {
+        let q = keepsake_core::catalog::SearchQuery {
+            tags: ts.iter().map(|t| (*t).to_owned()).collect(),
+            ..Default::default()
+        };
+        let mut ids = cat.read(|tx| tx.search().query(&q)).unwrap();
+        ids.sort();
+        ids
+    };
+    assert_eq!(with_all(&["Travel"]), both);
+    assert_eq!(with_all(&["Travel", "Beach"]), vec![b.id]);
+    assert!(with_all(&["Beach", "Travel|Japan|Tokyo"]).is_empty());
+    assert_eq!(
+        with_all(&[" ", "Travel|Japan|Tokyo"]),
+        vec![a.id],
+        "blank ignored"
+    );
 
     // Removing tags and pruning empties the branch.
     cat.write(|tx| {

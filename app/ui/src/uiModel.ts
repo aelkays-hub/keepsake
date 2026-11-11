@@ -50,6 +50,16 @@ export interface UiState {
   /** Tag photos or Find duplicates running for a folder or dates (a
    * window shows how far it has got). */
   aiJob: AiJob | null;
+  /** Name and find (ADR-040): the photo whose faces are named. */
+  nameFind: {
+    photo: string;
+    title: string;
+    face?: number;
+    /** Open on Check <name>'s faces instead. */
+    check?: { id: number; name: string };
+  } | null;
+  /** Edit suggestions (ADR-042): the photo they are for. */
+  editAdvice: { photo: string; title: string } | null;
 }
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or
@@ -63,8 +73,10 @@ export type AiJob = (
   | { range: DateRange }
   /** The calendar's "No date": items with no capture time. */
   | { undated: true }
-  /** Tag with Claude: the photos picked, and how many. */
-  | { claude: Selection; count: number }
+  /** Tag with AI: the photos picked, and how many. */
+  | { cloud: Selection; count: number }
+  /** Read aircraft (ADR-041): the photos picked, and how many. */
+  | { aircraft: Selection; count: number }
 ) & {
   /** "Pictures › 2025 › May", "July 2026". */
   title: string;
@@ -97,7 +109,17 @@ export type Msg =
   /** The Duplicates screen, for these dates (`null`: all). */
   | { t: "duplicates"; range: DateRange | null }
   /** Start (or, `null`, close) an AI job. */
-  | { t: "aiJob"; job: AiJob | null };
+  | { t: "aiJob"; job: AiJob | null }
+  | {
+      t: "nameFind";
+      photo: {
+        photo: string;
+        title: string;
+        face?: number;
+        check?: { id: number; name: string };
+      } | null;
+    }
+  | { t: "editAdvice"; photo: { photo: string; title: string } | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -114,6 +136,8 @@ export const initial: UiState = {
   dialog: null,
   dupRange: null,
   aiJob: null,
+  nameFind: null,
+  editAdvice: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -169,6 +193,10 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, screen: "duplicates", dupRange: m.range, viewer: false };
     case "aiJob":
       return { ...s, aiJob: m.job };
+    case "nameFind":
+      return { ...s, nameFind: m.photo };
+    case "editAdvice":
+      return { ...s, editAdvice: m.photo };
   }
 }
 

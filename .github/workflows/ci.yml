@@ -217,8 +217,8 @@ jobs:
   # macOS yet (ADR-005), so tests that need ExifTool/ffprobe/ffmpeg skip
   # (KEEPSAKE_SKIP_MEDIA_TOOLS) instead of failing as they do on Windows.
   rust-macos:
-    name: macos-14 (Rust)
-    runs-on: macos-14
+    name: macos-15 (Rust)
+    runs-on: macos-15
     env:
       KEEPSAKE_SKIP_MEDIA_TOOLS: "1"
     steps:

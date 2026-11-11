@@ -5,11 +5,22 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
+import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
 import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
 import type { AiTagDto } from "./bindings/AiTagDto";
 import type { AiTagsDto } from "./bindings/AiTagsDto";
+import type { FaceDto } from "./bindings/FaceDto";
+import type { FacesStatus } from "./bindings/FacesStatus";
+import type { PersonDto } from "./bindings/PersonDto";
+import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
+import type { SuggestDto } from "./bindings/SuggestDto";
+import type { AiAdviceDto } from "./bindings/AiAdviceDto";
+import type { AskingDto } from "./bindings/AskingDto";
+import type { EditAdviceDto } from "./bindings/EditAdviceDto";
+import type { EditSuggestionDto } from "./bindings/EditSuggestionDto";
+import type { MeasuredDto } from "./bindings/MeasuredDto";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -17,10 +28,11 @@ import type { Bucket } from "./bindings/Bucket";
 import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { CardNotice } from "./bindings/CardNotice";
 import type { CardScan } from "./bindings/CardScan";
-import type { ClaudeInfo } from "./bindings/ClaudeInfo";
-import type { ClaudeModelDto } from "./bindings/ClaudeModelDto";
-import type { ClaudeStarted } from "./bindings/ClaudeStarted";
-import type { ClaudeStatusDto } from "./bindings/ClaudeStatusDto";
+import type { CloudInfo } from "./bindings/CloudInfo";
+import type { CloudModelDto } from "./bindings/CloudModelDto";
+import type { CloudProviderDto } from "./bindings/CloudProviderDto";
+import type { CloudStarted } from "./bindings/CloudStarted";
+import type { CloudStatusDto } from "./bindings/CloudStatusDto";
 import type { CrashNotice } from "./bindings/CrashNotice";
 import type { Details } from "./bindings/Details";
 import type { DuplicateGroupDto } from "./bindings/DuplicateGroupDto";
@@ -44,6 +56,7 @@ import type { MaintProgress } from "./bindings/MaintProgress";
 import type { MemberDto } from "./bindings/MemberDto";
 import type { OpenApp } from "./bindings/OpenApp";
 import type { OpenChoice } from "./bindings/OpenChoice";
+import type { OriginalPlace } from "./bindings/OriginalPlace";
 import type { Preset } from "./bindings/Preset";
 import type { Query } from "./bindings/Query";
 import type { RenderSummary } from "./bindings/RenderSummary";
@@ -70,6 +83,17 @@ export type {
   AiTagDto,
   AiTagsDto,
   AppInfo,
+  AircraftStatus,
+  FaceDto,
+  FacesStatus,
+  PersonDto,
+  PhotoFacesDto,
+  SuggestDto,
+  AiAdviceDto,
+  AskingDto,
+  EditAdviceDto,
+  EditSuggestionDto,
+  MeasuredDto,
   AssetMembers,
   BackupOverview,
   Bucket,
@@ -98,6 +122,7 @@ export type {
   MemberDto,
   OpenApp,
   OpenChoice,
+  OriginalPlace,
   Preset,
   Query,
   RenderSummary,
@@ -106,10 +131,11 @@ export type {
   Row,
   Selection,
   SelectionSummary,
-  ClaudeInfo,
-  ClaudeModelDto,
-  ClaudeStarted,
-  ClaudeStatusDto,
+  CloudInfo,
+  CloudModelDto,
+  CloudProviderDto,
+  CloudStarted,
+  CloudStatusDto,
   SettingsInfo,
   SettingsSaved,
   SettingsUpdate,
@@ -121,7 +147,9 @@ export type {
 };
 
 /** The two separate AI tasks for a date range. */
-export type AiTask = "duplicates" | "tags";
+/** `aircraft`: Read aircraft (ADR-041) for the photos tagged Airplane,
+ * Helicopter or Airport in a folder or on dates. */
+export type AiTask = "duplicates" | "tags" | "aircraft";
 
 export const emptyQuery: Query = {
   text: null,
@@ -204,6 +232,10 @@ export const api = {
     invoke<FileMetadata>("metadata_all", { id, member }),
   openChoices: (id: string, member: MemberDto) =>
     invoke<OpenChoice[]>("open_choices", { id, member }),
+  /** Where an item's original is, for "Show in Explorer / Finder". */
+  originalPlace: (id: string) => invoke<OriginalPlace>("original_place", { id }),
+  /** Open the folder holding the original, with the file selected. */
+  showInFolder: (id: string) => invoke<null>("show_in_folder", { id }),
 
   timeShiftPreview: (selection: Selection, reference: string, correct: string) =>
     invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),
@@ -239,6 +271,54 @@ export const api = {
     invoke<void>("ai_enable", { enabled, gpu }),
   aiInstallCancel: () => invoke<void>("ai_install_cancel"),
   aiRemoveModel: () => invoke<boolean>("ai_remove_model"),
+  /** Read aircraft (ADR-041): on downloads the text models first. */
+  aircraftStatus: () => invoke<AircraftStatus>("aircraft_status"),
+  aircraftEnable: (enabled: boolean) => invoke<void>("aircraft_enable", { enabled }),
+  aircraftInstallCancel: () => invoke<void>("aircraft_install_cancel"),
+  aircraftRemoveModels: () => invoke<boolean>("aircraft_remove_models"),
+  /** Read the aircraft in the picked photos, on this computer; then how
+   * far it has got, and stopping it. */
+  aircraftRead: (selection: Selection) => invoke<CloudStarted>("aircraft_read", { selection }),
+  aircraftReadStatus: (ids: string[]) => invoke<CloudStatusDto>("aircraft_read_status", { ids }),
+  aircraftReadStop: (ids: string[]) => invoke<void>("aircraft_read_stop", { ids }),
+  /** Recognise faces (ADR-040): on downloads the face models first. */
+  facesStatus: () => invoke<FacesStatus>("faces_status"),
+  facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
+  facesInstallCancel: () => invoke<void>("faces_install_cancel"),
+  /** Search every photo not searched yet; returns how many were queued. */
+  facesScanAll: () => invoke<number>("faces_scan_all"),
+  facesStop: () => invoke<number>("faces_stop"),
+  /** Forget every face, person and decision; returns how many faces. */
+  facesDeleteAll: () => invoke<number>("faces_delete_all"),
+  facesRemoveModels: () => invoke<boolean>("faces_remove_models"),
+  /** Edit suggestions (ADR-042): kept, or measured now (`again`: measured
+   * again). `waiting`: the preview is being made first (ask again). */
+  editSuggestions: (id: string, again = false) =>
+    invoke<EditAdviceDto>("edit_suggestions", { id, again }),
+  /** Ask an AI for this photo's edit suggestions (in the background). */
+  editSuggestionsAsk: (id: string, providerId: string) =>
+    invoke<EditAdviceDto>("edit_suggestions_ask", { id, providerId }),
+  editSuggestionsStop: (id: string) => invoke<void>("edit_suggestions_stop", { id }),
+  /** Name and find (ADR-040). A photo not searched yet is searched now:
+   * `searched` is false until it has been (ask again). */
+  facesOfPhoto: (id: string, search = true) =>
+    invoke<PhotoFacesDto>("faces_of_photo", { id, search }),
+  facesPeople: () => invoke<PersonDto[]>("faces_people"),
+  facesName: (face: number, name: string) => invoke<PersonDto>("faces_name", { face, name }),
+  /** Search every photo not searched yet; returns how many were queued. */
+  facesFind: () => invoke<number>("faces_find"),
+  /** `matchPct`: a new cut-off (stricter or looser), kept for next time. */
+  facesSuggest: (person: number, matchPct: number | null = null) =>
+    invoke<SuggestDto>("faces_suggest", { person, matchPct }),
+  /** A person's confirmed faces, least like the others first. */
+  facesCheck: (person: number) => invoke<FaceDto[]>("faces_check", { person }),
+  facesReview: (person: number) => invoke<FaceDto[]>("faces_review", { person }),
+  /** Returns [confirmed, rejected]. */
+  facesDecide: (person: number, confirm: number[], reject: number[]) =>
+    invoke<[number, number]>("faces_decide", { person, confirm, reject }),
+  /** The viewer's face menu: not this person, or not a face (hidden). */
+  facesNotPerson: (face: number) => invoke<boolean>("faces_not_person", { face }),
+  facesNotFace: (face: number) => invoke<void>("faces_not_face", { face }),
   /** Days with duplicates, from `from` to `to` (`YYYY-MM-DD`; null: no bound). */
   aiDuplicates: (from: string | null = null, to: string | null = null) =>
     invoke<DuplicateSummaryDto>("ai_duplicates", { from, to }),
@@ -258,14 +338,21 @@ export const api = {
   aiAnalyzeUndated: (what: AiTask) => invoke<AiFolderStatus>("ai_analyze_undated", { what }),
   aiUndatedStatus: (what: AiTask) => invoke<AiFolderStatus>("ai_undated_status", { what }),
   aiUndatedStop: (what: AiTask) => invoke<void>("ai_undated_stop", { what }),
-  /** Tag with Claude (ADR-036): the key, the model, the photos. */
-  aiClaudeInfo: () => invoke<ClaudeInfo>("ai_claude_info"),
-  /** Save the API key (`null`: remove it). */
-  aiClaudeSetKey: (key: string | null) => invoke<ClaudeInfo>("ai_claude_set_key", { key }),
-  aiClaudeSetModel: (model: string) => invoke<ClaudeInfo>("ai_claude_set_model", { model }),
-  aiClaudeTag: (selection: Selection) => invoke<ClaudeStarted>("ai_claude_tag", { selection }),
-  aiClaudeStatus: (ids: string[]) => invoke<ClaudeStatusDto>("ai_claude_status", { ids }),
-  aiClaudeStop: (ids: string[]) => invoke<void>("ai_claude_stop", { ids }),
+  /** Tag with AI (ADR-036, ADR-038): each provider's key and model, the
+   * provider offered first, and the photos sent to one. */
+  aiCloudInfo: () => invoke<CloudInfo>("ai_cloud_info"),
+  /** `null`: remove the key. */
+  aiCloudSetKey: (providerId: string, key: string | null) =>
+    invoke<CloudInfo>("ai_cloud_set_key", { providerId, key }),
+  aiCloudSetModel: (model: string) => invoke<CloudInfo>("ai_cloud_set_model", { model }),
+  aiCloudSetDefault: (providerId: string) =>
+    invoke<CloudInfo>("ai_cloud_set_default", { providerId }),
+  aiCloudTag: (selection: Selection, providerId: string) =>
+    invoke<CloudStarted>("ai_cloud_tag", { selection, providerId }),
+  aiCloudStatus: (ids: string[], providerId: string) =>
+    invoke<CloudStatusDto>("ai_cloud_status", { ids, providerId }),
+  aiCloudStop: (ids: string[], providerId: string) =>
+    invoke<void>("ai_cloud_stop", { ids, providerId }),
   /** Stop a date range's work: queued jobs are dropped; what was done stays. */
   aiRangeStop: (from: string, to: string, what: AiTask) =>
     invoke<void>("ai_range_stop", { from, to, what }),
@@ -307,6 +394,12 @@ export const events = {
   aiInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("ai://install", (e) => f(e.payload)),
   aiStatus: (f: () => void): Promise<UnlistenFn> => listen("ai://status", () => f()),
+  facesInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("faces://install", (e) => f(e.payload)),
+  facesStatus: (f: () => void): Promise<UnlistenFn> => listen("faces://status", () => f()),
+  aircraftInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("aircraft://install", (e) => f(e.payload)),
+  aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

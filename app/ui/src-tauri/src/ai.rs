@@ -14,8 +14,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiFolderStatus, AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagsDto,
-    DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
+    AiFolderStatus, AiInstallProgress, AiRangeStatus, AiStatus, AiTagDto, AiTagSourceDto,
+    AiTagsDto, DuplicateDayDto, DuplicateGroupDto, DuplicateMemberDto, DuplicateSummaryDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -161,10 +161,17 @@ pub fn ai_enable(app: AppHandle, enabled: bool, gpu: Option<bool>) -> CmdResult<
 
 #[tauri::command(async)]
 pub fn ai_install_cancel(state: State<'_, AppState>) -> CmdResult<()> {
-    if let Some((c, _)) = get(&state.ai.install).flatten() {
-        c.store(true, Ordering::SeqCst);
-    }
+    state.ai.stop_install();
     Ok(())
+}
+
+impl AiState {
+    /// Stop the model download, if one is running (its curl ends with it).
+    pub(crate) fn stop_install(&self) {
+        if let Some((c, _)) = get(&self.install).flatten() {
+            c.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 /// Turn AI off and delete the downloaded model. AI tags and decisions stay.
@@ -251,6 +258,10 @@ fn range_dto(from: String, to: String, s: ai::analyze::RangeStatus) -> AiRangeSt
     }
 }
 
+/// `what` = `aircraft`: Read aircraft (ADR-041) for a folder or dates,
+/// handled by [`crate::aircraft`] instead of the AI worker.
+const AIRCRAFT: &str = "aircraft";
+
 fn purpose(what: &str) -> CmdResult<Purpose> {
     Purpose::parse(what).ok_or_else(|| format!("unknown AI task: {what}"))
 }
@@ -267,6 +278,14 @@ pub fn ai_analyze_range(
     to: String,
     what: String,
 ) -> CmdResult<AiRangeStatus> {
+    if what == AIRCRAFT {
+        let target = ai::Target::Dates {
+            from: from.clone(),
+            to: to.clone(),
+        };
+        let s = crate::aircraft::target_start(&app, &state, &target)?;
+        return Ok(range_dto(from, to, s));
+    }
     let purpose = purpose(&what)?;
     if !Settings::load().map_err(err)?.ai.enabled {
         return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
@@ -286,6 +305,14 @@ pub fn ai_range_status(
     to: String,
     what: String,
 ) -> CmdResult<AiRangeStatus> {
+    if what == AIRCRAFT {
+        let target = ai::Target::Dates {
+            from: from.clone(),
+            to: to.clone(),
+        };
+        let s = crate::aircraft::target_status(&state, &target)?;
+        return Ok(range_dto(from, to, s));
+    }
     let purpose = purpose(&what)?;
     let open = state.open()?;
     let cat = open.cat()?;
@@ -308,8 +335,9 @@ fn folder_dto(s: ai::analyze::RangeStatus) -> AiFolderStatus {
     }
 }
 
-/// Find duplicates (`what` = `"duplicates"`) or tag the photos (`"tags"`)
-/// of a folder and the folders in it (`""`: the whole drive).
+/// Find duplicates (`what` = `"duplicates"`), tag the photos (`"tags"`) or
+/// read the aircraft photos (`"aircraft"`, ADR-041) of a folder and the
+/// folders in it (`""`: the whole drive).
 #[tauri::command(async)]
 pub fn ai_analyze_folder(
     app: AppHandle,
@@ -318,6 +346,12 @@ pub fn ai_analyze_folder(
     folder: String,
     what: String,
 ) -> CmdResult<AiFolderStatus> {
+    if what == AIRCRAFT {
+        let target = folder_target(&volume, folder)?;
+        return Ok(folder_dto(crate::aircraft::target_start(
+            &app, &state, &target,
+        )?));
+    }
     let purpose = purpose(&what)?;
     if !Settings::load().map_err(err)?.ai.enabled {
         return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
@@ -337,6 +371,10 @@ pub fn ai_folder_status(
     folder: String,
     what: String,
 ) -> CmdResult<AiFolderStatus> {
+    if what == AIRCRAFT {
+        let target = folder_target(&volume, folder)?;
+        return Ok(folder_dto(crate::aircraft::target_status(&state, &target)?));
+    }
     let purpose = purpose(&what)?;
     let target = folder_target(&volume, folder)?;
     let open = state.open()?;
@@ -354,6 +392,9 @@ pub fn ai_range_stop(
     to: String,
     what: String,
 ) -> CmdResult<()> {
+    if what == AIRCRAFT {
+        return crate::aircraft::target_stop(&state, &ai::Target::Dates { from, to });
+    }
     let purpose = purpose(&what)?;
     let target = ai::Target::Dates { from, to };
     let open = state.open()?;
@@ -370,6 +411,9 @@ pub fn ai_folder_stop(
     folder: String,
     what: String,
 ) -> CmdResult<()> {
+    if what == AIRCRAFT {
+        return crate::aircraft::target_stop(&state, &folder_target(&volume, folder)?);
+    }
     let purpose = purpose(&what)?;
     let target = folder_target(&volume, folder)?;
     let open = state.open()?;
@@ -466,9 +510,10 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
         .read(|tx| tx.ai().analysis(id))
         .map_err(err)?
         .is_some_and(|a| a.model == MODEL_ID && a.tag_list > 0);
-    let mut tags: Vec<AiTagDto> = cat
-        .read(|tx| tx.tags().for_asset(id))
-        .map_err(err)?
+    let all = cat.read(|tx| tx.tags().for_asset(id)).map_err(err)?;
+    let sources = cat.read(|tx| tx.ai().tag_sources(id)).map_err(err)?;
+    let by_ai = by_ai(&all, &sources);
+    let mut tags: Vec<AiTagDto> = all
         .into_iter()
         .filter(|t| t.source == TagSource::Ai)
         .map(|t| AiTagDto {
@@ -481,7 +526,36 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
         enabled: Settings::load().map_err(err)?.ai.enabled,
         analysed,
         tags,
+        by_ai,
     })
+}
+
+/// Per AI (and the aircraft reader, ADR-041), the keywords it gave that
+/// the item still has.
+fn by_ai(
+    tags: &[keepsake_core::catalog::AssetTag],
+    sources: &[(String, TagPath)],
+) -> Vec<AiTagSourceDto> {
+    keepsake_core::ai::tag_sources()
+        .into_iter()
+        .filter_map(|(id, name)| {
+            let tags: Vec<String> = sources
+                .iter()
+                .filter(|(by, path)| {
+                    by == id
+                        && tags
+                            .iter()
+                            .any(|t| t.source == TagSource::User && &t.path == path)
+                })
+                .map(|(_, path)| path.to_lightroom())
+                .collect();
+            (!tags.is_empty()).then(|| AiTagSourceDto {
+                provider: id.to_owned(),
+                name: name.to_owned(),
+                tags,
+            })
+        })
+        .collect()
 }
 
 /// Remove an AI tag for good (`keep: false`) or make it the user's own

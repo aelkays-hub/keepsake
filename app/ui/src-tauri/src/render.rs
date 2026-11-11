@@ -21,31 +21,42 @@ use crate::state::{err, AppState, CmdResult};
 pub struct RenderState {
     cancel: Mutex<Arc<AtomicBool>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// Services stopped by a restart, finishing their current jobs.
+    retired: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl RenderState {
-    fn stop(&self) {
+    /// Ask the service to stop after its current jobs.
+    pub(crate) fn stop(&self) {
         if let Ok(c) = self.cancel.lock() {
             c.store(true, Ordering::SeqCst);
         }
     }
-}
 
-/// When the app closes: stop the service and wait up to `wait` for its
-/// current jobs to finish, so its ExifTool is stopped too.
-pub fn stop_for_exit(app: &AppHandle, wait: std::time::Duration) {
-    let state = app.state::<AppState>();
-    state.render.stop();
-    let worker = state.render.worker.lock().ok().and_then(|mut w| w.take());
-    if let Some(w) = worker {
-        let deadline = std::time::Instant::now() + wait;
-        while !w.is_finished() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    /// No service thread is running, a restarted one included (finished
+    /// ones are joined). A service's ExifTool ends with its thread.
+    pub(crate) fn finished(&self) -> bool {
+        let (Ok(mut slot), Ok(mut retired)) = (self.worker.lock(), self.retired.lock()) else {
+            return false;
+        };
+        retired.extend(slot.take());
+        let (done, running): (Vec<_>, Vec<_>) =
+            retired.drain(..).partition(JoinHandle::is_finished);
+        for h in done {
+            let _ = h.join();
         }
-        if w.is_finished() {
-            let _ = w.join();
-        } else {
-            tracing::warn!("render service still busy at exit");
+        *retired = running;
+        retired.is_empty()
+    }
+
+    /// Track `worker`, stopped by `cancel` (tests).
+    #[cfg(test)]
+    pub(crate) fn adopt(&self, cancel: Arc<AtomicBool>, worker: JoinHandle<()>) {
+        if let Ok(mut c) = self.cancel.lock() {
+            *c = cancel;
+        }
+        if let Ok(mut w) = self.worker.lock() {
+            *w = Some(worker);
         }
     }
 }
@@ -55,8 +66,10 @@ pub fn stop_for_exit(app: &AppHandle, wait: std::time::Duration) {
 pub fn restart_service(app: &AppHandle) -> CmdResult<bool> {
     let state = app.state::<AppState>();
     state.render.stop();
-    if let Ok(mut slot) = state.render.worker.lock() {
-        slot.take();
+    if let (Ok(mut slot), Ok(mut retired)) =
+        (state.render.worker.lock(), state.render.retired.lock())
+    {
+        retired.extend(slot.take());
     }
     start_service(app)
 }
@@ -81,7 +94,8 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
         .with_power(power())
-        .with_claude(crate::claude::tagger());
+        .with_cloud(crate::cloud::tagger())
+        .with_adviser(crate::cloud::adviser());
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render
@@ -96,30 +110,62 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
             if let Ok(mut cat) = lib.open_catalog() {
                 let _ = render::enqueue_backlog(&mut cat);
             }
-            let result = svc.run(&cancel, &mut |ev| {
-                match ev {
-                    RenderEvent::AiReady { accel } => {
-                        let st = app.state::<AppState>();
-                        st.ai.note(Some(accel.describe().to_owned()), None);
-                        let _ = app.emit("ai://status", ());
-                    }
-                    RenderEvent::AiUnavailable { reason } => {
-                        let st = app.state::<AppState>();
-                        st.ai.note(None, Some(reason.clone()));
-                        let _ = app.emit("ai://status", ());
-                    }
-                    _ => {}
+            let result = svc.run(&cancel, &mut |ev| match ev {
+                RenderEvent::AiReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.ai.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("ai://status", ());
                 }
-                if let RenderEvent::Done { asset, made, .. } = ev {
-                    if made.iter().any(|m| m == "thumb-256") {
-                        let _ = app.emit(
-                            "render://thumbs",
-                            ThumbsReady {
-                                ids: vec![asset.to_string()],
-                            },
-                        );
-                    }
+                RenderEvent::AiUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.ai.note(None, Some(reason.clone()));
+                    let _ = app.emit("ai://status", ());
                 }
+                RenderEvent::FacesReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.faces.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("faces://status", ());
+                }
+                RenderEvent::FacesUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.faces.note(None, Some(reason.clone()));
+                    let _ = app.emit("faces://status", ());
+                }
+                RenderEvent::AircraftReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.aircraft.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("aircraft://status", ());
+                }
+                RenderEvent::AircraftUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.aircraft.note(None, Some(reason.clone()));
+                    let _ = app.emit("aircraft://status", ());
+                }
+                // A new thumbnail, or a fingerprint that moved the item's
+                // thumbnails to their new name (ADR-034).
+                RenderEvent::Done {
+                    asset, made, kind, ..
+                } if made.iter().any(|m| m == "thumb-256")
+                    || kind == keepsake_core::fingerprint::JOB_FINGERPRINT =>
+                {
+                    let _ = app.emit(
+                        "render://thumbs",
+                        ThumbsReady {
+                            ids: vec![asset.to_string()],
+                            all: false,
+                        },
+                    );
+                }
+                RenderEvent::Repaired { report } if report.renamed > 0 => {
+                    let _ = app.emit(
+                        "render://thumbs",
+                        ThumbsReady {
+                            ids: Vec::new(),
+                            all: true,
+                        },
+                    );
+                }
+                _ => {}
             });
             if let Err(e) = result {
                 tracing::error!("render service: {e}");

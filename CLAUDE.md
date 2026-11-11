@@ -203,7 +203,7 @@ A feature is **done** when all of the following are true:
 1. Code is written and compiles without warnings.
 2. Automated tests cover the new behaviour and pass locally.
 3. `cargo fmt`, `cargo clippy -D warnings`, ESLint, and Prettier are all clean.
-4. CI is green on **both** `windows-latest` and `macos-14`.
+4. CI is green on **both** `windows-latest` and `macos-15`.
 5. `docs/PROGRESS.md` is updated.
 6. `TEST_ME.md` is written with manual test steps and expected results for both OSes.
 7. Relevant documentation (`SPEC.md`, `ARCHITECTURE.md`, `DECISIONS.md`) is updated if the change affects them.

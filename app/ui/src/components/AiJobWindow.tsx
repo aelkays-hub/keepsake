@@ -1,33 +1,79 @@
-// Tag photos (a year, month, day or folder), Find duplicates (a folder) and
-// Tag with Claude (the photos picked): a window in the corner shows how far
-// it has got, with Stop and Hide. Hidden, a small button in the corner
-// brings it back. The work runs in the background either way. Tag with
-// Claude first says what it will send and roughly what it costs.
+// Tag photos (a year, month, day or folder), Find duplicates (a folder),
+// Tag with AI and Read aircraft (the photos picked): a window in the corner
+// shows how far it has got, with Stop and Hide. Hidden, a small button in the corner brings
+// it back. The work runs in the background either way. Tag with AI first
+// asks which AI (Claude, ChatGPT or Gemini, those with a key, or All of
+// them, ADR-039), and says what it will send and roughly what it costs.
+// Read aircraft (ADR-041) runs on this computer, so it starts at once.
 
 import { useEffect, useMemo, useState } from "react";
 
-import { api, type AiFolderStatus, type ClaudeInfo } from "../api";
-import { costOf } from "../claude";
+import { AIRCRAFT_TAGS, aircraftBatchLine, aircraftJobLine } from "../aircraft";
+import { api, type AiFolderStatus, type CloudInfo } from "../api";
+import { ALL, chosen, costOf, firstChoice, help, names, usable } from "../cloud";
 import * as fmt from "../format";
 import { useUi } from "../state";
 import type { AiJob } from "../uiModel";
 
-/** How far it has got (Tag with Claude adds what failed and why). */
-type St = AiFolderStatus & { failed?: number; problem?: string | null };
+/** How far it has got (Tag with AI adds what failed and why, and with
+ * All, how each AI is getting on). */
+type St = AiFolderStatus & {
+  failed?: number;
+  problem?: string | null;
+  each?: { name: string; st: St }[];
+};
 
-/** The job's three calls, for a folder, dates or picked photos. */
-function calls(job: AiJob) {
-  if ("claude" in job) {
+/** Tag with AI: the providers' statuses as one (with All, a problem says
+ * whose it is). */
+function merge(list: { name: string; st: St }[]): St {
+  const sum = (f: (s: St) => number | undefined) => list.reduce((n, e) => n + (f(e.st) ?? 0), 0);
+  const bad = list.find((e) => e.st.problem);
+  return {
+    items: sum((s) => s.items),
+    analysed: sum((s) => s.analysed),
+    pending: sum((s) => s.pending),
+    failed: sum((s) => s.failed),
+    problem: bad ? (list.length > 1 ? `${bad.name}: ${bad.st.problem}` : bad.st.problem) : null,
+    each: list,
+  };
+}
+
+/** The job's three calls, for a folder, dates or picked photos (sent to
+ * each of `providers`). */
+function calls(job: AiJob, providers: { id: string; name: string }[]) {
+  if ("cloud" in job) {
+    // The photos are known once queued: Stop and the status use them.
+    let ids: string[] = [];
+    const sel = job.cloud;
+    const named = (sts: St[]) => merge(sts.map((st, i) => ({ name: providers[i].name, st })));
+    return {
+      start: async (): Promise<St> => {
+        // One after the other: each queues the same photos.
+        const sts: St[] = [];
+        for (const p of providers) {
+          const r = await api.aiCloudTag(sel, p.id);
+          ids = r.ids;
+          sts.push(r.status);
+        }
+        return named(sts);
+      },
+      status: (): Promise<St> =>
+        Promise.all(providers.map((p) => api.aiCloudStatus(ids, p.id))).then(named),
+      stop: () =>
+        Promise.all(providers.map((p) => api.aiCloudStop(ids, p.id))).then(() => undefined),
+    };
+  }
+  if ("aircraft" in job) {
     // The photos are known once queued: Stop and the status use them.
     let ids: string[] = [];
     return {
-      start: (): Promise<St> =>
-        api.aiClaudeTag(job.claude).then((r) => {
-          ids = r.ids;
-          return r.status;
-        }),
-      status: (): Promise<St> => api.aiClaudeStatus(ids),
-      stop: () => api.aiClaudeStop(ids),
+      start: async (): Promise<St> => {
+        const r = await api.aircraftRead(job.aircraft);
+        ids = r.ids;
+        return r.status;
+      },
+      status: (): Promise<St> => api.aircraftReadStatus(ids),
+      stop: () => api.aircraftReadStop(ids),
     };
   }
   if ("undated" in job) {
@@ -55,17 +101,29 @@ function calls(job: AiJob) {
 export function AiJobWindow() {
   const { s, dispatch } = useUi();
   const job = s.aiJob;
-  const c = useMemo(() => job && calls(job), [job]);
-  const claude = job !== null && "claude" in job;
+  const cloud = job !== null && "cloud" in job;
+  const aircraft = job !== null && "aircraft" in job;
+  /** Tag with AI: the providers, and the one picked to send to. */
+  const [info, setInfo] = useState<CloudInfo | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  /** Who the photos go to: the AI picked, or with All every AI with a key. */
+  const sendTo = useMemo(() => (info ? chosen(info, picked) : []), [info, picked]);
+  const c = useMemo(
+    () =>
+      job &&
+      calls(
+        job,
+        sendTo.map((p) => ({ id: p.id, name: p.name })),
+      ),
+    [job, sendTo],
+  );
   const [st, setSt] = useState<St | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [stopped, setStopped] = useState(false);
   const [hidden, setHidden] = useState(false);
-  /** Tag with Claude: the key and model, and the job the user said Send to
-   * (other jobs start at once). */
-  const [info, setInfo] = useState<ClaudeInfo | null>(null);
+  /** Tag with AI: the job the user said Send to (other jobs start at once). */
   const [sent, setSent] = useState<AiJob | null>(null);
-  const go = job !== null && (!claude || sent === job);
+  const go = job !== null && (!cloud || sent === job);
 
   useEffect(() => {
     setSt(null);
@@ -73,12 +131,16 @@ export function AiJobWindow() {
     setStopped(false);
     setHidden(false);
     setInfo(null);
-    if (claude)
+    setPicked(null);
+    if (cloud)
       api
-        .aiClaudeInfo()
-        .then(setInfo)
+        .aiCloudInfo()
+        .then((x) => {
+          setInfo(x);
+          setPicked(firstChoice(x));
+        })
         .catch((e) => setProblem(String(e)));
-  }, [job, claude]);
+  }, [job, cloud]);
 
   useEffect(() => {
     if (!c || !go) return;
@@ -110,12 +172,34 @@ export function AiJobWindow() {
 
   if (!job || !c) return null;
   const tags = job.what === "tags";
-  const asking = claude && !go;
+  /** Read aircraft for a folder or dates (the photos with an aircraft tag). */
+  const batch = job.what === "aircraft";
+  const where =
+    "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder";
+  const asking = cloud && !go;
   const running = !asking && !problem && (!st || st.pending > 0) && !stopped;
   const pct = st && st.items > 0 ? Math.round((100 * st.analysed) / st.items) : 0;
-  const what = claude ? "Tagging with Claude:" : tags ? "Tagging" : "Finding duplicates in";
+  const all = picked === ALL;
+  const ready = info ? usable(info) : [];
+  const models = sendTo.map((p) => p.models.find((m) => m.id === p.model));
+  const cents = models.reduce((n, m) => n + (m?.centsPerPhoto ?? 0), 0);
+  const aiName = sendTo.length > 0 ? names(sendTo.map((p) => p.name)) : "AI";
+  const notes = sendTo.map((p) => help(p.id).note).filter((n): n is string => n !== null);
+  const what = cloud
+    ? `Tagging with ${aiName}:`
+    : aircraft
+      ? "Reading aircraft:"
+      : batch
+        ? "Reading aircraft in"
+        : tags
+          ? "Tagging"
+          : "Finding duplicates in";
   const close = () => dispatch({ t: "aiJob", job: null });
-  const model = info?.models.find((m) => m.id === info.model);
+  const send = (j: AiJob) => {
+    setSent(j);
+    // The provider used is offered first next time.
+    if (picked) api.aiCloudSetDefault(picked).catch(() => undefined);
+  };
 
   if (hidden)
     return (
@@ -126,28 +210,50 @@ export function AiJobWindow() {
         title="Show progress"
       >
         {running && <span className="spinner" aria-hidden={true} />}
-        {claude ? "Claude" : tags ? "Tagging" : "Duplicates"} · {running ? `${pct}%` : "done"}
+        {cloud
+          ? all
+            ? "All AIs"
+            : aiName
+          : aircraft || batch
+            ? "Aircraft"
+            : tags
+              ? "Tagging"
+              : "Duplicates"}{" "}
+        · {running ? `${pct}%` : "done"}
       </button>
     );
 
   let line: string;
   if (problem) line = `Could not start: ${problem}`;
   else if (asking && !info) line = "Getting ready…";
-  else if (asking && info && !info.hasKey)
-    line = "Add your Claude API key in Settings first (Settings → Tag with Claude).";
-  else if (asking && "claude" in job)
+  else if (asking && ready.length === 0)
     line =
-      `Send ${fmt.plural(job.count, "photo")} to ${model?.name ?? "Claude"} to be tagged?` +
-      (model ? ` It costs ${costOf(job.count, model.centsPerPhoto)}, charged by Anthropic.` : "");
+      "Add an API key for Claude, ChatGPT or Gemini in Settings first (Settings → Tag with AI).";
+  else if (asking && "cloud" in job)
+    line =
+      `Send ${fmt.plural(job.count, "photo")} to ` +
+      names(sendTo.map((p, i) => models[i]?.name ?? p.name)) +
+      ` to be tagged?${all ? " Each one tags them." : ""}` +
+      (sendTo.length > 0 && models.every((m) => m)
+        ? ` It costs ${costOf(job.count, cents)}${all ? " in all" : ""}, charged by ` +
+          `${names(sendTo.map((p) => p.company))}.`
+        : "");
   else if (!st) line = "Getting ready…";
-  else if (st.items === 0)
-    line = `No ${tags ? "" : "RAW "}photos ${
-      "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder"
-    }.`;
+  else if (aircraft) line = aircraftJobLine(st, stopped);
+  else if (batch) line = aircraftBatchLine(st, stopped, where);
+  else if (st.items === 0) line = `No ${tags ? "" : "RAW "}photos ${where}.`;
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
-  else if (claude)
+  else if (cloud && st.each && st.each.length > 1)
+    line =
+      "Photos tagged: " +
+      st.each
+        .map((e) => `${e.name} ${fmt.count(e.st.analysed)} of ${fmt.count(e.st.items)}`)
+        .join(", ") +
+      "." +
+      (st.failed ? ` ${fmt.plural(st.failed, "photo")} could not be: ${st.problem ?? "?"}` : "");
+  else if (cloud)
     line =
       `${fmt.count(st.analysed)} of ${fmt.count(st.items)} photos tagged.` +
       (st.failed ? ` ${fmt.plural(st.failed, "photo")} could not be: ${st.problem ?? "?"}` : "");
@@ -162,14 +268,35 @@ export function AiJobWindow() {
         {what} {job.title}
       </h2>
       <p className="muted">
-        {claude
+        {cloud
           ? "A 1024-pixel copy of each photo is sent; the tags become keywords."
-          : "undated" in job
-            ? "Photos and videos with no date."
-            : "range" in job
-              ? "Photos taken on these dates."
-              : "This folder and the folders in it."}
+          : aircraft
+            ? "Each photo is read at full size on this computer. The registration, airline and type it finds become keywords under Aircraft."
+            : batch
+              ? `The photos tagged ${AIRCRAFT_TAGS} ${where}, not read yet. Each is read at full size on this computer; what it finds becomes keywords under Aircraft.`
+              : "undated" in job
+                ? "Photos and videos with no date."
+                : "range" in job
+                  ? "Photos taken on these dates."
+                  : "This folder and the folders in it."}
       </p>
+      {asking && ready.length > 1 && (
+        <label className="row">
+          AI{" "}
+          <select
+            value={picked ?? ""}
+            onChange={(e) => setPicked(e.target.value)}
+            data-testid="ai-job-provider"
+          >
+            {ready.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.models.find((m) => m.id === p.model)?.name ?? p.model})
+              </option>
+            ))}
+            <option value={ALL}>All ({names(ready.map((p) => p.name))})</option>
+          </select>
+        </label>
+      )}
       {!asking && (
         <progress
           max={100}
@@ -182,18 +309,34 @@ export function AiJobWindow() {
         {running && <span className="spinner" aria-hidden={true} />}
         {line}
       </p>
+      {asking && notes.length > 0 && (
+        <p className="muted" data-testid="ai-job-privacy">
+          {notes.join(" ")}
+        </p>
+      )}
       {running && st?.problem && (
         <p className="muted" data-testid="ai-job-note">
           {st.problem}
         </p>
       )}
       <footer className="modal-foot">
-        {asking && info?.hasKey && (
-          <button className="primary" onClick={() => setSent(job)} data-testid="ai-job-send">
+        {asking && sendTo.length > 0 && (
+          <button className="primary" onClick={() => send(job)} data-testid="ai-job-send">
             Send
           </button>
         )}
-        {asking && info && !info.hasKey && (
+        {asking && info && ready.length === 0 && (
+          <button
+            onClick={() => {
+              dispatch({ t: "screen", screen: "settings" });
+              close();
+            }}
+            data-testid="ai-job-settings"
+          >
+            Open Settings
+          </button>
+        )}
+        {(aircraft || batch) && problem?.includes("Settings") && (
           <button
             onClick={() => {
               dispatch({ t: "screen", screen: "settings" });
@@ -229,7 +372,7 @@ export function AiJobWindow() {
             Hide
           </button>
         )}
-        {!running && !asking && !tags && !problem && st && st.items > 0 && (
+        {!running && !asking && job.what === "duplicates" && !problem && st && st.items > 0 && (
           <button
             onClick={() => {
               dispatch({ t: "duplicates", range: null });

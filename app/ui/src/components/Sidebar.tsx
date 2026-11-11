@@ -16,6 +16,7 @@ import { FolderMenu } from "./FolderMenu";
 import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
 import { useFolderTree, type FolderTreeNode } from "../useFolderTree";
+import { keepScroll, scrollOf } from "../treeMemory";
 
 /** How the Library tree is shown. */
 export type TreeMode = "date" | "folder";
@@ -28,6 +29,10 @@ function rememberedMode(): TreeMode {
     return "date";
   }
 }
+
+/** How long a remembered scroll position waits for the tree's levels to
+ * load before it is given up (as far as the tree goes then). */
+const RESTORE_MS = 5000;
 
 /** A node of either tree, for keyboard moves and the twisty. */
 interface TreeNode {
@@ -64,7 +69,12 @@ export function Sidebar() {
   const [data, setData] = useState<SidebarData | null>(null);
   const [tick, setTick] = useState(0);
   const [mode, setModeState] = useState<TreeMode>(rememberedMode);
+  /** The remembered scroll position, until the tree is tall enough for it. */
+  const restore = useRef<{ top: number; until: number } | null>(
+    useState(() => ({ top: scrollOf(rememberedMode()), until: Date.now() + RESTORE_MS }))[0],
+  );
   const setMode = (m: TreeMode) => {
+    if (m !== mode) restore.current = { top: scrollOf(m), until: Date.now() + RESTORE_MS };
     setModeState(m);
     try {
       localStorage.setItem(MODE_KEY, m);
@@ -200,6 +210,17 @@ export function Sidebar() {
   const active = Math.max(0, flat.findIndex(isActive));
   const [focus, setFocus] = useState(active);
   const nav = useRef<HTMLElement>(null);
+  // Each render (levels arrive one by one): scroll back once it can.
+  useEffect(() => {
+    const el = nav.current;
+    const want = restore.current;
+    if (!el || !want) return;
+    const most = el.scrollHeight - el.clientHeight;
+    if (most >= want.top || Date.now() > want.until) {
+      el.scrollTop = Math.min(want.top, Math.max(0, most));
+      restore.current = null;
+    }
+  });
   /** The open folder menu: where, and for which entry. */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; at: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -277,7 +298,19 @@ export function Sidebar() {
   };
   let n = -1;
   return (
-    <nav ref={nav} className="sidebar" aria-label="Library" onKeyDown={onKey} data-testid="sidebar">
+    <nav
+      ref={nav}
+      className="sidebar"
+      aria-label="Library"
+      onKeyDown={onKey}
+      // Remember where the tree is (not while going back there).
+      onScroll={(e) => {
+        if (!restore.current) keepScroll(mode, e.currentTarget.scrollTop);
+      }}
+      // The user scrolls first: their place wins.
+      onWheel={() => (restore.current = null)}
+      data-testid="sidebar"
+    >
       {groups.map((g) =>
         g.entries.length === 0 ? null : (
           <section key={g.title}>
@@ -419,6 +452,22 @@ export function Sidebar() {
                       // queues the work and follows it.
                       openEntry(menu.entry);
                       dispatch({ t: "aiJob", job: { range: r, title: r.title, what: "tags" } });
+                    },
+                  },
+                  {
+                    label: "Read aircraft",
+                    title:
+                      "Read the registration, airline and type on the photos tagged Airplane, Helicopter or Airport on these dates, on this computer",
+                    testId: "date-menu-aircraft",
+                    run: () => {
+                      const c = dated(menu.entry);
+                      const r = c && calRange(c.year, c.month, c.day);
+                      if (!r) return;
+                      openEntry(menu.entry);
+                      dispatch({
+                        t: "aiJob",
+                        job: { range: r, title: r.title, what: "aircraft" },
+                      });
                     },
                   },
                 ]

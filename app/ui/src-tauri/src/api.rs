@@ -72,6 +72,10 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub tag: Option<String>,
+        /// Has every one of these tags (the search bar's tag chips).
+        #[serde(default)]
+        #[ts(optional)]
+        pub tags: Option<Vec<String>>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).
@@ -102,6 +106,127 @@ dto! {
         pub failed: u64,
     }
 
+    /// Read aircraft at a glance (Settings; ADR-041).
+    pub struct AircraftStatus {
+        /// Turned on in the settings.
+        pub enabled: bool,
+        /// Both text models are on this computer.
+        pub models_installed: bool,
+        #[ts(type = "number")]
+        pub models_bytes: u64,
+        /// ONNX Runtime is present.
+        pub runtime_found: bool,
+        /// On-device AI's model is installed, so the type can be guessed
+        /// from the look when it is not painted on the aircraft.
+        pub looks: bool,
+        /// Where the text detector runs, once loaded.
+        pub accel: Option<String>,
+        /// Why the aircraft worker is not running, if it is not.
+        pub problem: Option<String>,
+        /// Downloading the models: bytes so far.
+        #[ts(type = "number | null")]
+        pub installing: Option<u64>,
+    }
+
+    /// Recognise faces at a glance (Settings; ADR-040).
+    pub struct FacesStatus {
+        /// Turned on in the settings.
+        pub enabled: bool,
+        /// On-device AI is on (faces need it).
+        pub ai_enabled: bool,
+        /// Both face models are on this computer.
+        pub models_installed: bool,
+        #[ts(type = "number")]
+        pub models_bytes: u64,
+        /// ONNX Runtime is present.
+        pub runtime_found: bool,
+        /// Where the face models run, once loaded.
+        pub accel: Option<String>,
+        /// Why the face worker is not running, if it is not.
+        pub problem: Option<String>,
+        /// Downloading the models: bytes so far.
+        #[ts(type = "number | null")]
+        pub installing: Option<u64>,
+        /// Photos in the library, searched, with faces; faces found; people
+        /// named; searches still to do, and that failed.
+        #[ts(type = "number")]
+        pub photos: u64,
+        #[ts(type = "number")]
+        pub scanned: u64,
+        #[ts(type = "number")]
+        pub with_faces: u64,
+        #[ts(type = "number")]
+        pub faces: u64,
+        #[ts(type = "number")]
+        pub people: u64,
+        #[ts(type = "number")]
+        pub pending: u64,
+        #[ts(type = "number")]
+        pub failed: u64,
+    }
+
+    /// A face in a photo (Name and find; ADR-040).
+    pub struct FaceDto {
+        #[ts(type = "number")]
+        pub id: i64,
+        /// The photo's asset id.
+        pub photo: String,
+        /// The photo's thumbnail (the face is cut out of it), if made.
+        pub thumb: Option<String>,
+        /// The picture the face was found in (the thumbnail), in pixels:
+        /// to cut the face out at the right shape.
+        pub pw: u32,
+        pub ph: u32,
+        /// Its box, in 0–1 units of the picture.
+        pub x: f32,
+        pub y: f32,
+        pub w: f32,
+        pub h: f32,
+        /// Whose face it is (confirmed or suggested), if anyone's.
+        pub person: Option<String>,
+        #[ts(type = "number | null")]
+        pub person_id: Option<i64>,
+        /// `unknown`, `suggested` or `confirmed`.
+        pub state: String,
+        /// A suggestion's likeness to the person, 0–100.
+        pub likeness: Option<u8>,
+        /// When the photo was taken, `YYYY-MM-DD` (UTC), if known.
+        pub date: Option<String>,
+    }
+
+    /// The faces in one photo, and whether it has been searched yet.
+    pub struct PhotoFacesDto {
+        pub searched: bool,
+        pub faces: Vec<FaceDto>,
+    }
+
+    /// A named person.
+    pub struct PersonDto {
+        #[ts(type = "number")]
+        pub id: i64,
+        pub name: String,
+        /// Faces confirmed as theirs.
+        #[ts(type = "number")]
+        pub confirmed: u64,
+    }
+
+    /// What finding a person's faces did (Find, Find more).
+    pub struct SuggestDto {
+        /// Suggested this time.
+        #[ts(type = "number")]
+        pub added: u64,
+        /// Waiting for an answer, in all.
+        #[ts(type = "number")]
+        pub waiting: u64,
+        #[ts(type = "number")]
+        pub confirmed: u64,
+        /// The years looked at (none: every year).
+        pub from_year: Option<i32>,
+        pub to_year: Option<i32>,
+        /// The cut-off used, in percent (the stricter/looser control).
+        pub match_pct: u8,
+    }
+
     /// How far "Find duplicates" or "Tag photos" has got for a date range.
     pub struct AiRangeStatus {
         /// `YYYY-MM-DD`, inclusive.
@@ -115,33 +240,48 @@ dto! {
         pub pending: u64,
     }
 
-    /// Tag with Claude (ADR-036): one model the user can choose.
-    pub struct ClaudeModelDto {
-        /// The API id, `claude-opus-5-5`.
+    /// Tag with AI (ADR-036, ADR-038): one model the user can choose.
+    pub struct CloudModelDto {
+        /// The API id, `gpt-6.1-sol`.
         pub id: String,
-        /// "Claude Opus 5.5".
+        /// "GPT-6.1 Sol".
         pub name: String,
         /// About what one photo costs, in US cents.
         pub cents_per_photo: f64,
     }
 
-    /// Tag with Claude: whether a key is saved, and the model chosen.
-    pub struct ClaudeInfo {
+    /// One AI provider: whether a key is saved, and the model chosen.
+    pub struct CloudProviderDto {
+        /// `claude`, `openai` or `gemini`.
+        pub id: String,
+        /// "ChatGPT".
+        pub name: String,
+        /// Who runs it and charges for it: "OpenAI".
+        pub company: String,
         pub has_key: bool,
         /// The chosen model's id.
         pub model: String,
-        pub models: Vec<ClaudeModelDto>,
+        pub models: Vec<CloudModelDto>,
     }
 
-    /// Tag with Claude started: the photos it covers (to follow and stop
-    /// it) and how far it has got.
-    pub struct ClaudeStarted {
+    /// Tag with AI: every provider, and the one offered first.
+    pub struct CloudInfo {
+        /// The id of the provider offered first (the one used last), or
+        /// `all`: every AI with a key.
+        pub default_provider: String,
+        pub providers: Vec<CloudProviderDto>,
+    }
+
+    /// Tag with AI started: the provider, the photos it covers (to follow
+    /// and stop it) and how far it has got.
+    pub struct CloudStarted {
+        pub provider: String,
         pub ids: Vec<String>,
-        pub status: ClaudeStatusDto,
+        pub status: CloudStatusDto,
     }
 
-    /// How far tagging some photos with Claude has got.
-    pub struct ClaudeStatusDto {
+    /// How far tagging some photos with one provider has got.
+    pub struct CloudStatusDto {
         #[ts(type = "number")]
         pub items: u64,
         /// Tagged.
@@ -225,6 +365,20 @@ dto! {
         pub analysed: bool,
         /// Most likely first.
         pub tags: Vec<AiTagDto>,
+        /// The keywords each AI gave it with Tag with AI (ADR-039): one
+        /// entry per AI, Claude, ChatGPT, Gemini in that order. A keyword
+        /// two AIs gave is in both.
+        pub by_ai: Vec<AiTagSourceDto>,
+    }
+
+    /// The keywords one AI gave an item (Tag with AI).
+    pub struct AiTagSourceDto {
+        /// `claude`, `openai` or `gemini`.
+        pub provider: String,
+        /// For people: "ChatGPT".
+        pub name: String,
+        /// Lightroom-style paths, sorted.
+        pub tags: Vec<String>,
     }
 
     /// An AI tag on an item.
@@ -466,6 +620,9 @@ dto! {
     /// `render://thumbs`: thumbnails that just became available.
     pub struct ThumbsReady {
         pub ids: Vec<String>,
+        /// Thumbnails of any item may have changed (cache names were
+        /// repaired): reload every row on screen.
+        pub all: bool,
     }
 
     /// `device://card`: a Sony card was inserted (or removed).
@@ -814,6 +971,18 @@ dto! {
         pub default: bool,
     }
 
+    /// Where an item's original file is, for Show in Explorer / Finder.
+    pub struct OriginalPlace {
+        /// The file is on a connected drive: it can be shown.
+        pub online: bool,
+        /// Its absolute path, while its drive is connected.
+        pub path: Option<String>,
+        /// Why it cannot be shown ("Drive not connected (Card A)"), if not.
+        pub problem: Option<String>,
+        /// The file manager's name for the menu: "Explorer", "Finder".
+        pub manager: String,
+    }
+
     /// One metadata tag: ExifTool's name (`ExposureTime`) and its value as text.
     pub struct MetaTagDto {
         pub name: String,
@@ -890,6 +1059,59 @@ dto! {
         pub settings: SettingsInfo,
         /// The cache moved: the previous folder, whose files can be removed.
         pub old_cache: Option<String>,
+    }
+}
+
+dto! {
+    /// Edit suggestions (ADR-042): one edit, and how to do it in each
+    /// program (empty: that program has no tool for it).
+    pub struct EditSuggestionDto {
+        pub title: String,
+        pub why: String,
+        pub photoshop: String,
+        pub topaz: String,
+    }
+
+    /// One line of what Keepsake measured: "Highlights", "3% blown out".
+    pub struct MeasuredDto {
+        pub label: String,
+        pub value: String,
+    }
+
+    /// What an AI advised.
+    pub struct AiAdviceDto {
+        /// The provider's id (`claude`) and name (`Claude`).
+        pub provider: String,
+        pub provider_name: String,
+        pub model: String,
+        pub summary: String,
+        pub suggestions: Vec<EditSuggestionDto>,
+        #[ts(type = "number")]
+        pub made_ms: i64,
+    }
+
+    /// A question to an AI on its way, or one that failed.
+    pub struct AskingDto {
+        pub provider: String,
+        pub provider_name: String,
+        /// Still to be answered; else it failed for good.
+        pub pending: bool,
+        pub problem: Option<String>,
+    }
+
+    /// A photo's edit suggestions. `waiting`: its preview is being made
+    /// first (ask again shortly); nothing else is filled in.
+    pub struct EditAdviceDto {
+        pub id: String,
+        pub waiting: bool,
+        pub measured: Vec<MeasuredDto>,
+        /// One sentence on what the measurements found.
+        pub summary: String,
+        pub suggestions: Vec<EditSuggestionDto>,
+        #[ts(type = "number")]
+        pub made_ms: i64,
+        pub ai: Option<AiAdviceDto>,
+        pub asking: Option<AskingDto>,
     }
 }
 

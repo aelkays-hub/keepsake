@@ -225,7 +225,9 @@ impl Files<'_, Rw> {
             params![id, hash],
         )?;
         // A rendition already made from the same content under the real key
-        // wins; the stand-in's is left to the cache's eviction.
+        // wins. The cache files keep their old names here (the catalog does
+        // not know the cache folder): `Cache::move_source` renames them and
+        // removes the stand-in's leftovers (ADR-034).
         self.conn.execute(
             "UPDATE OR IGNORE renditions SET source_hash = ?2 WHERE source_hash = ?1",
             params![key, hash],

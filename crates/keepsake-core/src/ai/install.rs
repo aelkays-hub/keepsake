@@ -39,7 +39,7 @@ pub fn user_model_path() -> Option<PathBuf> {
     user_models_dir().map(|d| d.join(MODEL_DIR).join(MODEL_FILE))
 }
 
-fn non_empty(p: &Path) -> bool {
+pub(crate) fn non_empty(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
@@ -55,6 +55,47 @@ pub fn find_model() -> Option<PathBuf> {
             .map(|v| v.join("models").join(MODEL_DIR).join(MODEL_FILE))
             .filter(|p| non_empty(p))
     })
+}
+
+/// One pinned model file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelFile {
+    /// Folder under `models/`.
+    pub dir: &'static str,
+    pub file: &'static str,
+    pub url: &'static str,
+    pub bytes: u64,
+    /// BLAKE3 (hex).
+    pub blake3: &'static str,
+    /// Overrides where it is (a file), for tests and developers.
+    pub env: &'static str,
+}
+
+impl ModelFile {
+    /// Where it is installed in the user's cache folder.
+    pub fn user_path(&self) -> Option<PathBuf> {
+        user_models_dir().map(|d| d.join(self.dir).join(self.file))
+    }
+
+    /// The file, if installed. In order: its environment variable (a file),
+    /// the user's cache folder, then `vendor/models/` (developers).
+    pub fn find(&self) -> Option<PathBuf> {
+        if let Some(p) = std::env::var_os(self.env) {
+            let p = PathBuf::from(p);
+            return non_empty(&p).then_some(p);
+        }
+        self.user_path().filter(|p| non_empty(p)).or_else(|| {
+            crate::probe::tools::vendor_root()
+                .map(|v| v.join("models").join(self.dir).join(self.file))
+                .filter(|p| non_empty(p))
+        })
+    }
+
+    /// The file, or the error saying where it was looked for.
+    pub fn require(&self) -> Result<PathBuf, AiError> {
+        self.find()
+            .ok_or_else(|| AiError::ModelMissing(self.user_path().unwrap_or_default()))
+    }
 }
 
 /// File name of the ONNX Runtime library on this OS.

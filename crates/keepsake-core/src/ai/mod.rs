@@ -12,20 +12,29 @@
 //! - [`analyze`]: the `ai.analyze` job: one asset's thumbnail in, its
 //!   embedding, hash and AI tags out. Originals are never read or changed.
 //! - [`duplicates`]: groups of near-identical items within one day.
-//! - [`cloud`]: Tag with Claude (ADR-036): photos the user picks are sent
-//!   to the Claude API, and what it gives becomes their keywords.
+//! - [`aircraft`]: Read aircraft (ADR-041): the registration, airline and
+//!   type of the planes in the photos the user picks, read on this
+//!   computer.
+//! - [`cloud`]: Tag with AI (ADR-036, ADR-038): photos the user picks are
+//!   sent to Claude, ChatGPT or Gemini, and what it gives becomes their
+//!   keywords.
+//! - [`suggest`]: edit suggestions (ADR-042) for one photo, for Photoshop
+//!   and Topaz Photo: measured here, and an AI asked when the user wants.
 //!
 //! The user's decisions (removed AI tags, keepers) are kept by
 //! [`crate::metadata::MetadataService`], in the catalog and XMP sidecars.
 
+pub mod aircraft;
 pub mod analyze;
 pub mod cloud;
 pub mod dhash;
 pub mod duplicates;
 pub mod embedding;
+pub mod faces;
 pub mod install;
 pub mod labels;
 pub mod model;
+pub mod suggest;
 
 use std::path::PathBuf;
 
@@ -34,13 +43,15 @@ use thiserror::Error;
 use crate::catalog::CatalogError;
 use crate::render::RenderError;
 
+pub use aircraft::JOB_AI_AIRCRAFT;
 pub use analyze::{
     analyze_asset, enqueue_range, enqueue_target, range_status, stop_target, target_status,
     AnalyzeOutcome, Purpose, Target,
 };
-pub use cloud::{ClaudeModel, JOB_AI_CLAUDE};
+pub use cloud::{CloudModel, Provider, CLOUD_JOBS, JOB_AI_CLAUDE, JOB_AI_GEMINI, JOB_AI_OPENAI};
 pub use duplicates::{DuplicateGroup, DuplicateMember, DuplicateSummary};
 pub use embedding::Embedding;
+pub use faces::scan::JOB_AI_FACES;
 pub use labels::LabelSet;
 pub use model::{Accel, ImageModel};
 
@@ -52,6 +63,26 @@ pub const JOB_AI_TAG: &str = "ai.tag";
 /// Model id stored with each analysis. Bump the version after `@` when the
 /// model file or preprocessing changes: every asset is then analysed again.
 pub const MODEL_ID: &str = "siglip2-b16-224@1";
+
+/// Who can be recorded as having given a keyword (ADR-039): the id as it
+/// is stored, for an id this version knows. The cloud AIs and the aircraft
+/// reader (ADR-041).
+pub fn tag_source_id(id: &str) -> Option<&'static str> {
+    let id = id.trim();
+    if id == aircraft::SOURCE {
+        return Some(aircraft::SOURCE);
+    }
+    cloud::Provider::parse(id).map(cloud::Provider::id)
+}
+
+/// Every keyword source, as (id, name for people), in the order shown.
+pub fn tag_sources() -> Vec<(&'static str, &'static str)> {
+    cloud::Provider::ALL
+        .into_iter()
+        .map(|p| (p.id(), p.name()))
+        .chain(std::iter::once((aircraft::SOURCE, aircraft::SOURCE_NAME)))
+        .collect()
+}
 
 /// Errors from the AI features.
 #[derive(Debug, Error)]
@@ -81,10 +112,10 @@ pub enum AiError {
     Download(String),
     #[error("cancelled")]
     Cancelled,
-    /// Tag with Claude: no API key is saved.
-    #[error("no Claude API key: add one in Settings")]
-    NoApiKey,
-    /// Tag with Claude: the request failed; `retry` if trying again later
+    /// Tag with AI: no API key is saved for this provider.
+    #[error("no {0} API key: add one in Settings")]
+    NoApiKey(cloud::Provider),
+    /// Tag with AI: the request failed; `retry` if trying again later
     /// may help.
     #[error("{message}")]
     Cloud { message: String, retry: bool },

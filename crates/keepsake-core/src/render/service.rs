@@ -5,7 +5,9 @@
 //! - `workers` threads take [`super::JOB_STILLS`] jobs, `proxy_workers`
 //!   threads take [`super::JOB_PROXY`] jobs, and one thread takes
 //!   [`crate::fingerprint::JOB_FINGERPRINT`] jobs; with AI on, one more
-//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035). Each has its own catalog
+//!   takes [`crate::ai::JOB_AI`] and [`crate::ai::JOB_AI_TAG`] jobs (ADR-035), and with faces on,
+//!   one takes [`crate::ai::JOB_AI_FACES`] jobs (ADR-040), and with Read aircraft on, one
+//!   takes [`crate::ai::JOB_AI_AIRCRAFT`] jobs (ADR-041). Each has its own catalog
 //!   connection and claims one job at a time;
 //! - fingerprints wait while a thumbnail job is ready: each reads a whole
 //!   file, and on a network drive they would take the disk from thumbnails.
@@ -25,20 +27,30 @@
 //!   make thumbnails only (no preview, no proxy): a large library's previews
 //!   and proxies do not fit, and making them would only push out the
 //!   thumbnails the grid needs. Opening the item makes the rest;
+//! - before the workers start, renditions whose file is not at its
+//!   content-addressed name are moved there ([`Cache::repair_names`]);
 //! - the cancel flag stops workers after their current job.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::cache::{Cache, CacheStats, EvictReport};
+use super::cache::{Cache, CacheStats, EvictReport, RepairReport};
 use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
-use crate::ai::{self, AiError, ImageModel, LabelSet, Purpose, JOB_AI, JOB_AI_CLAUDE, JOB_AI_TAG};
+use crate::ai::aircraft::scan::{self as aircraft_scan, ReaderLoader};
+use crate::ai::faces::scan::{self as face_scan, FaceFinder, FinderLoader};
+use crate::ai::suggest::{
+    self, Adviser, JOB_SUGGEST_CLAUDE, JOB_SUGGEST_GEMINI, JOB_SUGGEST_OPENAI, SUGGEST_JOBS,
+};
+use crate::ai::{
+    self, AiError, ImageModel, LabelSet, Purpose, CLOUD_JOBS, JOB_AI, JOB_AI_AIRCRAFT,
+    JOB_AI_CLAUDE, JOB_AI_FACES, JOB_AI_GEMINI, JOB_AI_OPENAI, JOB_AI_TAG,
+};
 use crate::catalog::{
     AssetId, Catalog, CatalogError, Job, JobCounts, JobState, MediaKind, Priority,
 };
@@ -89,6 +101,10 @@ pub struct RenderOptions {
     pub ai: bool,
     /// Let it use the graphics card.
     pub ai_gpu: bool,
+    /// Run the face worker (ADR-040).
+    pub faces: bool,
+    /// Run the aircraft worker (ADR-041).
+    pub aircraft: bool,
 }
 
 impl RenderOptions {
@@ -103,13 +119,18 @@ impl RenderOptions {
             evict_every: 25,
             ai: false,
             ai_gpu: true,
+            faces: false,
+            aircraft: false,
         }
     }
 
-    /// Turn the AI worker on or off as the settings say.
+    /// Turn the AI, face and aircraft workers on or off as the settings
+    /// say.
     pub fn with_ai(mut self, s: &crate::settings::AiSettings) -> Self {
         self.ai = s.enabled;
         self.ai_gpu = s.gpu;
+        self.faces = s.enabled && s.faces;
+        self.aircraft = s.aircraft;
         self
     }
 }
@@ -160,8 +181,28 @@ pub enum RenderEvent {
     AiUnavailable {
         reason: String,
     },
+    /// The face models are loaded and the face worker runs (ADR-040).
+    FacesReady {
+        accel: ai::Accel,
+    },
+    /// The face worker could not start.
+    FacesUnavailable {
+        reason: String,
+    },
+    /// The text models are loaded and the aircraft worker runs (ADR-041).
+    AircraftReady {
+        accel: ai::Accel,
+    },
+    /// The aircraft worker could not start.
+    AircraftUnavailable {
+        reason: String,
+    },
     Evicted {
         report: EvictReport,
+    },
+    /// Renditions moved to their content-addressed names at start (ADR-034).
+    Repaired {
+        report: RepairReport,
     },
     Finished {
         done: u64,
@@ -220,8 +261,18 @@ pub struct RenderService {
     cache: Cache,
     opts: RenderOptions,
     on_battery: PowerCheck,
-    /// Tag with Claude (ADR-036): with it, a worker runs `ai.claude` jobs.
-    claude: Option<Arc<dyn ai::cloud::Tagger>>,
+    /// Tag with AI (ADR-036, ADR-038): with it, a worker runs the cloud
+    /// jobs of every provider (`ai.claude`, `ai.openai`, `ai.gemini`).
+    cloud: Option<Arc<dyn ai::cloud::Tagger>>,
+    /// Edit suggestions (ADR-042): with it, the cloud worker also asks the
+    /// AIs for edit suggestions (`ai.suggest.*`).
+    adviser: Option<Arc<dyn Adviser>>,
+    /// Loads the face worker's models (ADR-040); the installed models when
+    /// not set.
+    faces: Option<FinderLoader>,
+    /// Loads the aircraft worker's reader (ADR-041); the installed models
+    /// when not set.
+    aircraft: Option<ReaderLoader>,
 }
 
 struct Shared {
@@ -232,6 +283,20 @@ struct Shared {
     evicting: Mutex<()>,
     /// The cache is above [`FULL_PCT`] of its limit (as of the last trim).
     full: AtomicBool,
+    /// Thumbnail workers still running. Workers that wait for thumbnails
+    /// (AI, faces) stop waiting once none is: when the service stops at an
+    /// empty queue, a thumbnail queued after they quit would never be made.
+    stills_live: AtomicUsize,
+}
+
+/// Counts a thumbnail worker out of [`Shared::stills_live`] when it ends,
+/// however it ends.
+struct StillsLive<'a>(&'a AtomicUsize);
+
+impl Drop for StillsLive<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl RenderService {
@@ -242,13 +307,34 @@ impl RenderService {
             cache,
             opts,
             on_battery: Arc::new(|| false),
-            claude: None,
+            cloud: None,
+            adviser: None,
+            faces: None,
+            aircraft: None,
         }
     }
 
-    /// Run `ai.claude` jobs with this tagger (ADR-036).
-    pub fn with_claude(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
-        self.claude = Some(tagger);
+    /// Load the aircraft worker's reader with this (tests use a stand-in).
+    pub fn with_aircraft(mut self, loader: ReaderLoader) -> Self {
+        self.aircraft = Some(loader);
+        self
+    }
+
+    /// Load the face worker's finder with this (tests use a stand-in).
+    pub fn with_faces(mut self, loader: FinderLoader) -> Self {
+        self.faces = Some(loader);
+        self
+    }
+
+    /// Run the cloud tagging jobs with this tagger (ADR-036, ADR-038).
+    pub fn with_cloud(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
+        self.cloud = Some(tagger);
+        self
+    }
+
+    /// Ask for edit suggestions with this adviser (ADR-042).
+    pub fn with_adviser(mut self, adviser: Arc<dyn Adviser>) -> Self {
+        self.adviser = Some(adviser);
         self
     }
 
@@ -270,11 +356,23 @@ impl RenderService {
         cancel: &AtomicBool,
         events: &mut dyn FnMut(&RenderEvent),
     ) -> Result<(), RenderError> {
-        let bytes = {
+        let (bytes, repaired) = {
             let mut cat = self.lib.open_catalog()?;
             jobs::recover(&mut cat)?;
-            cat.read(|tx| tx.renditions().totals())?.1
+            // Renditions left under an old name when their source was
+            // re-keyed (ADR-034); quick when there are none.
+            let repaired = match self.cache.repair_names(&mut cat) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("repairing rendition names: {e}");
+                    RepairReport::default()
+                }
+            };
+            (cat.read(|tx| tx.renditions().totals())?.1, repaired)
         };
+        if repaired != RepairReport::default() {
+            events(&RenderEvent::Repaired { report: repaired });
+        }
         self.cache.clear_temp();
         std::fs::create_dir_all(self.cache.root())?;
         let exiftool = ExifTool::start(&self.tools.exiftool, Duration::from_secs(30)).ok();
@@ -285,6 +383,7 @@ impl RenderService {
             paused: Mutex::new(None),
             evicting: Mutex::new(()),
             full: AtomicBool::new(self.is_full(bytes)),
+            stills_live: AtomicUsize::new(self.opts.workers.max(1)),
         };
         let (tx, rx) = channel::<RenderEvent>();
         let mut errors: Vec<RenderError> = Vec::new();
@@ -294,7 +393,10 @@ impl RenderService {
                 .chain(std::iter::repeat_n(JOB_PROXY, self.opts.proxy_workers))
                 .chain(std::iter::once(JOB_FINGERPRINT))
                 .chain(self.opts.ai.then_some(JOB_AI))
-                .chain(self.claude.is_some().then_some(JOB_AI_CLAUDE));
+                .chain(self.opts.faces.then_some(JOB_AI_FACES))
+                .chain(self.opts.aircraft.then_some(JOB_AI_AIRCRAFT))
+                // One worker sends the photos of every provider.
+                .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -378,6 +480,12 @@ impl RenderService {
         .unwrap_or(true)
     }
 
+    /// Wait for thumbnails: one is ready to be made and a thumbnail worker
+    /// is still there to make it.
+    fn stills_wait(cat: &Catalog, shared: &Shared) -> bool {
+        shared.stills_live.load(Ordering::SeqCst) > 0 && Self::stills_active(cat)
+    }
+
     fn sleep(cancel: &AtomicBool, d: Duration) {
         let end = Instant::now() + d;
         while Instant::now() < end && !cancel.load(Ordering::SeqCst) {
@@ -393,7 +501,17 @@ impl RenderService {
         shared: &Shared,
         exiftool: Option<&ExifTool>,
     ) -> Result<(), RenderError> {
+        let _live = (kind == JOB_STILLS).then(|| StillsLive(&shared.stills_live));
         let mut cat = self.lib.open_catalog()?;
+        if kind == JOB_AI_FACES {
+            return self.face_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == JOB_AI_AIRCRAFT {
+            return self.aircraft_worker(&mut cat, cancel, tx, shared);
+        }
+        // The cloud worker sends the photos of every provider: tagging and
+        // edit suggestions.
+        let cloud_kinds: Vec<&str> = CLOUD_JOBS.iter().chain(&SUGGEST_JOBS).copied().collect();
         let mut ai_state = None;
         if kind == JOB_AI {
             let dropped = cat.write(|t| {
@@ -435,7 +553,7 @@ impl RenderService {
             // a thumbnail job is ready instead.
             let wait = match kind {
                 JOB_FINGERPRINT => Self::stills_waiting(&cat),
-                JOB_AI => Self::stills_active(&cat),
+                JOB_AI => Self::stills_wait(&cat, shared),
                 _ => false,
             };
             if wait {
@@ -453,9 +571,12 @@ impl RenderService {
                 }
                 continue;
             }
-            // The AI worker does both: finding duplicates and tagging.
+            // The AI worker does both: finding duplicates and tagging. The
+            // cloud worker does every provider.
             let kinds: &[&str] = if kind == JOB_AI {
                 &[JOB_AI, JOB_AI_TAG]
+            } else if kind == JOB_AI_CLAUDE {
+                &cloud_kinds
             } else {
                 std::slice::from_ref(&kind)
             };
@@ -532,7 +653,10 @@ impl RenderService {
                 });
             }
             RenderError::Waiting(reason) => {
-                let wait = if kind == JOB_AI || kind == JOB_AI_CLAUDE {
+                let wait = if matches!(
+                    kind,
+                    JOB_AI | JOB_AI_CLAUDE | JOB_AI_FACES | JOB_AI_AIRCRAFT
+                ) {
                     NO_THUMB_RETRY_MS
                 } else {
                     WAITING_RETRY_MS
@@ -653,6 +777,214 @@ impl RenderService {
         Ok(true)
     }
 
+    /// The face worker (ADR-040): load the models, then search the queued
+    /// photos a batch at a time, like the AI worker. If the models cannot
+    /// be loaded it says why and stops; the other workers go on.
+    fn face_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        let loader = self
+            .faces
+            .clone()
+            .unwrap_or_else(face_scan::installed_loader);
+        let mut finder = match loader(self.opts.ai_gpu) {
+            Ok(f) => {
+                let _ = tx.send(RenderEvent::FacesReady { accel: f.accel() });
+                f
+            }
+            Err(e) => {
+                tracing::warn!("face worker not started: {e}");
+                let _ = tx.send(RenderEvent::FacesUnavailable {
+                    reason: e.to_string(),
+                });
+                return Ok(());
+            }
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let pause = pause_reason(cat, &self.on_battery, self.opts.pause_on_battery);
+            self.note_pause(shared, pause, tx);
+            if pause.is_some() {
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            }
+            // Like the AI worker, it reads thumbnails: they come first.
+            if Self::stills_wait(cat, shared) {
+                Self::sleep(cancel, FINGERPRINT_WAIT);
+                continue;
+            }
+            match self.face_batch(cat, cancel, tx, shared, finder.as_mut()) {
+                Ok(true) => {}
+                Ok(false) if self.opts.until_empty => break,
+                Ok(false) => Self::sleep(cancel, Duration::from_secs(1)),
+                Err(e) if e.is_busy() => Self::sleep(cancel, BUSY_RETRY),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// The face worker's turn: claim up to [`AI_BATCH`] face jobs, find
+    /// their faces, then store them all in one write. Returns whether there
+    /// was work.
+    fn face_batch(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+        finder: &mut dyn FaceFinder,
+    ) -> Result<bool, RenderError> {
+        let now = now_ms();
+        let jobs: Vec<Job> = cat.write(|t| {
+            let mut v = Vec::new();
+            while v.len() < AI_BATCH {
+                match t.jobs().claim(&[JOB_AI_FACES], now)? {
+                    Some(j) => v.push(j),
+                    None => break,
+                }
+            }
+            Ok::<_, CatalogError>(v)
+        })?;
+        if jobs.is_empty() {
+            return Ok(false);
+        }
+        let mut ready = Vec::new();
+        let mut failed = Vec::new();
+        for job in jobs {
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match face_scan::prepare(cat, &self.cache, finder, job.asset_id) {
+                Ok(p) => ready.push((job, p, t0.elapsed())),
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    failed.push((job, e));
+                }
+            }
+        }
+        let at = now_ms();
+        Self::write_busy(cat, cancel, |t| {
+            for (job, p, _) in &ready {
+                face_scan::save(t, p, at)?;
+                t.jobs().complete(job.id, at)?;
+            }
+            Ok(())
+        })?;
+        for (job, p, took) in ready {
+            shared.done.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(RenderEvent::Done {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+                ms: u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                made: vec![format!("{} faces", p.faces.len())],
+                encoder: None,
+            });
+        }
+        for (job, e) in failed {
+            self.settle_err(cat, cancel, tx, shared, JOB_AI_FACES, &job, e)?;
+        }
+        Ok(true)
+    }
+
+    /// The aircraft worker (ADR-041): load the text models, then read the
+    /// queued items one at a time (each takes seconds, and its keywords are
+    /// saved with its sidecars). If the models cannot be loaded it says why
+    /// and stops; the other workers go on.
+    fn aircraft_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        let loader = self
+            .aircraft
+            .clone()
+            .unwrap_or_else(aircraft_scan::installed_loader);
+        let loaded = loader(self.opts.ai_gpu)
+            .and_then(|reader| Ok((reader, aircraft_scan::Lists::builtin()?)));
+        let (mut reader, lists) = match loaded {
+            Ok(v) => {
+                let _ = tx.send(RenderEvent::AircraftReady { accel: v.0.accel() });
+                v
+            }
+            Err(e) => {
+                tracing::warn!("aircraft worker not started: {e}");
+                let _ = tx.send(RenderEvent::AircraftUnavailable {
+                    reason: e.to_string(),
+                });
+                return Ok(());
+            }
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let pause = pause_reason(cat, &self.on_battery, self.opts.pause_on_battery);
+            self.note_pause(shared, pause, tx);
+            if pause.is_some() {
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            }
+            let claimed = match cat.write(|t| t.jobs().claim(&[JOB_AI_AIRCRAFT], now_ms())) {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
+                // An item whose file is away waits for its thumbnail: stay
+                // while one is being made.
+                if self.opts.until_empty && !Self::stills_wait(cat, shared) {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            let read = aircraft_scan::read_asset(
+                cat,
+                &self.lib,
+                &self.cache,
+                &self.tools,
+                reader.as_mut(),
+                &lists,
+                job.asset_id,
+            );
+            match read {
+                Ok(out) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: out.added,
+                        encoder: None,
+                    });
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(cat, cancel, tx, shared, JOB_AI_AIRCRAFT, &job, e)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// An AI job's error as a render error. Without a thumbnail, it is made
     /// first (as urgently) and the job waits.
     fn ai_error(cat: &mut Catalog, job: &Job, e: AiError) -> Result<RenderError, RenderError> {
@@ -665,7 +997,7 @@ impl RenderService {
             AiError::Catalog(e) => RenderError::Catalog(e),
             AiError::Image(m) => RenderError::Image(m),
             AiError::Cloud { message, retry } if !retry => RenderError::Refused(message),
-            e @ AiError::NoApiKey => RenderError::Refused(e.to_string()),
+            e @ AiError::NoApiKey(_) => RenderError::Refused(e.to_string()),
             e => RenderError::Failed(e.to_string()),
         })
     }
@@ -752,12 +1084,14 @@ impl RenderService {
                     None => (Vec::new(), None),
                 })
             }
-            JOB_FINGERPRINT => match fingerprint::fingerprint_asset(cat, &self.lib, job.asset_id) {
-                Ok(_) => Ok((Vec::new(), None)),
-                Err(FingerprintError::Offline) => Err(RenderError::Offline),
-                Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
-                Err(e) => Err(RenderError::Failed(e.to_string())),
-            },
+            JOB_FINGERPRINT => {
+                match fingerprint::fingerprint_asset(cat, &self.lib, &self.cache, job.asset_id) {
+                    Ok(_) => Ok((Vec::new(), None)),
+                    Err(FingerprintError::Offline) => Err(RenderError::Offline),
+                    Err(FingerprintError::Catalog(e)) => Err(RenderError::Catalog(e)),
+                    Err(e) => Err(RenderError::Failed(e.to_string())),
+                }
+            }
             JOB_AI | JOB_AI_TAG => {
                 let Some((model, labels)) = ai_state else {
                     return Err(RenderError::Waiting("the AI model is not loaded".into()));
@@ -776,12 +1110,34 @@ impl RenderService {
                     Err(e) => Err(RenderError::Failed(e.to_string())),
                 }
             }
-            JOB_AI_CLAUDE => {
-                let Some(tagger) = self.claude.as_deref() else {
-                    return Err(RenderError::Waiting("Claude is not set up".into()));
+            JOB_AI_CLAUDE | JOB_AI_OPENAI | JOB_AI_GEMINI => {
+                let Some(provider) = ai::Provider::of_job(&job.kind) else {
+                    return Err(RenderError::Unsupported(format!("job kind {}", job.kind)));
                 };
-                match ai::cloud::tag_asset(cat, &self.lib, &self.cache, tagger, job.asset_id) {
+                let Some(tagger) = self.cloud.as_deref() else {
+                    return Err(RenderError::Waiting(format!("{provider} is not set up")));
+                };
+                match ai::cloud::tag_asset(
+                    cat,
+                    &self.lib,
+                    &self.cache,
+                    tagger,
+                    provider,
+                    job.asset_id,
+                ) {
                     Ok(added) => Ok((added, None)),
+                    Err(e) => Err(Self::ai_error(cat, job, e)?),
+                }
+            }
+            JOB_SUGGEST_CLAUDE | JOB_SUGGEST_OPENAI | JOB_SUGGEST_GEMINI => {
+                let Some(provider) = suggest::provider_of_job(&job.kind) else {
+                    return Err(RenderError::Unsupported(format!("job kind {}", job.kind)));
+                };
+                let Some(adviser) = self.adviser.as_deref() else {
+                    return Err(RenderError::Waiting(format!("{provider} is not set up")));
+                };
+                match suggest::ask_asset(cat, &self.cache, adviser, provider, job.asset_id) {
+                    Ok(got) => Ok((got.suggestions.into_iter().map(|s| s.title).collect(), None)),
                     Err(e) => Err(Self::ai_error(cat, job, e)?),
                 }
             }

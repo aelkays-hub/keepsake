@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
+  type FaceDto,
   api,
   fileUrl,
   type AssetMembers,
@@ -29,7 +30,10 @@ import * as fmt from "../format";
 import { LABEL_KEYS } from "../keys";
 import * as sel from "../selection";
 import { useUi } from "../state";
+import { ContextMenu } from "./ContextMenu";
 import { OpenInMenu } from "./OpenInMenu";
+import { ItemMenu } from "./ItemMenu";
+import { isMenuClick, isMenuKey } from "./useItemMenu";
 import { setViewerInfo, useViewerInfo } from "../viewerInfo";
 import { ViewerInfo } from "./ViewerInfo";
 
@@ -224,7 +228,11 @@ function PhotoStage({
   members,
   member,
   onKeyRef,
+  overlay,
 }: {
+  /** Drawn over the picture, at its size and zoom (the face boxes); gets
+   * the zoom, so lines and labels can keep their size. */
+  overlay?: (scale: number) => React.ReactNode;
   d: Details;
   members: AssetMembers | null;
   member: MemberDto;
@@ -480,6 +488,11 @@ function PhotoStage({
             style={imgStyle}
           />
         )}
+        {shown && overlay && imgStyle && (
+          <div className="face-layer" style={imgStyle} data-testid="face-layer">
+            {overlay(pct / 100)}
+          </div>
+        )}
         {((loading && asked) || error || !d.online) && (
           <p className="viewer-note" role="status">
             {error
@@ -556,6 +569,14 @@ export function Viewer() {
   const [members, setMembers] = useState<AssetMembers | null>(null);
   const [member, setMember] = useState<MemberDto>("primary");
   const [note, setNote] = useState<string | null>(null);
+  /** Faces drawn over the photo (P), and the menu of one of them. */
+  const [showFaces, setShowFaces] = useState(false);
+  const [faces, setFaces] = useState<FaceDto[]>([]);
+  const [faceMenu, setFaceMenu] = useState<{ x: number; y: number; face: FaceDto } | null>(null);
+
+  /** The item menu (right-click, Menu key, Shift+F10), where it opens. */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const main = useRef<HTMLDivElement>(null);
   const stageKey = useRef<KeyFn>(() => false);
   const info = useViewerInfo();
   const root = useRef<HTMLDivElement>(null);
@@ -584,6 +605,24 @@ export function Viewer() {
       live = false;
     };
   }, [index, view, s.revision, close]);
+
+  // The photo's faces, while they are shown (never starts a search).
+  useEffect(() => {
+    setFaces([]);
+    if (!showFaces || !row || row.kind === "video") return;
+    let live = true;
+    api
+      .facesOfPhoto(row.id, false)
+      .then((r) => live && setFaces(r.faces))
+      .catch((e) => {
+        if (!live) return;
+        setNote(String(e));
+        setShowFaces(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [showFaces, row, s.revision]);
 
   // A video without its proxy, or a photo without its preview (not made in
   // the background while the cache is full): have it made first, and look
@@ -637,7 +676,10 @@ export function Viewer() {
       /^(Arrow|Home$|End$|Page)/.test(e.key)
     )
       return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+    if (isMenuKey(e)) {
+      const b = main.current?.getBoundingClientRect();
+      if (row) setMenuAt({ x: b ? b.left + b.width / 2 : 0, y: b ? b.top + b.height / 2 : 0 });
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
       openElsewhere();
     } else if (e.ctrlKey || e.metaKey || e.altKey) {
       return;
@@ -657,6 +699,8 @@ export function Viewer() {
       void toggleFullscreen();
     } else if (e.key === "i" || e.key === "I") {
       setViewerInfo(!info);
+    } else if ((e.key === "p" || e.key === "P") && row?.kind !== "video") {
+      setShowFaces((v) => !v);
     } else if ((e.key === "r" || e.key === "R") && members?.hasPair) {
       setMember((m) => (m === "raw" ? "primary" : "raw"));
     } else if (/^[0-5]$/.test(e.key) && only) {
@@ -722,13 +766,62 @@ export function Viewer() {
             onClick={() =>
               dispatch({
                 t: "aiJob",
-                job: { claude: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+                job: { cloud: only, count: 1, title: row.name ?? "this photo", what: "tags" },
               })
             }
-            title="Send this photo to Claude to be tagged (asks first)"
-            data-testid="viewer-claude"
+            title="Send this photo to Claude, ChatGPT or Gemini to be tagged (asks first)"
+            data-testid="viewer-cloud"
           >
-            Tag with Claude
+            Tag with AI
+          </button>
+        )}
+        {row && only && (
+          <button
+            onClick={() =>
+              dispatch({
+                t: "aiJob",
+                job: { aircraft: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+              })
+            }
+            title="Read the registration, airline and type of the aircraft in this photo (on this computer)"
+            data-testid="viewer-aircraft"
+          >
+            Read aircraft
+          </button>
+        )}
+        {row && row.kind !== "video" && (
+          <button
+            onClick={() =>
+              dispatch({ t: "nameFind", photo: { photo: row.id, title: row.name ?? "this photo" } })
+            }
+            title="Name a person in this photo and find the other photos they are in (on this computer)"
+            data-testid="viewer-faces"
+          >
+            Name and find
+          </button>
+        )}
+        {row && row.kind !== "video" && (
+          <button
+            onClick={() =>
+              dispatch({
+                t: "editAdvice",
+                photo: { photo: row.id, title: row.name ?? "this photo" },
+              })
+            }
+            title="Measure this photo and suggest edits for Photoshop and Topaz Photo"
+            data-testid="viewer-edit-advice"
+          >
+            Edit suggestions
+          </button>
+        )}
+        {row && row.kind !== "video" && (
+          <button
+            onClick={() => setShowFaces((v) => !v)}
+            aria-pressed={showFaces}
+            title="Show the faces and who they are (P)"
+            data-testid="viewer-show-faces"
+          >
+            Faces
           </button>
         )}
         <OpenInMenu id={row?.id ?? null} member={member} onOpened={setNote} />
@@ -750,12 +843,74 @@ export function Viewer() {
         </button>
       </header>
       <div className={`viewer-body${info ? " with-info" : ""}`}>
-        <div className="viewer-main">
+        <div
+          className="viewer-main"
+          ref={main}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!row || !isMenuClick(e)) return;
+            const b = main.current?.getBoundingClientRect();
+            setMenuAt(
+              e.clientX === 0 && e.clientY === 0 && b
+                ? { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+                : { x: e.clientX, y: e.clientY },
+            );
+          }}
+        >
           {d && row?.id === d.id ? (
             d.kind === "video" ? (
               <VideoStage key={d.id} d={d} onKeyRef={stageKey} />
             ) : (
-              <PhotoStage key={d.id} d={d} members={members} member={member} onKeyRef={stageKey} />
+              <PhotoStage
+                key={d.id}
+                d={d}
+                members={members}
+                member={member}
+                onKeyRef={stageKey}
+                overlay={
+                  showFaces && faces.length > 0
+                    ? (scale) =>
+                        faces.map((f) => (
+                          <button
+                            key={f.id}
+                            className={`face-box ${f.state}`}
+                            style={{
+                              left: `${f.x * 100}%`,
+                              top: `${f.y * 100}%`,
+                              width: `${f.w * 100}%`,
+                              height: `${f.h * 100}%`,
+                              borderWidth: 2 / scale,
+                            }}
+                            aria-label={
+                              f.person
+                                ? `${f.person}${f.state === "suggested" ? " (suggested)" : ""}`
+                                : "A face with no name"
+                            }
+                            // Not a click on the photo (that zooms).
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onMouseUp={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFaceMenu({ x: e.clientX, y: e.clientY, face: f });
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setFaceMenu({ x: e.clientX, y: e.clientY, face: f });
+                            }}
+                            data-testid="face-box"
+                          >
+                            {f.person && (
+                              <span className="face-label" style={{ fontSize: 12 / scale }}>
+                                {f.person}
+                                {f.state === "suggested" ? "?" : ""}
+                              </span>
+                            )}
+                          </button>
+                        ))
+                    : undefined
+                }
+              />
             )
           ) : (
             <div className="viewer-stage" />
@@ -784,6 +939,47 @@ export function Viewer() {
             ›
           </button>
         </div>
+        {faceMenu && row && (
+          <ContextMenu
+            x={faceMenu.x}
+            y={faceMenu.y}
+            label={faceMenu.face.person ?? "A face with no name"}
+            testId="face-menu"
+            onClose={() => setFaceMenu(null)}
+            items={[
+              {
+                label: faceMenu.face.person ? "Name…" : "Name and find…",
+                testId: "face-menu-name",
+                run: () =>
+                  dispatch({
+                    t: "nameFind",
+                    photo: {
+                      photo: row.id,
+                      title: row.name ?? "this photo",
+                      face: faceMenu.face.id,
+                    },
+                  }),
+              },
+              ...(faceMenu.face.person
+                ? [
+                    {
+                      label: `Not ${faceMenu.face.person}`,
+                      title: "This is not that person: never suggested for them again",
+                      testId: "face-menu-not-person",
+                      run: () =>
+                        api.facesNotPerson(faceMenu.face.id).then(() => dispatch({ t: "edited" })),
+                    },
+                  ]
+                : []),
+              {
+                label: "Not a face",
+                title: "Hide it for good",
+                testId: "face-menu-not-face",
+                run: () => api.facesNotFace(faceMenu.face.id).then(() => dispatch({ t: "edited" })),
+              },
+            ]}
+          />
+        )}
         {info && d && row?.id === d.id && (
           <ViewerInfo d={d} member={member} hasPair={members?.hasPair ?? false} />
         )}
@@ -792,7 +988,7 @@ export function Viewer() {
         <span className="muted">
           ← → previous / next · {d?.kind === "video" ? "" : "Z fit/100% · + − zoom · "}
           {d?.kind === "video" ? "Space play · , . frame · J L second · " : ""}
-          {members?.hasPair ? "R JPEG/RAW · " : ""}I info · F full screen · Esc close
+          {members?.hasPair ? "R JPEG/RAW · " : ""}I info · P faces · F full screen · Esc close
         </span>
         {note && (
           <span role="status" data-testid="viewer-note">
@@ -800,6 +996,20 @@ export function Viewer() {
           </span>
         )}
       </footer>
+      {menuAt && row && (
+        <ItemMenu
+          key={row.id}
+          x={menuAt.x}
+          y={menuAt.y}
+          id={row.id}
+          name={row.name ?? "Item"}
+          onNote={setNote}
+          onClose={() => {
+            setMenuAt(null);
+            root.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -15,9 +15,11 @@
 | 10 | Main app UI: calendar, 300k-item grid, details, inspector (XMP edits), search, import window; typed Tauri API; Playwright | ✅ Done (real-app tests Windows; macOS mocked) |
 | 11 | Viewer (100% zoom, LibRaw RAW, video frame stepping and timecode), batch time shift, Open in, Backup screen with history, Settings | ✅ Done (real-app tests Windows; macOS mocked) |
 | 12 | Hardening and release 0.1.0: installed-app tools, scale at 300,000, data-safety audit, local logs and crash reports, accessibility | ✅ Done (release Windows only; macOS later) |
+| — | Thumbnails stay visible after background fingerprinting (cache files renamed with their rows; repair for existing libraries, `keepsake renders repair`) | ✅ Done (Windows; macOS via CI) |
 | — | Select many to edit: tick-box on tiles, Select mode, drag a rectangle; inspector shows what the selection shares; comment for all | ✅ Done (Windows; macOS via CI) |
 | — | Library report (Tools → Report, `keepsake report`): photos, videos, files and size by year, month, day, camera, lens, file type and drive; Export to CSV | ✅ Done (Windows; macOS via CI) |
 | — | Report rows open their photos in the library (Report › Year 2024, back to the report) | ✅ Done (Windows; macOS via CI) |
+| — | Headless thumbnail backfill (`keepsake renders thumbnails`): every missing thumbnail, 100 per saved batch, resumes after a kill, passes bad files | ✅ Done (Windows; macOS via CI) |
 | — | Faster thumbnails on a network drive: fingerprints wait for thumbnails; camera JPEG thumbnails from the built-in preview | ✅ Done (Windows; macOS via CI) |
 | — | Thumbnail sizes (Small, Medium, Large) in the grid, and a zoom slider in the viewer | ✅ Done (Windows; macOS via CI) |
 | — | Adding a folder saves 20 files at a time, shows it at once and resumes where it stopped | ✅ Done (Windows; macOS via CI) |
@@ -29,8 +31,12 @@
 | — | Sidebar tree by folder (By date / By folder switch) | ✅ Done (Windows; macOS via CI) |
 | — | All metadata in the inspector: every ExifTool tag, grouped, filter, Copy, JPEG/RAW | ✅ Done (Windows; macOS via CI) |
 | — | Add a folder in place: existing photos catalogued where they are, read-only (Folders screen, `keepsake add-folder`) | ✅ Done (Windows; macOS via CI) |
+| — | Show in Explorer / Finder: an item's right-click menu (grid, details, viewer) opens its original's folder with the file selected | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
+| — | Read aircraft: the registration, airline and type of the aircraft in the photos you pick, read on this computer (ADR-041) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Edit suggestions: right-click a photo for steps to improve it in Photoshop and Topaz Photo, measured here and, if asked, from an AI (ADR-042) | 🟡 Built and tested on Windows; CI not run yet |
+| — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -56,12 +62,183 @@
 
 ---
 
+## Version 0.5.0 (2026-11-11)
+
+- **Asked:** "merge all features into the main branch and let us update the version to 0.5 as we did a lot of additions. I want a clean build after the merge".
+- **Done:** version 0.5.0 in `Cargo.toml` (every crate), `tauri.conf.json` (the installers' names), both `package.json` files and the mock; `docs/RELEASE_NOTES.md` rewritten for 0.5.0 (what is new since 0.1.0, the catalog upgrade to schema 15, when Keepsake goes online).
+- Everything goes to `main` in one pull request from `feat/edit-suggestions`, which holds every branch (`build/merge-all`, `feat/aircraft-folder` and those before them).
+
+## The sidebar tree keeps its place (2026-11-11)
+
+- **Asked:** "When I am right clicking..it always go back to top of tree", then "fix it to save last location it was on".
+- **Found:** both trees (By date, By folder) threw away every loaded level whenever the library changed: a Tag photos, Read aircraft or Scan again job moving on or finishing, an edit saved, a folder being added, a filter changed. The tree shrank to its top level for a moment, so its scroll fell back to the top, and the levels then loaded again. The right-click actions start exactly those jobs. Nothing remembered the tree's place over a restart either.
+- **Fixed:**
+  - `useCalendarTree` and `useFolderTree` keep the loaded levels on screen while they load again, and replace each when its new counts arrive: the tree never shrinks.
+  - `treeMemory` remembers, for each tree, the open levels and how far it is scrolled (this computer's web storage); the sidebar scrolls back there once the levels have loaded (given up after 5 s, or as soon as the user scrolls).
+  - The right-click menus take focus without scrolling the list under them (`ContextMenu`).
+- **Tests, run here (Windows):** mocked Playwright `tree-place.spec.ts` (3, all of which fail on the old code: 600 → 96 px after Tag photos, 300 → 109 px after Scan again, closed after a restart); Vitest `treeMemory.test.ts` (3); `folder-tree`, `calendar-tree`, `ai`, `keyboard`, `show-in-folder`, `aircraft`, `library`; ESLint, Prettier, tsc.
+- **Not run:** in the real app window on the owner's library.
+
+## Edit suggestions for Photoshop and Topaz Photo (2026-11-11)
+
+- **Asked:** "a new right click option that will analyze the image and give edit suggestions using Photoshop or Topaz".
+- **Decided** (ADR-042, each choice asked): measured on this computer first, an AI asked only when the user presses Ask; kept in the catalog; one photo at a time.
+- **Built:**
+  - Core: `ai::suggest` (`measure`, `rules`, `ask`), schema v15 (`edit_suggestions`), `ai.suggest.<provider>` jobs on the cloud worker (`RenderService::with_adviser`). The provider modules take a shared `cloud::Task`, so tagging and suggestions use one request path.
+  - App: `edit_suggestions`, `edit_suggestions_ask`, `edit_suggestions_stop` (`src-tauri/src/suggest.rs`); DTOs in `api.rs`; bindings regenerated.
+  - UI: **Edit suggestions…** in the photo menu, **Edit suggestions** in the viewer, `EditAdviceWindow` (suggestions, what was measured, Ask an AI with its cost, Open in Photoshop / Topaz Photo, Measure again); the mock backend (`?apps=ps`, `?suggestWait=1`).
+- **Tests, run here (Windows):** keepsake-core unit tests for `ai::suggest`, `ai::cloud` (unchanged ones pass) and migrations; `suggest_tests` (3: measuring, asking through the render service with a stand-in AI, a refusal and Stop); Vitest `editAdvice.test.ts`; mocked Playwright `edit-advice.spec.ts`.
+- **Not run:** in the real app window with a real AI key; CI. On branch `feat/edit-suggestions` (from `feat/aircraft-folder`), not pushed.
+- **Installing:** a library opened by this build is at schema v15; older builds refuse it.
+
+## Read aircraft for a folder or dates (2026-11-11)
+
+- **Asked:** "batch the Read Aircraft function … at the folder level also … scan all the folder for any pictures with Aircraft tag and do the read function".
+- **Built** (ADR-041, addition): right-click a folder, or a year, month or day, → **Read aircraft**. It reads the photos there tagged Airplane, Helicopter or Airport (AI tag or keyword) that were not read yet, in the progress window Tag photos uses.
+  - Core: `scan::{AIRCRAFT_TAGS, target_items, enqueue_target, target_status, stop_target}`; `Target::query` is crate-visible.
+  - App: `ai_analyze_folder`, `ai_folder_status`, `ai_folder_stop`, `ai_analyze_range`, `ai_range_status`, `ai_range_stop` take `what` = `aircraft`.
+  - UI: the folder menu and the date menu have Read aircraft; the progress window's texts.
+- **Tests, run here (Windows):** `aircraft_tests` (+1: only the tagged photos of the folder and the folders in it, each once, the whole drive, Stop); clippy and fmt; Vitest (+2); mocked Playwright `aircraft.spec.ts` (+2: a folder, a year and Settings when off), `folder-tree`, `ai`, `a11y`, `calendar-tree`.
+- **Not run:** in the real app window; CI. On branch `feat/aircraft-folder` (from `build/merge-all`), not pushed.
+
+## Everything gathered for main (2026-11-11)
+
+- **Asked:** "push all and merge all into main".
+- **Pushed:** every local branch that was missing or behind on GitHub (11 branches).
+- **Gathered** on `build/merge-all`, from `feat/aircraft-reader` (which holds `build/all-features`: faces, Tag with AI, the thumbnail and folder work, Read aircraft): `ci/macos-15` (the Mac job on macos-15), `chore/ignore-vite-cache`, `chore/launcher-main` (`keepsake.bat` follows `main`).
+  - The Mac Ctrl+click fix of `ci/macos-15` was already in `useItemMenu` (`isMenuClick`), with its test in `show-in-folder.spec.ts`; the old `claude.spec.ts` stays deleted (it is `cloud.spec.ts` now).
+- **Checked here:** ESLint, Prettier, tsc, Vitest; mocked Playwright show-in-folder, library, aircraft, multi-select. The merges changed no Rust code.
+- **Not done here:** `main` takes it through a pull request, once `windows-latest` and `macos-15 (Rust)` pass.
+- **Installing:** a library opened by this build is at schema v14 and older builds refuse it ("catalog schema version 14 is newer than this build supports"). Install the newest `Keepsake_0.1.0_x64-setup.exe` only: an older installer has the same name.
+
+## Read aircraft: registration, airline and type (2026-11-11)
+
+- **Asked:** "a local model that can look at airplane pictures and try to extract the visible text from the planes like airline name, registration number and attempt to identify the type of aircraft".
+- **Decided** (ADR-041, each choice asked): PP-OCRv5 for the text on the ONNX Runtime already there, SigLIP 2 for the type from the look; results as keywords under `Aircraft`; the server detector (96 MB in all) after comparing it with the small one on the owner's photos.
+- **Found:** registrations cannot be read from thumbnails (about 5 px high), so photos are read at full size from their file, which is only read. On 40 Airplane-tagged photos: a registration in 8, an airline in 11, a painted type in 3. The type from the look is a rough guess (right for 737s, often wrong between wide-bodies), so it is only given when it stands out.
+- **Built:**
+  - Core: `ai::aircraft` (`ocr`, `marks`, `types`, `scan`, `install`), `airlines.tsv`, `aircraft-types.tsv` and its vectors, the aircraft worker in `RenderService` (`RenderOptions::aircraft`, `AircraftReady` / `AircraftUnavailable`), `[ai] aircraft`, `render::full::decode_full`, `ai::install::ModelFile` (moved from the face models), `cloud::job_status`, `ai::tag_source_id` / `tag_sources`, schema v14 (`ai_tag_sources` without the provider list).
+  - CLI: `keepsake ai aircraft install | status | scan | read`.
+  - App: `aircraft_status`, `aircraft_enable`, `aircraft_install_cancel`, `aircraft_remove_models`, `aircraft_read`, `aircraft_read_status`, `aircraft_read_stop`; `aircraft://install`, `aircraft://status`; the inspector's Tagged with AI lists **Aircraft reader**.
+  - UI: Settings → Read aircraft; right-click → Read aircraft and the viewer's button; the progress window.
+  - Scripts: `-WithAi` / `--with-ai` fetch the two text models; `make-label-vectors.py … aircraft-types`.
+- **Tests, run here (Windows):** core unit tests (`ai::aircraft`: boxes at any angle, crops, decoding, registrations, airlines, painted types, the type list, keywords; the v13 → v14 migration); `aircraft_tests` (the worker with a stand-in reader: full size not the thumbnail, keywords and their source, nothing twice, the thumbnail when the file is away, waiting, Stop, missing models; originals unchanged) and, with the real models on three of the owner's photos, KLM / PH-BQB, Air Canada / C-FJZS / Boeing 777-300ER, Emirates; `xmp_tests` (the `aircraft` source is read back); clippy and fmt for core, CLI and app; app bindings; Vitest `aircraft.test.ts`; mocked Playwright `aircraft.spec.ts` (5) and `cloud.spec.ts`; tsc, ESLint, Prettier.
+- **Not run:** the whole workspace's tests and the other Playwright specs (targeted runs only on this machine); CI on Windows and macOS (nothing is pushed yet). Not tried in the real app window, only against the mock backend and from the command line.
+
+## Face matching tuned (2026-11-09)
+
+- **Asked:** "it is matching a bald man with glasses to a woman wearing a headscarf …what can we do", then "Yes, build them".
+- **Found** (read-only, on the product owner's library): 7,502 confirmed and 8,616 suggested faces for one person; most suggestions at 0.4–0.5. Matching by the nearest confirmed face with a 0.363 cut-off let strangers in. Tested on the user's own confirmations and rejections: the person's average face at 0.55 separates them far better (see ADR-040).
+- **Built:** scoring against the average face of the same years; cut-off 0.55 with Looser / Stricter (`[ai] face_match_pct`); faces like a rejected one not suggested; faces under 60 px not used; waiting suggestions scored again (estimated on that library: about 16,000 → about 900); **Check <name>'s faces** (least alike first, Remove). App: `faces_suggest(person, matchPct)`, `faces_check`; `faces_people` re-scores everyone's suggestions; `FaceDto.personId`, `SuggestDto.matchPct`.
+- **Tests, run here:** face_store_tests (+3: one wrong confirmation does not pull in a stranger and Check lists it first; a face like a rejected one is not suggested; small faces, Stricter takes suggestions off, rescore_all), the Find-more and Name-and-find tests still pass; core library, app tests (bindings), clippy; Vitest; mocked Playwright name-find (+1: Looser/Stricter, Check and Remove), people (a name opens Check), faces, a11y.
+
+## People: name a face and find that person — plan, steps 1–5 (2026-11-08)
+
+- **Asked:** "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find".
+- **Done:** a proposal only, ADR-040: right-click → Name and find…, on-device face finding (YuNet, MIT) and recognition (SFace, Apache-2.0), suggestions the user confirms, stepping through the years for different ages, names in standard MWG face regions in the sidecars, and a six-step plan. Licences were checked on the OpenCV Zoo model pages; InsightFace's models were left out (research only).
+- **Approved** ("Approve, start step 1"): all five choices as proposed.
+- **Step 1 built — models and the face pipeline (core, no UI yet):**
+  - `ai::faces`: `FaceModels` (`find`, `describe`, `find_and_describe`), `detect` (YuNet input and decoding, merging overlaps), `align` (five-point straightening), `install` (the two pinned models, BLAKE3-checked, `KEEPSAKE_FACE_DETECTOR` / `KEEPSAKE_FACE_RECOGNIZER`).
+  - `model::open_session` shared by the image encoder and the face models.
+  - Setup scripts: `-WithAi` / `--with-ai` also fetch the two face models (SHA-256 pinned).
+- **Tests, run here:** 16 unit tests (`ai::faces`: decoding, merging, fitting, alignment, input order, pins); `face_tests` with the real models (load, a blank picture has no faces, 128 unit numbers, the same each time, the graphics card and the processor agree); the corpus test on the product owner's photos: 49 photos read, 25 with faces, 56 faces, each found again at 768 px and matching itself (lowest 0.939; same person from 0.363). The model and corpus tests skip in CI (no models there), like the image encoder's.
+- **Step 2 built — searching photos and storing faces:**
+  - Core: schema v13 (`people`, `face_scans`, `faces`, `face_rejections`), `catalog::Faces` (save a search keeping named faces, people, set a person, reject, counts, photos not searched, delete all), `faces::scan` (`ai.faces` jobs, `FaceFinder`, enqueue, status, stop, delete all), the face worker in `RenderService`, `[ai] faces`, `Jobs::remove_all_queued`.
+  - Fix found by the new tests: the AI and face workers could wait forever for a thumbnail queued after the thumbnail workers had ended (when the service stops at an empty queue). They now wait only while a thumbnail worker runs; searching every photo queues its thumbnails first.
+  - CLI: `keepsake ai faces install | scan | status | delete-all --yes`.
+  - App: `faces_status`, `faces_enable` (download with progress, `faces://install`), `faces_install_cancel`, `faces_scan_all`, `faces_stop`, `faces_delete_all`, `faces_remove_models`; `faces://status` when the face worker starts or cannot.
+  - UI: Settings → Recognise faces (on/off, progress, Search all / Stop, Delete all face data asked first, Delete the downloaded face models).
+- **Tests, run here:** `face_store_tests` (the worker with a stand-in: thumbnails searched, tiny faces left out, a photo waiting for its thumbnail, not searched twice; named faces kept on a new search, one person per name, rejections; Delete all; thumbnails queued with a search; no models: the worker says why and the rest goes on); the step-1 tests; catalog, AI, render, core library, CLI and app tests; Vitest `faces.test.ts`; mocked Playwright `faces.spec.ts` (and the other Settings tests).
+- **Step 3 built — Name and find:**
+  - Core: `faces::people` (`name_face`, `suggest`, `review`, `decide`), `scan::search_now`; `Faces::{of_person, candidates, person, suggest, unreject}`; face rows carry the photo's capture time and the suggestion's likeness (`faces.likeness`, added to the unreleased schema v13).
+  - App: `faces_of_photo`, `faces_people`, `faces_name`, `faces_find`, `faces_suggest`, `faces_review`, `faces_decide`.
+  - UI: **Name and find…** in the photo menu and the viewer; `NameFindWindow` (faces of the photo, name with earlier names offered, searching with Show matches so far, Review by year with click-to-reject, Confirm, Find more).
+- **Tests, run here:** `face_store_tests` (+2: suggestions most like the named face, under the threshold left out, one a photo, not in her own photos, rejections kept, answers only for her suggestions, naming a rejected face; Find more stepping 2020 → 2018 → 2016 → 2014 with undated photos looked at); core library; app (bindings regenerated); Vitest (`faces.test.ts`: widening, cut-out shape, by year, search line); mocked Playwright `name-find.spec.ts` (3) with the faces, cloud, viewer and a11y specs; looked at in the browser.
+- **Step 4 built — names in the sidecars and search** (product owner: "complete steps 4 and 5 … you have my approval"):
+  - XMP: nested values (`xmp::Value`, `XmpPacket::{value, set_value}`), namespaces `mwg-rs`, `stArea`, `stDim`; `AssetXmp::{face_regions, face_size, face_rejections, face_names}`; other apps' regions kept; `keepsake:FaceNames`, `keepsake:FaceRejections`.
+  - Catalog: `face_rejections_pending` (v13); `Faces::{confirmed_names, confirmed_regions, rejection_boxes, photos_with_decisions, restore_confirmed, restore_rejection, forget_decisions}`; `save_scan` gives a restored face its description and applies waiting rejections.
+  - `MetadataService::sync_faces` (`People|<name>` keywords and the sidecar); `people::name_face` / `decide` and `scan::delete_all` take the library and call it; the rebuild restores people, faces and rejections.
+- **Tests, run here:** xmp_tests (+3: Lightroom-style regions read, other apps' regions kept and Keepsake's taken off, nested values; the full round trip has faces), face_store_tests (+2: keywords, sidecars, rebuild, the next search keeps the names and the rejection; Delete all takes the names off and leaves the user's `People|Bob`), rebuild, AI, catalog, core library, CLI and app tests; clippy.
+- **Step 5 built — the Inspector and the viewer:**
+  - Core: face state `hidden` ("not a face", v13); `Faces::hide`; `people::{not_this_person, not_a_face}`; a new search keeps faces with a "not this person".
+  - App: `faces_of_photo(id, search)`, `faces_not_person`, `faces_not_face`.
+  - UI: Inspector **People** (`PeopleBlock`); viewer **Faces** button and key **P** (F is full screen), face boxes at the photo's zoom, a box menu (Name…, Not <name>, Not a face); Name and find opens with the clicked face picked.
+- **Tests, run here:** face_store_tests (+1: not this person, not a face, not added again by a new search, never suggested); xmp, rebuild, face, app tests; clippy; Vitest; mocked Playwright `people.spec.ts` (3) with name-find, viewer, metadata, a11y and faces specs.
+- **Next:** step 6, the People screen (every person, unnamed faces grouped by likeness, rename, merge). Not started: it was not part of this request.
+
+## Which AI tagged it, Tag with AI to All, tags in the search bar (2026-11-08)
+
+- **Asked:** "keep track of AI tags and indicate which AI tagged them... visible in the sidebar", "an additional option in the dropdown for tag with AI to allow to tag with all", then "add tags to search". Chosen: the Inspector, AIs kept separate, tag chips in the search bar (ADR-039).
+- **Built:**
+  - **Core:** migration 12, `ai_tag_sources`; `Ai::{tag_sources, add_tag_sources, set_tag_sources, prune_tag_sources}`; `MetadataService::add_ai_keywords` (used by the cloud worker); `set_user_tags` forgets removed keywords' sources; XMP `keepsake:AITagSources`, restored by a rebuild; `SearchQuery::tags` (every one must match); `[ai] cloud_provider = "all"` (`AiSettings::cloud_all`).
+  - **App:** `ai_tags` returns `byAi`; `ai_cloud_set_default` takes `all`; `Query.tags`.
+  - **UI:** Inspector **Tagged with AI** (a row per AI) and an *On-device* label; **All (…)** in the Tag with AI list (cost in all, each privacy note, a count per AI); tag chips with suggestions in the search bar (`tagSearch.ts`).
+- **Tests:**
+  - `each_ai_is_recorded_for_the_keywords_it_gave_and_it_survives_a_rebuild` (ai_tests), the chips in `hierarchical_tags_and_search` (catalog_tests: `with_all`), `ai_tag_sources_of_an_unknown_ai_are_ignored` and the full XMP round trip (xmp_tests), `cloud_all` in the settings test.
+  - Vitest `unit/tagSearch.test.ts`; mocked Playwright: `All sends the photos to every AI…` (cloud.spec) and `tags in the search bar…` (ai.spec); the AI list test now expects the All option.
+- **Checked here:** `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings`, ESLint, Prettier, `tsc`, `vite build`, and the UI against the mock backend in the browser (chips, All, the Inspector rows).
+- **Run here** (the product owner turned local tests back on): keepsake-core `ai_tests`, `catalog_tests`, `rebuild_tests`, `xmp_tests` and `--lib`; `keepsake-app` (the regenerated bindings matched); Vitest; mocked Playwright `cloud`, `ai`, `library`, `a11y`, `metadata`. All passed.
+- **Not verified:** no real AI call; the other Playwright files and the real-app tests are left to CI.
+
+## Tag with AI: Claude, ChatGPT or Gemini (2026-11-08)
+
+- **Asked:** "give the user the ability to select which AI to use when tagging a single picture, Gemini, ChatGPT, CoPilot,...". The product owner chose Claude, ChatGPT and Gemini; Copilot has no public API for this (ADR-038).
+- **Built:**
+  - **Core, `ai::cloud`:**
+    - `Provider` and `CloudModel` (three models each), `CloudTagger`, and `Tagger::tag(provider, …)`.
+    - `cloud::openai` (Responses API, strict Structured Outputs, `store: false`) and `cloud::gemini` (`generateContent`, `responseJsonSchema`, key in a header). `cloud::claude` is ADR-036's code, moved.
+    - Shared: the prompt, schema, tidying and HTTP errors. Key checks per provider.
+    - Jobs `ai.openai` and `ai.gemini` beside `ai.claude`; one worker runs all three (`with_cloud`).
+  - **Settings:** `[ai] openai_model`, `gemini_model`, `cloud_provider`.
+  - **Platform, `secrets`:** `api_key(id)` / `set_api_key(id, …)`, one entry per provider; Claude's stays.
+  - **App:** `ai_cloud_info`, `ai_cloud_set_key`, `ai_cloud_set_model`, `ai_cloud_set_default`, `ai_cloud_tag`, `ai_cloud_status`, `ai_cloud_stop` (the `ai_claude_*` commands are gone).
+  - **UI:**
+    - **Tag with AI…** in the photo menu and the viewer.
+    - The ask-first window has an AI list (providers with a key) and the provider's privacy note; the AI used is offered first next time.
+    - Settings → Tag with AI: a section per provider with model, key and note.
+- **Tests (run in CI only; local test runs are turned off on this computer):**
+  - Unit: `ai::cloud` (providers, models, keys, tidying, errors, a missing key, a model of another provider, no network), and `claude`, `openai`, `gemini` (request, answer, problems, headers).
+  - `each_provider_keeps_its_own_model` (settings) and the `secrets` tests.
+  - `each_provider_has_its_own_jobs_and_one_worker_runs_them_all`, plus the two ADR-036 worker tests moved to the new API.
+  - 7 mocked UI tests (`e2e/mocked/cloud.spec.ts`).
+- **Checked here:** `cargo build`, `cargo clippy --workspace --all-targets -D warnings`, `cargo fmt`, ESLint, Prettier, `tsc` and `vite build`.
+- **Not verified:**
+  - No test was run on this computer, and no real call to OpenAI or Google was made (no keys).
+  - The TypeScript bindings were written by hand; CI regenerates them and fails if they differ.
+- **Fix, same day:** Gemini keys in the newer format (`AQ.…`, with dots) were refused as "does not look like a Gemini API key". Keys may now contain dots, and Gemini keys may be up to 256 characters; the key test covers an `AQ.` key.
+- **Fix, same day:** every Gemini request was refused with "Request contains an invalid argument". A check with the product owner's key showed Gemini refuses the tag list as an `enum` in `responseJsonSchema` (it accepts the same request without it, with `thinkingLevel` LOW). The list now goes with the question; the answer is still checked against it. Test: `only_tags_on_the_list_are_kept_without_an_enum`.
+
+## CI: the Mac job runs on macos-15 (2026-11-08)
+
+Since 8 Nov 2026 GitHub refuses the `macos-14` runner ("The configuration 'macos-14-arm64-us-default' is not supported"), so every macOS check was cancelled before it ran, on `main` and on every branch. The Mac job in `.github/workflows/ci.yml` now runs on `macos-15` (Apple Silicon) and is named `macos-15 (Rust)`; the commented-out DMG job in `release.yml` and the Definition of Done in `CLAUDE.md` say the same. Keepsake still supports macOS 14 and later: this only changes the machine the tests run on. The required check on `main` must be renamed from `macos-14 (Rust)` to `macos-15 (Rust)` in the repository's branch protection (done 8 Nov 2026).
+
+The first macos-15 run then failed one UI test, `library.spec.ts` multi-select: on a Mac, Ctrl+click also fires a right-click, and the photo menu from Tag with Claude (ADR-036) opened and took the keyboard. The grid now ignores that event when Ctrl is down, so Ctrl+click only toggles the selection; a right-click, the Menu key and Shift+F10 still open the menu. New mocked test: "Ctrl+click toggles the selection and opens no photo menu" (`claude.spec.ts`).
+
+---
+
 ## Tag the photos with no date (2026-11-08)
 
 - **Asked:** "I have around 1700 pictures that have no date but I can't tag them". Right-clicking **No date** in the calendar did nothing: Tag photos took only a date range.
 - **Built:** `ai::Target::Undated` (items with no capture time); app `ai_analyze_undated`, `ai_undated_status`, `ai_undated_stop`; the sidebar's **No date** has a menu with Show and Tag photos (not Find duplicates: those are of one day; "Calendar" still has no menu); the progress window says "Photos and videos with no date."
 - **Tests, run here:** `the_photos_with_no_date_can_be_tagged_and_stopped` (ai_tests); mocked Playwright `right-click No date: tag the photos with no date` and `the Calendar entry has no date menu` (ai.spec), with the calendar-tree, keyboard and a11y specs; app and core tests; clippy, ESLint, Prettier.
 
+
+
+---
+
+## Exit also stops imports, backups and the AI download (2026-11-08)
+
+- **Built (on top of ADR-037, from PR #24):** the exit hook is now `shutdown::on_exit`. It asks the render service, a running import, a backup or verify (or folder scan) and an AI model download to stop, waits up to 5 s for all of them, then stops the import ExifTool. Render services left finishing their jobs by a restart (Settings) are waited for too, so their ExifTool is stopped as well.
+- **Corrected:** the comment on `close_helpers_with_app` said a macOS helper ends by itself when its input closes. It does not: ExifTool's `-stay_open` reader polls a closed input every 10 ms forever (`ReadStayOpen` in `exiftool.pl`), on macOS as on Windows.
+- **Tests:** `shutdown` tests in the app crate: the exit stops a service and drops what it owns, stops an import, and gives up after its wait.
+- **Not done:** a macOS safety net for crashes.
+
+---
+## Merged to main; macOS CI on hold (2026-11-08)
+
+- PR #28 (on-device AI) and PR #29 (Tag with Claude, helpers end with the app) are merged into `main`. Both passed Windows CI.
+- **macOS CI is on hold** (product owner: "we can ignore the macOS for now as I have put that on hold for now"). GitHub no longer offers the `macos-14` runner ("The configuration 'macos-14-arm64-us-default' is not supported"), so the required `macos-14 (Rust)` check fails at once. Until macOS work resumes, PRs are merged with the admin override once Windows CI is green. Resuming means moving the job to a supported runner and updating the required check in the branch protection.
+- `scripts/keepsake.bat` now follows `main`.
 
 ## Helpers end with the app (2026-11-08)
 
@@ -220,6 +397,98 @@
 - Mirroring the new downloads on `vendor-binaries`.
 - macOS was not run (no Mac in this session), and the ARM64 installer was not tried.
 - Per-tag thresholds tuned on a labelled sample.
+
+## Show in Explorer / Finder from an item's right-click menu (2026-11-04)
+
+### What was asked
+- A right-click menu on a photo or video in the library that opens the folder holding its original in Explorer (Windows) or Finder (macOS), with the file selected; from grid tiles, details rows and the viewer, and from the keyboard (Menu key, Shift+F10).
+
+### What was built
+- `keepsake-core::reveal::original_location`: the item's original joined to its volume's current mount point. It answers Online (the absolute path), Offline (the drive's name) or Missing (the drive is there, the file is not). Only reads.
+- `keepsake-platform::reveal`: a `FileReveal` trait with `SystemReveal` (Windows `explorer /select,"<path>"`, passed as one raw argument so paths with spaces work; macOS `open -R <path>`) and `FakeReveal` for tests. Explorer's exit code is not checked, since it is 1 even when it works.
+- Tauri commands `original_place` (for the menu: online, path, problem, "Explorer"/"Finder") and `show_in_folder`, in `src-tauri/src/reveal.rs`.
+- UI: a shared `ContextMenu` (placed at the pointer, first item focused, arrows, Escape/Tab, closes on a click elsewhere, blur or resize) now backs both the sidebar's `FolderMenu` and the new `ItemMenu`. `ItemMenu` has **Show in Explorer/Finder** and the item's **Open in** applications. Grid and details open it on right-click (keeping a selection it lands in, acting on the right-clicked item) or the Menu key / Shift+F10 on the focused item; the viewer on right-click on the picture or the same keys. Focus goes back to the item when it closes. In the viewer, Escape closes the menu but not the viewer, and the status line says "Shown in Explorer".
+- No new dependencies.
+
+### Tests
+- `reveal_tests` (core): online gives an absolute path under the volume; unplugged (folder gone, volume marked offline) gives Offline with the drive's name, and plugged back gives the same, unchanged file; a deleted file gives Missing; an unknown item is an error.
+- `keepsake-platform` unit tests: the command for each OS (the verbatim `\\?\` prefix removed, spaces kept), a missing file is refused, the fake records and leaves the file alone.
+- `keepsake-app` unit test: Online is revealed, Offline and Missing are refused with "Drive not connected (Card A)" / the path.
+- Mocked Playwright `show-in-folder.spec.ts`: right-click a tile and Show (the `show_in_folder` call); multi-select keeps the selection and acts on the right-clicked item; Shift+F10 and the Menu key, arrows, Escape back to the tile, a click elsewhere; an unplugged item (disabled, "Drive not connected (Archive)"); the details table; the viewer.
+
+### Not done
+- Not yet tried by hand on macOS (Finder); CI runs the tests there.
+
+## Open in works for photos on a network drive (2026-11-05)
+
+### What was asked
+Choosing Photoshop or Topaz Photo from Open in did nothing.
+
+### What was found
+The photos are on a network share, which Windows hands Keepsake as
+`\\?\UNC\server\share\…`. `external::command_for` removed only `\\?\`,
+so the editor was given `UNC\server\share\…` — not a real path — and could
+not find the file. Photos on a local drive were not affected.
+
+### What was built
+`external::command_for` now turns `\\?\UNC\srv\x` into `\\srv\x` (and
+`\\?\E:\x` into `E:\x`, as before), the same way the rest of the code does.
+
+### Tests
+`external::tests::network_share_paths_keep_their_double_backslash`.
+
+### Not done
+Not yet tried by hand in the running app; CI not yet run.
+
+---
+
+## Headless thumbnail backfill (2026-11-05)
+
+### What was asked
+- A program with no UI that walks every picture in the library and makes the missing thumbnails unattended: 100 items, one commit, next 100; resumable after a crash, a kill or a bad file.
+
+### What was built (ADR-033)
+- `keepsake renders thumbnails`, a subcommand rather than a new binary: the CLI already finds the library, settings and tools, handles Ctrl-C and ships with the app.
+- `keepsake_core::render::backfill`: walks `assets` by `seq` from a position saved in `library_meta` (`render.backfill.cursor`). Each batch is rendered first (files only), then one short write records the batch's `renditions` rows and the position. Thumbnails only (256 and 1024 px), from a camera JPEG's built-in preview when it has one. Workers from the settings (4 here).
+- A failed file, or a decoder panic, is reported (`FAILED <file>: <error>`, one line, and `--failures-log`) and passed. A batch whose media is all offline stops the run without moving past it (`--skip-offline` to move on). `--restart` walks everything again to retry failures; `--max-batches` stops early.
+- Refactor: `Cache::store_bytes` and `still::make_stills` write rendition files and return the rows unwritten; `render_stills_of` now records an asset's renditions in one write. `Assets::page_after` / `count_after` for the walk.
+
+### Tests
+- `backfill_tests` (9, no tools needed): batches of 100 saved one by one (seen from another connection); a stopped run resumes after the saved batch and no asset is rendered twice; a catalog failure mid-batch keeps the earlier batch and loses only the current one; bad files and a panicking renderer are reported and passed; an all-offline batch stops without moving, then continues when the media is back; `skip_offline`; Ctrl-C saves the finished part; assets added later are picked up.
+- `cli_tests::renders_thumbnails_saves_batches_resumes_and_logs_failed_files`: batch size 2, `--max-batches 1`, resume, failures log, JSON Lines.
+
+### Run on the real library
+- `E:\Pictures\2026` (129,127 assets, media on `\\MYCLOUD-92LNT0`), with the app open. Run 1 walked to #3,700 (mostly assets that already had thumbnails) and was killed with `Stop-Process -Force`; run 2 printed "Continuing after asset #3700" and made 100 thumbnails per batch (about 130 a minute from the share), was killed at #4,300; a third run continued after #4,300. No file failed in those batches.
+- 5 of the first ~37 batch writes took 2–3.6 s ("slow catalog write"), the rest were quick; later batches had none. The writes are 200 rows and one key, so the time is the disk (WAL checkpoint and flush on E:), not the batch size.
+
+### Bugs found and fixed on the way
+- FFmpeg errors span several lines; failures are now folded to one line per file.
+- With output redirected to a file, the hidden progress bar dropped every line; they now go to stdout.
+
+### Not done
+- The backfill does not trim the cache; the app's render service does (the cache was at 19.4 of 21.5 GB, so older previews will be evicted to make room).
+- The app's queued `render.stills` jobs are left alone: they find the thumbnails and make only the preview.
+- The same hidden-bar problem affects `keepsake renders run` when its output is redirected (not changed here).
+
+## Thumbnails no longer go blank after background fingerprinting (2026-11-06)
+
+### What was reported
+- About 50,000 photos showed blank tiles in the grid although their thumbnails were still in the cache.
+
+### What was found
+- When the background fingerprint (ADR-029) stored a file's real BLAKE3, its rendition rows moved to the new key but the cache files kept their old names. The grid builds the file name from the new key, found nothing and showed a blank tile; `Cache::find` trusted the row's path, so nothing was made again. On the product owner's library: 100,857 thumbnail rows (50,430 photos) misnamed, 11,919 files still to fingerprint.
+
+### What was built (ADR-034)
+- The fingerprint job renames each rendition file to its new content-addressed name (`Cache::move_source`), file first, then row. If one already has the new name, the old copy and its row go; stand-in rows that lost to an existing rendition are removed instead of kept for ever.
+- `Cache::repair_names` mends existing libraries in batches of 500 with short transactions: it runs before the render workers start (app start, `keepsake renders run`) and on demand with `keepsake renders repair`. The app reloads the grid when it renamed anything, and an item's tiles when its fingerprint finishes.
+- `Cache::find` treats a row whose path is not its computed name as misnamed: it moves the file, or counts it as missing so it is made again.
+- New write site recorded in `docs/SAFETY.md`.
+
+### Tests
+- `fingerprint_tests`: thumbnails made under the stand-in key are at the grid's computed name after fingerprinting, with the row agreeing and nothing left under the old key; a thumbnail already made under the real key wins and the leftover goes; a crash between row and file is mended by the next `find`; a misnamed row whose file is gone counts as missing; `repair_names` on 1,206 misnamed rows (more than two batches, a missing file, a taken name, a row pointing at another row's file) leaves every row naming its own file, and a second pass does nothing.
+
+### Not done
+- Not yet run against the real library (`E:\Pictures\2026`); the first repair there renames about 100,000 files, so the first app start after updating spends that long before thumbnails start.
 
 ---
 

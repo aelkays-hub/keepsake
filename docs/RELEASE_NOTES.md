@@ -1,6 +1,6 @@
-# Keepsake 0.1.0
+# Keepsake 0.5.0
 
-The first release of Keepsake: a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.0 adds folders catalogued where they are, faster thumbnails, a library report, and AI that tags photos, finds duplicates, recognises people, reads aircraft and suggests edits.
 
 **This release is for Windows 11 (x64 and ARM64).** macOS will follow in a later release.
 
@@ -10,14 +10,41 @@ Download the installer for your PC:
 
 | PC | File |
 |---|---|
-| Most PCs (Intel or AMD) | `Keepsake_0.1.0_x64_en-US.msi` or `Keepsake_0.1.0_x64-setup.exe` |
-| ARM PCs (Snapdragon) | `Keepsake_0.1.0_arm64_en-US.msi` or `Keepsake_0.1.0_arm64-setup.exe` |
+| Most PCs (Intel or AMD) | `Keepsake_0.5.0_x64_en-US.msi` or `Keepsake_0.5.0_x64-setup.exe` |
+| ARM PCs (Snapdragon) | `Keepsake_0.5.0_arm64_en-US.msi` or `Keepsake_0.5.0_arm64-setup.exe` |
 
 The installers are **not code-signed yet**, so Windows SmartScreen may warn you. Click **More info → Run anyway**.
 
-Everything Keepsake needs is included: FFmpeg, ExifTool and LibRaw. Nothing else needs downloading, and Keepsake never connects to the internet.
+Everything Keepsake needs is included: FFmpeg, ExifTool and LibRaw. Keepsake connects to the internet only when you ask it to: to download an AI model you turn on in Settings, or to send a photo's small preview to Claude, ChatGPT or Gemini (Tag with AI, Ask in Edit suggestions).
 
-## What it does
+**Upgrading from 0.1.0:** the first time 0.5.0 opens your library it updates the catalog (schema 15). Older versions of Keepsake cannot open it after that, so install 0.5.0 on every computer that opens the library.
+
+## New in 0.5.0
+
+**Your existing folders**
+- **Add a folder in place**: photos you already have are catalogued where they are, read-only. Large folders fill in as they are read and resume if stopped; full checks run in the background. **Scan again** (right-click a folder) finds new, changed and removed files.
+- **By folder**: the sidebar shows your drives and folders as they are on disk, beside the calendar's years, months and days, each with its count. The tree keeps its place and comes back where you left it.
+- **Every card imports by itself** into year › month › day, if you turn it on.
+
+**Browsing**
+- Thumbnail sizes (Small, Medium, Large), much faster thumbnails from a network drive, and thumbnails that stay when the cache is full.
+- Select many items (tick-boxes, Select mode, drag a rectangle) to edit them together.
+- The viewer: a zoom slider, faster zoom, previous and next, and an information panel with every metadata tag.
+- **Show in Explorer / Finder**, and **Open in…** with several programs per file type (for example Photoshop and Topaz Photo).
+- **Report** (Tools): your photos, videos and space by year, month, camera, lens, file type and drive; rows open their photos; export to CSV.
+
+**AI, on this computer**
+- **Tag photos**: tags such as Beach, Dog or Sunset from what a photo shows, for a folder, a date or everything, searchable like keywords.
+- **Duplicates**: near-identical RAW photos of one day, grouped, so you can mark the keeper. Nothing is deleted.
+- **Name and find**: name a face, and Keepsake suggests the other photos that person is in, across the years. You confirm each.
+- **Read aircraft**: the registration, airline and type painted on aircraft, as keywords, for picked photos, a folder or dates.
+
+**AI you ask for, from the cloud** (your own API key; you pay the provider)
+- **Tag with AI**: Claude, ChatGPT or Gemini tag the photos you pick. Only a 1024-pixel preview is sent, never the original; the inspector shows which AI gave each keyword.
+- **Edit suggestions** (right-click a photo): Keepsake measures the photo (brightness, highlights, shadows, contrast, colour, noise, sharpness, a tilted horizon) and lists what to improve, with the steps in Photoshop and in Topaz Photo. **Ask** an AI for advice that takes in what the photo shows. **Open in Photoshop** or **Open in Topaz Photo** from the same window.
+
+## Also in Keepsake (since 0.1.0)
+
 
 **Import cards safely**
 - Insert a Sony card and Keepsake recognises it, even in another reader, and shows what is new since the last import.
@@ -65,12 +92,14 @@ Everything Keepsake needs is included: FFmpeg, ExifTool and LibRaw. Nothing else
 
 ## Known limits
 
-- **Windows only** in this release. macOS needs an LGPL FFmpeg build for macOS first.
+- **Windows only** in this release. The Mac version is built and tested automatically but not packaged yet.
 - **Unsigned installers** (see Install).
 - On ARM PCs, LibRaw (full-size RAW) runs as an x64 program under Windows' emulation. It works, a little slower.
 - Cameras that only connect over MTP (no card over USB) are not supported yet; use a card reader.
 - Full-size HEIF viewing is untested: we have no HEIF sample files yet.
-- Not yet included (planned): trimming and joining clips, export, the map view, on-device tagging and face grouping, slideshows.
+- The AI features run on the graphics card where they can (DirectML), else the processor; their models are downloaded once when you turn them on.
+- Noise and focus in Edit suggestions are judged from a small preview, so they are rough.
+- Not yet included (planned): trimming and joining clips, export, the map view, a People screen, slideshows.
 
 ## Licences
 

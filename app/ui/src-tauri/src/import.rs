@@ -41,6 +41,15 @@ pub(crate) fn stop_exiftool() {
     }
 }
 
+/// Ask the running import, if any, to stop.
+pub(crate) fn request_stop(state: &AppState) {
+    if let Ok(g) = state.import_cancel.lock() {
+        if let Some(c) = g.as_ref() {
+            c.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 fn mount_path(mount: &str) -> CmdResult<PathBuf> {
     std::fs::canonicalize(mount).map_err(|e| format!("{mount}: {e}"))
 }
@@ -231,11 +240,7 @@ pub fn import_check(
 
 #[tauri::command(async)]
 pub fn import_cancel(state: State<'_, AppState>) {
-    if let Ok(g) = state.import_cancel.lock() {
-        if let Some(c) = g.as_ref() {
-            c.store(true, Ordering::SeqCst);
-        }
-    }
+    request_stop(&state);
 }
 
 /// Start the import; returns at once. Progress and the result come as

@@ -6,7 +6,8 @@
 //! instead of hours. Its files get a stand-in key ([`crate::catalog::FileHash::Pending`]).
 //! A [`JOB_FINGERPRINT`] job per asset then reads each such file in full,
 //! checks it is still the file that was catalogued (size, modification time
-//! and quick hash), and stores its BLAKE3; its renditions move to that key.
+//! and quick hash), and stores its BLAKE3; its renditions move to that key,
+//! rows and files both (the cache names files by key: ADR-034).
 
 use std::path::Path;
 
@@ -14,6 +15,7 @@ use thiserror::Error;
 
 use crate::catalog::{AssetId, Blake3Hash, Catalog, CatalogError, File, NewJob, Priority};
 use crate::library::Library;
+use crate::render::Cache;
 
 /// Read one asset's files in full and store their fingerprints.
 pub const JOB_FINGERPRINT: &str = "fingerprint";
@@ -65,6 +67,7 @@ pub fn enqueue_pending(cat: &mut Catalog) -> Result<u64, CatalogError> {
 pub fn fingerprint_asset(
     cat: &mut Catalog,
     lib: &Library,
+    cache: &Cache,
     asset: AssetId,
 ) -> Result<u64, FingerprintError> {
     let files = cat.read(|tx| tx.files().for_asset(asset))?;
@@ -79,6 +82,12 @@ pub fn fingerprint_asset(
         let hash = read_unchanged(&path, f)?;
         if cat.write(|tx| tx.files().set_fingerprint(f.id, &hash))? {
             done += 1;
+            // The rows moved to the new key; their files follow (ADR-034).
+            // If this fails, `Cache::find` and `Cache::repair_names` finish
+            // the move later, so the fingerprint stands.
+            if let Err(e) = cache.move_source(cat, &f.hash.key(), &hash) {
+                tracing::warn!(%asset, "moving renditions to the new key: {e}");
+            }
         }
     }
     if offline {

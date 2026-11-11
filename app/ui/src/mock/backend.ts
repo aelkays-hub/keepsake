@@ -8,6 +8,7 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
+import type { AiAdviceDto } from "../bindings/AiAdviceDto";
 import type { Bucket } from "../bindings/Bucket";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
@@ -84,18 +85,129 @@ export interface MockState {
   crashSeen: boolean;
   /** On-device AI (`?ai=off` starts with it off). */
   ai: { enabled: boolean; gpu: boolean; modelInstalled: boolean };
+  /** Recognise faces (`?faces=on`: on, models installed). `left`: status
+   * polls until a search of all photos is done. */
+  faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
+  /** Read aircraft (`?aircraft=on`: on, models installed), and the photos
+   * asked for: status polls left. */
+  aircraft: { enabled: boolean; installed: boolean; asked: Map<string, number> };
+  /** Name and find: the faces found so far (by id), the photos asked
+   * about once (searched the next time they are asked about), people. */
+  faceRows: Map<number, MockFace>;
+  /** The face cut-off, in percent. */
+  facesMatch: number;
+  facesAsked: Set<number>;
+  people: { id: number; name: string }[];
   /** Duplicate decisions: `keeper`, `not_kept`, `not_duplicate`. */
   choice: Map<number, string>;
   /** AI tags removed by the user. */
   aiRejected: Map<number, string[]>;
+  /** Tag with AI: the keywords each provider gave an item (ADR-039). */
+  aiSources: Map<number, Map<string, string[]>>;
   /** Date ranges asked for: status polls left until they are analysed. */
   aiRanges: Map<string, number>;
-  /** Tag with Claude (`?claude=key` starts with a key saved; `?claude=bad`
-   * with one Claude refuses). Photos asked for: status polls left. */
-  claude: { key: string | null; model: string; asked: Map<string, number> };
+  /** Tag with AI (`?claude=key`, `?openai=key`, `?gemini=key` start with
+   * that provider's key saved; `=bad`: with one it refuses). The provider
+   * offered first, each one's model, and the photos asked for (by provider):
+   * status polls left. */
+  cloud: {
+    keys: Record<string, string | null>;
+    models: Record<string, string>;
+    def: string;
+    asked: Map<string, number>;
+  };
+  /** Edit suggestions (ADR-042), by item: when measured, the AI's answer,
+   * and a question on its way (status polls left; `bad`: it fails).
+   * `?suggestWait=1`: the first look waits for the preview. */
+  suggest: Map<
+    number,
+    {
+      madeMs: number;
+      ai: AiAdviceDto | null;
+      asking: { provider: string; left: number; failed: string | null } | null;
+    }
+  >;
+  suggestWait: number;
 }
 
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
+
+/** Tag with AI: the providers, as the backend describes them. */
+/** A face in the mock: photo `i` (not a video) has one or two, each of
+ * one of five pretend people (`who`). */
+interface MockFace {
+  id: number;
+  photo: number;
+  who: number;
+  k: number;
+  state: "unknown" | "suggested" | "confirmed" | "hidden";
+  person: number | null;
+  likeness: number | null;
+  rejected: Set<number>;
+}
+
+/** What each provider tags a photo with in the mock (they differ a little,
+ * so the inspector's list per AI can be checked). */
+/** Read aircraft (ADR-041): who gives the keywords, what every photo
+ * "shows", and the size of the text models. */
+const AIRCRAFT = { id: "aircraft", name: "Aircraft reader" };
+const AIRCRAFT_TAGS = [
+  "Aircraft|Registration|C-FJZS",
+  "Aircraft|Airline|Air Canada",
+  "Aircraft|Type|Boeing 777-300ER",
+];
+const AIRCRAFT_BYTES = 95861692;
+/** The mock's aircraft photos (those "tagged Airplane"): every fifth item
+ * that is not a video. */
+const isAircraft = (it: { i: number; kind: string }) => it.i % 5 === 0 && it.kind !== "video";
+
+const CLOUD_TAGS: Record<string, string[]> = {
+  claude: ["Beach", "AI|Sand Castle"],
+  openai: ["Beach", "Sky"],
+  gemini: ["Beach", "AI|Sand Castle"],
+};
+
+const CLOUD = [
+  {
+    id: "claude",
+    name: "Claude",
+    company: "Anthropic",
+    prefix: "sk-ant-",
+    key: /^sk-ant-[A-Za-z0-9_-]{13,}$/,
+    hint: " (they start with sk-ant-)",
+    models: [
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
+      { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
+      { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
+    ],
+  },
+  {
+    id: "openai",
+    name: "ChatGPT",
+    company: "OpenAI",
+    prefix: "sk-",
+    key: /^sk-(?!ant-)[A-Za-z0-9_-]{17,}$/,
+    hint: " (they start with sk-)",
+    models: [
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", centsPerPhoto: 1 },
+      { id: "gpt-6-astra", name: "GPT-6 Astra", centsPerPhoto: 5 },
+      { id: "gpt-6-luna", name: "GPT-6 Luna", centsPerPhoto: 0.05 },
+    ],
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    company: "Google",
+    prefix: "AIza",
+    key: /^(?!sk-)[A-Za-z0-9._-]{20,256}$/,
+    hint: "",
+    models: [
+      { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", centsPerPhoto: 0.8 },
+      { id: "gemini-4-argon", name: "Gemini 4 Argon", centsPerPhoto: 2 },
+      { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash-Lite", centsPerPhoto: 0.2 },
+    ],
+  },
+];
 /** Groups of duplicates among the first items, all shown on item 0's day. */
 const DUP_GROUPS = [
   [0, 1, 2],
@@ -227,14 +339,36 @@ export function installMock(): void {
       gpu: true,
       modelInstalled: params.get("ai") !== "off",
     },
-    choice: new Map(),
-    aiRejected: new Map(),
-    aiRanges: new Map(),
-    claude: {
-      key: params.get("claude") ? `sk-ant-mock-${params.get("claude")}` : null,
-      model: "claude-opus-5-5",
+    faces: {
+      enabled: params.get("faces") === "on",
+      installed: params.get("faces") === "on",
+      scanned: 0,
+      people: 0,
+      left: 0,
+    },
+    aircraft: {
+      enabled: params.get("aircraft") === "on",
+      installed: params.get("aircraft") === "on",
       asked: new Map(),
     },
+    faceRows: new Map(),
+    facesMatch: 55,
+    facesAsked: new Set(),
+    people: [],
+    choice: new Map(),
+    aiRejected: new Map(),
+    aiSources: new Map(),
+    aiRanges: new Map(),
+    cloud: {
+      keys: Object.fromEntries(
+        CLOUD.map((c) => [c.id, params.get(c.id) ? `${c.prefix}mock-${params.get(c.id)}` : null]),
+      ),
+      models: Object.fromEntries(CLOUD.map((c) => [c.id, c.models[0].id])),
+      def: params.get("ai-default") ?? "claude",
+      asked: new Map(),
+    },
+    suggest: new Map(),
+    suggestWait: params.get("suggestWait") === "1" ? 1 : 0,
     history: [],
     folders: [],
     settings: {
@@ -247,7 +381,13 @@ export function installMock(): void {
       workersDefault: 4,
       proxyWorkers: 1,
       pauseOnBattery: true,
-      openApps: [],
+      openApps:
+        params.get("apps") === "ps"
+          ? ["jpg", "arw"].flatMap((ext) => [
+              { ext, app: "C:\\Program Files\\Adobe\\Adobe Photoshop 2026\\Photoshop.exe" },
+              { ext, app: "C:\\Program Files\\Topaz Labs LLC\\Topaz Photo\\Topaz Photo.exe" },
+            ])
+          : [],
       import: {
         // `?autoImport=1`: on, to E:\Pictures; `=Z`: on, to a drive not connected.
         auto: params.has("autoImport"),
@@ -331,6 +471,8 @@ export function installMock(): void {
     if (q.minRating && rating(it) < q.minRating) return false;
     if (q.hideNotKept && st.choice.get(it.i) === "not_kept") return false;
     if (q.tag && !tagsOf(it.i).some((t) => t === q.tag || t.startsWith(`${q.tag}|`))) return false;
+    for (const want of q.tags ?? [])
+      if (!tagsOf(it.i).some((t) => t === want || t.startsWith(`${want}|`))) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -393,7 +535,7 @@ export function installMock(): void {
       st.calls.push({ cmd, args: a });
       switch (cmd) {
         case "app_info": {
-          const reply = { version: "0.1.0-mock", library, uiTest: true };
+          const reply = { version: "0.5.0-mock", library, uiTest: true };
           // ?opening=<ms>: the library takes that long to open.
           const ms = Number(params.get("opening") ?? 0);
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
@@ -401,7 +543,7 @@ export function installMock(): void {
         case "library_create":
         case "library_open":
           library = String(a.path);
-          return { version: "0.1.0-mock", library, uiTest: true };
+          return { version: "0.5.0-mock", library, uiTest: true };
         case "view_open": {
           const q = a.query as Query;
           const s = a.sort as SortSpec;
@@ -815,6 +957,22 @@ export function installMock(): void {
             throw new Error(`${name(app)} is not set up in Settings for this file type`);
           return name(app);
         }
+        case "original_place": {
+          const it = all[Number(String(a.id).slice(1))];
+          return it.online
+            ? { online: true, path: `F:\\Photos\\${it.name}`, problem: null, manager: "Explorer" }
+            : {
+                online: false,
+                path: null,
+                problem: "Drive not connected (Archive)",
+                manager: "Explorer",
+              };
+        }
+        case "show_in_folder": {
+          const it = all[Number(String(a.id).slice(1))];
+          if (!it.online) throw new Error("Drive not connected (Archive)");
+          return null;
+        }
         case "time_shift_preview": {
           const ids = resolve(a.selection as Selection);
           const ref = all[Number(String(a.reference).slice(1))];
@@ -1065,7 +1223,7 @@ export function installMock(): void {
           return [
             "Keepsake diagnostic report",
             "==========================",
-            "Program: keepsake-app 0.1.0-mock",
+            "Program: keepsake-app 0.5.0-mock",
             "Tools:",
             "  exiftool   13.59  [~\\AppData\\Local\\Keepsake\\exiftool\\exiftool.exe]",
             `Library: D:\\Keepsake`,
@@ -1118,6 +1276,309 @@ export function installMock(): void {
           return null;
         case "ai_install_cancel":
           return null;
+        case "faces_of_photo":
+        case "faces_people":
+        case "faces_name":
+        case "faces_find":
+        case "faces_suggest":
+        case "faces_review":
+        case "faces_decide":
+        case "faces_check":
+        case "faces_not_person":
+        case "faces_not_face": {
+          if (
+            !(st.faces.enabled && st.ai.enabled) &&
+            (cmd === "faces_of_photo" || cmd === "faces_find")
+          )
+            throw "Turn on Recognise faces first (Settings).";
+          // Every photo's faces, made when first needed.
+          const facesOf = (i: number): MockFace[] => {
+            if (all[i]?.kind === "video" || i % 3 === 2) return [];
+            const have = [...st.faceRows.values()].filter((f) => f.photo === i);
+            if (have.length) return have;
+            const made = Array.from({ length: i % 3 === 0 ? 2 : 1 }, (_, k) => {
+              const f: MockFace = {
+                id: i * 10 + k + 1,
+                photo: i,
+                who: (i + k) % 5,
+                k,
+                state: "unknown",
+                person: null,
+                likeness: null,
+                rejected: new Set(),
+              };
+              st.faceRows.set(f.id, f);
+              return f;
+            });
+            return made;
+          };
+          const dto = (f: MockFace) => ({
+            id: f.id,
+            photo: `a${f.photo}`,
+            thumb: THUMBS[f.photo % 16],
+            pw: 320,
+            ph: 240,
+            x: 0.15 + f.k * 0.45,
+            y: 0.2,
+            w: 0.3,
+            h: 0.45,
+            person:
+              f.person === null ? null : (st.people.find((p) => p.id === f.person)?.name ?? null),
+            personId: f.person,
+            state: f.state,
+            likeness: f.likeness,
+            date: day(all[f.photo]?.t ?? null),
+          });
+          const personDto = (p: { id: number; name: string }) => ({
+            id: p.id,
+            name: p.name,
+            confirmed: [...st.faceRows.values()].filter(
+              (f) => f.person === p.id && f.state === "confirmed",
+            ).length,
+          });
+          if (cmd === "faces_of_photo") {
+            const i = Number(String(a.id).slice(1));
+            // Searched the second time it is asked about (not when only
+            // looking: the Inspector, the viewer).
+            const searched = st.facesAsked.has(i);
+            if (a.search !== false) st.facesAsked.add(i);
+            const shown = searched ? facesOf(i).filter((f) => f.state !== "hidden") : [];
+            return { searched, faces: shown.map(dto) };
+          }
+          if (cmd === "faces_not_person" || cmd === "faces_not_face") {
+            const f = st.faceRows.get(Number(a.face));
+            if (!f) return cmd === "faces_not_person" ? false : null;
+            const had = f.person;
+            if (cmd === "faces_not_person" && had !== null) f.rejected.add(had);
+            f.person = null;
+            f.likeness = null;
+            f.state = cmd === "faces_not_face" ? "hidden" : "unknown";
+            return cmd === "faces_not_person" ? had !== null : null;
+          }
+          if (cmd === "faces_people") return st.people.map(personDto);
+          if (cmd === "faces_name") {
+            const f = st.faceRows.get(Number(a.face));
+            const name = String(a.name).trim();
+            if (!f || !name) throw "no such face";
+            let p = st.people.find((x) => x.name.toLowerCase() === name.toLowerCase());
+            if (!p) {
+              p = { id: st.people.length + 1, name };
+              st.people.push(p);
+              st.faces.people = st.people.length;
+            }
+            f.person = p.id;
+            f.state = "confirmed";
+            f.likeness = null;
+            f.rejected.delete(p.id);
+            return personDto(p);
+          }
+          if (cmd === "faces_find") {
+            const photos = all.filter((it) => it.kind !== "video").length;
+            const left = photos - st.faces.scanned;
+            if (left > 0) st.faces.left = 2;
+            return left;
+          }
+          const person = Number(a.person);
+          if (cmd === "faces_check") {
+            // Least alike first.
+            return [...st.faceRows.values()]
+              .filter((f) => f.person === person && f.state === "confirmed")
+              .map((f) => ({ ...dto(f), likeness: 30 + ((f.photo * 13) % 70) }))
+              .sort((x, y) => x.likeness - y.likeness);
+          }
+          if (cmd === "faces_suggest") {
+            if (typeof a.matchPct === "number") st.facesMatch = a.matchPct;
+            all.forEach((_, i) => facesOf(i));
+            const mine = [...st.faceRows.values()].filter(
+              (f) => f.person === person && f.state === "confirmed",
+            );
+            if (!mine.length) throw "name one of this person's faces first";
+            const who = mine[0].who;
+            const taken = new Set(
+              [...st.faceRows.values()].filter((f) => f.person === person).map((f) => f.photo),
+            );
+            let added = 0;
+            for (const f of st.faceRows.values()) {
+              if (f.state !== "unknown" || f.who !== who || f.rejected.has(person)) continue;
+              if (taken.has(f.photo)) continue;
+              taken.add(f.photo);
+              f.state = "suggested";
+              f.person = person;
+              f.likeness = 40 + ((f.photo * 7) % 55);
+              added += 1;
+            }
+            const waiting = [...st.faceRows.values()].filter(
+              (f) => f.person === person && f.state === "suggested",
+            ).length;
+            return {
+              added,
+              waiting,
+              confirmed: mine.length,
+              fromYear: 2012,
+              toYear: 2020,
+              matchPct: st.facesMatch,
+            };
+          }
+          if (cmd === "faces_review")
+            return [...st.faceRows.values()]
+              .filter((f) => f.person === person && f.state === "suggested")
+              .sort((x, y) => (y.likeness ?? 0) - (x.likeness ?? 0))
+              .map(dto);
+          // faces_decide
+          let c = 0;
+          let r = 0;
+          for (const id of a.confirm as number[]) {
+            const f = st.faceRows.get(id);
+            if (f?.person === person) {
+              f.state = "confirmed";
+              f.likeness = null;
+              c += 1;
+            }
+          }
+          for (const id of a.reject as number[]) {
+            const f = st.faceRows.get(id);
+            if (f?.person === person) {
+              f.rejected.add(person);
+              f.state = "unknown";
+              f.person = null;
+              f.likeness = null;
+              r += 1;
+            }
+          }
+          return [c, r];
+        }
+        case "aircraft_status":
+          return {
+            enabled: st.aircraft.enabled,
+            modelsInstalled: st.aircraft.installed,
+            modelsBytes: AIRCRAFT_BYTES,
+            runtimeFound: true,
+            looks: st.ai.modelInstalled,
+            accel: st.aircraft.enabled ? "graphics card (DirectML)" : null,
+            problem: null,
+            installing: null,
+          };
+        case "aircraft_enable":
+          st.aircraft.enabled = Boolean(a.enabled);
+          if (st.aircraft.enabled && !st.aircraft.installed) {
+            st.aircraft.installed = true;
+            void emit("aircraft://install", {
+              done: AIRCRAFT_BYTES,
+              total: AIRCRAFT_BYTES,
+              finished: true,
+              error: null,
+            });
+          }
+          return null;
+        case "aircraft_install_cancel":
+          return null;
+        case "aircraft_remove_models":
+          st.aircraft.enabled = false;
+          st.aircraft.installed = false;
+          return true;
+        case "aircraft_read":
+        case "aircraft_read_status":
+        case "aircraft_read_stop": {
+          let ids = (a.ids ?? []) as string[];
+          if (cmd === "aircraft_read") {
+            if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+            st.aircraft.asked.set(ids.join(","), 2);
+          }
+          const key = ids.join(",");
+          const left = st.aircraft.asked.get(key) ?? 0;
+          if (cmd === "aircraft_read_stop") {
+            // Stopped before any was read (−1): none is counted as read.
+            st.aircraft.asked.set(key, left > 0 ? -1 : 0);
+            return null;
+          }
+          if (cmd === "aircraft_read_status" && left > 0) {
+            st.aircraft.asked.set(key, left - 1);
+            if (left === 1)
+              for (const id of ids) {
+                const i = Number(id.slice(1));
+                const cur = st.keywords.get(i) ?? [];
+                st.keywords.set(i, [...new Set([...cur, ...AIRCRAFT_TAGS])]);
+                const by = st.aiSources.get(i) ?? new Map<string, string[]>();
+                by.set(AIRCRAFT.id, [...AIRCRAFT_TAGS].sort());
+                st.aiSources.set(i, by);
+              }
+          }
+          const items = ids.length;
+          const pending = left > 0 ? items : 0;
+          const status = {
+            items,
+            analysed: pending || left < 0 ? 0 : items,
+            pending,
+            failed: 0,
+            problem: null,
+          };
+          return cmd === "aircraft_read" ? { provider: AIRCRAFT.id, ids, status } : status;
+        }
+        case "faces_status": {
+          const f = st.faces;
+          const photos = all.filter((it) => it.kind !== "video").length;
+          if (f.left > 0) {
+            f.left -= 1;
+            if (f.left === 0) f.scanned = photos;
+          }
+          // About 3 photos in 5 have faces, 1.5 faces each.
+          const withFaces = Math.round(f.scanned * 0.6);
+          return {
+            enabled: f.enabled,
+            aiEnabled: st.ai.enabled,
+            modelsInstalled: f.installed,
+            modelsBytes: 38928942,
+            runtimeFound: true,
+            accel: f.enabled && st.ai.enabled ? "graphics card (DirectML)" : null,
+            problem: null,
+            installing: null,
+            photos,
+            scanned: f.scanned,
+            withFaces,
+            faces: Math.round(withFaces * 1.5),
+            people: f.people,
+            pending: f.left > 0 ? photos - f.scanned : 0,
+            failed: 0,
+          };
+        }
+        case "faces_enable":
+          if (a.enabled && !st.ai.enabled) throw "Turn on On-device AI first (just above).";
+          st.faces.enabled = Boolean(a.enabled);
+          if (st.faces.enabled && !st.faces.installed) {
+            st.faces.installed = true;
+            void emit("faces://install", {
+              done: 38928942,
+              total: 38928942,
+              finished: true,
+              error: null,
+            });
+          }
+          return null;
+        case "faces_install_cancel":
+          return null;
+        case "faces_scan_all": {
+          if (!(st.faces.enabled && st.ai.enabled)) throw "Turn on Recognise faces first.";
+          const photos = all.filter((it) => it.kind !== "video").length;
+          st.faces.left = 2;
+          return photos - st.faces.scanned;
+        }
+        case "faces_stop": {
+          const was = st.faces.left > 0;
+          st.faces.left = 0;
+          return was ? 1 : 0;
+        }
+        case "faces_delete_all": {
+          const n = Math.round(Math.round(st.faces.scanned * 0.6) * 1.5);
+          st.faces.scanned = 0;
+          st.faces.people = 0;
+          st.faces.left = 0;
+          return n;
+        }
+        case "faces_remove_models":
+          st.faces.enabled = false;
+          st.faces.installed = false;
+          return true;
         case "ai_remove_model":
           st.ai.enabled = false;
           st.ai.modelInstalled = false;
@@ -1175,13 +1636,20 @@ export function installMock(): void {
         case "ai_range_status": {
           const key = `${a.what}|${a.from}|${a.to}`;
           if (cmd === "ai_analyze_range") {
-            if (!st.ai.enabled)
+            if (a.what === "aircraft") {
+              if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            } else if (!st.ai.enabled)
               throw "Turn on On-device AI in Settings first (it downloads the model once).";
             if (!st.aiRanges.has(key)) st.aiRanges.set(key, 2);
           }
           const items = all.filter((it) => {
             const d = day(time(it));
-            return d !== null && d >= String(a.from) && d <= String(a.to);
+            return (
+              d !== null &&
+              d >= String(a.from) &&
+              d <= String(a.to) &&
+              (a.what !== "aircraft" || isAircraft(it))
+            );
           }).length;
           const left = st.aiRanges.get(key);
           if (left === undefined) return { from: a.from, to: a.to, items, analysed: 0, pending: 0 };
@@ -1192,49 +1660,194 @@ export function installMock(): void {
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
-        case "ai_claude_info":
-        case "ai_claude_set_key":
-        case "ai_claude_set_model": {
-          if (cmd === "ai_claude_set_key") {
-            const k = typeof a.key === "string" ? a.key.trim() : "";
-            if (k && !/^sk-ant-[A-Za-z0-9_-]{13,}$/.test(k))
-              throw "That does not look like a Claude API key (they start with sk-ant-).";
-            st.claude.key = k || null;
-          }
-          if (cmd === "ai_claude_set_model") st.claude.model = String(a.model);
-          return {
-            hasKey: st.claude.key !== null,
-            model: st.claude.model,
-            models: [
-              { id: "claude-opus-5-5", name: "Claude Opus 5.5", centsPerPhoto: 2 },
-              { id: "claude-fable-5-1", name: "Claude Fable 5.1", centsPerPhoto: 6 },
-              { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", centsPerPhoto: 0.1 },
-            ],
-          };
-        }
-        case "ai_claude_tag":
-        case "ai_claude_status":
-        case "ai_claude_stop": {
-          let ids = (a.ids ?? []) as string[];
-          if (cmd === "ai_claude_tag") {
-            if (!st.claude.key) throw "Add your Claude API key in Settings first.";
-            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
-            st.claude.asked.set(ids.join(","), 2);
-          }
-          const key = ids.join(",");
-          const left = st.claude.asked.get(key) ?? 0;
-          if (cmd === "ai_claude_stop") {
-            st.claude.asked.set(key, 0);
+        case "edit_suggestions":
+        case "edit_suggestions_ask":
+        case "edit_suggestions_stop": {
+          const i = Number(String(a.id).slice(1));
+          const it = all[i];
+          if (!it) throw `no item ${String(a.id)}`;
+          if (it.kind === "video") throw "Edit suggestions are for photos.";
+          if (cmd === "edit_suggestions_stop") {
+            const cur = st.suggest.get(i);
+            if (cur?.asking && cur.asking.left > 0) cur.asking = null;
             return null;
           }
-          const bad = st.claude.key?.endsWith("bad") ?? false;
-          if (cmd === "ai_claude_status" && left > 0) {
-            st.claude.asked.set(key, left - 1);
+          if (cmd === "edit_suggestions_ask") {
+            const p = CLOUD.find((x) => x.id === a.providerId);
+            if (!p) throw `unknown AI ${String(a.providerId)}`;
+            if (!st.cloud.keys[p.id])
+              throw `Add your ${p.name} API key in Settings first (Settings → Tag with AI).`;
+            const cur = st.suggest.get(i) ?? { madeMs: Date.now(), ai: null, asking: null };
+            cur.asking = { provider: p.id, left: 2, failed: null };
+            st.suggest.set(i, cur);
+          } else if (st.suggestWait > 0) {
+            st.suggestWait--;
+            return {
+              id: String(a.id),
+              waiting: true,
+              measured: [],
+              summary: "",
+              suggestions: [],
+              madeMs: 0,
+              ai: null,
+              asking: null,
+            };
+          }
+          let cur = st.suggest.get(i);
+          if (!cur || a.again) {
+            cur = { madeMs: Date.now(), ai: null, asking: cur?.asking ?? null };
+            st.suggest.set(i, cur);
+          }
+          // The question moves on one step each look.
+          const q = cur.asking;
+          if (q && cmd === "edit_suggestions" && q.left > 0) {
+            q.left--;
+            const p = CLOUD.find((x) => x.id === q.provider)!;
+            if (q.left === 0) {
+              if (st.cloud.keys[p.id]?.endsWith("bad")) {
+                q.failed = `${p.name} did not accept the API key: check it in Settings`;
+              } else {
+                cur.ai = {
+                  provider: p.id,
+                  providerName: p.name,
+                  model: st.cloud.models[p.id],
+                  summary:
+                    "A lovely evening scene; the sky is a little blown and the foreground dark.",
+                  suggestions: [
+                    {
+                      title: "Recover the sky",
+                      why: "The clouds at the top are nearly white.",
+                      photoshop: "Camera Raw > Masking > Select Sky, then Highlights -50",
+                      topaz: "",
+                    },
+                    {
+                      title: "Remove the bin on the right",
+                      why: "It pulls the eye away from the people.",
+                      photoshop: "Remove tool (J): paint over the bin",
+                      topaz: "Remove: brush over the bin",
+                    },
+                  ],
+                  madeMs: Date.now(),
+                };
+                cur.asking = null;
+              }
+            }
+          }
+          // Every mock photo measures dark and grainy.
+          const dark = true;
+          const shown = cur.asking;
+          const shownP = shown && CLOUD.find((x) => x.id === shown.provider)!;
+          return {
+            id: String(a.id),
+            waiting: false,
+            measured: [
+              {
+                label: "Brightness",
+                value: dark ? "Dark (middle tone 18%)" : "Fine (middle tone 44%)",
+              },
+              { label: "Highlights", value: "0% blown out" },
+              { label: "Shadows", value: "0.4% pure black" },
+              { label: "Contrast", value: "Fine" },
+              { label: "Colour", value: "Greys look neutral" },
+              { label: "Noise", value: dark ? "Shows" : "Low" },
+              { label: "Sharpness", value: "Fine" },
+              { label: "Level", value: "No tilt found" },
+            ],
+            summary: dark
+              ? "Keepsake measured the photo and found 2 things to look at."
+              : "Nothing stands out: exposure, contrast, colour, noise and sharpness all measure fine.",
+            suggestions: dark
+              ? [
+                  {
+                    title: "Brighten the photo",
+                    why: "Half of it is darker than 18% grey and nothing is blown out, so there is room to lift it (unless it is meant to be dark).",
+                    photoshop:
+                      "Camera Raw > Light: Exposure +1.8, then Shadows +20 if the dark parts are still heavy.",
+                    topaz:
+                      "Adjust Lighting: start at Strength 30 and raise it until the subject looks right.",
+                  },
+                  {
+                    title: "Reduce the noise",
+                    why: "The smooth areas are grainy even in the small preview; at full size it will show more.",
+                    photoshop:
+                      "Camera Raw > Detail: Denoise (for a raw file) at 40, or Manual Noise Reduction: Luminance 25, Color 25.",
+                    topaz:
+                      "Denoise: the Standard model on Auto; lower Strength if fine detail turns waxy.",
+                  },
+                ]
+              : [],
+            madeMs: cur.madeMs,
+            ai: cur.ai,
+            asking:
+              shown && shownP
+                ? {
+                    provider: shownP.id,
+                    providerName: shownP.name,
+                    pending: shown.failed === null,
+                    problem: shown.failed,
+                  }
+                : null,
+          };
+        }
+        case "ai_cloud_info":
+        case "ai_cloud_set_key":
+        case "ai_cloud_set_model":
+        case "ai_cloud_set_default": {
+          const c = st.cloud;
+          if (cmd === "ai_cloud_set_key") {
+            const p = CLOUD.find((x) => x.id === a.providerId);
+            if (!p) throw `unknown AI provider ${String(a.providerId)}`;
+            const k = typeof a.key === "string" ? a.key.trim() : "";
+            if (k && !p.key.test(k)) throw `That does not look like a ${p.name} API key${p.hint}.`;
+            c.keys[p.id] = k || null;
+          }
+          if (cmd === "ai_cloud_set_model") {
+            const p = CLOUD.find((x) => x.models.some((m) => m.id === a.model));
+            if (!p) throw `unknown model ${String(a.model)}`;
+            c.models[p.id] = String(a.model);
+          }
+          if (cmd === "ai_cloud_set_default") c.def = String(a.providerId);
+          return {
+            defaultProvider: c.def,
+            providers: CLOUD.map((p) => ({
+              id: p.id,
+              name: p.name,
+              company: p.company,
+              hasKey: c.keys[p.id] !== null,
+              model: c.models[p.id],
+              models: p.models,
+            })),
+          };
+        }
+        case "ai_cloud_tag":
+        case "ai_cloud_status":
+        case "ai_cloud_stop": {
+          const p = CLOUD.find((x) => x.id === a.providerId);
+          if (!p) throw `unknown AI provider ${String(a.providerId)}`;
+          let ids = (a.ids ?? []) as string[];
+          if (cmd === "ai_cloud_tag") {
+            if (!st.cloud.keys[p.id]) throw `Add your ${p.name} API key in Settings first.`;
+            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+            st.cloud.asked.set(`${p.id}|${ids.join(",")}`, 2);
+          }
+          const key = `${p.id}|${ids.join(",")}`;
+          const left = st.cloud.asked.get(key) ?? 0;
+          if (cmd === "ai_cloud_stop") {
+            st.cloud.asked.set(key, 0);
+            return null;
+          }
+          const bad = st.cloud.keys[p.id]?.endsWith("bad") ?? false;
+          if (cmd === "ai_cloud_status" && left > 0) {
+            st.cloud.asked.set(key, left - 1);
             if (left === 1 && !bad)
               for (const id of ids) {
                 const i = Number(id.slice(1));
                 const cur = st.keywords.get(i) ?? [];
-                st.keywords.set(i, [...new Set([...cur, "Beach", "AI|Sand Castle"])]);
+                const given = CLOUD_TAGS[p.id] ?? [];
+                st.keywords.set(i, [...new Set([...cur, ...given])]);
+                const by = st.aiSources.get(i) ?? new Map<string, string[]>();
+                by.set(p.id, [...new Set([...(by.get(p.id) ?? []), ...given])].sort());
+                st.aiSources.set(i, by);
               }
           }
           const items = ids.length;
@@ -1245,9 +1858,9 @@ export function installMock(): void {
             analysed: pending || bad ? 0 : items,
             pending,
             failed,
-            problem: bad ? "Claude did not accept the API key: check it in Settings" : null,
+            problem: bad ? `${p.name} did not accept the API key: check it in Settings` : null,
           };
-          return cmd === "ai_claude_tag" ? { ids, status } : status;
+          return cmd === "ai_cloud_tag" ? { provider: p.id, ids, status } : status;
         }
         case "ai_range_stop": {
           st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);
@@ -1258,14 +1871,18 @@ export function installMock(): void {
         case "ai_folder_stop": {
           const key = `${a.what}|folder|${a.volume}|${a.folder}`;
           if (cmd === "ai_analyze_folder") {
-            if (!st.ai.enabled)
+            if (a.what === "aircraft") {
+              if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            } else if (!st.ai.enabled)
               throw "Turn on On-device AI in Settings first (it downloads the model once).";
             st.aiRanges.set(key, 3);
           }
           const q = { volume: a.volume, folder: a.folder || undefined } as unknown as Query;
           const items = all
             .filter(matches(q))
-            .filter((it) => a.what === "tags" || it.kind === "raw").length;
+            .filter((it) =>
+              a.what === "aircraft" ? isAircraft(it) : a.what === "tags" || it.kind === "raw",
+            ).length;
           const left = st.aiRanges.get(key) ?? 0;
           if (cmd === "ai_folder_stop") {
             // What was done stays: a third, say.
@@ -1318,13 +1935,20 @@ export function installMock(): void {
           return null;
         case "ai_tags": {
           const i = Number(String(a.id).slice(1));
-          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [] };
+          // Per AI, the keywords it gave that the item still has.
+          const kw = st.keywords.get(i) ?? [];
+          const by = st.aiSources.get(i);
+          const byAi = [...CLOUD, AIRCRAFT].flatMap((p) => {
+            const tags = (by?.get(p.id) ?? []).filter((t) => kw.includes(t));
+            return tags.length ? [{ provider: p.id, name: p.name, tags }] : [];
+          });
+          if (!st.ai.enabled) return { enabled: false, analysed: false, tags: [], byAi };
           const gone = st.aiRejected.get(i) ?? [];
           const mine = st.keywords.get(i) ?? [];
           const tags = [AI_LABELS[i % 6], AI_LABELS[(i + 2) % 6]]
             .filter((t) => !gone.includes(t) && !mine.includes(t))
             .map((tag, k) => ({ tag, confidence: k === 0 ? 61 : 23 }));
-          return { enabled: true, analysed: true, tags };
+          return { enabled: true, analysed: true, tags, byAi };
         }
         case "ai_tag_decide": {
           const i = Number(String(a.id).slice(1));

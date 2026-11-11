@@ -1102,7 +1102,7 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 - **Quick read on add.** A batched add (`RebuildOptions::batch_files`: the app and `keepsake add-folder`) reads only each file's quick hash (xxh3 of its size, first MiB and last MiB), about 27 GB for `2019`. The file is saved with a stand-in key, `FileHash::Pending`, made from its volume, path, size and quick hash, so it is unique and never equals a real BLAKE3.
 - **Schema v7.** `files.fingerprinted` (0 or 1, default 1, so every existing row is unchanged); `blake3` holds the stand-in key while it is 0. In code `File::hash` is a `FileHash` (`Full` or `Pending`): `key()` names renditions, and anything that checks content must use `full()`, so the compiler finds every such place.
 - **Background job.** `fingerprint::JOB_FINGERPRINT`, one job per asset on the persistent job queue, run by one extra worker in the render service (the same pauses: on battery, during an import). It checks the file is still the catalogued one (size, modification time, quick hash; before and after reading), reads it in full and stores its BLAKE3 (`Files::set_fingerprint`). A changed file is reported and left for a rescan; a disconnected drive defers the job. `render::enqueue_backlog` (app start, after every add) queues the jobs.
-- **Thumbnails.** Renditions are cached under the stand-in key from the start, and move to the real key when the fingerprint is stored (one `UPDATE` of `renditions.source_hash`; each row keeps its file path). If the same content was already rendered under the real key, that one wins and the other is left to eviction.
+- **Thumbnails.** Renditions are cached under the stand-in key from the start, and move to the real key when the fingerprint is stored (one `UPDATE` of `renditions.source_hash`). If the same content was already rendered under the real key, that one wins. *Amended by ADR-034:* the files are renamed to the new key as well, and the losers removed.
 - **Content checks.** Duplicate detection (`by_hash`, "already in the library" for card imports) only matches real fingerprints. Verify checks an unfingerprinted file by size and quick hash and reports it as "changed since added" if they differ; its report counts such files. Backup copies an unfingerprinted file only if its quick hash still matches, and stores the fingerprint it computed while copying, for the source and the copy.
 - **Unchanged:** card ingest, `rebuild-catalog` and an add without batches still read every file in full.
 
@@ -1163,6 +1163,38 @@ The dialog plugin's 3.0 alphas target future Tauri; we pin 2.x.
 **Not done.** More workers would not help on a single-disk network drive. Edited JPEGs (no built-in preview) are still read in full.
 
 ---
+
+## ADR-033 — A headless thumbnail backfill in saved batches
+
+**Status**: Accepted (2026-11-05, product owner asked for a program with no UI that makes every missing thumbnail in batches of 100, commits each batch, and resumes after a crash or a bad file).
+
+**Context.** The app's render queue (ADR-021) already makes thumbnails in the background, but only while the app runs, one job per asset with a write per job, and every `render.stills` job also makes a 2560 px preview. On the product owner's network-share library many files fail (ARWs with no embedded preview, files that do not decode), and the logs show "slow catalog write" warnings while the app works.
+
+**Decision.**
+- **A `keepsake renders thumbnails` subcommand**, not a new binary: the CLI already resolves the library and settings, finds the tools, handles Ctrl-C and exit codes, and ships with the app. The logic is in `keepsake_core::render::backfill`.
+- **Its own walk, not the job queue.** It follows `assets.seq` from a position saved in `library_meta` (`render.backfill.cursor`). The queue's claims and completions are one write per job, and its order (on screen, recent, newest first) changes as the app runs; a seq walk is stable and its position is one number.
+- **One transaction per batch.** Thumbnails are written to the cache first; then a single write records the batch's rendition rows and the new position. A killed run loses at most one batch, whose files are replaced next time (the cache is content-addressed).
+- **Thumbnails only** (`Thumb1024`, `Thumb256`), using a camera JPEG's built-in preview (ADR-032); previews are left to the app.
+- **Bad files are passed** and reported; a batch where every asset is offline stops the run before its position is saved (a share that dropped would otherwise be walked past in seconds), unless `--skip-offline`. At the end the position stays put; `--restart` walks again to retry failures.
+
+**Not done.** It does not evict: the app's render service trims the cache to its limit as usual. It does not mark the app's queued `render.stills` jobs done; they find the thumbnails and make only the preview.
+
+---
+
+## ADR-034 — A re-keyed rendition's file moves with its row
+
+**Status**: Accepted (2026-11-06, bug fix; amends the Thumbnails bullet of ADR-029). No new dependency, no schema change.
+
+**Context.** ADR-029 moved a source's renditions to its real BLAKE3 with one `UPDATE` of `renditions.source_hash`, and each row kept its file path. But the cache is content-addressed: a rendition's file is named `<kind>/<aa>/<source hash>-<recipe hash>.<ext>`. The grid builds that name from the item's hash without asking the catalog (`convert::cached`, so a 300,000-item grid needs no per-tile query), so after fingerprinting it looked for a file that was never there and showed a blank tile. `Cache::find` trusted the row's `rel_path`, so it reported the thumbnail as present and nothing made it again. On the product owner's library 100,857 thumbnail rows (50,430 photos) were misnamed, with 11,919 files still to fingerprint.
+
+**Decision.**
+- **The file follows the row.** After `Files::set_fingerprint` (the catalog cannot see the cache folder), the fingerprint job calls `Cache::move_source(old, new)`: each rendition now under the new key is renamed to its content-addressed name and its row updated. If a file already has that name (the same content made under the real key), the old-named file is removed and the row points at the existing one. Rows left under the stand-in key (the `UPDATE OR IGNORE` losers) are removed with their files; before, they were never evicted (no original has the stand-in key, so they counted as offline media).
+- **Crash order.** File first, then row. A crash between the two leaves a row whose `rel_path` is not its content-addressed name, which the two checks below put right. A failed move does not fail the fingerprint.
+- **Repair.** `Cache::repair_names` finds rows whose `rel_path` is not `<kind>/<aa>/<source>-<recipe>.*` (one SQL scan), in batches of 500 by id, renames each file (or drops the row when the file is gone) and writes each batch in one short transaction, so the app keeps working meanwhile. The render service runs it before its workers start (app start, `keepsake renders run`), and `keepsake renders repair` runs it on demand. When it renamed anything the app reloads every grid page on screen (`render://thumbs` with `all: true`); a finished fingerprint job reloads its item's tiles.
+- **`find` checks the name.** A row whose `rel_path` is not the name computed from the source and recipe is moved first; if that fails it counts as missing, so the item is rendered again.
+- **Never someone else's file.** A misnamed row whose `rel_path` is another row's correctly named file is dropped without touching that file.
+
+**Trade-off.** One scan of `renditions` at each service start (milliseconds for a few hundred thousand rows when nothing is misnamed); a first repair of 100,000 files takes as long as 100,000 renames on that disk.
 
 ## ADR-035 — On-device AI: content tags and same-day duplicates
 
@@ -1241,7 +1273,7 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 
 ## ADR-036 — Tag with Claude: an optional cloud tagger for the photos the user picks
 
-**Status**: Accepted (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
+**Status**: Accepted, extended by ADR-038 (ChatGPT and Gemini too) (2026-11-08, product owner: "for individual photos, I would like to add another tagging option using the best external LLM that can do it"; then chose "Choice in Settings" for the model, "ureq + keyring" for the dependencies, "List + new tags" and "Right-click a photo").
 
 **Context.** On-device tagging (ADR-035) covers 110 fixed tags and is sometimes wrong. The product owner wants a stronger tagger for single photos, accepting that the photo leaves the computer and that it costs money. Keepsake is local-first, so this must be opt-in, per photo, and never touch originals.
 
@@ -1302,13 +1334,13 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 **Status**: Accepted (2026-11-08, product owner: "got an error on install", then "Yes, fix it").
 
 **Context.** The installer stopped with "Error opening file for writing: …\Keepsake\exiftool\exiftool.exe". Two ExifTool processes from earlier sessions were still running, though Keepsake was closed. Three things caused it:
-- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows).
+- A `-stay_open` ExifTool does not end when its input closes; it keeps waiting for more arguments (checked on Windows; `ReadStayOpen` in `exiftool.pl` polls a closed input every 10 ms forever, so macOS too).
 - Closing Keepsake's window ends the process without running destructors, so the render service's ExifTool was never told to stop.
 - The import code keeps its ExifTool in a `static`, which is never dropped.
 
 **Decision.**
 - **On exit, stop the helpers (both OSes).** On `RunEvent::Exit` the app:
-  - stops the render service and waits up to 5 s for its jobs to finish (`render::stop_for_exit`), which stops its ExifTool;
+  - asks the render service (restarted ones too), a running import, a backup or verify and an AI model download to stop, and waits up to 5 s for them (`shutdown::on_exit`); the render service's ExifTool stops with it;
   - stops the import ExifTool (`import::stop_exiftool`).
 - **`ExifTool::shutdown(&self)`** stops the process (asked to finish, killed after 2 s) and waits for it. It works on one kept in a `static`; `Drop` calls it. `ExifTool::pid()` gives the running process's id, for tests.
 - **Windows: a job object as a safety net** (`keepsake_platform::close_helpers_with_app`, hand-written Win32 declarations as in ADR-020).
@@ -1320,3 +1352,275 @@ Nothing GPL is linked; ONNX Runtime and DirectML are not linked at all.
 No new dependencies.
 
 **Not done.** A macOS safety net for crashes (e.g. ExifTool watching for its parent). A render job running at exit (a long video proxy) is not cut short: after 5 s the app exits anyway; on Windows the job then ends its FFmpeg.
+
+
+## ADR-038 — Tag with AI: Claude, ChatGPT or Gemini
+
+**Status**: Accepted (2026-11-08, product owner: "give the user the ability to select which AI to use when tagging a single picture, Gemini, ChatGPT, CoPilot,..."; then chose "Yes, those three": Claude, ChatGPT and Gemini, without Copilot). Extends ADR-036.
+
+**Context.** ADR-036 sends the photos the user picks to Claude. The product owner wants to choose the AI. Copilot was left out: Microsoft has no public API for consumer Copilot, and GitHub Copilot is for code. The nearest option, Azure OpenAI, needs an Azure subscription, a deployment and an endpoint.
+
+**Decision.**
+- **Three providers, each with the user's own API key**, called over HTTPS with plain JSON (no SDKs), in `keepsake_core::ai::cloud`:
+  - **Claude (Anthropic)**: the Messages API, unchanged from ADR-036.
+  - **ChatGPT (OpenAI)**: the Responses API, `POST https://api.openai.com/v1/responses`, key as `Authorization: Bearer`.
+    - The photo is an `input_image` data URL (`detail: auto`).
+    - The answer is held to the schema with Structured Outputs (`text.format`, `json_schema`, `strict: true`).
+    - `reasoning.effort: low`, `store: false`.
+  - **Gemini (Google)**: `generateContent`, `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`, key in `x-goog-api-key`, never in the URL.
+    - The photo is `inlineData`, the prompt a `systemInstruction`.
+    - The answer is held to the schema with `responseMimeType: application/json` and `responseJsonSchema` (without `additionalProperties`, which Google's docs do not list for answers).
+    - The tag list is not an `enum` in that schema: Gemini refuses it ("Request contains an invalid argument", found with a real key on 2026-11-08). The list goes with the question instead, one name a line, and `tidy` keeps only tags on it.
+    - `thinkingConfig.thinkingLevel: LOW`.
+    - Google recommends its newer Interactions API for new work, but says `generateContent` "remains fully supported". It is the documented, stable one; moving later only touches `gemini.rs`.
+- **Models, chosen per provider in Settings** (prices checked on the providers' pages, November 2026):
+
+| Provider | Model (default first) | About a photo |
+|---|---|---|
+| Claude | Claude Opus 5.5, Claude Fable 5.1, Claude Haiku 5.5 | 2¢, 6¢, 0.1¢ |
+| ChatGPT | GPT-6.1 Sol (`gpt-6.1-sol`), GPT-6 Astra (`gpt-6-astra`), GPT-6 Luna (`gpt-6-luna`) | 1¢, 5¢, 0.05¢ |
+| Gemini | Gemini 3.6 Flash (`gemini-3.6-flash`), Gemini 4 Argon (`gemini-4-argon`), Gemini 3.5 Flash-Lite (`gemini-3.5-flash-lite`) | 0.8¢, 2¢, 0.2¢ |
+
+  - The defaults are each provider's middle tier.
+  - Gemini's estimates use the prices from 1 December 2026 (Argon) and 1 January 2027 (Flash), when the introductory prices end.
+- **The same prompt, schema and tidying for all**: tags from the list, up to 5 new ones under `AI`, never naming people. Each provider's module only builds its request and reads its answer (`call`, `parse_response`).
+- **Errors mean the same everywhere** (`http_error`): a refused key (401, 403, or Gemini's 400 `API_KEY_INVALID`), a refusal (Claude `stop_reason: refusal`, OpenAI `refusal` or `content_filter`, Gemini `blockReason` or a safety `finishReason`) and other 4xx fail the photo for good. 429, 529, 5xx, a cut-short answer and network errors are retried. An OpenAI 429 for an empty or over-limit account (`insufficient_quota` and the like) is not retried.
+- **Choosing the AI.** The grid's right-click menu and the viewer say **Tag with AI…**. The window that asks first has an **AI** list of the providers with a saved key (none listed when only one has a key). Sending makes that provider the one offered first next time (`[ai] cloud_provider`). With no key at all it points to Settings.
+- **Jobs: one kind per provider**, `ai.claude` (as before, so queued jobs keep working), `ai.openai`, `ai.gemini`. One worker in the render service claims all three (`RenderService::with_cloud`); a photo can be sent to two providers and each is followed on its own.
+- **Keys: one credential-store entry per provider**, account `<id>-api-key` under service "Keepsake" (`claude-api-key` stays), with `KEEPSAKE_<ID>_KEY` overriding it. `keepsake_platform::secrets::{api_key, set_api_key}`. Pasting a Claude key in the ChatGPT box (or the other way round) is caught.
+- **Privacy, said where the user chooses.**
+  - OpenAI does not train on API data; it keeps it up to 30 days for abuse checks.
+  - On Gemini's free tier, Google may use what is sent, and people may review it, to improve its products, except in the European Economic Area, Switzerland and the UK. Paid (billing on) it does not. Settings and the ask-first window say to use a key from a project with billing.
+
+**Dependencies.** None new: `ureq` and `keyring` (ADR-036) cover it.
+
+**Not done.**
+- Copilot / Azure OpenAI.
+- Sending one photo to several AIs at once and comparing (done in ADR-039).
+- A real call to OpenAI or Google is not in CI (no keys there); requests and answers are tested with a stand-in, against the documented shapes.
+
+## ADR-039 — Which AI gave each tag; Tag with AI to All; tags in the search bar
+
+**Status**: Accepted (2026-11-08, product owner: "keep track of AI tags and indicate which AI tagged them... visible in the sidebar", "an additional option in the dropdown for tag with AI to allow to tag with all", and "add tags to search"). Chosen in answers: show it in the **Inspector**; when two AIs give the same tag, **keep them separate**; tag search as **tag chips in the search bar**. Extends ADR-035 and ADR-038.
+
+**Context.** Tag with AI adds the AI's tags to a photo's keywords, the same as tags the user types, so nothing recorded which AI gave a keyword. The on-device AI's tags are already apart (`asset_tags.source = 'ai'`). The window that asks first sends to one AI. Search took words (names, comments, keywords) and one tag from the Tag list.
+
+**Decision.**
+- **A record per AI and keyword**: table `ai_tag_sources (asset_id, provider, tag_path)` (schema v12), provider `claude`, `openai` or `gemini`.
+  - `MetadataService::add_ai_keywords(asset, provider, given)` adds the keywords the photo lacks and records **every** keyword the AI gave, also those it had already (the user's own, or another AI's). The cloud worker uses it.
+  - Two AIs that give the same keyword each have a row; the keyword is still added once.
+  - Removing a keyword (`set_user_tags`) forgets who gave it.
+  - **Written to the XMP sidecar** as `keepsake:AITagSources` (a bag of `Name`, `By`), so a rebuild restores it. An AI this version does not know is left out when read.
+- **Inspector**: under the on-device AI tags (now labelled *On-device*), **Tagged with AI** lists one row per AI (Claude, ChatGPT, Gemini, in that order) with the keywords it gave that the photo still has. `ai_tags` returns them as `byAi`.
+- **All**: the AI list in the ask-first window ends with **All (Claude, ChatGPT and Gemini)**, the AIs with a key, when more than one has one.
+  - The photos are queued for each AI in turn (`ai_cloud_tag` once per AI); the window follows all of them and Stop stops all of them.
+  - It says what it costs in all and who charges, shows each AI's privacy note, and at the end how many each AI tagged.
+  - All is remembered like one AI (`[ai] cloud_provider = "all"`); with only one key left, that AI is offered.
+- **Tags in the search bar**: typing suggests up to 8 tags whose name contains the words (those whose name, or a part of it, starts with them first, then the most used). Picking one (click, or ↓ and Enter) adds it as a chip and clears the words; ✕ or Backspace in the empty box removes one.
+  - The items shown have **every** chip's tag, or a tag below it, as the Tag list does for one (`SearchQuery::tags`, `Query.tags`). The Tag list stays.
+
+**Dependencies.** None.
+
+**Not done.**
+- Searching by which AI gave a tag (offered, not chosen).
+- The on-device AI's tags are not in the per-AI rows: they are already apart, under On-device.
+- Keywords tagged by an AI before this change have no record of which AI gave them.
+
+## ADR-040 — People: name a face and find that person, on this computer
+
+**Status**: Accepted (2026-11-08, product owner: "tag a person's picture with a name and … use on machine AI if possible to tag all the pictures this person is in regardless of age", then "add a right click, name and find to enable this feature", then "Approve, start step 1": the five choices below as proposed). Steps 1–5 built, matching tuned; step 6 (the People screen) to come. Extends ADR-035.
+
+**Context.** SPEC v2 lists face detection and clustering with names. On-device AI (ADR-035) already runs ONNX Runtime on the graphics card, from the 1024 px thumbnails, on the job queue. Faces are personal data, and in some laws biometric data, so this stays on the computer: no face, crop or embedding is ever sent to Claude, ChatGPT or Gemini (their prompt already forbids naming people, ADR-036).
+
+**How it works.**
+1. **Find faces.** A face detector marks each face in a photo: a box, 5 landmarks (eyes, nose, mouth corners) and a score.
+2. **Describe each face.** The face is straightened with its 5 landmarks to the recogniser's 112×112 template, and a face recogniser turns it into an embedding. Faces of one person have embeddings close together (cosine similarity).
+3. **Name one face** (right-click → **Name and find…**).
+4. **Find the others.** Faces close to the named one are **suggested**; the user confirms or rejects them. Each confirmed face is another reference for that person.
+
+**Different ages.** One average face per person fails across decades. So:
+- A person keeps **every confirmed face** as a reference; a face's score is its best similarity to **any** of them (nearest neighbour), not to an average.
+- Suggestions are found **out from the dates of the confirmed faces**, a few years at a time: confirming faces from 2015 lets **Find more** reach 2012, then 2009. This is how a child's photos are reached from an adult's.
+- Adults across years match well. Young children change fast: expect to confirm more of them by hand. Babies under about two are often not matched; they can still be named one by one.
+
+**Decision (proposed).**
+
+- **Models — To approve (dependency rule):** both from OpenCV Zoo, run with the ONNX Runtime the app already has (no new crates), downloaded on first use like SigLIP (pinned URL and BLAKE3, into the models folder).
+
+| Job | Model | Licence | Notes |
+|---|---|---|---|
+| Find faces | YuNet (`face_detection_yunet_2023mar.onnx`) | MIT ("All files in this directory are licensed under MIT License") | Tiny; faces about 10–300 px; WIDER Face AP easy/medium/hard 0.88 / 0.87 / 0.75 |
+| Describe faces | SFace (`face_recognition_sface_2021dec.onnx`) | Apache-2.0 | MobileFaceNet trained with the SFace loss; OpenCV Zoo lists accuracy 0.994 (the benchmark is not named); input size and embedding length to be read from its `sface.py` before building |
+
+  - **Not chosen:** InsightFace's models (`buffalo_l`, `antelopev2`) are more accurate but licensed for **non-commercial research only**; their code is MIT, their weights are not. Others (FaceNet weights trained on research-only data sets) have the same problem.
+  - The matcher only sees embeddings, so a better permissively licensed recogniser can replace SFace later: faces are scanned again, names and confirmations stay (they are on the face boxes, not the embeddings).
+
+- **Off until turned on**: Settings → On-device AI → **Recognise faces** (needs On-device AI on). Turning it off stops scanning; **Delete all face data** removes faces, embeddings and people from the catalog and the face regions from the sidecars.
+
+- **Right-click → Name and find…** (the photo menu in the grid, the viewer and the Inspector; Shift+F10 too):
+  1. The window shows the **faces in that photo** as small crops (found then if the photo was not scanned yet). One face: it is picked.
+  2. Type the **name**; names already used are suggested, so a second photo of Sara adds to the same person.
+  3. **Where to look**: All photos (default — **To approve**), or the dates or folder you are in.
+  4. **Find.** Photos not scanned yet are scanned in the background (job `ai.faces`, after thumbnails, paused on battery like other AI work). The window shows how far it has got, with Stop and Hide.
+  5. **Review**: the suggested faces, best first, grouped by year, each a crop with its photo's date. Click to reject one; **Confirm** confirms the rest. **Find more** looks again with the newly confirmed faces (the step through the years).
+- **Never named without the user — To approve.** Suggestions are always confirmed by the user, never applied by themselves. (Alternative: confirm very close matches automatically, as Google Photos does. Faster, but sometimes wrong in a way that is hard to notice.)
+- **In the Inspector and viewer:** a **People** section lists the named people in the photo. In the viewer, **Faces** (key F) draws the boxes with names; right-clicking a box gives Name…, Not this person, Not a face.
+- **Search:** each confirmed name is also a keyword `People|Sara` (**To approve**), so the Tag list and the search bar's tag chips (ADR-039) find a person, and other apps that read keywords see them.
+- **People screen (second step — To approve):** Sidebar → People: every named person with a face and a count; unnamed faces grouped by likeness, to name a group at once; rename, merge two people.
+
+- **Stored:**
+  - Catalog (schema v13): `faces` (asset, box and landmarks in 0–1 units of the picture, detector score, embedding as int8 with a scale, model, person, state `suggested` / `confirmed` / `rejected`), `people` (id, name), and the faces each person was rejected for.
+  - Embeddings and unconfirmed faces are a cache, like `ai_analysis`: rebuilt by scanning again.
+  - **The user's decisions are in the XMP sidecar**, so a rebuild keeps them and other apps see the names: confirmed faces as standard **MWG face regions** (`mwg-rs:Regions`: `Type` Face, `Name`, `Area` x/y/w/h, normalised, with the picture's size), which Lightroom, digiKam and Windows Photos read; rejections under `keepsake:`. The XMP writer needs nested structures for this (a region's `Area` inside the region list inside `Regions`); today it writes one level.
+  - Originals are never changed.
+- **What it scans:** photos and RAW photos (their preview), from the 1024 px thumbnail. A face smaller than about 40 px there (a far-away face in a group photo) is skipped at first; reading it from the full-size preview is a later step. Videos are not scanned in the first version.
+- **Speed (estimate, to measure):** YuNet and SFace are small (MobileFaceNet); a photo should take tens of milliseconds on the graphics card. All 129,000 items of the product owner's library: roughly an hour or two the first time, once. Finding a person afterwards compares embeddings only: seconds.
+
+**Plan.** Each step is its own branch and pull request, with its tests, green on Windows and macOS.
+1. **Models and face pipeline (core):** download and check the two models; `ai::faces` with the detector, the 5-point alignment (a similarity transform written here, no OpenCV) and the recogniser; unit tests for alignment, decoding the detector's output and the embedding.
+2. **Scan and store:** schema v13, `ai.faces` jobs in the render service, the setting, Delete all face data; catalog tests; worker tests with a stand-in detector and recogniser.
+3. **Name and find:** people, matching (nearest neighbour, thresholds, out from the confirmed dates), the commands and the window with Review and Find more; the menu item; mocked UI tests.
+4. **Sidecars and search:** MWG regions (nested XMP structures), `People|Name` keywords, rebuild; XMP round-trip and rebuild tests.
+5. **Inspector and viewer:** the People section, face boxes, right-click on a box; mocked UI tests.
+6. **People screen** (if approved for now).
+
+- **Thresholds** are set from the product owner's own photos: corpus tests (`KEEPSAKE_CORPUS`, skipped without it) with a few people named by hand, measuring how many suggestions are right and how many faces are missed, across years.
+
+**Limits.** Faces in profile, with sunglasses or masks, very small or blurred are often not found or not matched. Identical twins and close siblings may be suggested for each other. These are why every suggestion is reviewed.
+
+**Dependencies (approved).** No new crates. Two model files, downloaded at run time into the user's cache folder (`models/yunet-2023mar/`, `models/sface-2021dec/`), kept only if the BLAKE3 matches; developers get them with `setup -WithAi` / `--with-ai`.
+
+| File | Licence | Source (pinned) | Bytes | BLAKE3 | SHA-256 (setup scripts) |
+|---|---|---|---|---|---|
+| `face_detection_yunet_2023mar.onnx` | MIT (Shiqi Yu, OpenCV Zoo) | `huggingface.co/opencv/face_detection_yunet` @ `3cc26e7f1014a5ee5d74a42acee58bafc9d0a310` | 232,589 | `3d5938c4…87e63431` | `8f2383e4…d2552fa4` |
+| `face_recognition_sface_2021dec.onnx` | Apache-2.0 (OpenCV Zoo) | `huggingface.co/opencv/face_recognition_sface` @ `3d7082438a6e4551e840c9b2bb60b71e8da4b524` | 38,696,353 | `584d0f57…6592b512` | `0ba9fbfa…087c34e79` |
+
+- Read from the files: YuNet's input is fixed at 1 × 3 × 640 × 640 (blue, green, red, 0–255) with 12 outputs (`cls_`, `obj_`, `bbox_`, `kps_` for grids 8, 16, 32); SFace's is 1 × 3 × 112 × 112 (red, green, blue, 0–255) giving `fc1`, 128 numbers. Decoding, the alignment template and the 0.363 threshold follow OpenCV's `FaceDetectorYN`, `FaceRecognizerSF` and OpenCV Zoo's `sface.py`.
+
+**Approved** (2026-11-08): (1) YuNet and SFace. (2) Suggestions always confirmed by the user. (3) Find looks in all photos by default. (4) Names also as `People|Name` keywords. (5) The People screen in a second step, after Name and find.
+
+**Step 1, as built** (`keepsake_core::ai::faces`): `FaceModels::{load, load_installed, find, describe, find_and_describe}`; `detect` (fitting the picture into 640 × 640, decoding the three grids, merging overlapping faces at IoU 0.3, faces kept from a score of 0.8); `align` (the closed-form least-squares similarity, no mirroring, bilinear, black outside); `install` (the pins, `install`, `remove`, `KEEPSAKE_FACE_DETECTOR` / `KEEPSAKE_FACE_RECOGNIZER`). The image encoder and the face models share `model::open_session` (graphics card, else processor).
+
+**Step 2, as built** (searching and storing):
+- **Schema v13**: `people` (one per name, any case), `face_scans` (each photo searched, with the models and the thumbnail's size, so a photo with no faces is remembered), `faces` (box and landmarks in 0–1 units, score, int8 embedding, person and state `unknown` / `suggested` / `confirmed`), `face_rejections`. A person is removed only after their faces are made `unknown` (no cascading reset, which would break the state check).
+- **Jobs `ai.faces`**, one per photo, run by a face worker in the render service when On-device AI and Recognise faces are both on (`[ai] faces`). Like the AI worker it loads its models once, claims 32 jobs, saves them in one write, waits for thumbnails and pauses on battery. A photo already searched with these models is skipped. Faces narrower than 40 px in the 1024 px thumbnail are not kept.
+- **Searching again keeps the user's decisions**: faces with no person are replaced; a named or suggested face stays, and a new face over it (IoU above 0.5) is the same face, not a second one.
+- **Workers that wait for thumbnails** (AI and faces) wait only while a thumbnail worker is still running: when the service stops at an empty queue (CLI, tests), a thumbnail queued after the thumbnail workers ended would otherwise be waited for forever. Searching every photo queues the thumbnails it needs first.
+- **Settings → Recognise faces**: on (downloads the two models, 39 MB, with progress; needs On-device AI), Search all N photos / Stop, Delete all face data (asked first: faces, people and decisions; queued searches dropped), Delete the downloaded face models. CLI: `keepsake ai faces install | scan | status | delete-all --yes`.
+- Not yet: names in the sidecars (step 4: Delete all face data will then also clear the face regions it wrote).
+
+**Step 3, as built** (Name and find, `faces::people`):
+- **Right-click a photo → Name and find…** (grid; also a **Name and find** button in the viewer; not for videos). The window shows the photo's faces cut out of its thumbnail; a photo not searched yet is searched first, ahead of everything else (`scan::search_now`), and the window waits for it.
+- **Naming** a face confirms it as that person (one person per name, any case; names used before are offered). Then every photo not searched yet is searched in the background (the window shows the count; it can be closed, or **Show matches so far**), then the person's faces are suggested.
+- **Matching** (`people::suggest`): every face with no person, not rejected for this person, gets the best cosine similarity to **any** of the person's confirmed faces; from 0.363 it is suggested (`faces.state = 'suggested'`, `faces.likeness`). At most one face a photo (the best), none in a photo where the person is confirmed or already suggested.
+- **Out from the dates** (`YEARS_STEP` = 3): only faces in photos within 3 years of a confirmed face's photo (or with no date) are looked at. **Find more** after confirming reaches 3 years further each time; this is how a child's photos are reached from an adult's.
+- **Review**: the suggestions by year, newest first, best first within it. A click marks one "not them"; **Confirm N faces** confirms the rest and records the rejections (never suggested for that person again). Nothing is named without the user.
+- Schema v13 also has `faces.likeness` (the suggestion's score); v13 had not been released.
+
+**Step 4, as built** (names in the sidecars and search; approved by the product owner, 2026-11-08):
+- **Face regions.** Each confirmed face is written to the photo's XMP sidecar as a standard MWG region: `mwg-rs:Regions` (`AppliedToDimensions` with the searched picture's size, `stDim:unit` pixel) and a `RegionList` bag of `Type` Face, `Name`, `Area` (`stArea:x`/`y` the box's **centre**, `w`, `h`, `unit` normalized, as MWG requires). The XMP writer and reader gained nested values (`xmp::Value`: text, struct, array, any depth) and read every RDF form (`parseType="Resource"`, `rdf:Description`, fields as attributes).
+- **Other apps' regions stay.** Keepsake writes the regions of its people; a region that is not a named face (a pet, an unnamed face), or a named face of someone Keepsake does not manage, is kept. Keepsake records the names it wrote (`keepsake:FaceNames`) so it can take its own regions off later.
+- **Reading.** Every named face region in a sidecar becomes that person's confirmed face when a photo is added or the catalog rebuilt, Lightroom's and digiKam's too. "Not this person" is under `keepsake:FaceRejections` (person, box).
+- **Keywords.** Each confirmed person's name is a keyword `People|<name>` on the photo (`MetadataService::sync_faces`), taken off when none of their faces is left there; a `People|…` keyword of a name that is not one of the people is the user's and left alone. So the Tag list and the search bar's tag chips find people.
+- **Rebuild.** People, confirmed faces and rejections come back from the sidecars. A restored face has no description (`faces.model = 'sidecar'`) and is never used to find others; the next search of its photo finds the face again and gives it one, keeping the name (`save_scan`). A rejection whose face is not found yet waits by its box (`face_rejections_pending`, schema v13) and is applied when a search finds a face there.
+- **Delete all face data** first takes every name off and writes the photos' sidecars and keywords again (while the people are known), then empties the tables. The user's own `People|…` keywords stay.
+- Originals are never changed: only sidecars (or their mirror for read-only drives) and the catalog.
+
+**Matching, tuned (2026-11-09, product owner: "it is matching a bald man with glasses to a woman wearing a headscarf … what can we do", then "Yes, build them").** Measured on the product owner's library (four people; 9,000 confirmed faces, 16,000 suggestions, 2,900 rejections): scoring a face by its *nearest* confirmed face with OpenCV's 1:1 threshold (0.363) let one wrong confirmation pull in look-alikes of a stranger, and with thousands of references nearly anything found a close enough one; most suggestions scored 0.4–0.5. Re-scored against the user's own answers (confirmed vs rejected), the person's *average* face did best: at 0.55 it kept 92–99% of confirmed faces and let through 9–43% of the rejected ones, against 51–82% for the nearest face. Changes:
+1. A face is scored against the person's **average face from around the same years** (the confirmed faces within 3 years of its photo, kept as sums per year; undated: all of them), so matching still steps through the years.
+2. The cut-off is **0.55** by default; **Looser / Stricter** in Review (0.40–0.75, `[ai] face_match_pct`, kept).
+3. A face that looks **more like a face rejected for that person** than like their average face is not suggested.
+4. Faces narrower than **60 px** in the searched picture are not used (neither as references nor as suggestions).
+5. Each Find (and opening Name and find) **scores the waiting suggestions again** with the current cut-off: on that library about 16,000 become about 900. **Check <name>'s faces** lists a person's confirmed faces least like the others first, to take mistakes off (from the Name and find window, or a name in the Inspector's People).
+A stronger recogniser than SFace would help more; most are not licensed for this use, so that is left for later.
+
+**Step 5, as built** (the Inspector and the viewer; approved by the product owner, 2026-11-08):
+- **Inspector → People** (one photo, not a video): the people confirmed in it, how many faces have no name, and **Name and find…**. It never starts a search: a photo not searched yet says so (`faces_of_photo` with `search: false`).
+- **Viewer → Faces** (button, or **P**: F is already full screen) draws the photo's faces over it, at its size and zoom: named faces with their name (a suggestion with "?"), faces with no name dashed. A click or right-click on a box opens its menu: **Name…** (Name and find with that face picked), **Not <name>** (`people::not_this_person`: the name and keyword come off; never suggested for them again), **Not a face** (`people::not_a_face`: hidden for good).
+- **"Not a face"** is a face state, `hidden` (schema v13): not shown, not counted, never suggested, and a new search does not add it again. A new search also keeps a face that has a "not this person", so that decision is not lost. Not written to the sidecar (not kept by a rebuild): a small limit, noted in TEST_ME.
+
+## ADR-041 — Read aircraft: registration, airline and type, on this computer
+
+**Status**: Accepted (2026-11-11, product owner: "a local model that can look at airplane pictures and try to extract the visible text from the planes like airline name, registration number and attempt to identify the type of aircraft"). Chosen in answers: **PP-OCR + SigLIP** (over one small vision-language model, or a larger one with a new runtime); results **as AI tags** (keywords, over dedicated Aircraft fields); "Yes, download all three" (both detectors and the recogniser, to compare them); test on "My library's Airplane photos"; "Yes, download and install" for the type vectors' developer tools. Extends ADR-035 and ADR-039.
+
+**Context.** On-device AI (ADR-035) tags a photo "Airplane" but cannot say which aircraft. The ONNX Runtime it loads (DirectML / Core ML, else the processor) and the pinned, BLAKE3-checked model downloads are there to build on. The owner's library has several hundred aircraft photos, most of them 24-megapixel RAW files on a network drive.
+
+**How it works.**
+1. **Find the text** (`ai::aircraft::ocr`): PP-OCRv5's server detector marks where text is; each region becomes the smallest rectangle around it, at any angle.
+2. **Read it**: each rectangle is cut out of the picture, straightened, and read by PP-OCRv5's English recogniser.
+3. **Say what it is** (`ai::aircraft::marks`):
+   - a **registration** is a word shaped like one country's marks (`C-FJZS`, `D-AIKR`, `N863NN`, `JA801A`); about 150 prefixes are known. The hyphen is required where a country writes one, so ordinary words are not taken for marks;
+   - an **airline** is a line that is a name in `airlines.tsv` (nearly 300 airlines, as painted): the whole line, or a name of several words inside it; a long name may have one character wrong (`ufthansa`). A title split by a wing (`AIR` … `CANADA`) is joined;
+   - a **painted type** is what some airlines write by the door (`BOEING 777-300ER`, `AIRBUS A220-300`, `DREAMLINER`), with misread digits put right (`30DER`).
+4. **The type from the look** (`ai::aircraft::types`), only without a painted one: the photo's SigLIP 2 embedding against the text vectors of 73 types (`aircraft-types.tsv`; airliners as families). Given only when one type stands out (probability at least 0.3 and 3 times the second).
+5. **Keywords.** What was found is added to the photo's keywords: `Aircraft|Registration|C-FJZS`, `Aircraft|Airline|Air Canada`, `Aircraft|Type|Boeing 777-300ER`. They are in the catalog and the XMP sidecar like typed ones, and who gave them is recorded (source `aircraft`, shown as **Aircraft reader** under Tagged with AI; ADR-039). Keywords the photo has stay; reading again adds nothing twice.
+
+**Decisions.**
+- **Photos are read at full size, from their file.** Measured on 25 of the owner's photos: from the 1024 px thumbnails one registration was read; from the full pictures, most of those that can be read by eye. A registration is about 5 px high in a thumbnail and 30 px in the original. So the job decodes the photo (the JPEG of a pair, else the RAW through LibRaw), finds text with the picture's long side at 2560 px, and reads each line from the full picture. Nothing is added to the cache, and **the original is only read**. If the file cannot be reached (drive not connected) the thumbnail is read instead; a video is read from its thumbnail frame.
+- **The server detector, not the small one.** Both were run on the same photos at 1920 and 2560 px. The small one (PP-OCRv4 mobile, 4.7 MB) missed or cut registrations the server one (88 MB) read (`C-GUPG`, `C-FLQZ` → `-FLQZ`, the painted types). It is not shipped. The download is 96 MB, not the 20 MB first estimated: the owner was asked before it was downloaded.
+- **The recogniser runs on the processor**: it is small, and every line has another width, which a graphics card plans anew each time. The detector runs on the graphics card when it can.
+- **Only for the photos picked** (right-click → Read aircraft; a button in the viewer). It takes seconds a photo and reads the original, so it never runs by itself. `[ai] aircraft` turns the worker on; it does not need On-device AI, except for the type from the look.
+- **One job at a time** (`ai.aircraft`), not batches: each takes seconds and saves through `MetadataService`, which writes the sidecar.
+- **Schema v14.** `ai_tag_sources.provider` was limited in the schema to the three cloud AIs. The table is made again without the list (rows kept); the code decides which sources it knows (`ai::tag_source_id`). A sidecar's `keepsake:AITagSources` row with `By` `aircraft` is read back.
+
+**What it found** (40 of the owner's Airplane-tagged photos, full size, a development build): a registration in 8, an airline in 11, a painted type in 3. The rest have no readable text (air shows, aircraft far away, bare metal). About 5 s to read a photo on the graphics card, plus 2.5 s to load a RAW.
+
+**The type from the look is a rough guess.** On the same photos the best-scoring type was right for narrow-bodies (four Boeing 737s, the two whose type is known from the registration both right) and for the Snowbirds, but often wrong between wide-bodies: an A330 scored as an A320, a 787 as a 757, an A380 as a 777. With the thresholds above only the 737s are given. A type painted on the aircraft is always preferred.
+
+**Dependencies** (approved 2026-11-11). No new crate.
+
+| Dependency | Version | Licence | Kind | Why |
+|---|---|---|---|---|
+| PP-OCRv5 server text detector (ONNX, 88.0 MB) | `monkt/paddleocr-onnx` rev `7b02d0a3`, `detection/v5/det.onnx` | Apache-2.0 | model, downloaded by the user | Finds text. |
+| PP-OCRv5 English mobile recogniser (ONNX, 7.8 MB) | same, `languages/english/rec.onnx` | Apache-2.0 | model, downloaded by the user | Reads text. |
+| `ppocrv5_en_dict.txt` (1.4 KB) | same, `languages/english/dict.txt` | Apache-2.0 | committed (`ai/aircraft/`) | The recogniser's characters. |
+| SigLIP 2 text tower and tokenizer (`text_model.onnx`, 1.13 GB; `tokenizer.json`) | onnx-community rev `ba1f3b08` | Apache-2.0 | developer tool only, never shipped | `scripts/make-label-vectors.py … aircraft-types` makes the 77 KB type vectors, which are committed. |
+| onnxruntime (Python) | 1.31.1 | MIT | developer tool only, never shipped | The same script (as in ADR-035). |
+
+Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/RapidOCR`, Apache-2.0), downloaded into a developer's `vendor/` only.
+
+**Not done.**
+- **The type from the registration.** Looking a registration up gives the exact type and operator, but needs a registry database (a new data dependency, to be approved) or the network.
+- A better type guess: cutting the aircraft out of the frame first, or a model trained on aircraft.
+- Reading aircraft photos by itself as they are tagged (it is asked for: a folder, dates or picked photos).
+- Removing a wrong keyword does not stop it being given again when the photo is read again.
+- Two airlines for one aircraft when both names are painted (`American Airlines` and `American Eagle`).
+- Military serials, marks without a hyphen where the country writes one, text in other scripts.
+- macOS: built and tested in CI only (no model there, so the model test skips), like the other AI features.
+
+**A folder or dates at once** (2026-11-11, product owner: "I want to be able to batch the Read Aircraft function, I want the click to be enables at the folder level also, and the task will scan all the folder for any pictures with Aircraft tag and do the read function").
+- **Right-click a folder** (By folder) **→ Read aircraft**, and the same on a year, month or day of the calendar. The progress window is the one Tag photos uses, with Stop and Hide.
+- **Which photos.** Those in the folder and the folders in it (or on the dates) that carry **Airplane, Helicopter or Airport** (`scan::AIRCRAFT_TAGS`), as an on-device AI tag or as a keyword, or a tag below one of them. Airport is included because its photos are mostly aircraft at the gate. A photo with none of these is not read, so **Tag photos comes first**; a folder with none says so.
+- **Each once.** A photo already read is left alone (its `ai.aircraft` job is done), so asking again for a folder reads only what is new. Picking photos and choosing Read aircraft still reads them again.
+- Built on what was there: `scan::{target_items, enqueue_target, target_status, stop_target}` over `ai::Target`; the app's folder and date commands take `what` = `aircraft` beside `duplicates` and `tags`. No new command, dependency or schema change.
+- Not done: the calendar's No date; a count of aircraft photos before starting; failed photos are not listed in the window (they are neither read nor waiting).
+
+## ADR-042 — Edit suggestions for Photoshop and Topaz Photo
+
+**Status**: Accepted (2026-11-11, product owner: "I want a new right click option that will analyze the image and give edit suggestions using Photoshop or Topaz"). Chosen in answers: **both** (measured on this computer first, then an AI when asked; over cloud only or this computer only), **kept in Keepsake** (over only shown, or also a note in the sidecar), **one photo at a time** (over a selection).
+
+**Context.** The owner edits in Photoshop 2026 and Topaz Photo, both already in their Open in list (`[open.apps]`). Tag with AI (ADR-036, ADR-038) already sends a 1024 px thumbnail to Claude, ChatGPT or Gemini with keys in the OS credential store, on the render service's queue.
+
+**How it works.**
+1. **Right-click a photo → Edit suggestions…** (or **Edit suggestions** in the viewer) opens a window for that photo.
+2. **Measured here** (`ai::suggest::measure`), from the 1024 px thumbnail: the middle, darkest 5% and brightest 5% tones; the share blown out (every channel 250 or more) and pure black (4 or less); a colour cast from the near-grey pixels (saturation under 0.2, mid tones; only judged when at least 3% of the photo is near-grey); grain (Immerkær's noise estimate, the 20th percentile of 16 px blocks, so detail does not count); sharpness (the strongest 1% of Laplacian edges); a tilted horizon (the commonest angle of strong edges within 15° of level, believed only when 40% of their weight is within a degree of it, and reported between 0.7° and 10°). Plain arithmetic; well under a second.
+3. **Rules** (`ai::suggest::rules`) turn the measurements into suggestions, each with what was found and how to do it in **Photoshop** (Camera Raw panel and slider, with a value to start from; Smart Sharpen; the Crop tool's Straighten) and in **Topaz Photo** (Adjust Lighting, Balance Color, Denoise, Sharpen, Super Focus), or nothing for a program that has no tool for it (Topaz cannot bring back blown highlights). The rules cannot see what the photo is of, so each says what it measured ("unless it is meant to be dark"), and a black-and-white photo is not told to add colour.
+4. **Ask an AI** (when the user presses Ask Claude / ChatGPT / Gemini): the thumbnail, re-encoded as JPEG, and the measurements in words go to the provider picked, with the same keys and models as Tag with AI. The answer is held to a JSON schema: a summary and up to 6 suggestions, each with a title, why, Photoshop steps and Topaz Photo steps (kept: at most 8, text cut at 700 characters). It is told never to name or guess who a person is. One job (`ai.suggest.claude`, `ai.suggest.openai`, `ai.suggest.gemini`) on the cloud worker that already sends Tag with AI's photos; asking one AI drops a question still waiting for another. The window says what it sends and roughly what it costs before the button is pressed (the same cost per photo as tagging: about 2¢ with Claude Opus 5.5).
+5. **Open in Photoshop / Open in Topaz Photo** open the original with the program set up for that file type in Settings → Open in (`open_external`). Keepsake never changes the original; edits saved there are the program's.
+
+**Decisions.**
+- **Kept in the catalog, not the sidecar.** Schema v15 adds `edit_suggestions` (asset, the measurements as JSON, when, the AI's answer as JSON). Opening the window again shows them at once and costs nothing. **Measure again** measures anew and drops the AI's answer to the old measurements; **Ask … again** replaces the answer. They are advice, not metadata, so nothing is written next to the original and a rebuilt catalog does not have them.
+- **The three providers share one request path.** `cloud::Task` (what the AI is told, the question, the schema) is what each provider module now takes; `cloud::send` asks the key and model and reads the answer. Tagging is a `Task` too (`tag_task`), so its requests are unchanged (its tests pass as they were). Gemini's schema has `additionalProperties` taken out at every depth.
+- **Measuring runs in the command**, not on the queue: it is a fraction of a second on a cached thumbnail and the user is waiting for it. With no thumbnail yet, one is queued first and the window looks again every 1.5 s. The AI question, which takes seconds and the network, is a job.
+- **One photo.** A selection would cost money per photo and needs a way to step through the answers; not built.
+- **Noise and focus are rough.** The thumbnail is a small JPEG, which averages grain away and hides missed focus, so the thresholds are low and the window says so. The AI is told the same.
+
+**Dependencies.** None new (no crate, model or tool).
+
+**Not done.**
+- A selection or a folder at once.
+- Measuring the full-size picture (better noise and focus), or reading ISO from the file's metadata.
+- Turning a suggestion into a Camera Raw preset or an XMP develop setting the program would apply by itself.
+- Saving the suggestions to the sidecar (offered, not chosen).
+- Subject-aware rules on this computer (faces are found by ADR-040, but not used here yet).
+- macOS: built and tested in CI only.

@@ -1,4 +1,4 @@
-# Manual Test Steps — Tag the photos with no date, Helpers end with the app, Tag with Claude, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -6,16 +6,309 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 ---
 
-## Tag the photos with no date
+## The sidebar tree keeps its place
 
-Needs Settings → On-device AI on.
+Automated (run here and in CI):
+```
+cd app/ui; pnpm exec vitest run src/unit/treeMemory.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/tree-place.spec.ts
+```
 
-1. In the sidebar's calendar tree, right-click **No date**. **Expected:** a menu with **Show** and **Tag photos** (no Find duplicates). Right-clicking **Calendar** shows no menu.
-2. Choose **Tag photos**. **Expected:** the library shows the items with no date, and a window "Tagging No date" says "Photos and videos with no date." with a progress bar, Stop and Hide; it ends with "N of N photos tagged."
-3. Select one of them. **Expected:** the Inspector's AI tags list what it shows. Searching or the Tag list finds them by those tags.
-4. Start it again and press **Stop**. **Expected:** "Stopped: … done. What was done stays."
+Manual (both OSes):
+1. Sidebar → **By date**. Open several years and months so the tree is longer than the window, and scroll it down to a month near the bottom.
+2. Right-click that month → **Tag photos**. **Expected:** while the window counts up and when it finishes, the tree stays where it is: it does not jump to the top, and no year or month closes. The counts may change in place.
+3. **By folder**: open a drive and some folders, scroll down, right-click a folder → **Scan again** (or Read aircraft). **Expected:** the same: the tree stays where it is.
+4. Right-click any entry and press Esc, or click elsewhere. **Expected:** the tree does not move.
+5. Scroll each tree to a different place, close Keepsake and start it again. **Expected:** the tree you left open comes back with the same years, months or folders open and scrolled to where it was (after a moment, as its levels load). Switch to the other tree: it is where you left that one.
+6. Change a filter (a camera, a tag). **Expected:** the tree keeps its open levels and its place; only the counts change.
 
 ---
+
+## Edit suggestions (ADR-042)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::suggest
+cargo test -p keepsake-core --test suggest_tests
+cd app/ui; pnpm exec vitest run src/unit/editAdvice.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/edit-advice.spec.ts
+```
+
+Before you start: Settings → Open in has Photoshop and Topaz Photo for your photo types (for example `arw, jpg`). For step 5, Settings → Tag with AI has a key for at least one AI. Use a test library or note that the suggestions are stored in the catalog (nothing is written next to the photos).
+
+Manual (both OSes):
+1. Right-click a photo in the grid. **Expected:** the menu has **Edit suggestions…** below Name and find. On a video it is greyed out.
+2. Choose it. **Expected:** a window "Edit suggestions: <name>", briefly "Measuring the photo…", then a sentence ("Keepsake measured the photo and found N things to look at." or "Nothing stands out…") and a numbered list. Each item has a title, why, a **Photoshop:** line naming a Camera Raw slider or tool with a value, and, where Topaz Photo has a tool for it, a **Topaz Photo:** line.
+3. Try a dark photo, a photo with a white sky, a high-ISO night photo and a photo with a tilted horizon. **Expected:** respectively "Brighten the photo" (Exposure +…), "Recover the highlights", "Reduce the noise" (Denoise), "Straighten it" (about N° clockwise or counter-clockwise, the right way round). A well-exposed photo gets few or none. Open **What Keepsake measured**: eight lines (Brightness … Level) that match what you see.
+4. **Open in Photoshop**. **Expected:** the original opens in Photoshop; the window says "Opened with Photoshop". The same for **Open in Topaz Photo**. With a program not set up for that file type, its button is greyed out and its tooltip says to add it in Settings → Open in.
+5. Under the list: the line says it sends a 1024-pixel preview and the measurements to the AI, by its company, and roughly what it costs, and that the original is not sent. With keys for more than one AI, pick one. Press **Ask Claude** (or ChatGPT / Gemini). **Expected:** "Asking Claude…", then within a minute "From Claude (<model>)" with a summary and suggestions that mention what is in the photo (for example something to remove, or a crop). No person is named.
+6. Close the window and open it again on the same photo. **Expected:** everything, the AI's answer too, is shown at once (no "Asking…", nothing sent again). **Measure again** measures anew and the AI's answer is gone; **Ask … again** asks again.
+7. Press Ask and then **Stop** at once. **Expected:** "Asking…" goes away and nothing is charged (if it was already sent, its answer may still appear next time).
+8. With no AI key at all. **Expected:** a line saying to add a key in Settings → Tag with AI; no Ask button.
+9. A wrong key (edit it in Settings to something invalid but of the right shape). **Expected:** "<AI> could not answer: <AI> did not accept the API key: check it in Settings."
+10. A photo with no thumbnail yet (just added). **Expected:** "Making the preview first…", then the suggestions.
+11. Open a photo in the viewer. **Expected:** an **Edit suggestions** button in the bar; it opens the same window. Esc closes it.
+12. Originals: compare a photo's file size and modified time before and after steps 2–7: unchanged. No new file next to it.
+
+---
+
+## Read aircraft for a folder or dates (ADR-041)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test aircraft_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraft.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts e2e/mocked/folder-tree.spec.ts e2e/mocked/ai.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on (Settings) and a folder whose photos were tagged (Tag photos):
+1. Sidebar → **By folder**. Right-click a folder with aircraft photos → **Read aircraft**. **Expected:** a window in the corner, "Reading aircraft in <drive> › <folder>", saying it reads the photos tagged Airplane, Helicopter or Airport in this folder; then "N of M read…" counting up, where M is the aircraft photos in the folder and the folders in it (fewer than the folder holds).
+2. Let it finish. **Expected:** "M of M aircraft photos read." Select one of them: its keywords include what is painted on the aircraft (`Aircraft|Registration|…`, `Aircraft|Airline|…`), and Tagged with AI has **Aircraft reader**. A photo in the folder with no aircraft tag has no new keywords.
+3. Right-click the same folder → Read aircraft again. **Expected:** it finishes at once ("M of M aircraft photos read."): no photo is read twice. Add new aircraft photos to the folder, tag them, and ask again: only the new ones are read.
+4. **Stop** part-way. **Expected:** "Stopped: N of M read. Keywords already added stay." Asking again carries on with the rest.
+5. A folder never tagged (or with no aircraft). **Expected:** "No photos tagged Airplane, Helicopter or Airport in this folder. Tag the photos first (Tag photos)."
+6. Sidebar → **By date**. Right-click a year, month or day → **Read aircraft**. **Expected:** the same for the photos of those dates ("Reading aircraft in 2024").
+7. With Read aircraft off. **Expected:** "Could not start: Turn on Read aircraft in Settings first." and **Open Settings**.
+8. Originals: unchanged, as for Read aircraft on picked photos.
+
+---
+
+## Read aircraft (ADR-041)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft
+cargo test -p keepsake-core --test aircraft_tests --test xmp_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraft.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts
+```
+With the real models and a folder of aircraft photos of your own (never committed):
+```
+$env:KEEPSAKE_AIRCRAFT_SAMPLES = "C:\path\to\a few aircraft photos"
+cargo test -p keepsake-core --test aircraft_tests -- --ignored --nocapture
+```
+
+Manual (both OSes):
+1. Settings → **Read aircraft**. **Expected:** "Off." and "Turning it on downloads two text models once (95.9 MB)."
+2. Tick **Read aircraft**. **Expected:** a download bar with Cancel; then "Ready." (after the first photo is read: "Ready, on the graphics card (DirectML)." on Windows, Core ML on a Mac). With On-device AI off it says the type is only read when painted on.
+3. In the library, select a few photos of airliners taken side-on, close enough that you can read the registration when zoomed in. Right-click → **Read aircraft**. **Expected:** a window in the corner, "Reading aircraft: N photos", counting up; a few seconds a photo (longer for RAW files on a network drive). **Stop** leaves what was read; **Hide** makes it a small button.
+4. When it says "N of N photos read.", close it and select one of the photos. **Expected:** the Inspector's keywords include what is painted on the aircraft, for example `Aircraft|Registration|C-FJZS`, `Aircraft|Airline|Air Canada` and, where the type is written by the door, `Aircraft|Type|Boeing 777-300ER`. Under **Tagged with AI** there is a row **Aircraft reader** with those keywords.
+5. Type a registration (or an airline) in the search bar and pick the tag. **Expected:** the photos of that aircraft.
+6. A photo with no type painted on it: **Expected:** often no `Type` keyword. When there is one (for example `Aircraft|Type|Boeing 737`), it is a guess from the look: check it. It is rarely given, and wide-bodies are often not told apart.
+7. A photo that is not of an aircraft, or with no readable text: **Expected:** it is read and gets no keywords.
+8. Read the same photos again. **Expected:** no keyword twice. A keyword you removed comes back if it is read again (a known limit).
+9. Open a photo and press **Read aircraft** in the viewer. **Expected:** the same window for that one photo.
+10. With Read aircraft off, right-click → Read aircraft. **Expected:** "Could not start: Turn on Read aircraft in Settings first." and **Open Settings**.
+11. Disconnect the drive the photos are on and read one that has a thumbnail. **Expected:** it is read from the thumbnail: usually the airline only. One without a thumbnail waits.
+12. Check an original's size and modified date before and after (or `keepsake verify`). **Expected:** unchanged. Its XMP sidecar (or the library's copy, for a folder added read-only) has the keywords and `keepsake:AITagSources` rows with `By` `aircraft`.
+13. Untick Read aircraft, then **Delete the downloaded text models**. **Expected:** the keywords stay; the 95.9 MB is freed.
+
+Command line:
+```
+keepsake ai aircraft status
+keepsake ai aircraft read C:\path\to\photo.jpg
+keepsake ai aircraft scan --tagged Airplane --limit 20
+```
+**Expected:** `status` names the two model files (or says how to install them); `read` prints the registrations, airlines and types found, what the picture looks like (three types with their probabilities) and every line of text with its confidence, and changes nothing; `scan` reads the items with that tag and adds the keywords, as the app does.
+
+---
+
+## CI on macos-15
+
+Nothing to test in the app. On the pull request, check that a check named **macos-15 (Rust)** runs and passes next to **windows-latest**, and that no check named macos-14 is left waiting.
+
+On a Mac: click a photo, then Ctrl+click another. Expected: both are selected and no menu opens; Ctrl+click it again and it is no longer selected. A two-finger click (or right-click) still opens the photo menu. On Windows: Ctrl+click toggles the selection and a right-click opens the menu.
+
+---
+
+## Face matching tuned (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/name-find.spec.ts e2e/mocked/people.spec.ts
+```
+
+Manual (both OSes), on a library where people are named:
+1. Open Name and find on any photo. **Expected:** the suggestions waiting for each person are scored again: far fewer remain, and those are clearly them (on the product owner's library, about 16,000 became about 900).
+2. Name and find someone; in Review, move **Looser ↔ Stricter**. **Expected:** after a moment the suggestions change (fewer when stricter); the next time the window opens it remembers the setting.
+3. A photo of someone who was wrongly confirmed (e.g. the bald man with glasses confirmed as a woman): **Expected:** his other photos are no longer suggested for her.
+4. After Confirm, press **Check <name>'s faces** (or click a name in the Inspector's **People**). **Expected:** her confirmed faces, least alike first (with a %); the wrong ones are near the top. Click them and press **Remove N faces from <name>**: **Expected:** they go from the list, their People keyword and face region are taken off, and they are not suggested for her again.
+5. Very small faces (far away in group photos) are no longer suggested.
+
+---
+
+## Faces, step 5: People in the Inspector, faces in the viewer (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/people.spec.ts
+```
+
+Manual (both OSes), with Recognise faces on and someone named (step 3):
+1. Select a photo of that person. **Expected:** the Inspector has **People** with their name, "N faces with no name." if others are in it, and **Name and find…**. A photo not searched yet says "Not searched for faces yet." and selecting it does not start a search. Videos have no People.
+2. Double-click it, then press **P** (or the **Faces** button). **Expected:** a yellow box on each named face with the name under it (a suggestion shows "Name?"), a dashed white box on each face with no name. Zoom in and pan: the boxes stay on the faces and the names stay readable. **F** is still full screen.
+3. Click (or right-click) a named box. **Expected:** a menu: **Name…**, **Not <name>**, **Not a face**. Choose **Not <name>**. **Expected:** the name goes from the box and from the Inspector, the People › <name> keyword goes from the photo, and Find more never suggests that face for them again.
+4. Click a dashed box → **Not a face** (e.g. a face on a poster). **Expected:** the box goes and does not come back after Settings → Search all photos. (Limit: "not a face" is not written to the sidecar, so a catalog rebuild forgets it.)
+5. Click a box → **Name…**. **Expected:** the Name and find window with that face picked.
+6. Press **P** again. **Expected:** the boxes go.
+
+---
+
+## Faces, step 4: names in the sidecars and search (ADR-040)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test xmp_tests --test face_store_tests --test rebuild_tests
+```
+
+Manual (both OSes):
+1. Name a face (Name and find…) and confirm a few suggestions. **Expected:** each of those photos gets the keyword **People › Sara** (Inspector → Keywords), and the Tag list and the search bar's tags find Sara.
+2. Open the photo's `.xmp` sidecar in a text editor (next to the photo, or in the library's mirror folder for a read-only drive). **Expected:** `mwg-rs:Regions` with a `mwg-rs:Name` Sara, `mwg-rs:Type` Face and an `mwg-rs:Area` (x, y the face's centre, w, h, normalized). The photo itself is not changed (its modified date stays).
+3. Open the same photo in Lightroom Classic (or digiKam) after reading the metadata from the file. **Expected:** Sara's face region with her name.
+4. In Lightroom, name another face on a photo (e.g. Bob) and save the metadata to the file. In Keepsake, Scan again that folder (or rebuild the catalog). **Expected:** Bob is one of the people, with that face confirmed; the Lightroom region is still there.
+5. Reject a suggestion for Sara, then rebuild the catalog (`keepsake rebuild-catalog`). **Expected:** Sara and her confirmed faces come back; after Search all photos, the rejected face is not suggested for her again.
+6. Remove Sara's only face from a photo (reject it in Review, or Delete all face data). **Expected:** the People › Sara keyword goes from that photo; a People › … keyword you typed yourself for someone who is not one of the people stays.
+7. Settings → Delete all face data. **Expected:** the face regions Keepsake wrote are gone from the sidecars (other apps' regions stay), and the People keywords of its people are gone.
+
+---
+
+## Faces, step 3: Name and find (ADR-040)
+
+Needs Settings → On-device AI and **Recognise faces** on. Names are kept in the catalog only for now (the sidecars come in the next step).
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/name-find.spec.ts
+```
+
+Manual (both OSes), with your own photos of one person over several years:
+1. Right-click a photo of that person → **Name and find…**. **Expected:** a window "Name and find: <file>", briefly "Looking for faces in this photo…" if it was not searched yet, then the faces in it, cut out (one face: already picked). A video's menu has the item greyed out; a photo with no faces says so.
+2. Pick the face, type the name (e.g. Sara) and press **Name and find** (or Enter). **Expected:** "Finding Sara" and "Searching photos for faces: S of N done (W to go)…" while photos not searched yet are searched. **Show matches so far** shows what is found up to now; you can also close the window and come back later.
+3. When every photo is searched: **Expected:** "F faces that may be Sara, best first (photos from Y1 to Y2)", grouped by year, newest year first. The years are about 3 either side of the photo you named.
+4. Click any face that is not Sara. **Expected:** it fades with a red ✕ and the button says "Confirm F−1 faces". Press it. **Expected:** "F−1 faces confirmed as Sara; 1 face marked as not Sara."
+5. Press **Find more**. **Expected:** new suggestions a few years further back (or on) than before; repeat. When there are no more: "No more faces like Sara's were found (photos from … to … looked at)." The faces you rejected never come back for Sara.
+6. Right-click another photo of her → Name and find… and start typing "Sa". **Expected:** Sara is offered; naming the face Sara (any case) adds it to the same person.
+7. In the viewer (double-click a photo), press **Name and find**. **Expected:** the same window for that photo.
+8. Settings → Recognise faces. **Expected:** the people count includes Sara. Delete all face data forgets her too.
+9. Originals are not changed (modified dates stay), and nothing goes over the network.
+
+---
+
+## Faces, step 2: searching photos for faces (ADR-040)
+
+Names and Name and find come in the next step; this one finds and stores the faces. The first start upgrades the catalog (schema 13).
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test face_store_tests
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/faces.spec.ts
+cd app/ui; pnpm test
+```
+
+Manual (both OSes):
+1. Settings → **Recognise faces** with On-device AI **off**. **Expected:** "Needs On-device AI (just above)" and the tick-box cannot be ticked. Turn On-device AI on.
+2. Tick **Recognise faces**. **Expected:** if the models are not installed, "Downloading the face models: … of 39 MB" with Cancel, then the box stays ticked. The status says "0 of N photos searched; no faces yet. On the graphics card (DirectML)" (macOS: Core ML).
+3. Press **Search all N photos**. **Expected:** "Searching N photos…", a **Stop** button, and the counts going up every few seconds ("F faces in P of S photos searched (N photos in all); W waiting"). Photos without a thumbnail get one first. The app stays usable; on battery it pauses if Settings says so.
+4. Press **Stop**. **Expected:** "Stopped."; the counts stay. Press **Search all** again. **Expected:** it continues with the photos not searched yet (it does not search the done ones again).
+5. With the app closed, in a terminal: `keepsake ai faces status`. **Expected:** the model paths and the same counts. `keepsake ai faces scan` searches the rest from the terminal and ends with "Searched … photo(s); … face(s) in … photo(s) so far."
+6. Press **Delete all face data…**. **Expected:** "Forget F faces and 0 people? … This cannot be undone." with **Delete all face data** (red) and **Cancel**. Cancel: nothing changes. Delete: "All face data was deleted." and "0 of N photos searched".
+7. Untick **Recognise faces**, then **Delete the downloaded face models**. **Expected:** the two model files are gone from the cache folder (`%LOCALAPPDATA%\keepsake\models\` or `~/Library/Caches/keepsake/models/`); ticking again downloads them again.
+8. Throughout: originals are not changed (their modified dates stay), and no network traffic other than the one-time model download.
+
+---
+
+## Faces, step 1: the face models (ADR-040)
+
+Nothing shows in the app yet: this step adds the face models and the code that finds and describes faces. Name and find comes in a later step.
+
+Automated (run here; the model tests skip where the models are not installed, as in CI):
+```
+cargo test -p keepsake-core --lib ai::faces
+cargo test -p keepsake-core --test face_tests -- --include-ignored corpus
+```
+
+Manual (both OSes):
+1. Run `scripts\setup.ps1 -WithAi` (Windows) or `scripts/setup.sh --with-ai` (macOS). **Expected:** besides the SigLIP model, it downloads `face_detection_yunet_2023mar.onnx` (about 230 KB) into `vendor/models/yunet-2023mar/` and `face_recognition_sface_2021dec.onnx` (about 39 MB) into `vendor/models/sface-2021dec/`, and says the checksums matched. Run it again. **Expected:** "already present, skipping download" for each.
+2. Change one byte of a face model file (or replace it with any small file) and run the setup again. **Expected:** the setup notices the checksum is wrong and downloads it again.
+3. Run `cargo test -p keepsake-core --test face_tests -- --include-ignored --nocapture` with `KEEPSAKE_CORPUS` set. **Expected:** 4 tests pass and a line like "corpus: 49 photos read, 25 with faces, 56 faces; lowest self-match 0.939". Without the models, the tests print "skipping" and pass.
+4. **macOS:** the same test reports the faces found with Core ML (the GPU test compares Core ML with the CPU and passes).
+
+---
+
+## Which AI tagged it, Tag with AI to All, and tags in the search bar (ADR-039)
+
+The first start after this update upgrades the catalog (schema 12); it takes a moment and nothing visible changes.
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test ai_tests each_ai_is_recorded
+cargo test -p keepsake-core --test catalog_tests hierarchical_tags_and_search
+cargo test -p keepsake-core --test xmp_tests
+cargo test -p keepsake-core --lib settings
+cd app/ui; pnpm vitest run src/unit/tagSearch.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/cloud.spec.ts e2e/mocked/ai.spec.ts
+```
+
+Manual (both OSes). You need API keys for **at least two** AIs in Settings → Tag with AI (cheapest models are fine).
+
+### Tag with AI → All
+1. Right-click one photo → **Tag with AI…**. Open the **AI** list. **Expected:** the AIs with a key, then **All (Claude, ChatGPT and Gemini)** (only the names with a key).
+2. Pick **All**. **Expected:** the heading says "Tagging with Claude, ChatGPT and Gemini: …"; the text names each model, says "Each one tags them", and gives one cost "in all", charged by each company. Every AI's privacy note shows (OpenAI's 30 days, Gemini's billing note).
+3. Press **Send**. **Expected:** the bar moves; at the end "Photos tagged: Claude 1 of 1, ChatGPT 1 of 1, Gemini 1 of 1." If one key is bad, that AI's count stays 0 and the problem starts with its name.
+4. Right-click another photo → **Tag with AI…**. **Expected:** **All** is already picked. Remove all keys but one in Settings and try again. **Expected:** no AI list; that one AI is used.
+
+### Which AI gave each tag (Inspector)
+5. Select the photo from step 3. **Expected:** the Inspector's **Keywords** has each tag once. Under **AI tags** (labelled *On-device*) the on-device tags are unchanged. Below, **Tagged with AI** has one row per AI that tagged it (Claude, ChatGPT, Gemini), each with the keywords **that** AI gave. A keyword two AIs gave is in both rows.
+6. Remove one of those keywords with its ✕ in **Keywords**. **Expected:** it disappears from every AI row too. Add it back by typing it. **Expected:** it is a keyword again but **not** in any AI row (you added it).
+7. A photo you only tagged yourself, or tagged by AI before this update. **Expected:** no **Tagged with AI** section.
+8. Check the sidecar survives: close the app, open the photo's `.xmp` next to it in a text editor. **Expected:** a `keepsake:AITagSources` list with `keepsake:Name` and `keepsake:By` (`claude`, `openai`, `gemini`). The original photo file's modified date did not change.
+
+### Tags in the search bar
+9. Click the search box and type the start of a tag you use, e.g. `bea`. **Expected:** a list under the box with matching tags and their counts (`# Beach (40)`), those starting with the letters first.
+10. Click one. **Expected:** it becomes a chip "Beach ✕" in the search bar, the typed letters go, and the grid shows only items with that tag (same count as in the list).
+11. Type another tag, press **↓** then **Enter**. **Expected:** a second chip; only items with **both** tags show (fewer or the same). A tag already chosen is not suggested again. A parent tag (e.g. `Travel`) also matches items with a tag below it (`Travel › Japan`).
+12. Type words that are not a tag (part of a file name). **Expected:** they search names, comments and keywords, together with the chips.
+13. With the box empty press **Backspace**. **Expected:** the last chip goes. Click ✕ on a chip. **Expected:** that one goes. **✕ Clear** removes all chips and filters.
+14. **Esc** with the list open closes the list; Esc again clears the words.
+
+---
+
+## Tag with AI (Claude, ChatGPT or Gemini, for the photos you pick)
+
+You need an API key from at least one: console.anthropic.com (Claude), platform.openai.com (ChatGPT), aistudio.google.com (Gemini; use a project with billing turned on). Each company charges for each photo; Claude Haiku 5.5, GPT-6 Luna and Gemini 3.5 Flash-Lite are the cheapest for trying it.
+
+Automated (run in CI; local test runs are turned off on this computer):
+```
+cargo test -p keepsake-core --lib ai::cloud
+cargo test -p keepsake-core --lib settings
+cargo test -p keepsake-core --test ai_tests cloud refused each_provider
+cargo test -p keepsake-platform secrets
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/cloud.spec.ts
+```
+
+Manual (both OSes):
+1. Open **Settings**. **Expected:** below On-device AI, a "Tag with AI" card with three sections: Claude (Anthropic), ChatGPT (OpenAI) and Gemini (Google). Each says "No API key is saved yet. Get one at …" and has a model list with the cost a photo: Claude Opus 5.5, GPT-6.1 Sol and Gemini 3.6 Flash are selected.
+   - **Expected:** the ChatGPT section says OpenAI keeps photos up to 30 days to check for abuse; the Gemini section says to use a key from a project with billing.
+2. In the ChatGPT section type `hello` and press **Save key**. **Expected:** a red message says it does not look like a ChatGPT API key. Paste a Claude key there. **Expected:** the same message. Paste your OpenAI key and save. **Expected:** the field empties and that section says "An API key is saved in this computer's credential store." The other sections still say no key.
+   - **Windows:** Credential Manager → Windows Credentials. **Expected:** an entry for `openai-api-key` (and `claude-api-key` if you had one, which still works).
+   - **macOS:** Keychain Access, search Keepsake. **Expected:** items with accounts `openai-api-key` and so on.
+   - `config.toml` has `openai_model`, `gemini_model` and `cloud_provider`, but no key.
+3. Save a Gemini key too (either kind: `AIza…`, or the newer `AQ.…` with dots). **Expected:** it is accepted. Change Gemini's model to **Gemini 3.5 Flash-Lite**, close and reopen Settings. **Expected:** still selected; the other providers' models did not change.
+4. In the grid, right-click a photo of something recognisable. **Expected:** a menu with **Open** and **Tag with AI…**. Choose it. **Expected:** a window "Tagging with …" with an **AI** list showing only the providers with a key, e.g. "ChatGPT (GPT-6.1 Sol)" and "Gemini (Gemini 3.5 Flash-Lite)".
+5. Pick **Gemini**. **Expected:** the heading says "Tagging with Gemini: …", the line says "Send 1 photo to Gemini 3.5 Flash-Lite to be tagged? It costs under 1¢, charged by Google.", and the billing note shows. Pick **ChatGPT**: the line says "charged by OpenAI" and the 30-days note shows. Nothing is sent yet.
+6. Press **Send**. **Expected:** within about 10 seconds "1 of 1 photos tagged." The inspector shows new keywords (list tags, maybe some under AI); old ones are still there. No person is named.
+7. Tag another photo. **Expected:** the AI list now starts at the one you used last (ChatGPT).
+8. Tag the same photo again with the other AI. **Expected:** it finishes; keywords both gave appear once.
+9. Select 3 photos, **Tag with AI…**, **Send**, then **Hide**: a small "ChatGPT · n%" (or Gemini) button stays in the corner. **Stop** on a larger selection: photos done keep their tags.
+10. Open a photo in the viewer. **Expected:** the top bar has **Tag with AI**; it works as in step 4.
+11. Remove all keys but one. **Tag with AI…**. **Expected:** no AI list, the one with a key is used. Remove the last key. **Expected:** "Add an API key for Claude, ChatGPT or Gemini in Settings first" with **Open Settings**.
+12. Save a wrong key that still looks right (change its last letters) for Gemini and tag a photo with it. **Expected:** "0 of 1 photos tagged. 1 photo could not be: Gemini did not accept the API key: check it in Settings". Put the right key back.
+13. Unplug the network and tag a photo. **Expected:** "could not reach ChatGPT: …" (or the AI chosen), retried after 30 s and 60 s; plug back in within a minute and it finishes.
+14. Originals: a tagged photo's file is unchanged (size and modified time); the keywords are in its `.xmp` sidecar.
+15. Claude still works as before (ADR-036): a Claude key saved before this change is still there and tags photos.
 
 ## Helpers end with the app
 
@@ -31,35 +324,6 @@ Manual:
 3. **Windows:** right-click a photo → Open in → an app (or Show in Explorer), then close Keepsake. **Expected:** the opened app and the Explorer window stay open.
 4. **Windows:** run the installer over an installed Keepsake after using it and closing it. **Expected:** no "Error opening file for writing … exiftool.exe".
 5. **macOS:** start Keepsake, browse some photos, quit it (⌘Q). In Activity Monitor search "exiftool". **Expected:** nothing left after about 5 s.
-
-## Tag with Claude (cloud tagging for the photos you pick)
-
-You need a Claude API key from console.anthropic.com (Anthropic charges for each photo; Haiku is the cheapest for trying it).
-
-Automated:
-```
-cargo test -p keepsake-core --lib ai::cloud
-cargo test -p keepsake-core --test ai_tests claude refused
-cargo test -p keepsake-platform secrets
-cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/claude.spec.ts
-```
-
-Manual (both OSes):
-1. Open **Settings**. **Expected:** below On-device AI, a "Tag with Claude" card says "No API key is saved yet." and the model list shows Claude Opus 5.5 (selected), Claude Fable 5.1 and Claude Haiku 5.5, each with its cost a photo.
-2. Type `hello` in the key field and press **Save key**. **Expected:** a red message says it does not look like a Claude API key. Paste your real key and press **Save key**. **Expected:** the field empties (the key is never shown again) and the card says "An API key is saved in this computer's credential store."
-   - **Windows:** open Credential Manager → Windows Credentials. **Expected:** an entry for `claude-api-key.Keepsake` (or similar, under Generic Credentials).
-   - **macOS:** open Keychain Access and search for Keepsake. **Expected:** an item `Keepsake` with account `claude-api-key`.
-   - Check `config.toml` in the settings folder. **Expected:** it has `claude_model` but no key.
-3. Choose **Claude Haiku 5.5** for a cheap test. Close and reopen Settings. **Expected:** Haiku is still selected.
-4. In the grid, click a photo of something recognisable (a landmark, a pet, a beach), then right-click it. **Expected:** a menu with **Open** and **Tag with Claude…**. Choose **Tag with Claude…**. **Expected:** a window in the bottom-right corner, "Tagging with Claude: DSC01234.JPG", asks "Send 1 photo to Claude Haiku 5.5 to be tagged? It costs under 1¢, charged by Anthropic." Nothing is sent yet.
-5. Press **Send**. **Expected:** a progress bar, then within about 10 seconds "1 of 1 photos tagged." In the inspector, the photo's keywords now include list tags (e.g. Beach, People) and maybe some under AI (e.g. `AI › Sand Castle`). Keywords it already had are still there. It never names a person.
-6. Select 3 photos (Shift-click), right-click one of them and choose **Tag with Claude…**. **Expected:** "Send 3 photos…" with a cost for three. Press **Send**, then **Hide**: a small "Claude · n%" button stays in the corner; click it to get the window back. Try **Stop** on a larger selection: photos already done keep their tags.
-7. Open a photo in the viewer (double-click). **Expected:** the top bar has **Tag with Claude**; it works as in step 4, and the window shows above the viewer.
-8. Keyboard: select a photo, press **Shift+F10** (or the Menu key). **Expected:** the menu opens at the photo with Open focused; arrows move, Escape closes.
-9. In Settings, paste a wrong key that still starts with `sk-ant-` (e.g. your key with the last letters changed) and save. Tag a photo. **Expected:** "0 of 1 photos tagged. 1 photo could not be: Claude did not accept the API key: check it in Settings". Put the right key back.
-10. Press **Remove key**. **Expected:** "No API key is saved yet.", and the credential is gone from Credential Manager / Keychain Access. Tag with Claude… now shows "Add your Claude API key in Settings first" with **Open Settings**, and nothing is sent.
-11. Unplug the network and tag a photo. **Expected:** the window stays at "0 of 1 done…" with a note "could not reach Claude: …". It tries again after 30 s and then 60 s: plug the network back in within a minute and it finishes by itself. Left unplugged, after the third try it says "1 photo could not be: could not reach Claude: …"; tag it again once you are online.
-12. Originals: compare a tagged photo's file before and after (size and modified time). **Expected:** unchanged; the keywords are in its `.xmp` sidecar.
 
 ## On-device AI: tags and same-day duplicates
 

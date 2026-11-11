@@ -69,10 +69,30 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("migrations/0011_ai_tag_list.sql"),
         rebuilds_tables: false,
     },
+    Migration {
+        version: 12,
+        sql: include_str!("migrations/0012_ai_tag_sources.sql"),
+        rebuilds_tables: false,
+    },
+    Migration {
+        version: 13,
+        sql: include_str!("migrations/0013_faces.sql"),
+        rebuilds_tables: false,
+    },
+    Migration {
+        version: 14,
+        sql: include_str!("migrations/0014_ai_tag_sources_any.sql"),
+        rebuilds_tables: false,
+    },
+    Migration {
+        version: 15,
+        sql: include_str!("migrations/0015_edit_suggestions.sql"),
+        rebuilds_tables: false,
+    },
 ];
 
 /// The schema version this build creates and understands.
-pub const LATEST_VERSION: i64 = 11;
+pub const LATEST_VERSION: i64 = 15;
 
 pub(crate) fn apply(conn: &mut Connection) -> Result<(), CatalogError> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -129,6 +149,62 @@ mod tests {
         for (i, m) in MIGRATIONS.iter().enumerate() {
             assert_eq!(m.version, i as i64 + 1, "migrations must be numbered 1..N");
         }
+    }
+
+    #[test]
+    fn v13_keyword_sources_survive_and_the_aircraft_reader_can_be_one() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        let tx = conn.transaction().unwrap();
+        for m in &MIGRATIONS[..13] {
+            tx.execute_batch(m.sql).unwrap();
+        }
+        tx.execute_batch(
+            "PRAGMA user_version = 13;
+             INSERT INTO assets (id, media_kind, created_ms, metadata_ms)
+               VALUES (x'00000000000000000000000000000002', 'photo', 0, 0);
+             INSERT INTO ai_tag_sources (asset_id, provider, tag_path)
+               VALUES (x'00000000000000000000000000000002', 'claude', 'Dog');",
+        )
+        .unwrap();
+        // Schema v13 knew the three cloud AIs only.
+        assert!(tx
+            .execute(
+                "INSERT INTO ai_tag_sources (asset_id, provider, tag_path)
+                 VALUES (x'00000000000000000000000000000002', 'aircraft', 'Aircraft|Airline|KLM')",
+                [],
+            )
+            .is_err());
+        tx.commit().unwrap();
+
+        apply(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO ai_tag_sources (asset_id, provider, tag_path)
+             VALUES (x'00000000000000000000000000000002', 'aircraft', 'Aircraft|Airline|KLM')",
+            [],
+        )
+        .unwrap();
+        let rows: Vec<String> = conn
+            .prepare("SELECT provider FROM ai_tag_sources ORDER BY provider")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows, ["aircraft", "claude"]);
+        // An empty source is still refused, and rows go with their asset.
+        assert!(conn
+            .execute(
+                "INSERT INTO ai_tag_sources (asset_id, provider, tag_path)
+                 VALUES (x'00000000000000000000000000000002', '', 'Dog')",
+                [],
+            )
+            .is_err());
+        conn.execute("DELETE FROM assets", []).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM ai_tag_sources", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

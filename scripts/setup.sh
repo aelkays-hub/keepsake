@@ -6,7 +6,7 @@
 # A future prompt will add a CI workflow that compiles an LGPL FFmpeg/ffprobe
 # for Apple Silicon (VideoToolbox enabled, no GPL components).
 #
-# --with-ai: also download the AI model (372 MB) into vendor/models (ADR-035).
+# --with-ai: also download the AI models (372 MB, 39 MB for faces and 96 MB for reading aircraft) into vendor/models (ADR-035, ADR-040, ADR-041).
 set -euo pipefail
 
 WITH_AI=0
@@ -245,6 +245,19 @@ if [[ "$WITH_AI" == 1 ]]; then
     else
         info "  AI model already present, skipping download."
     fi
+    # Face models (ADR-040): YuNet (MIT) and SFace (Apache-2.0), OpenCV Zoo
+    # on Hugging Face at pinned revisions. Text models (ADR-041): PP-OCRv5
+    # server detector and English recogniser (Apache-2.0), ONNX from
+    # monkt/paddleocr-onnx at a pinned revision.
+    for spec in         "yunet-2023mar|face_detection_yunet_2023mar.onnx|https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx|8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"         "sface-2021dec|face_recognition_sface_2021dec.onnx|https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx|0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"         "ppocr-v5-server-det|det.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v5/det.onnx|61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133"         "ppocr-v5-en-rec|rec.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx|4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"; do
+        IFS='|' read -r dir file url sha <<< "$spec"
+        if [[ ! -f "$VENDOR/models/$dir/$file" ]]; then
+            mkdir -p "$VENDOR/models/$dir"
+            download_pinned "$url" "$VENDOR/models/$dir/$file" "$sha"
+        else
+            info "  $file already present, skipping download."
+        fi
+    done
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

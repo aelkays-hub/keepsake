@@ -1,7 +1,10 @@
 // Search bar and filters (date range, camera, lens, type, rating, words),
-// Select mode, view switch and sort.
+// Select mode, view switch and sort. Typing in the search bar also
+// suggests tags: picking one adds it as a chip, and the items shown have
+// every chip's tag (or one below it). Backspace in an empty box removes
+// the last chip.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api, emptyQuery, type Facets, type Query } from "../api";
 import type { KindFilter } from "../bindings/KindFilter";
@@ -9,6 +12,7 @@ import type { SortKey } from "../bindings/SortKey";
 import * as fmt from "../format";
 import * as sel from "../selection";
 import { useUi, type Mode } from "../state";
+import { suggestTags, tagName } from "../tagSearch";
 import { setThumbSize, THUMB_SIZES, useThumbSize } from "../thumbSize";
 
 const SORTS: { key: SortKey; label: string }[] = [
@@ -50,6 +54,23 @@ export function Toolbar() {
   }, [text, s.filters, dispatch]);
   const set = (patch: Partial<Query>) =>
     dispatch({ t: "filters", filters: { ...s.filters, ...patch } });
+  // Tag chips in the search bar.
+  const chips = useMemo(() => s.filters.tags ?? [], [s.filters.tags]);
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const suggestions = useMemo(
+    () => suggestTags(facets.tags, text, chips),
+    [facets.tags, text, chips],
+  );
+  const showing = open && suggestions.length > 0;
+  useEffect(() => setHi(-1), [text]);
+  const setChips = (tags: string[]) => set({ tags: tags.length ? tags : undefined });
+  const addChip = (tag: string) => {
+    // The words typed were to find the tag: they go.
+    setText("");
+    dispatch({ t: "filters", filters: { ...s.filters, text: null, tags: [...chips, tag] } });
+    setHi(-1);
+  };
   const active =
     JSON.stringify({ ...s.filters, text: null }) !== JSON.stringify({ ...emptyQuery }) ||
     (s.filters.text ?? "") !== "";
@@ -60,19 +81,80 @@ export function Toolbar() {
   ];
   return (
     <header className="toolbar" role="search">
-      <input
-        id="search"
-        type="search"
-        placeholder="Search names, comments, keywords…"
-        aria-label="Search"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setText("");
-          e.stopPropagation();
-        }}
-        data-testid="search"
-      />
+      <div className="search-box" data-testid="search-box">
+        {chips.map((t) => (
+          <span key={t} className="search-chip" data-testid="search-chip">
+            {tagName(t)}
+            <button
+              aria-label={`Remove tag ${tagName(t)} from the search`}
+              onClick={() => setChips(chips.filter((c) => c !== t))}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        <input
+          id="search"
+          type="search"
+          role="combobox"
+          aria-expanded={showing}
+          aria-controls="search-tags"
+          aria-autocomplete="list"
+          aria-activedescendant={showing && hi >= 0 ? `search-tag-${hi}` : undefined}
+          placeholder={
+            chips.length ? "More words or tags…" : "Search names, comments, keywords, tags…"
+          }
+          aria-label="Search"
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") {
+              if (showing) setOpen(false);
+              else setText("");
+            } else if (e.key === "ArrowDown" && suggestions.length > 0) {
+              e.preventDefault();
+              setOpen(true);
+              setHi((h) => (h + 1) % suggestions.length);
+            } else if (e.key === "ArrowUp" && suggestions.length > 0) {
+              e.preventDefault();
+              setHi((h) => (h <= 0 ? suggestions.length - 1 : h - 1));
+            } else if (e.key === "Enter" && showing && hi >= 0) {
+              e.preventDefault();
+              addChip(suggestions[hi].value);
+            } else if (e.key === "Backspace" && text === "" && chips.length > 0) {
+              setChips(chips.slice(0, -1));
+            }
+          }}
+          data-testid="search"
+        />
+        {showing && (
+          <ul id="search-tags" role="listbox" aria-label="Tags" className="search-tags">
+            {suggestions.map((t, i) => (
+              <li
+                key={t.value}
+                id={`search-tag-${i}`}
+                role="option"
+                aria-selected={i === hi}
+                // Keep the focus in the box (a click would blur it first).
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => addChip(t.value)}
+                data-testid="search-tag"
+              >
+                <span className="tag-icon" aria-hidden={true}>
+                  #
+                </span>
+                {tagName(t.value)} <span className="muted">({fmt.count(t.count)})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <label className="filter">
         From
         <input

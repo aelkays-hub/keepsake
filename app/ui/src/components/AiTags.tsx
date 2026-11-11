@@ -1,8 +1,10 @@
-// The inspector's AI tags for one item: what the on-device AI thinks the
-// photo shows. ✕ removes a tag for good (it is not given again); ✓ makes
-// it your own keyword. Searching finds AI tags like any keyword. When there
-// are none, it says why: AI is off, the item is not analysed yet, or the
-// AI found nothing it was sure of.
+// The inspector's AI tags for one item. First what the on-device AI thinks
+// the photo shows: ✕ removes a tag for good (it is not given again); ✓
+// makes it your own keyword. Searching finds AI tags like any keyword.
+// When there are none, it says why: AI is off, the item is not analysed
+// yet, or the AI found nothing it was sure of. Then, for Tag with AI, the
+// keywords each AI gave (Claude, ChatGPT, Gemini), one row per AI: a
+// keyword two AIs gave is in both rows (ADR-039).
 
 import { useEffect, useState } from "react";
 
@@ -29,31 +31,53 @@ export function AiTags({ id }: { id: string }) {
       .then(() => dispatch({ t: "edited" }))
       .catch(console.error);
   return (
-    <div className="block" data-testid="ai-tags">
-      AI tags
-      {info.tags.length > 0 ? (
-        <ul className="chips ai" aria-label="AI tags">
-          {info.tags.map((t) => (
-            <li key={t.tag} title={`${t.confidence}% sure`}>
-              {t.tag}
-              <button aria-label={`Keep ${t.tag} as a keyword`} onClick={() => decide(t.tag, true)}>
-                ✓
-              </button>
-              <button aria-label={`Remove AI tag ${t.tag}`} onClick={() => decide(t.tag, false)}>
-                ✕
-              </button>
-            </li>
+    <>
+      <div className="block" data-testid="ai-tags">
+        AI tags <span className="ai-badge ai-device">On-device</span>
+        {info.tags.length > 0 ? (
+          <ul className="chips ai" aria-label="AI tags">
+            {info.tags.map((t) => (
+              <li key={t.tag} title={`${t.confidence}% sure`}>
+                {t.tag}
+                <button
+                  aria-label={`Keep ${t.tag} as a keyword`}
+                  onClick={() => decide(t.tag, true)}
+                >
+                  ✓
+                </button>
+                <button aria-label={`Remove AI tag ${t.tag}`} onClick={() => decide(t.tag, false)}>
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted" data-testid="ai-tags-none">
+            {!info.enabled && !info.analysed
+              ? "On-device AI is off (Settings)."
+              : !info.analysed
+                ? "Not tagged yet: right-click its date in the calendar and choose Tag photos."
+                : "None: the AI was not sure what this shows."}
+          </p>
+        )}
+      </div>
+      {info.byAi.length > 0 && (
+        <div className="block" data-testid="ai-sources">
+          Tagged with AI
+          {info.byAi.map((src) => (
+            <div key={src.provider} className="ai-source" data-testid={`ai-source-${src.provider}`}>
+              <span className={`ai-badge ai-${src.provider}`}>{src.name}</span>
+              <ul className="chips" aria-label={`Keywords from ${src.name}`}>
+                {src.tags.map((t) => (
+                  <li key={t} title={`${src.name} gave this keyword`}>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
-      ) : (
-        <p className="muted" data-testid="ai-tags-none">
-          {!info.enabled && !info.analysed
-            ? "On-device AI is off (Settings)."
-            : !info.analysed
-              ? "Not tagged yet: right-click its date in the calendar and choose Tag photos."
-              : "None: the AI was not sure what this shows."}
-        </p>
+        </div>
       )}
-    </div>
+    </>
   );
 }

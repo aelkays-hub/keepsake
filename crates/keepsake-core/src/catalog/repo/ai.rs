@@ -47,6 +47,17 @@ pub struct AiCounts {
     pub failed: u64,
 }
 
+/// A photo's stored edit suggestions (ADR-042): JSON kept by
+/// `ai::suggest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditAdviceRow {
+    /// What was measured.
+    pub measures: String,
+    pub made_ms: i64,
+    /// What an AI advised, once asked.
+    pub ai: Option<String>,
+}
+
 fn i8_blob(v: &[i8]) -> Vec<u8> {
     v.iter().map(|b| b.to_ne_bytes()[0]).collect()
 }
@@ -73,6 +84,24 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// The asset's stored edit suggestions.
+    pub fn edit_advice(&self, asset: AssetId) -> Result<Option<EditAdviceRow>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT measures, made_ms, ai FROM edit_suggestions WHERE asset_id = ?1",
+                [asset],
+                |r| {
+                    Ok(EditAdviceRow {
+                        measures: r.get(0)?,
+                        made_ms: r.get(1)?,
+                        ai: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     pub fn analysis(&self, asset: AssetId) -> Result<Option<AiAnalysis>, CatalogError> {
         Ok(self
             .conn
@@ -255,6 +284,21 @@ impl<M> Ai<'_, M> {
         })
     }
 
+    /// The keywords each AI gave an asset with Tag with AI, as (provider
+    /// id, keyword), sorted by provider then keyword (ADR-039).
+    pub fn tag_sources(&self, asset: AssetId) -> Result<Vec<(String, TagPath)>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT provider, tag_path FROM ai_tag_sources WHERE asset_id = ?1
+              ORDER BY provider, tag_path",
+        )?;
+        let raw: Vec<(String, String)> = st
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        raw.into_iter()
+            .map(|(p, t)| TagPath::parse_lightroom(&t).map(|t| (p, t)))
+            .collect()
+    }
+
     /// AI tags the user removed from an asset, sorted.
     pub fn rejections(&self, asset: AssetId) -> Result<Vec<TagPath>, CatalogError> {
         let mut st = self.conn.prepare(
@@ -279,6 +323,33 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Store an asset's measurements; with `keep_ai` false, the AI's advice
+    /// for the old ones is dropped.
+    pub fn put_edit_measures(
+        &self,
+        asset: AssetId,
+        measures: &str,
+        made_ms: i64,
+        keep_ai: bool,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO edit_suggestions (asset_id, measures, made_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(asset_id) DO UPDATE SET measures = excluded.measures,
+               made_ms = excluded.made_ms, ai = CASE WHEN ?4 THEN ai ELSE NULL END",
+            params![asset, measures, made_ms, keep_ai],
+        )?;
+        Ok(())
+    }
+
+    /// Store what an AI advised for an asset that has measurements.
+    /// Returns whether there was a row to put it in.
+    pub fn put_edit_ai(&self, asset: AssetId, ai: &str) -> Result<bool, CatalogError> {
+        Ok(self.conn.execute(
+            "UPDATE edit_suggestions SET ai = ?2 WHERE asset_id = ?1",
+            params![asset, ai],
+        )? > 0)
+    }
+
     /// Store (or replace) an asset's analysis.
     pub fn put_analysis(&self, a: &AiAnalysis) -> Result<(), CatalogError> {
         self.conn.execute(
@@ -309,6 +380,52 @@ impl Ai<'_, Rw> {
             params![asset, list],
         )?;
         Ok(())
+    }
+
+    /// Record that `provider` gave an asset `paths` (those recorded stay).
+    pub fn add_tag_sources(
+        &self,
+        asset: AssetId,
+        provider: &str,
+        paths: &[TagPath],
+    ) -> Result<(), CatalogError> {
+        for p in paths {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_tag_sources (asset_id, provider, tag_path)
+                 VALUES (?1, ?2, ?3)",
+                params![asset, provider, p.to_lightroom()],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Replace which AI gave which keyword of an asset.
+    pub fn set_tag_sources(
+        &self,
+        asset: AssetId,
+        sources: &[(String, TagPath)],
+    ) -> Result<(), CatalogError> {
+        self.conn
+            .execute("DELETE FROM ai_tag_sources WHERE asset_id = ?1", [asset])?;
+        for (provider, p) in sources {
+            self.add_tag_sources(asset, provider, std::slice::from_ref(p))?;
+        }
+        Ok(())
+    }
+
+    /// Forget the sources of keywords the asset no longer has (`keywords`:
+    /// those it has).
+    pub fn prune_tag_sources(
+        &self,
+        asset: AssetId,
+        keywords: &[TagPath],
+    ) -> Result<(), CatalogError> {
+        let kept: Vec<(String, TagPath)> = self
+            .tag_sources(asset)?
+            .into_iter()
+            .filter(|(_, p)| keywords.contains(p))
+            .collect();
+        self.set_tag_sources(asset, &kept)
     }
 
     /// Replace the AI tags the user removed from an asset.

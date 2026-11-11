@@ -1,18 +1,27 @@
-//! Tag with Claude (ADR-036): a photo the user picks is sent to the Claude
-//! API, which returns tags from Keepsake's list plus up to
-//! [`MAX_NEW_TAGS`] of its own.
+//! Tag with AI (ADR-036, ADR-038): a photo the user picks is sent to the AI
+//! they choose, Claude (Anthropic), ChatGPT (OpenAI) or Gemini (Google),
+//! which returns tags from Keepsake's list plus up to [`MAX_NEW_TAGS`] of
+//! its own.
 //!
-//! - Only what the user chose is sent, one `ai.claude` job per photo, run
-//!   by its own worker in the render service.
+//! - Only what the user chose is sent, one job per photo and provider
+//!   (`ai.claude`, `ai.openai`, `ai.gemini`), run by one worker in the
+//!   render service.
 //! - What is sent is the 1024 px thumbnail from the render cache, encoded
 //!   again as JPEG, never the original (which is not read or changed).
 //! - The tags become the user's keywords (in the catalog and the XMP
 //!   sidecars, like typed ones): list tags as they are, new ones under
 //!   [`NEW_TAG_PARENT`]. They cost money, so they are kept like the user's
 //!   own work, not as a cache that the on-device AI may replace.
-//! - The API key and the model are looked up for each job ([`Claude`]), so
-//!   a key saved in Settings works at once.
+//! - The API keys and models are looked up for each job ([`CloudTagger`]),
+//!   so a key saved in Settings works at once.
+//! - Each provider's request and answer are in its own module; the prompt,
+//!   the tag list, tidying the answer and the job are shared here.
 
+pub mod claude;
+pub mod gemini;
+pub mod openai;
+
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,35 +36,163 @@ use crate::render::Cache;
 
 /// The job kind: tag one asset with Claude.
 pub const JOB_AI_CLAUDE: &str = "ai.claude";
-/// The Messages API.
-pub const API_URL: &str = "https://api.anthropic.com/v1/messages";
-/// The API version sent.
-pub const API_VERSION: &str = "2026-10-21";
-/// Most new tags (not on the list) Claude may give one photo.
+/// The job kind: tag one asset with ChatGPT.
+pub const JOB_AI_OPENAI: &str = "ai.openai";
+/// The job kind: tag one asset with Gemini.
+pub const JOB_AI_GEMINI: &str = "ai.gemini";
+/// Every cloud tagging job kind (one worker runs them all).
+pub const CLOUD_JOBS: [&str; 3] = [JOB_AI_CLAUDE, JOB_AI_OPENAI, JOB_AI_GEMINI];
+/// Most new tags (not on the list) one photo may get.
 pub const MAX_NEW_TAGS: usize = 5;
 /// The parent of the new tags: `AI|Eiffel Tower`.
 pub const NEW_TAG_PARENT: &str = "AI";
 /// Longest new tag kept (characters).
 const MAX_TAG_CHARS: usize = 40;
 
-/// The Claude models the user can choose from (Settings).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum ClaudeModel {
+/// The companies whose AI can tag photos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum Provider {
     #[default]
-    Opus55,
-    Fable51,
-    Haiku55,
+    Claude,
+    OpenAi,
+    Gemini,
 }
 
-impl ClaudeModel {
-    pub const ALL: [ClaudeModel; 3] = [Self::Opus55, Self::Fable51, Self::Haiku55];
+impl Provider {
+    pub const ALL: [Provider; 3] = [Self::Claude, Self::OpenAi, Self::Gemini];
+
+    /// The id in settings, commands and the key store: `openai`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::OpenAi => "openai",
+            Self::Gemini => "gemini",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.id() == id)
+    }
+
+    /// For people: "ChatGPT".
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::OpenAi => "ChatGPT",
+            Self::Gemini => "Gemini",
+        }
+    }
+
+    /// Who runs it (and charges for it): "OpenAI".
+    pub fn company(self) -> &'static str {
+        match self {
+            Self::Claude => "Anthropic",
+            Self::OpenAi => "OpenAI",
+            Self::Gemini => "Google",
+        }
+    }
+
+    /// Its job kind.
+    pub fn job_kind(self) -> &'static str {
+        match self {
+            Self::Claude => JOB_AI_CLAUDE,
+            Self::OpenAi => JOB_AI_OPENAI,
+            Self::Gemini => JOB_AI_GEMINI,
+        }
+    }
+
+    /// The provider whose job kind this is.
+    pub fn of_job(kind: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.job_kind() == kind)
+    }
+
+    /// The models it offers, best first.
+    pub fn models(self) -> impl Iterator<Item = CloudModel> {
+        CloudModel::ALL
+            .into_iter()
+            .filter(move |m| m.provider() == self)
+    }
+
+    /// The model used until the user picks one.
+    pub fn default_model(self) -> CloudModel {
+        match self {
+            Self::Claude => CloudModel::ClaudeOpus55,
+            Self::OpenAi => CloudModel::Gpt61Sol,
+            Self::Gemini => CloudModel::Gemini36Flash,
+        }
+    }
+
+    /// Does `s` look like this provider's API key? (Checked before it is
+    /// saved, so a key pasted in the wrong box is caught.)
+    pub fn looks_like_key(self, s: &str) -> bool {
+        let s = s.trim();
+        let charset = s
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+        charset
+            && s.len() >= 20
+            && match self {
+                Self::Claude => s.starts_with("sk-ant-"),
+                Self::OpenAi => s.starts_with("sk-") && !s.starts_with("sk-ant-"),
+                // Classic keys start with AIza; newer ones (AQ.…) have dots.
+                Self::Gemini => !s.starts_with("sk-") && s.len() <= 256,
+            }
+    }
+}
+
+impl fmt::Display for Provider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// The models the user can choose from (Settings), for every provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudModel {
+    ClaudeOpus55,
+    ClaudeFable51,
+    ClaudeHaiku55,
+    Gpt6Astra,
+    Gpt61Sol,
+    Gpt6Luna,
+    Gemini4Argon,
+    Gemini36Flash,
+    Gemini35FlashLite,
+}
+
+impl CloudModel {
+    pub const ALL: [CloudModel; 9] = [
+        Self::ClaudeOpus55,
+        Self::ClaudeFable51,
+        Self::ClaudeHaiku55,
+        Self::Gpt6Astra,
+        Self::Gpt61Sol,
+        Self::Gpt6Luna,
+        Self::Gemini4Argon,
+        Self::Gemini36Flash,
+        Self::Gemini35FlashLite,
+    ];
+
+    pub fn provider(self) -> Provider {
+        match self {
+            Self::ClaudeOpus55 | Self::ClaudeFable51 | Self::ClaudeHaiku55 => Provider::Claude,
+            Self::Gpt6Astra | Self::Gpt61Sol | Self::Gpt6Luna => Provider::OpenAi,
+            Self::Gemini4Argon | Self::Gemini36Flash | Self::Gemini35FlashLite => Provider::Gemini,
+        }
+    }
 
     /// The API's model id.
     pub fn id(self) -> &'static str {
         match self {
-            Self::Opus55 => "claude-opus-5-5",
-            Self::Fable51 => "claude-fable-5-1",
-            Self::Haiku55 => "claude-haiku-5-5",
+            Self::ClaudeOpus55 => "claude-opus-5-5",
+            Self::ClaudeFable51 => "claude-fable-5-1",
+            Self::ClaudeHaiku55 => "claude-haiku-5-5",
+            Self::Gpt6Astra => "gpt-6-astra",
+            Self::Gpt61Sol => "gpt-6.1-sol",
+            Self::Gpt6Luna => "gpt-6-luna",
+            Self::Gemini4Argon => "gemini-4-argon",
+            Self::Gemini36Flash => "gemini-3.6-flash",
+            Self::Gemini35FlashLite => "gemini-3.5-flash-lite",
         }
     }
 
@@ -63,44 +200,43 @@ impl ClaudeModel {
         Self::ALL.into_iter().find(|m| m.id() == id)
     }
 
-    /// For people: "Claude Opus 5.5".
+    /// For people: "GPT-6.1 Sol".
     pub fn name(self) -> &'static str {
         match self {
-            Self::Opus55 => "Claude Opus 5.5",
-            Self::Fable51 => "Claude Fable 5.1",
-            Self::Haiku55 => "Claude Haiku 5.5",
+            Self::ClaudeOpus55 => "Claude Opus 5.5",
+            Self::ClaudeFable51 => "Claude Fable 5.1",
+            Self::ClaudeHaiku55 => "Claude Haiku 5.5",
+            Self::Gpt6Astra => "GPT-6 Astra",
+            Self::Gpt61Sol => "GPT-6.1 Sol",
+            Self::Gpt6Luna => "GPT-6 Luna",
+            Self::Gemini4Argon => "Gemini 4 Argon",
+            Self::Gemini36Flash => "Gemini 3.6 Flash",
+            Self::Gemini35FlashLite => "Gemini 3.5 Flash-Lite",
         }
     }
 
-    /// Roughly what one photo costs, in US cents (about 1,500 image and
-    /// 1,500 prompt tokens in, a few hundred out, at the list price).
+    /// Roughly what one photo costs, in US cents: about 1,100–1,500 image
+    /// and 1,500 prompt tokens in, a few hundred out, at the list price
+    /// (November 2026; for Gemini the prices from December 2026 and
+    /// January 2027, when the introductory ones end).
     pub fn cents_per_photo(self) -> f64 {
         match self {
-            Self::Opus55 => 2.0,
-            Self::Fable51 => 6.0,
-            Self::Haiku55 => 0.1,
+            Self::ClaudeOpus55 => 2.0,
+            Self::ClaudeFable51 => 6.0,
+            Self::ClaudeHaiku55 => 0.1,
+            Self::Gpt6Astra => 5.0,
+            Self::Gpt61Sol => 1.0,
+            Self::Gpt6Luna => 0.05,
+            Self::Gemini4Argon => 2.0,
+            Self::Gemini36Flash => 0.8,
+            Self::Gemini35FlashLite => 0.2,
         }
     }
-
-    /// Whether the request asks for the API's fallback when the model
-    /// declines (Haiku has none).
-    fn fallbacks(self) -> bool {
-        !matches!(self, Self::Haiku55)
-    }
 }
 
-/// Does `s` look like a Claude API key? (Checked before it is saved.)
-pub fn looks_like_key(s: &str) -> bool {
-    let s = s.trim();
-    s.starts_with("sk-ant-")
-        && s.len() >= 20
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
-/// What Claude gave one photo.
+/// What the AI gave one photo.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ClaudeTags {
+pub struct CloudTags {
     /// From the list, as named there.
     pub tags: Vec<String>,
     /// Its own, without the parent: "Eiffel Tower".
@@ -163,53 +299,122 @@ impl Http for UreqHttp {
     }
 }
 
-/// Tags one photo (the JPEG bytes) from the tag names given.
+/// Tags one photo (the JPEG bytes) from the tag names given, with one
+/// provider's AI.
 pub trait Tagger: Send + Sync {
-    fn tag(&self, jpeg: &[u8], names: &[String]) -> Result<ClaudeTags, AiError>;
+    fn tag(&self, provider: Provider, jpeg: &[u8], names: &[String]) -> Result<CloudTags, AiError>;
 }
 
-type KeyFn = dyn Fn() -> Option<String> + Send + Sync;
-type ModelFn = dyn Fn() -> ClaudeModel + Send + Sync;
+/// Looks up a provider's API key.
+pub type KeyFn = dyn Fn(Provider) -> Option<String> + Send + Sync;
+/// Looks up the model chosen for a provider.
+pub type ModelFn = dyn Fn(Provider) -> CloudModel + Send + Sync;
 
-/// [`Tagger`] with the Claude API. The key and the model are asked for
-/// each photo.
-pub struct Claude {
+/// One question about a photo, the same for every provider: what the AI is
+/// told, what it is asked, and the JSON schema its answer is held to.
+pub(crate) struct Task {
+    pub system: &'static str,
+    pub ask: String,
+    pub schema: Value,
+    /// The schema's name, where a provider wants one.
+    pub name: &'static str,
+    /// "{provider} declined to {verb} this photo".
+    pub verb: &'static str,
+    /// "{provider}'s answer had no {noun}".
+    pub noun: &'static str,
+}
+
+/// The tagging question for `provider`.
+pub(crate) fn tag_task(provider: Provider, names: &[String]) -> Task {
+    let mut schema = schema(names);
+    let mut ask = ASK.to_owned();
+    if provider == Provider::Gemini {
+        // Gemini refuses the tag list as an `enum` ("Request contains an
+        // invalid argument"), so the list goes with the question instead;
+        // `tidy` keeps only tags on it.
+        if let Some(items) = schema["properties"]["tags"]["items"].as_object_mut() {
+            items.remove("enum");
+        }
+        ask = format!(
+            "{ASK}\n\nThe list (use these names exactly):\n{}",
+            names.join("\n")
+        );
+    }
+    Task {
+        system: SYSTEM,
+        ask,
+        schema,
+        name: "photo_tags",
+        verb: "tag",
+        noun: "tags",
+    }
+}
+
+/// Send one photo with `task` to `provider`: the answer's JSON text and the
+/// model that gave it.
+pub(crate) fn send(
+    http: &dyn Http,
+    key: &KeyFn,
+    model: &ModelFn,
+    provider: Provider,
+    jpeg: &[u8],
+    task: &Task,
+) -> Result<(String, String), AiError> {
+    let key = key(provider).ok_or(AiError::NoApiKey(provider))?;
+    let model = Some(model(provider))
+        .filter(|m| m.provider() == provider)
+        .unwrap_or_else(|| provider.default_model());
+    let (url, headers, body) = match provider {
+        Provider::Claude => claude::call(model, &key, jpeg, task),
+        Provider::OpenAi => openai::call(model, &key, jpeg, task),
+        Provider::Gemini => gemini::call(model, &key, jpeg, task),
+    };
+    let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, text) = http
+        .post(&url, &headers, body.to_string().as_bytes())
+        .map_err(|e| AiError::Cloud {
+            message: format!("could not reach {provider}: {e}"),
+            retry: true,
+        })?;
+    match provider {
+        Provider::Claude => claude::answer(status, &text, task),
+        Provider::OpenAi => openai::answer(status, &text, task),
+        Provider::Gemini => gemini::answer(status, &text, task),
+    }
+}
+
+/// [`Tagger`] with the providers' APIs. The key and the model are asked
+/// for each photo.
+pub struct CloudTagger {
     http: Arc<dyn Http>,
     key: Arc<KeyFn>,
     model: Arc<ModelFn>,
 }
 
-impl Claude {
+impl CloudTagger {
     pub fn new(http: Arc<dyn Http>, key: Arc<KeyFn>, model: Arc<ModelFn>) -> Self {
         Self { http, key, model }
     }
 }
 
-impl Tagger for Claude {
-    fn tag(&self, jpeg: &[u8], names: &[String]) -> Result<ClaudeTags, AiError> {
-        let key = (self.key)().ok_or(AiError::NoApiKey)?;
-        let model = (self.model)();
-        let body = request(model, jpeg, names).to_string();
-        let mut headers = vec![
-            ("content-type", "application/json"),
-            ("x-api-key", key.as_str()),
-            ("anthropic-version", API_VERSION),
-        ];
-        if model.fallbacks() {
-            headers.push(("anthropic-beta", "server-side-fallback-2026-07-01"));
-        }
-        let (status, text) = self
-            .http
-            .post(API_URL, &headers, body.as_bytes())
-            .map_err(|e| AiError::Cloud {
-                message: format!("could not reach Claude: {e}"),
-                retry: true,
-            })?;
-        parse_response(status, &text, names)
+impl Tagger for CloudTagger {
+    fn tag(&self, provider: Provider, jpeg: &[u8], names: &[String]) -> Result<CloudTags, AiError> {
+        let task = tag_task(provider, names);
+        let (text, model) = send(
+            self.http.as_ref(),
+            self.key.as_ref(),
+            self.model.as_ref(),
+            provider,
+            jpeg,
+            &task,
+        )?;
+        tidy(provider, &text, names, &model)
     }
 }
 
-const SYSTEM: &str = "You tag photos in a family's personal photo library so they can find them later.
+/// What every provider is told. Kept the same for all, so their tags are
+/// alike.
+pub(crate) const SYSTEM: &str = "You tag photos in a family's personal photo library so they can find them later.
 
 Put in `tags` every tag from the list that clearly applies to the photo. Leave out any you are unsure of.
 
@@ -217,41 +422,43 @@ Then put in `new_tags` up to 5 short tags of your own for clear, specific things
 
 Never name or guess who a person is, and never tag a person's age, ethnicity, religion, health or other personal traits.";
 
-/// The request body for one photo.
-pub fn request(model: ClaudeModel, jpeg: &[u8], names: &[String]) -> Value {
-    let mut body = json!({
-        "model": model.id(),
-        "max_tokens": 16000,
-        "system": SYSTEM,
-        "output_config": {
-            "effort": "low",
-            "format": {
-                "type": "json_schema",
-                "schema": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["tags", "new_tags"],
-                    "properties": {
-                        "tags": {"type": "array", "items": {"type": "string", "enum": names}},
-                        "new_tags": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-            },
+/// What the photo is sent with.
+pub(crate) const ASK: &str = "Tag this photo.";
+
+/// The answer's JSON schema: `tags` from the list, `new_tags` free.
+pub(crate) fn schema(names: &[String]) -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tags", "new_tags"],
+        "properties": {
+            "tags": {"type": "array", "items": {"type": "string", "enum": names}},
+            "new_tags": {"type": "array", "items": {"type": "string"}},
         },
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {
-                    "type": "base64", "media_type": "image/jpeg", "data": base64(jpeg),
-                }},
-                {"type": "text", "text": "Tag this photo."},
-            ],
-        }],
-    });
-    if model.fallbacks() {
-        body["fallbacks"] = json!("default");
+    })
+}
+
+/// A request that failed: whether trying again later may help.
+pub(crate) fn fail(message: String, retry: bool) -> AiError {
+    AiError::Cloud { message, retry }
+}
+
+/// What an HTTP status other than 200 means, the same way for every
+/// provider: a refused key, busy, broken, or the request refused.
+pub(crate) fn http_error(provider: Provider, status: u16, api_message: &str) -> AiError {
+    match status {
+        401 | 403 => fail(
+            format!("{provider} did not accept the API key: check it in Settings"),
+            false,
+        ),
+        429 | 529 => fail(format!("{provider} is busy: trying again soon"), true),
+        s if s >= 500 => fail(format!("{provider} had a problem ({s})"), true),
+        s if api_message.is_empty() => fail(format!("{provider} refused the request ({s})"), false),
+        _ => fail(
+            format!("{provider} refused the request: {api_message}"),
+            false,
+        ),
     }
-    body
 }
 
 #[derive(Deserialize)]
@@ -262,51 +469,19 @@ struct Answer {
     new_tags: Vec<String>,
 }
 
-/// Read the API's answer: tags kept only if they are on the list, new tags
-/// cleaned up and at most [`MAX_NEW_TAGS`].
-pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<ClaudeTags, AiError> {
-    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let api_message = v["error"]["message"].as_str().unwrap_or("").to_owned();
-    let fail = |message: String, retry: bool| AiError::Cloud { message, retry };
-    match status {
-        200 => {}
-        401 | 403 => {
-            return Err(fail(
-                "Claude did not accept the API key: check it in Settings".into(),
-                false,
-            ))
-        }
-        429 | 529 => return Err(fail("Claude is busy: trying again soon".into(), true)),
-        s if s >= 500 => return Err(fail(format!("Claude had a problem ({s})"), true)),
-        s => {
-            let m = if api_message.is_empty() {
-                format!("Claude refused the request ({s})")
-            } else {
-                format!("Claude refused the request: {api_message}")
-            };
-            return Err(fail(m, false));
-        }
-    }
-    match v["stop_reason"].as_str() {
-        Some("refusal") => return Err(fail("Claude declined to tag this photo".into(), false)),
-        Some("max_tokens") => return Err(fail("Claude's answer was cut short".into(), true)),
-        _ => {}
-    }
-    let text = v["content"]
-        .as_array()
-        .and_then(|blocks| {
-            blocks
-                .iter()
-                .filter(|b| b["type"] == "text")
-                .rev()
-                .find_map(|b| b["text"].as_str())
-        })
-        .ok_or_else(|| fail("Claude's answer had no tags".into(), true))?;
-    let answer: Answer = serde_json::from_str(text)
-        .map_err(|e| fail(format!("Claude's answer could not be read: {e}"), true))?;
-    let mut out = ClaudeTags {
-        model: v["model"].as_str().unwrap_or("").to_owned(),
-        ..ClaudeTags::default()
+/// Read the answer's JSON text: tags kept only if they are on the list, new
+/// tags cleaned up and at most [`MAX_NEW_TAGS`].
+pub(crate) fn tidy(
+    provider: Provider,
+    text: &str,
+    names: &[String],
+    model: &str,
+) -> Result<CloudTags, AiError> {
+    let answer: Answer = serde_json::from_str(text.trim())
+        .map_err(|e| fail(format!("{provider}'s answer could not be read: {e}"), true))?;
+    let mut out = CloudTags {
+        model: model.to_owned(),
+        ..CloudTags::default()
     };
     let known = |t: &str| names.iter().find(|n| n.eq_ignore_ascii_case(t.trim()));
     for t in &answer.tags {
@@ -365,10 +540,10 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
-/// The keyword paths for what Claude gave: list tags (and the tags they
+/// The keyword paths for what the AI gave: list tags (and the tags they
 /// imply, as on-device: Portrait gives People), then new ones under
 /// [`NEW_TAG_PARENT`].
-pub fn keyword_paths(t: &ClaudeTags) -> Result<Vec<TagPath>, AiError> {
+pub fn keyword_paths(t: &CloudTags) -> Result<Vec<TagPath>, AiError> {
     let entries = labels::builtin_entries()?;
     let mut out: Vec<TagPath> = Vec::new();
     let mut add = |p: TagPath| {
@@ -392,35 +567,31 @@ pub fn keyword_paths(t: &ClaudeTags) -> Result<Vec<TagPath>, AiError> {
     Ok(out)
 }
 
-/// The `ai.claude` job: send the asset's thumbnail to `tagger` and add what
-/// it gives to the asset's keywords (those it has stay). Returns the
-/// keywords added, as `A|B`.
+/// One cloud job: send the asset's thumbnail to `provider` through `tagger`
+/// and add what it gives to the asset's keywords (those it has stay),
+/// recording that `provider` gave them (ADR-039). Returns the keywords
+/// added, as `A|B`.
 pub fn tag_asset(
     cat: &mut Catalog,
     lib: &Library,
     cache: &Cache,
     tagger: &dyn Tagger,
+    provider: Provider,
     asset: AssetId,
 ) -> Result<Vec<String>, AiError> {
     let img = analyze::thumbnail(cat, cache, asset)?;
     let jpeg = crate::render::still::encode_jpeg(&img)?;
     drop(img);
     let names = labels::parse_names(labels::TSV)?;
-    let got = tagger.tag(&jpeg, &names)?;
+    let got = tagger.tag(provider, &jpeg, &names)?;
     let paths = keyword_paths(&got)?;
-    let mut svc = MetadataService::new(lib, cat);
-    let mut keywords = svc.user_tags(asset).map_err(lib_err)?;
-    let mut added = Vec::new();
-    for p in paths {
-        if !keywords.contains(&p) {
-            added.push(p.to_lightroom());
-            keywords.push(p);
-        }
-    }
-    if !added.is_empty() {
-        svc.set_user_tags(asset, &keywords).map_err(lib_err)?;
-    }
-    tracing::info!(asset = %asset, model = %got.model, "tagged with Claude: {added:?}");
+    let added: Vec<String> = MetadataService::new(lib, cat)
+        .add_ai_keywords(asset, provider.id(), &paths)
+        .map_err(lib_err)?
+        .iter()
+        .map(TagPath::to_lightroom)
+        .collect();
+    tracing::info!(asset = %asset, provider = provider.id(), model = %got.model, "tagged: {added:?}");
     Ok(added)
 }
 
@@ -431,9 +602,9 @@ fn lib_err(e: crate::library::LibraryError) -> AiError {
     }
 }
 
-/// How far tagging some photos with Claude has got.
+/// How far tagging some photos with one provider has got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ClaudeStatus {
+pub struct CloudStatus {
     /// Photos asked for.
     pub items: u64,
     /// Of those, tagged.
@@ -444,14 +615,14 @@ pub struct ClaudeStatus {
     pub failed: u64,
 }
 
-/// Queue `ids` to be tagged with Claude (again, if they were before).
-pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
+/// Queue `ids` to be tagged by `provider` (again, if they were before).
+pub fn enqueue(cat: &mut Catalog, provider: Provider, ids: &[AssetId]) -> Result<u64, AiError> {
     let now = crate::jobs::now_ms();
     let jobs: Vec<NewJob<'_>> = ids
         .iter()
         .enumerate()
         .map(|(i, id)| NewJob {
-            kind: JOB_AI_CLAUDE,
+            kind: provider.job_kind(),
             asset_id: *id,
             rank: 0,
             sort_key: i as i64,
@@ -460,18 +631,32 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     Ok(cat.write(|tx| tx.jobs().enqueue(&jobs, Priority::Recent, now, true))?)
 }
 
-/// How `ids` are getting on, and the latest problem (a failed photo's, or
-/// one being tried again).
-pub fn status(cat: &Catalog, ids: &[AssetId]) -> Result<(ClaudeStatus, Option<String>), AiError> {
+/// How `ids` are getting on with `provider`, and the latest problem (a
+/// failed photo's, or one being tried again).
+pub fn status(
+    cat: &Catalog,
+    provider: Provider,
+    ids: &[AssetId],
+) -> Result<(CloudStatus, Option<String>), AiError> {
+    job_status(cat, provider.job_kind(), ids)
+}
+
+/// How the jobs of kind `kind` for `ids` are getting on, and the latest
+/// problem (shared with the aircraft reader, ADR-041).
+pub fn job_status(
+    cat: &Catalog,
+    kind: &str,
+    ids: &[AssetId],
+) -> Result<(CloudStatus, Option<String>), AiError> {
     use crate::catalog::JobState;
-    let mut st = ClaudeStatus {
+    let mut st = CloudStatus {
         items: ids.len() as u64,
-        ..ClaudeStatus::default()
+        ..CloudStatus::default()
     };
     let mut problem = None;
     cat.read(|tx| {
         for id in ids {
-            let Some(job) = tx.jobs().find(JOB_AI_CLAUDE, *id)? else {
+            let Some(job) = tx.jobs().find(kind, *id)? else {
                 continue;
             };
             match job.state {
@@ -495,28 +680,20 @@ pub fn status(cat: &Catalog, ids: &[AssetId]) -> Result<(ClaudeStatus, Option<St
     Ok((st, problem))
 }
 
-/// Stop: drop the queued jobs of `ids` (photos tagged stay tagged).
-pub fn stop(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
-    Ok(cat.write(|tx| tx.jobs().remove_queued_for(JOB_AI_CLAUDE, ids))?)
+/// Stop: drop the queued jobs of `ids` for `provider` (photos tagged stay
+/// tagged).
+pub fn stop(cat: &mut Catalog, provider: Provider, ids: &[AssetId]) -> Result<u64, AiError> {
+    Ok(cat.write(|tx| tx.jobs().remove_queued_for(provider.job_kind(), ids))?)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn names() -> Vec<String> {
+    pub(super) fn names() -> Vec<String> {
         ["People", "Beach", "Dog", "Portrait"]
             .map(String::from)
             .to_vec()
-    }
-
-    fn ok(text: &str) -> String {
-        json!({
-            "model": "claude-opus-5-5",
-            "stop_reason": "end_turn",
-            "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": text}],
-        })
-        .to_string()
     }
 
     #[test]
@@ -536,77 +713,98 @@ mod tests {
     }
 
     #[test]
-    fn keys_are_checked_before_they_are_saved() {
-        assert!(looks_like_key("sk-ant-api03-abcdefghijklmnop_QR-12"));
-        assert!(looks_like_key("  sk-ant-api03-abcdefghijklmnop  "));
-        assert!(!looks_like_key("sk-ant-short"));
-        assert!(!looks_like_key("hello there, this is not a key"));
-        assert!(!looks_like_key("sk-ant-api03-abc def ghi jkl mno"));
+    fn keys_are_checked_against_the_right_provider() {
+        let claude = "sk-ant-api03-abcdefghijklmnop_QR-12";
+        let openai = "sk-proj-abcdefghijklmnopqrstuvwxyz0123";
+        let gemini = "AIzaSyAbcdefghijklmnopqrstuvwxyz012345";
+        let gemini_new = "AQ.Ab8RN6Kq-abcdefghijklmnopqrstuvwxyz_0123456789";
+        assert!(Provider::Claude.looks_like_key(claude));
+        assert!(Provider::Claude.looks_like_key(&format!("  {claude}  ")));
+        assert!(!Provider::Claude.looks_like_key(openai));
+        assert!(Provider::OpenAi.looks_like_key(openai));
+        assert!(!Provider::OpenAi.looks_like_key(claude));
+        assert!(!Provider::OpenAi.looks_like_key(gemini));
+        assert!(Provider::Gemini.looks_like_key(gemini));
+        assert!(
+            Provider::Gemini.looks_like_key(gemini_new),
+            "keys with dots"
+        );
+        assert!(!Provider::Claude.looks_like_key(gemini_new));
+        assert!(!Provider::OpenAi.looks_like_key(gemini_new));
+        assert!(!Provider::Gemini.looks_like_key(openai));
+        for p in Provider::ALL {
+            assert!(!p.looks_like_key("sk-ant-short"));
+            assert!(!p.looks_like_key("hello there, this is not a key"));
+            assert!(!p.looks_like_key("sk-ant-api03-abc def ghi jkl mno"));
+        }
     }
 
     #[test]
-    fn the_request_sends_the_photo_the_list_and_a_schema() {
-        let r = request(ClaudeModel::Opus55, b"foo", &names());
-        assert_eq!(r["model"], "claude-opus-5-5");
-        assert_eq!(r["fallbacks"], "default");
-        assert_eq!(r["output_config"]["effort"], "low");
-        let schema = &r["output_config"]["format"]["schema"];
-        assert_eq!(schema["properties"]["tags"]["items"]["enum"][3], "Portrait");
-        assert_eq!(schema["additionalProperties"], false);
-        let content = &r["messages"][0]["content"];
-        assert_eq!(content[0]["source"]["media_type"], "image/jpeg");
-        assert_eq!(content[0]["source"]["data"], "Zm9v");
-        // No sampling settings (rejected on this API version).
-        assert!(r.get("temperature").is_none());
-        let h = request(ClaudeModel::Haiku55, b"foo", &names());
-        assert_eq!(h["model"], "claude-haiku-5-5");
-        assert!(h.get("fallbacks").is_none());
-        assert_eq!(
-            ClaudeModel::parse("claude-fable-5-1"),
-            Some(ClaudeModel::Fable51)
-        );
-        assert_eq!(ClaudeModel::parse("gpt"), None);
+    fn every_provider_has_its_models_and_job() {
+        for p in Provider::ALL {
+            assert_eq!(Provider::parse(p.id()), Some(p));
+            assert_eq!(Provider::of_job(p.job_kind()), Some(p));
+            assert_eq!(p.default_model().provider(), p);
+            assert_eq!(p.models().count(), 3, "{p}");
+            assert!(CLOUD_JOBS.contains(&p.job_kind()));
+        }
+        for m in CloudModel::ALL {
+            assert_eq!(CloudModel::parse(m.id()), Some(m));
+            assert!(m.cents_per_photo() > 0.0);
+        }
+        assert_eq!(Provider::of_job("ai.analyze"), None);
+        assert_eq!(CloudModel::parse("gpt"), None);
+        assert_eq!(Provider::OpenAi.to_string(), "ChatGPT");
     }
 
     #[test]
     fn the_answer_keeps_list_tags_and_tidies_new_ones() {
-        let body = ok(r#"{"tags": ["Beach", "Unicorn", "beach", "People"],
-                         "new_tags": ["Eiffel  Tower", "dog", "A|B", "", "Kite", "Sailing",
-                                      "Sand Castle", "Sunset Glow", "Too Many",
-                                      "a very very long tag that goes on and on and on"]}"#);
-        let t = parse_response(200, &body, &names()).unwrap();
+        let text = r#"{"tags": ["Beach", "Unicorn", "beach", "People"],
+                       "new_tags": ["Eiffel  Tower", "dog", "A|B", "", "Kite", "Sailing",
+                                    "Sand Castle", "Sunset Glow", "Too Many",
+                                    "a very very long tag that goes on and on and on"]}"#;
+        let t = tidy(Provider::Gemini, text, &names(), "m").unwrap();
         assert_eq!(t.tags, ["Beach", "People", "Dog"]);
         assert_eq!(
             t.new_tags,
             ["Eiffel Tower", "AB", "Kite", "Sailing", "Sand Castle"]
         );
-        assert_eq!(t.model, "claude-opus-5-5");
+        assert_eq!(t.model, "m");
+        match tidy(Provider::OpenAi, "not json", &names(), "m") {
+            Err(AiError::Cloud { retry, message }) => {
+                assert!(retry);
+                assert!(message.starts_with("ChatGPT's answer"), "{message}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
-    fn problems_say_whether_trying_again_helps() {
-        let retry = |s: u16, b: &str| match parse_response(s, b, &names()) {
-            Err(AiError::Cloud { retry, message }) => (retry, message),
+    fn http_errors_name_the_provider_and_say_whether_to_retry() {
+        let e = |p, s, m| match http_error(p, s, m) {
+            AiError::Cloud { retry, message } => (retry, message),
             other => panic!("{other:?}"),
         };
-        assert!(!retry(401, "{}").0);
-        assert!(retry(401, "{}").1.contains("API key"));
-        assert!(retry(429, "{}").0);
-        assert!(retry(529, "{}").0);
-        assert!(retry(500, "").0);
-        let (r, m) = retry(400, r#"{"error": {"message": "image too large"}}"#);
-        assert!(!r && m.contains("image too large"), "{m}");
-        let refused = json!({"stop_reason": "refusal", "content": []}).to_string();
         assert_eq!(
-            retry(200, &refused),
-            (false, "Claude declined to tag this photo".into())
+            e(Provider::Gemini, 401, ""),
+            (
+                false,
+                "Gemini did not accept the API key: check it in Settings".into()
+            )
         );
-        assert!(retry(200, &ok("not json")).0);
+        assert!(e(Provider::OpenAi, 429, "").0);
+        assert!(e(Provider::Claude, 529, "").0);
+        assert!(e(Provider::Claude, 503, "").0);
+        let (r, m) = e(Provider::OpenAi, 400, "image too large");
+        assert!(
+            !r && m == "ChatGPT refused the request: image too large",
+            "{m}"
+        );
     }
 
     #[test]
     fn keywords_get_implied_tags_and_new_ones_go_under_ai() {
-        let t = ClaudeTags {
+        let t = CloudTags {
             tags: vec!["Portrait".into()],
             new_tags: vec!["Eiffel Tower".into()],
             model: String::new(),
@@ -620,9 +818,36 @@ mod tests {
     }
 
     /// One request: URL, headers, body.
-    type Sent = (String, Vec<(String, String)>, String);
+    pub(crate) type Sent = (String, Vec<(String, String)>, String);
 
-    struct Fake(std::sync::Mutex<Vec<Sent>>);
+    /// Stands in for the network: answers every request with `answer`.
+    pub(crate) struct Fake {
+        pub sent: std::sync::Mutex<Vec<Sent>>,
+        pub answer: (u16, String),
+    }
+
+    impl Fake {
+        pub fn new(status: u16, body: String) -> Arc<Self> {
+            Arc::new(Self {
+                sent: Default::default(),
+                answer: (status, body),
+            })
+        }
+
+        /// The last request's header `k`.
+        pub fn header(&self, k: &str) -> Option<String> {
+            let sent = self.sent.lock().unwrap();
+            sent.last()?
+                .1
+                .iter()
+                .find(|(a, _)| a == k)
+                .map(|(_, v)| v.clone())
+        }
+
+        pub fn last(&self) -> Sent {
+            self.sent.lock().unwrap().last().cloned().unwrap()
+        }
+    }
 
     impl Http for Fake {
         fn post(
@@ -631,7 +856,7 @@ mod tests {
             headers: &[(&str, &str)],
             body: &[u8],
         ) -> Result<(u16, String), String> {
-            self.0.lock().map_err(|e| e.to_string())?.push((
+            self.sent.lock().map_err(|e| e.to_string())?.push((
                 url.into(),
                 headers
                     .iter()
@@ -639,37 +864,71 @@ mod tests {
                     .collect(),
                 String::from_utf8_lossy(body).into_owned(),
             ));
-            Ok((200, ok(r#"{"tags": ["Dog"], "new_tags": []}"#)))
+            Ok(self.answer.clone())
         }
     }
 
+    /// A tagger over `http` with a key for every provider and `model`.
+    pub(super) fn tagger(http: Arc<Fake>, model: CloudModel) -> CloudTagger {
+        CloudTagger::new(
+            http,
+            Arc::new(|p: Provider| Some(format!("{}-test-key-000000", p.id()))),
+            Arc::new(move |_| model),
+        )
+    }
+
     #[test]
-    fn claude_sends_the_key_and_needs_one() {
-        let http = Arc::new(Fake(Default::default()));
-        let c = Claude::new(
+    fn a_missing_key_names_the_provider() {
+        let http = Fake::new(200, String::new());
+        let t = CloudTagger::new(
             http.clone(),
-            Arc::new(|| Some("sk-ant-test-key-000000".into())),
-            Arc::new(|| ClaudeModel::Fable51),
+            Arc::new(|_| None),
+            Arc::new(|_| CloudModel::Gpt6Luna),
         );
-        assert_eq!(c.tag(b"x", &names()).unwrap().tags, ["Dog"]);
-        let sent = http.0.lock().unwrap();
-        let (url, headers, body) = &sent[0];
-        assert_eq!(url, API_URL);
-        let h = |k: &str| {
-            headers
-                .iter()
-                .find(|(a, _)| a == k)
-                .map(|(_, v)| v.as_str())
-        };
-        assert_eq!(h("x-api-key"), Some("sk-ant-test-key-000000"));
-        assert_eq!(h("anthropic-version"), Some(API_VERSION));
-        assert_eq!(h("anthropic-beta"), Some("server-side-fallback-2026-07-01"));
-        assert!(body.contains("claude-fable-5-1"));
-        let none = Claude::new(
-            http.clone(),
-            Arc::new(|| None),
-            Arc::new(ClaudeModel::default),
+        match t.tag(Provider::OpenAi, b"x", &names()) {
+            Err(AiError::NoApiKey(Provider::OpenAi)) => {}
+            other => panic!("{other:?}"),
+        }
+        assert!(http.sent.lock().unwrap().is_empty(), "nothing is sent");
+        assert_eq!(
+            AiError::NoApiKey(Provider::Gemini).to_string(),
+            "no Gemini API key: add one in Settings"
         );
-        assert!(matches!(none.tag(b"x", &names()), Err(AiError::NoApiKey)));
+    }
+
+    #[test]
+    fn a_model_of_another_provider_falls_back_to_the_default() {
+        let http = Fake::new(500, String::new());
+        let t = tagger(http.clone(), CloudModel::ClaudeHaiku55);
+        let _ = t.tag(Provider::Gemini, b"x", &names());
+        assert!(
+            http.last().0.contains("gemini-3.6-flash"),
+            "{}",
+            http.last().0
+        );
+    }
+
+    #[test]
+    fn an_unreachable_api_is_tried_again() {
+        struct Down;
+        impl Http for Down {
+            fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<(u16, String), String> {
+                Err("no network".into())
+            }
+        }
+        let t = CloudTagger::new(
+            Arc::new(Down),
+            Arc::new(|_| Some("k".into())),
+            Arc::new(Provider::default_model),
+        );
+        match t.tag(Provider::Gemini, b"x", &names()) {
+            Err(AiError::Cloud {
+                retry: true,
+                message,
+            }) => {
+                assert_eq!(message, "could not reach Gemini: no network");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

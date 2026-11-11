@@ -1,8 +1,9 @@
 // The thumbnail grid: virtualized rows of tiles, multi-select with mouse
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
-// video durations. Right-click (or the Menu key) opens a menu for the
-// selection: Open, Tag with Claude.
+// video durations. Right-click, the Menu key or Shift+F10 opens an item's
+// menu: Open, Show in Explorer / Finder, Open in…, Tag with AI and Read
+// aircraft (for the selection), Name and find and Edit suggestions.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -15,10 +16,10 @@ import { useUi } from "../state";
 import { useRows } from "../useRows";
 import { labelColor } from "../labels";
 import { Stars } from "./Stars";
+import { isMenuClick, isMenuKey, useItemMenu } from "./useItemMenu";
 import { markReady } from "../diagnostics";
 import { describeRow, useRovingFocus } from "../a11y";
 import { stepThumbSize, tilePx, useThumbSize, wantsLarge } from "../thumbSize";
-import { ContextMenu } from "./ContextMenu";
 
 const GAP = 8;
 /** How far the mouse moves before a press becomes a drag. */
@@ -155,18 +156,94 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   useRovingFocus(parent, s.sel.focus, [first, last, cols]);
   const pageRows = Math.max(1, Math.floor((parent.current?.clientHeight ?? 600) / (TILE + GAP)));
   const listKeys = useListKeys(rows.count, cols, pageRows, onOpen);
-  /** The right-click menu, at the pointer, for this selection. */
-  const [menu, setMenu] = useState<{ x: number; y: number; sel: sel.Sel } | null>(null);
-  const openMenu = (x: number, y: number, i: number | null) => {
-    const cur = i !== null && !sel.has(s.sel, i) ? sel.only(i) : s.sel;
-    if (!cur.ranges.length && cur.focus === null) return;
-    setMenu({ x, y, sel: cur });
+  const tileEl = (i: number) => document.getElementById(`tile-${i}`);
+  const itemMenu = useItemMenu(
+    rows.get,
+    (i) => (tileEl(i) ?? parent.current)?.focus({ preventScroll: true }),
+    (i) => {
+      // Tag with AI is for the selection: the right-clicked item alone if it
+      // is not in it. Name and find is for the right-clicked photo.
+      const cur = !sel.has(s.sel, i) ? sel.only(i) : s.sel;
+      const n = cur.ranges.length ? sel.size(cur) : 1;
+      const one = n === 1 ? rows.get(i) : null;
+      return {
+        before: [{ label: "Open", testId: "item-menu-view", run: () => onOpen(i) }],
+        after: [
+          {
+            label: "Tag with AI…",
+            title: "Send these photos to Claude, ChatGPT or Gemini to be tagged (asks first)",
+            testId: "tile-menu-cloud",
+            run: () =>
+              dispatch({
+                t: "aiJob",
+                job: {
+                  cloud: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                  what: "tags",
+                },
+              }),
+          },
+          {
+            label: "Read aircraft",
+            title:
+              "Read the registration, airline and type of the aircraft in these photos (on this computer)",
+            testId: "tile-menu-aircraft",
+            run: () =>
+              dispatch({
+                t: "aiJob",
+                job: {
+                  aircraft: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                  what: "tags",
+                },
+              }),
+          },
+          {
+            label: "Name and find…",
+            title:
+              "Name a person in this photo and find the other photos they are in (on this computer)",
+            testId: "tile-menu-faces",
+            disabled: rows.get(i)?.kind === "video",
+            run: () => {
+              const r = rows.get(i);
+              if (r)
+                dispatch({ t: "nameFind", photo: { photo: r.id, title: r.name ?? "this photo" } });
+            },
+          },
+          {
+            label: "Edit suggestions…",
+            title:
+              "Measure this photo and suggest edits for Photoshop and Topaz Photo (an AI can be asked too)",
+            testId: "tile-menu-edit-advice",
+            disabled: rows.get(i)?.kind === "video",
+            run: () => {
+              const r = rows.get(i);
+              if (r)
+                dispatch({
+                  t: "editAdvice",
+                  photo: { photo: r.id, title: r.name ?? "this photo" },
+                });
+            },
+          },
+        ],
+      };
+    },
+  );
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!isMenuClick(e)) return;
+    const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+    if (!hit) return;
+    const i = Number(hit.dataset.index);
+    // From the keyboard the browser gives no pointer position.
+    if (e.clientX === 0 && e.clientY === 0) itemMenu.openOn(i, hit);
+    else itemMenu.open(i, e.clientX, e.clientY);
   };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      const el = parent.current?.querySelector<HTMLElement>(`#tile-${s.sel.focus ?? -1}`);
-      const r = el?.getBoundingClientRect();
-      if (r) openMenu(r.left + 8, r.bottom - 8, s.sel.focus);
+    if (isMenuKey(e)) {
+      if (s.sel.focus !== null) itemMenu.openOn(s.sel.focus, tileEl(s.sel.focus));
       e.preventDefault();
       return;
     }
@@ -319,11 +396,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
         data-selecting={s.selecting || undefined}
         onKeyDown={onKey}
         onMouseDown={onMouseDown}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
-          if (hit) openMenu(e.clientX, e.clientY, Number(hit.dataset.index));
-        }}
+        onContextMenu={onContextMenu}
       >
         <div ref={content} style={{ height: v.getTotalSize(), position: "relative" }}>
           {items.map((vr) => (
@@ -360,42 +433,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
           )}
         </div>
       </div>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          label="Selected items"
-          testId="tile-menu"
-          onClose={() => setMenu(null)}
-          items={[
-            {
-              label: "Open",
-              disabled: menu.sel.focus === null,
-              run: () => {
-                if (menu.sel.focus !== null) onOpen(menu.sel.focus);
-              },
-            },
-            {
-              label: "Tag with Claude…",
-              title: "Send these photos to Claude to be tagged (asks first)",
-              testId: "tile-menu-claude",
-              run: () => {
-                const n = menu.sel.ranges.length ? sel.size(menu.sel) : 1;
-                const one = n === 1 && menu.sel.focus !== null ? rows.get(menu.sel.focus) : null;
-                dispatch({
-                  t: "aiJob",
-                  job: {
-                    claude: selectionPayload(view?.view ?? null, menu.sel),
-                    count: n,
-                    title: one?.name ?? fmt.plural(n, "photo"),
-                    what: "tags",
-                  },
-                });
-              },
-            },
-          ]}
-        />
-      )}
+      {itemMenu.element}
     </>
   );
 }

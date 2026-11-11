@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension, Row};
 use super::{define_repo, rel_path_col, to_i64, u64_col};
 use crate::catalog::error::CatalogError;
 use crate::catalog::{Blake3Hash, Rendition, RenditionId, RenditionKind, Rw};
+use crate::relpath::RelPath;
 
 define_repo!(
     /// Rendition cache index.
@@ -42,6 +43,36 @@ impl<M> Renditions<'_, M> {
                 map,
             )
             .optional()?)
+    }
+
+    /// Every rendition of one source.
+    pub fn for_source(&self, source: &Blake3Hash) -> Result<Vec<Rendition>, CatalogError> {
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT {COLS} FROM renditions WHERE source_hash = ?1 ORDER BY id"
+        ))?;
+        let rows = st.query_map([source], map)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Up to `limit` renditions (after `after`, by id) whose file is not at
+    /// its content-addressed name `<kind>/<aa>/<source>-<recipe>.<ext>`:
+    /// left behind when their source was re-keyed (ADR-029, ADR-034).
+    pub fn misnamed(
+        &self,
+        after: Option<RenditionId>,
+        limit: u32,
+    ) -> Result<Vec<Rendition>, CatalogError> {
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT {COLS} FROM renditions
+             WHERE (?1 IS NULL OR id > ?1)
+               AND rel_path NOT LIKE kind || '/' || lower(substr(hex(source_hash), 1, 2)) || '/'
+                   || lower(hex(source_hash)) || '-' || lower(hex(recipe_hash)) || '.%'
+             ORDER BY id LIMIT ?2"
+        ))?;
+        let rows = st
+            .query_map(params![after, limit], map)?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
     }
 
     /// Number of renditions and their total size.
@@ -135,6 +166,22 @@ impl Renditions<'_, Rw> {
             params![id, now_ms],
         )?;
         Ok(())
+    }
+
+    /// Point a rendition at its file's new name, unless the row changed
+    /// since it was read (another process fixed it first).
+    pub fn set_rel_path(
+        &self,
+        id: RenditionId,
+        from: &RelPath,
+        to: &RelPath,
+        size_bytes: u64,
+    ) -> Result<bool, CatalogError> {
+        let n = self.conn.execute(
+            "UPDATE renditions SET rel_path = ?3, size_bytes = ?4 WHERE id = ?1 AND rel_path = ?2",
+            params![id, from.as_str(), to.as_str(), to_i64(size_bytes, "size")?],
+        )?;
+        Ok(n > 0)
     }
 
     pub fn delete(&self, id: RenditionId) -> Result<(), CatalogError> {

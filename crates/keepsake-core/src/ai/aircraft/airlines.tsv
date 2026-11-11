@@ -1,0 +1,312 @@
+# Airlines and how their name is painted on the aircraft (ADR-041).
+# Name<TAB>ALIAS|ALIAS   The name itself always counts; aliases are other
+# ways it is painted. A line of text is that airline when it has the same
+# words in a row (see marks.rs for the leeway given to long names).
+# Keep names that are ordinary words out unless they are painted alone in
+# big letters (DELTA, UNITED).
+
+# Canada
+Air Canada
+Air Canada Rouge	ROUGE
+Air Canada Express
+Air Canada Jetz	JETZ
+WestJet	WESTJET ENCORE
+Air Transat	TRANSAT
+Porter Airlines	PORTER
+Flair Airlines	FLAIR
+Sunwing Airlines	SUNWING
+Lynx Air	LYNX
+Swoop
+Canada Jetlines	JETLINES
+Canadian North
+Air North
+Air Inuit
+First Air
+Cargojet
+Nolinor
+Pascan
+PAL Airlines
+Air Creebec
+Calm Air
+Central Mountain Air
+Pacific Coastal
+Harbour Air
+Air Tindi
+Perimeter
+Bearskin
+Wasaya
+Chrono Aviation	CHRONO
+Morningstar Air Express	MORNINGSTAR
+
+# United States
+American Airlines	AMERICAN
+Delta Air Lines	DELTA
+United Airlines	UNITED
+Southwest Airlines	SOUTHWEST
+Alaska Airlines	ALASKA
+JetBlue
+Spirit Airlines	SPIRIT
+Frontier Airlines	FRONTIER
+Hawaiian Airlines	HAWAIIAN
+Allegiant Air	ALLEGIANT
+Sun Country Airlines	SUN COUNTRY
+Breeze Airways	BREEZE
+Avelo Airlines	AVELO
+FedEx	FEDEX EXPRESS
+UPS	UNITED PARCEL SERVICE|WORLDWIDE SERVICES
+Atlas Air
+Kalitta Air	KALITTA
+Amerijet
+Prime Air
+Omni Air International
+SkyWest
+Envoy
+Endeavor Air
+Republic Airways
+Mesa Airlines
+Piedmont
+Horizon Air	HORIZON
+Cape Air
+National Airlines
+Western Global
+Polar Air Cargo	POLAR
+American Eagle
+United Express
+Delta Connection
+
+# Mexico, Central and South America, Caribbean
+Aeromexico	AEROMÉXICO
+Volaris
+Viva Aerobus	VIVAAEROBUS|VIVA
+Interjet
+LATAM
+Avianca
+Copa Airlines	COPA
+GOL
+Azul
+Aerolineas Argentinas	AEROLÍNEAS ARGENTINAS
+Sky Airline
+JetSMART
+Cubana
+Caribbean Airlines	CARIBBEAN
+Bahamasair
+Air Jamaica
+Cayman Airways
+InterCaribbean
+Surinam Airways
+Arajet
+Wingo
+TAME
+Boliviana de Aviacion	BOA
+
+# United Kingdom and Ireland
+British Airways
+Virgin Atlantic
+easyJet
+Ryanair
+Jet2	JET2 COM|JET2 HOLIDAYS
+TUI
+Aer Lingus
+Loganair
+Flybe
+Titan Airways
+Norse Atlantic	NORSE
+Eastern Airways
+BA CityFlyer
+
+# Europe
+Lufthansa
+Lufthansa Cargo
+Eurowings
+Eurowings Discover	DISCOVER AIRLINES
+Condor
+Air France
+KLM	KLM ROYAL DUTCH AIRLINES|KLM CITYHOPPER|KLM ASIA
+Transavia
+Swiss	SWISS INTERNATIONAL AIR LINES
+Edelweiss
+Austrian	AUSTRIAN AIRLINES
+Brussels Airlines
+Iberia
+Iberia Express
+Vueling
+Air Europa	AIREUROPA
+Volotea
+TAP Air Portugal	TAP PORTUGAL|AIR PORTUGAL
+SATA
+Azores Airlines
+ITA Airways
+Alitalia
+Neos
+Aegean
+Olympic Air
+Turkish Airlines	TURKISH
+Pegasus
+SunExpress
+Corendon
+SAS	SCANDINAVIAN|SCANDINAVIAN AIRLINES
+Norwegian
+Finnair
+Icelandair
+PLAY
+airBaltic
+LOT	LOT POLISH AIRLINES|POLISH AIRLINES
+Enter Air
+Smartwings
+Czech Airlines
+Wizz Air	WIZZ
+TAROM
+Bulgaria Air
+Air Serbia
+Croatia Airlines
+Luxair
+Cargolux
+Air Malta
+KM Malta Airlines
+Aeroflot
+Rossiya
+S7 Airlines
+Ukraine International	UIA
+Belavia
+Air Astana
+Uzbekistan Airways	UZBEKISTAN
+Azerbaijan Airlines	AZAL
+Georgian Airways
+DHL
+ASL Airlines
+Air Dolomiti
+Braathens
+Wideroe	WIDERØE
+Atlantic Airways
+Air Corsica
+Air Caraibes	AIR CARAÏBES
+French bee
+Corsair
+La Compagnie
+Level
+Plus Ultra
+Wamos Air	WAMOS
+Hi Fly	HIFLY
+EuroAtlantic
+Privilege Style
+Air Belgium
+TUI fly	TUIFLY
+Sundair
+Lauda
+Buzz
+Malta Air
+
+# Middle East
+Emirates
+Etihad	ETIHAD AIRWAYS
+Qatar Airways	QATAR
+flydubai
+Air Arabia
+Saudia	SAUDI ARABIAN|SAUDI ARABIAN AIRLINES
+flynas
+Riyadh Air
+Gulf Air
+Oman Air
+Kuwait Airways
+Jazeera Airways	JAZEERA
+Royal Jordanian
+Middle East Airlines	MEA
+El Al	EL AL ISRAEL AIRLINES|ELAL
+Arkia
+Iran Air
+Mahan Air
+Iraqi Airways
+
+# Africa
+EgyptAir
+Royal Air Maroc
+Air Algerie	AIR ALGÉRIE
+Tunisair
+Ethiopian	ETHIOPIAN AIRLINES
+Kenya Airways
+South African	SOUTH AFRICAN AIRWAYS
+RwandAir
+Air Mauritius
+Air Seychelles
+Air Tanzania
+Uganda Airlines
+TAAG
+Air Senegal	AIR SÉNÉGAL
+Air Cote d'Ivoire	AIR CÔTE D'IVOIRE
+ASKY
+Air Peace
+FlySafair	SAFAIR
+Airlink
+
+# Asia
+Air India
+Air India Express
+IndiGo
+Vistara
+SpiceJet
+Akasa Air
+Pakistan International	PIA
+Biman Bangladesh	BIMAN
+SriLankan	SRILANKAN AIRLINES
+Nepal Airlines
+Air China
+China Eastern
+China Southern
+Hainan Airlines
+Sichuan Airlines
+Xiamen Air	XIAMENAIR
+Shenzhen Airlines
+Juneyao
+Spring Airlines
+Cathay Pacific
+Cathay Dragon
+Hong Kong Airlines
+HK Express
+EVA Air
+China Airlines
+Starlux
+Tigerair
+Japan Airlines	JAL
+ANA	ALL NIPPON AIRWAYS|ALL NIPPON
+Peach
+ZIPAIR
+Skymark
+Korean Air
+Asiana	ASIANA AIRLINES
+Jeju Air
+Jin Air
+T'way
+Air Premia
+Singapore Airlines
+Scoot
+Malaysia Airlines	MALAYSIA
+AirAsia	AIRASIA X
+Batik Air
+Thai	THAI AIRWAYS
+Bangkok Airways
+Nok Air
+Vietnam Airlines
+VietJet	VIETJET AIR|VIETJETAIR
+Bamboo Airways
+Philippine Airlines	PHILIPPINES
+Cebu Pacific
+Garuda Indonesia
+Lion Air
+Citilink
+Royal Brunei
+MIAT	MONGOLIAN AIRLINES
+Nippon Cargo	NCA
+SF Airlines
+Air Hong Kong
+
+# Oceania
+Qantas
+QantasLink
+Jetstar
+Virgin Australia
+Rex
+Air New Zealand
+Fiji Airways	FIJI
+Air Tahiti Nui
+Air Niugini
+Aircalin

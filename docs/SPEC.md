@@ -23,6 +23,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - A Keepsake library or the thumbnail cache inside the folder is left out. A folder that overlaps one already in the library is refused.
 - Progress, Stop (nothing is saved), and "Scan again" for new, changed and removed files.
 - In the sidebar's folder tree, right-click a folder (or press the Menu key or Shift+F10) for **Show** and **Scan again**. Scan again on a folder inside an added folder reads only that folder and the folders in it: new and changed files there come in, files gone from there are removed, and the rest of the added folder is left as it is. The Folders screen shows the progress and outcome.
+- Right-click an item in the grid, the details table or the viewer (or press the Menu key or Shift+F10 on the focused item) for **Show in Explorer** (Windows) or **Show in Finder** (macOS): it opens the folder holding the item's original file with the file selected. The same menu lists the item's **Open in** applications. With several items selected, it acts on the one right-clicked, and the selection stays. When the item's drive is not connected, Show is greyed out and the menu says **Drive not connected** with the drive's name. The original is only pointed at, never changed.
 
 ### Library views
 - Layout: sidebar (Library, Calendar, Events, Volumes, Imports), main area, inspector, status bar. Light and dark themes follow the OS. Everything can be done from the keyboard.
@@ -135,17 +136,24 @@ Builds on v1. Adds multi-view composition, time-lapse, maps, and AI.
   - The two are separate, and nothing is analysed in the background otherwise.
 - Auto-tagging: up to 6 tags per photo from a built-in list of 110 (people, beach, dog, food, sunset, moon, mosque, …), shown in the inspector as AI tags. Baby, Child, Portrait and other people tags also give People. A photo with no sure tag gets the model's best guess (one or two).
 - The toolbar's **Tag** list shows every keyword and AI tag with its count; choosing one shows only the items that have it.
+- **Tags in the search bar (ADR-039)**: typing suggests matching tags; picking one adds it as a chip. The items shown have every chip's tag (or one below it). ✕ or Backspace in the empty box removes a chip.
 - Find duplicates and Tag photos also work on a folder and every folder below it: right-click it in the folder tree. A window shows the progress, with Stop and Hide.
 
-### Tag with Claude (optional, cloud)
-- **Only for the photos you pick (ADR-036).** Right-click a photo or a selection and choose **Tag with Claude…**, or press **Tag with Claude** in the viewer.
-- A window first says how many photos go to which model, and roughly what it costs. Nothing is sent until you press **Send**.
-- It needs your own Claude API key, saved in Settings → Tag with Claude. The key is kept in Windows Credential Manager or the macOS Keychain.
-- The model is chosen there too: Claude Opus 5.5 (the default), Claude Fable 5.1 or Claude Haiku 5.5.
+### Tag with AI (optional, cloud)
+- **Only for the photos you pick (ADR-036, ADR-038).** Right-click a photo or a selection and choose **Tag with AI…**, or press **Tag with AI** in the viewer.
+- **Choose the AI: Claude (Anthropic), ChatGPT (OpenAI) or Gemini (Google), or All of them (ADR-039).** The window that asks first lists the ones with a key, and All when more than one has one; the choice used last is offered first. It says how many photos go to which model, and roughly what it costs. Nothing is sent until you press **Send**.
+- Each needs your own API key, saved in Settings → Tag with AI. Keys are kept in Windows Credential Manager or the macOS Keychain.
+- The model is chosen there too, for each:
+  - Claude: Claude Opus 5.5 (the default), Claude Fable 5.1 or Claude Haiku 5.5.
+  - ChatGPT: GPT-6.1 Sol (the default), GPT-6 Astra or GPT-6 Luna.
+  - Gemini: Gemini 3.6 Flash (the default), Gemini 4 Argon or Gemini 3.5 Flash-Lite.
+- What each company does with the photos is said where you choose: use a Gemini key from a project with billing, or Google may use the photos.
 - A 1024-pixel copy of each photo is sent, never the original.
-- Claude gives tags from the built-in list, plus up to 5 of its own. They become your keywords; new ones go under AI (e.g. `AI › Eiffel Tower`). It never names people. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
+- The AI gives tags from the built-in list, plus up to 5 of its own. They become your keywords; new ones go under AI (e.g. `AI › Eiffel Tower`). The inspector's **Tagged with AI** shows, for each AI, the keywords it gave (a keyword two AIs gave is in both rows; ADR-039). It never names people. Search finds them like keywords. ✕ removes one for good (it is not given again); ✓ makes it your own keyword.
 - Same-day duplicates (Sidebar → Duplicates): near-identical **RAW** photos taken on one calendar day, grouped: bursts, re-shoots, the same shot twice. A JPEG with the same name as a RAW is an edited copy, so JPEG-only photos (and videos) are never grouped. Click the one to keep; the others are marked "not kept" (catalog and XMP), and the toolbar's **Hide not kept** leaves them out of the library. Not duplicates and Undo per group; keys K, N, U. Nothing is moved or deleted.
-- `keepsake ai status | install | run | duplicates [DAY] | retag`.
+- Read aircraft (ADR-041): for the photos you pick (right-click → Read aircraft), the registration and the airline painted on the aircraft are read on this computer, and its type worked out: read where it is painted on, else guessed from the look when that is clear. They become keywords under Aircraft (`Aircraft › Registration › C-FJZS`), shown under **Tagged with AI** as from the Aircraft reader. Photos are read at full size; originals are only read. Turned on in Settings (downloads two text models, 96 MB). A folder (right-click it → Read aircraft) or a year, month or day is read at once for its photos tagged Airplane, Helicopter or Airport, each photo once.
+- Edit suggestions (ADR-042): right-click a photo → **Edit suggestions…** (or the viewer's button). Keepsake measures its preview on this computer (brightness, blown highlights, black shadows, contrast, a colour cast, noise, softness, a tilted horizon) and lists what to improve, each with the steps in Photoshop (the Camera Raw slider and a value to start from, or the tool) and in Topaz Photo (Denoise, Sharpen, Adjust Lighting…). **Ask Claude / ChatGPT / Gemini** sends the 1024-pixel preview and the measurements to that AI (the keys of Tag with AI; the cost is shown first) for suggestions that take in what the photo shows. **Open in Photoshop** and **Open in Topaz Photo** open the original with the programs set up in Settings → Open in. The suggestions are kept in the catalog; the original is never changed.
+- `keepsake ai status | install | run | duplicates [DAY] | retag`; `keepsake ai aircraft install | status | scan | read`.
 - Still to come (v2):
   - Face detection and clustering with user-assignable names.
   - Semantic search: natural-language query over embedded vectors.
