@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use super::{base64, fail, http_error, schema, tidy, CloudModel, CloudTags, Provider, ASK, SYSTEM};
+use super::{base64, fail, http_error, tag_task, tidy, CloudModel, CloudTags, Provider, Task};
 use crate::ai::AiError;
 
 /// The Responses API.
@@ -25,24 +25,29 @@ const OVER_LIMIT: [&str; 6] = [
 ];
 
 /// The URL, headers and body for one photo.
-pub fn call(
+pub(crate) fn call(
     model: CloudModel,
     key: &str,
     jpeg: &[u8],
-    names: &[String],
+    task: &Task,
 ) -> (String, Vec<(&'static str, String)>, Value) {
     let headers = vec![
         ("content-type", "application/json".to_owned()),
         ("authorization", format!("Bearer {key}")),
     ];
-    (API_URL.to_owned(), headers, request(model, jpeg, names))
+    (API_URL.to_owned(), headers, body(model, jpeg, task))
 }
 
-/// The request body for one photo.
+/// The request body for tagging one photo.
 pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
+    body(model, jpeg, &tag_task(Provider::OpenAi, names))
+}
+
+/// The request body for one photo and `task`.
+pub(crate) fn body(model: CloudModel, jpeg: &[u8], task: &Task) -> Value {
     json!({
         "model": model.id(),
-        "instructions": SYSTEM,
+        "instructions": task.system,
         "input": [{
             "role": "user",
             "content": [
@@ -51,14 +56,14 @@ pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
                     "image_url": format!("data:image/jpeg;base64,{}", base64(jpeg)),
                     "detail": "auto",
                 },
-                {"type": "input_text", "text": ASK},
+                {"type": "input_text", "text": task.ask},
             ],
         }],
         "text": {"format": {
             "type": "json_schema",
-            "name": "photo_tags",
+            "name": task.name,
             "strict": true,
-            "schema": schema(names),
+            "schema": task.schema,
         }},
         "reasoning": {"effort": "low"},
         "max_output_tokens": 16000,
@@ -66,9 +71,21 @@ pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
     })
 }
 
-/// Read the API's answer.
+/// Read the API's answer to the tagging question.
 pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<CloudTags, AiError> {
+    let (text, model) = answer(status, body, &tag_task(Provider::OpenAi, names))?;
+    tidy(Provider::OpenAi, &text, names, &model)
+}
+
+/// The answer's JSON text and the model that gave it.
+pub(crate) fn answer(status: u16, body: &str, task: &Task) -> Result<(String, String), AiError> {
     const P: Provider = Provider::OpenAi;
+    let declined = || {
+        fail(
+            format!("ChatGPT declined to {} this photo", task.verb),
+            false,
+        )
+    };
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     if status != 200 {
         let code = v["error"]["code"].as_str().unwrap_or("");
@@ -86,7 +103,7 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
     }
     if v["status"] == "incomplete" {
         return Err(match v["incomplete_details"]["reason"].as_str() {
-            Some("content_filter") => fail("ChatGPT declined to tag this photo".into(), false),
+            Some("content_filter") => declined(),
             _ => fail("ChatGPT's answer was cut short".into(), true),
         });
     }
@@ -98,21 +115,24 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
         .flat_map(|o| o["content"].as_array().into_iter().flatten())
         .collect();
     if parts.iter().any(|c| c["type"] == "refusal") {
-        return Err(fail("ChatGPT declined to tag this photo".into(), false));
+        return Err(declined());
     }
     let text = parts
         .iter()
         .rev()
         .filter(|c| c["type"] == "output_text")
         .find_map(|c| c["text"].as_str())
-        .ok_or_else(|| fail("ChatGPT's answer had no tags".into(), true))?;
-    tidy(P, text, names, v["model"].as_str().unwrap_or(""))
+        .ok_or_else(|| fail(format!("ChatGPT's answer had no {}", task.noun), true))?;
+    Ok((
+        text.to_owned(),
+        v["model"].as_str().unwrap_or("").to_owned(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::tests::{names, tagger, Fake};
-    use super::super::Tagger;
+    use super::super::{Tagger, ASK, SYSTEM};
     use super::*;
 
     fn ok(text: &str) -> String {

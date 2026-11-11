@@ -305,8 +305,83 @@ pub trait Tagger: Send + Sync {
     fn tag(&self, provider: Provider, jpeg: &[u8], names: &[String]) -> Result<CloudTags, AiError>;
 }
 
-type KeyFn = dyn Fn(Provider) -> Option<String> + Send + Sync;
-type ModelFn = dyn Fn(Provider) -> CloudModel + Send + Sync;
+/// Looks up a provider's API key.
+pub type KeyFn = dyn Fn(Provider) -> Option<String> + Send + Sync;
+/// Looks up the model chosen for a provider.
+pub type ModelFn = dyn Fn(Provider) -> CloudModel + Send + Sync;
+
+/// One question about a photo, the same for every provider: what the AI is
+/// told, what it is asked, and the JSON schema its answer is held to.
+pub(crate) struct Task {
+    pub system: &'static str,
+    pub ask: String,
+    pub schema: Value,
+    /// The schema's name, where a provider wants one.
+    pub name: &'static str,
+    /// "{provider} declined to {verb} this photo".
+    pub verb: &'static str,
+    /// "{provider}'s answer had no {noun}".
+    pub noun: &'static str,
+}
+
+/// The tagging question for `provider`.
+pub(crate) fn tag_task(provider: Provider, names: &[String]) -> Task {
+    let mut schema = schema(names);
+    let mut ask = ASK.to_owned();
+    if provider == Provider::Gemini {
+        // Gemini refuses the tag list as an `enum` ("Request contains an
+        // invalid argument"), so the list goes with the question instead;
+        // `tidy` keeps only tags on it.
+        if let Some(items) = schema["properties"]["tags"]["items"].as_object_mut() {
+            items.remove("enum");
+        }
+        ask = format!(
+            "{ASK}\n\nThe list (use these names exactly):\n{}",
+            names.join("\n")
+        );
+    }
+    Task {
+        system: SYSTEM,
+        ask,
+        schema,
+        name: "photo_tags",
+        verb: "tag",
+        noun: "tags",
+    }
+}
+
+/// Send one photo with `task` to `provider`: the answer's JSON text and the
+/// model that gave it.
+pub(crate) fn send(
+    http: &dyn Http,
+    key: &KeyFn,
+    model: &ModelFn,
+    provider: Provider,
+    jpeg: &[u8],
+    task: &Task,
+) -> Result<(String, String), AiError> {
+    let key = key(provider).ok_or(AiError::NoApiKey(provider))?;
+    let model = Some(model(provider))
+        .filter(|m| m.provider() == provider)
+        .unwrap_or_else(|| provider.default_model());
+    let (url, headers, body) = match provider {
+        Provider::Claude => claude::call(model, &key, jpeg, task),
+        Provider::OpenAi => openai::call(model, &key, jpeg, task),
+        Provider::Gemini => gemini::call(model, &key, jpeg, task),
+    };
+    let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, text) = http
+        .post(&url, &headers, body.to_string().as_bytes())
+        .map_err(|e| AiError::Cloud {
+            message: format!("could not reach {provider}: {e}"),
+            retry: true,
+        })?;
+    match provider {
+        Provider::Claude => claude::answer(status, &text, task),
+        Provider::OpenAi => openai::answer(status, &text, task),
+        Provider::Gemini => gemini::answer(status, &text, task),
+    }
+}
 
 /// [`Tagger`] with the providers' APIs. The key and the model are asked
 /// for each photo.
@@ -324,28 +399,16 @@ impl CloudTagger {
 
 impl Tagger for CloudTagger {
     fn tag(&self, provider: Provider, jpeg: &[u8], names: &[String]) -> Result<CloudTags, AiError> {
-        let key = (self.key)(provider).ok_or(AiError::NoApiKey(provider))?;
-        let model = Some((self.model)(provider))
-            .filter(|m| m.provider() == provider)
-            .unwrap_or_else(|| provider.default_model());
-        let (url, headers, body) = match provider {
-            Provider::Claude => claude::call(model, &key, jpeg, names),
-            Provider::OpenAi => openai::call(model, &key, jpeg, names),
-            Provider::Gemini => gemini::call(model, &key, jpeg, names),
-        };
-        let headers: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        let (status, text) = self
-            .http
-            .post(&url, &headers, body.to_string().as_bytes())
-            .map_err(|e| AiError::Cloud {
-                message: format!("could not reach {provider}: {e}"),
-                retry: true,
-            })?;
-        match provider {
-            Provider::Claude => claude::parse_response(status, &text, names),
-            Provider::OpenAi => openai::parse_response(status, &text, names),
-            Provider::Gemini => gemini::parse_response(status, &text, names),
-        }
+        let task = tag_task(provider, names);
+        let (text, model) = send(
+            self.http.as_ref(),
+            self.key.as_ref(),
+            self.model.as_ref(),
+            provider,
+            jpeg,
+            &task,
+        )?;
+        tidy(provider, &text, names, &model)
     }
 }
 
@@ -624,7 +687,7 @@ pub fn stop(cat: &mut Catalog, provider: Provider, ids: &[AssetId]) -> Result<u6
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub(super) fn names() -> Vec<String> {
@@ -755,10 +818,10 @@ mod tests {
     }
 
     /// One request: URL, headers, body.
-    pub(super) type Sent = (String, Vec<(String, String)>, String);
+    pub(crate) type Sent = (String, Vec<(String, String)>, String);
 
     /// Stands in for the network: answers every request with `answer`.
-    pub(super) struct Fake {
+    pub(crate) struct Fake {
         pub sent: std::sync::Mutex<Vec<Sent>>,
         pub answer: (u16, String),
     }

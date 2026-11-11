@@ -2,7 +2,7 @@
 
 use serde_json::{json, Value};
 
-use super::{base64, fail, http_error, schema, tidy, CloudModel, CloudTags, Provider, ASK, SYSTEM};
+use super::{base64, fail, http_error, tag_task, tidy, CloudModel, CloudTags, Provider, Task};
 use crate::ai::AiError;
 
 /// The Messages API.
@@ -19,11 +19,11 @@ fn fallbacks(model: CloudModel) -> bool {
 }
 
 /// The URL, headers and body for one photo.
-pub fn call(
+pub(crate) fn call(
     model: CloudModel,
     key: &str,
     jpeg: &[u8],
-    names: &[String],
+    task: &Task,
 ) -> (String, Vec<(&'static str, String)>, Value) {
     let mut headers = vec![
         ("content-type", "application/json".to_owned()),
@@ -33,18 +33,23 @@ pub fn call(
     if fallbacks(model) {
         headers.push(("anthropic-beta", FALLBACK_BETA.to_owned()));
     }
-    (API_URL.to_owned(), headers, request(model, jpeg, names))
+    (API_URL.to_owned(), headers, body(model, jpeg, task))
 }
 
-/// The request body for one photo.
+/// The request body for tagging one photo.
 pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
+    body(model, jpeg, &tag_task(Provider::Claude, names))
+}
+
+/// The request body for one photo and `task`.
+pub(crate) fn body(model: CloudModel, jpeg: &[u8], task: &Task) -> Value {
     let mut body = json!({
         "model": model.id(),
         "max_tokens": 16000,
-        "system": SYSTEM,
+        "system": task.system,
         "output_config": {
             "effort": "low",
-            "format": {"type": "json_schema", "schema": schema(names)},
+            "format": {"type": "json_schema", "schema": task.schema},
         },
         "messages": [{
             "role": "user",
@@ -52,7 +57,7 @@ pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
                 {"type": "image", "source": {
                     "type": "base64", "media_type": "image/jpeg", "data": base64(jpeg),
                 }},
-                {"type": "text", "text": ASK},
+                {"type": "text", "text": task.ask},
             ],
         }],
     });
@@ -62,8 +67,14 @@ pub fn request(model: CloudModel, jpeg: &[u8], names: &[String]) -> Value {
     body
 }
 
-/// Read the API's answer.
+/// Read the API's answer to the tagging question.
 pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<CloudTags, AiError> {
+    let (text, model) = answer(status, body, &tag_task(Provider::Claude, names))?;
+    tidy(Provider::Claude, &text, names, &model)
+}
+
+/// The answer's JSON text and the model that gave it.
+pub(crate) fn answer(status: u16, body: &str, task: &Task) -> Result<(String, String), AiError> {
     const P: Provider = Provider::Claude;
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     if status != 200 {
@@ -74,7 +85,12 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
         ));
     }
     match v["stop_reason"].as_str() {
-        Some("refusal") => return Err(fail("Claude declined to tag this photo".into(), false)),
+        Some("refusal") => {
+            return Err(fail(
+                format!("Claude declined to {} this photo", task.verb),
+                false,
+            ))
+        }
         Some("max_tokens") => return Err(fail("Claude's answer was cut short".into(), true)),
         _ => {}
     }
@@ -87,8 +103,11 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
                 .rev()
                 .find_map(|b| b["text"].as_str())
         })
-        .ok_or_else(|| fail("Claude's answer had no tags".into(), true))?;
-    tidy(P, text, names, v["model"].as_str().unwrap_or(""))
+        .ok_or_else(|| fail(format!("Claude's answer had no {}", task.noun), true))?;
+    Ok((
+        text.to_owned(),
+        v["model"].as_str().unwrap_or("").to_owned(),
+    ))
 }
 
 #[cfg(test)]

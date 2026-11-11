@@ -44,6 +44,9 @@ use super::source::locate;
 use super::{still, video, RenderError, RenderTools, Variant, JOB_PROXY, JOB_STILLS};
 use crate::ai::aircraft::scan::{self as aircraft_scan, ReaderLoader};
 use crate::ai::faces::scan::{self as face_scan, FaceFinder, FinderLoader};
+use crate::ai::suggest::{
+    self, Adviser, JOB_SUGGEST_CLAUDE, JOB_SUGGEST_GEMINI, JOB_SUGGEST_OPENAI, SUGGEST_JOBS,
+};
 use crate::ai::{
     self, AiError, ImageModel, LabelSet, Purpose, CLOUD_JOBS, JOB_AI, JOB_AI_AIRCRAFT,
     JOB_AI_CLAUDE, JOB_AI_FACES, JOB_AI_GEMINI, JOB_AI_OPENAI, JOB_AI_TAG,
@@ -261,6 +264,9 @@ pub struct RenderService {
     /// Tag with AI (ADR-036, ADR-038): with it, a worker runs the cloud
     /// jobs of every provider (`ai.claude`, `ai.openai`, `ai.gemini`).
     cloud: Option<Arc<dyn ai::cloud::Tagger>>,
+    /// Edit suggestions (ADR-042): with it, the cloud worker also asks the
+    /// AIs for edit suggestions (`ai.suggest.*`).
+    adviser: Option<Arc<dyn Adviser>>,
     /// Loads the face worker's models (ADR-040); the installed models when
     /// not set.
     faces: Option<FinderLoader>,
@@ -302,6 +308,7 @@ impl RenderService {
             opts,
             on_battery: Arc::new(|| false),
             cloud: None,
+            adviser: None,
             faces: None,
             aircraft: None,
         }
@@ -322,6 +329,12 @@ impl RenderService {
     /// Run the cloud tagging jobs with this tagger (ADR-036, ADR-038).
     pub fn with_cloud(mut self, tagger: Arc<dyn ai::cloud::Tagger>) -> Self {
         self.cloud = Some(tagger);
+        self
+    }
+
+    /// Ask for edit suggestions with this adviser (ADR-042).
+    pub fn with_adviser(mut self, adviser: Arc<dyn Adviser>) -> Self {
+        self.adviser = Some(adviser);
         self
     }
 
@@ -383,7 +396,7 @@ impl RenderService {
                 .chain(self.opts.faces.then_some(JOB_AI_FACES))
                 .chain(self.opts.aircraft.then_some(JOB_AI_AIRCRAFT))
                 // One worker sends the photos of every provider.
-                .chain(self.cloud.is_some().then_some(JOB_AI_CLAUDE));
+                .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
                 let tx = tx.clone();
                 let shared = &shared;
@@ -496,6 +509,9 @@ impl RenderService {
         if kind == JOB_AI_AIRCRAFT {
             return self.aircraft_worker(&mut cat, cancel, tx, shared);
         }
+        // The cloud worker sends the photos of every provider: tagging and
+        // edit suggestions.
+        let cloud_kinds: Vec<&str> = CLOUD_JOBS.iter().chain(&SUGGEST_JOBS).copied().collect();
         let mut ai_state = None;
         if kind == JOB_AI {
             let dropped = cat.write(|t| {
@@ -560,7 +576,7 @@ impl RenderService {
             let kinds: &[&str] = if kind == JOB_AI {
                 &[JOB_AI, JOB_AI_TAG]
             } else if kind == JOB_AI_CLAUDE {
-                &CLOUD_JOBS
+                &cloud_kinds
             } else {
                 std::slice::from_ref(&kind)
             };
@@ -1110,6 +1126,18 @@ impl RenderService {
                     job.asset_id,
                 ) {
                     Ok(added) => Ok((added, None)),
+                    Err(e) => Err(Self::ai_error(cat, job, e)?),
+                }
+            }
+            JOB_SUGGEST_CLAUDE | JOB_SUGGEST_OPENAI | JOB_SUGGEST_GEMINI => {
+                let Some(provider) = suggest::provider_of_job(&job.kind) else {
+                    return Err(RenderError::Unsupported(format!("job kind {}", job.kind)));
+                };
+                let Some(adviser) = self.adviser.as_deref() else {
+                    return Err(RenderError::Waiting(format!("{provider} is not set up")));
+                };
+                match suggest::ask_asset(cat, &self.cache, adviser, provider, job.asset_id) {
+                    Ok(got) => Ok((got.suggestions.into_iter().map(|s| s.title).collect(), None)),
                     Err(e) => Err(Self::ai_error(cat, job, e)?),
                 }
             }

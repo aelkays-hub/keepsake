@@ -18,6 +18,8 @@
 //! - [`cloud`]: Tag with AI (ADR-036, ADR-038): photos the user picks are
 //!   sent to Claude, ChatGPT or Gemini, and what it gives becomes their
 //!   keywords.
+//! - [`suggest`]: edit suggestions (ADR-042) for one photo, for Photoshop
+//!   and Topaz Photo: measured here, and an AI asked when the user wants.
 //!
 //! The user's decisions (removed AI tags, keepers) are kept by
 //! [`crate::metadata::MetadataService`], in the catalog and XMP sidecars.
@@ -32,6 +34,7 @@ pub mod faces;
 pub mod install;
 pub mod labels;
 pub mod model;
+pub mod suggest;
 
 use std::path::PathBuf;
 

@@ -9,7 +9,7 @@
 
 use serde_json::{json, Value};
 
-use super::{base64, fail, http_error, schema, tidy, CloudModel, CloudTags, Provider, ASK, SYSTEM};
+use super::{base64, fail, http_error, tag_task, tidy, CloudModel, CloudTags, Provider, Task};
 use crate::ai::AiError;
 
 /// The API, up to the model id.
@@ -34,39 +34,49 @@ pub fn url(model: CloudModel) -> String {
 }
 
 /// The URL, headers and body for one photo.
-pub fn call(
+pub(crate) fn call(
     model: CloudModel,
     key: &str,
     jpeg: &[u8],
-    names: &[String],
+    task: &Task,
 ) -> (String, Vec<(&'static str, String)>, Value) {
     let headers = vec![
         ("content-type", "application/json".to_owned()),
         ("x-goog-api-key", key.to_owned()),
     ];
-    (url(model), headers, request(jpeg, names))
+    (url(model), headers, body(jpeg, task))
 }
 
-/// The request body for one photo (the model is in the URL).
+/// The request body for tagging one photo (the model is in the URL).
 pub fn request(jpeg: &[u8], names: &[String]) -> Value {
-    // `responseJsonSchema` takes JSON Schema; `additionalProperties` is
-    // left out, as Google's docs do not list it for answers. Gemini refuses
-    // the tag list as an `enum` ("Request contains an invalid argument"), so
-    // the list goes with the question instead; `tidy` keeps only tags on it.
-    let mut s = schema(names);
-    if let Some(o) = s.as_object_mut() {
-        o.remove("additionalProperties");
+    body(jpeg, &tag_task(Provider::Gemini, names))
+}
+
+/// `additionalProperties` taken out everywhere: Google's docs do not list
+/// it for answers.
+fn without_additional(v: &mut Value) {
+    match v {
+        Value::Object(o) => {
+            o.remove("additionalProperties");
+            o.values_mut().for_each(without_additional);
+        }
+        Value::Array(a) => a.iter_mut().for_each(without_additional),
+        _ => {}
     }
-    if let Some(items) = s["properties"]["tags"]["items"].as_object_mut() {
-        items.remove("enum");
-    }
+}
+
+/// The request body for one photo and `task`. `responseJsonSchema` takes
+/// JSON Schema.
+pub(crate) fn body(jpeg: &[u8], task: &Task) -> Value {
+    let mut s = task.schema.clone();
+    without_additional(&mut s);
     json!({
-        "systemInstruction": {"parts": [{"text": SYSTEM}]},
+        "systemInstruction": {"parts": [{"text": task.system}]},
         "contents": [{
             "role": "user",
             "parts": [
                 {"inlineData": {"mimeType": "image/jpeg", "data": base64(jpeg)}},
-                {"text": format!("{ASK}\n\nThe list (use these names exactly):\n{}", names.join("\n"))},
+                {"text": task.ask},
             ],
         }],
         "generationConfig": {
@@ -78,9 +88,21 @@ pub fn request(jpeg: &[u8], names: &[String]) -> Value {
     })
 }
 
-/// Read the API's answer.
+/// Read the API's answer to the tagging question.
 pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<CloudTags, AiError> {
+    let (text, model) = answer(status, body, &tag_task(Provider::Gemini, names))?;
+    tidy(Provider::Gemini, &text, names, &model)
+}
+
+/// The answer's JSON text and the model that gave it.
+pub(crate) fn answer(status: u16, body: &str, task: &Task) -> Result<(String, String), AiError> {
     const P: Provider = Provider::Gemini;
+    let declined = || {
+        fail(
+            format!("Gemini declined to {} this photo", task.verb),
+            false,
+        )
+    };
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     if status != 200 {
         let message = v["error"]["message"].as_str().unwrap_or("");
@@ -98,12 +120,12 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
         });
     }
     if v["promptFeedback"]["blockReason"].is_string() {
-        return Err(fail("Gemini declined to tag this photo".into(), false));
+        return Err(declined());
     }
     let candidate = &v["candidates"][0];
     let reason = candidate["finishReason"].as_str().unwrap_or("");
     if BLOCKED.contains(&reason) {
-        return Err(fail("Gemini declined to tag this photo".into(), false));
+        return Err(declined());
     }
     if reason == "MAX_TOKENS" {
         return Err(fail("Gemini's answer was cut short".into(), true));
@@ -117,15 +139,15 @@ pub fn parse_response(status: u16, body: &str, names: &[String]) -> Result<Cloud
         .filter_map(|p| p["text"].as_str())
         .collect();
     if text.trim().is_empty() {
-        return Err(fail("Gemini's answer had no tags".into(), true));
+        return Err(fail(format!("Gemini's answer had no {}", task.noun), true));
     }
-    tidy(P, &text, names, v["modelVersion"].as_str().unwrap_or(""))
+    Ok((text, v["modelVersion"].as_str().unwrap_or("").to_owned()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::tests::{names, tagger, Fake};
-    use super::super::Tagger;
+    use super::super::{Tagger, ASK, SYSTEM};
     use super::*;
 
     fn ok(text: &str) -> String {
