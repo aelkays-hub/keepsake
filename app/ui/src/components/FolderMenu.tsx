@@ -1,6 +1,6 @@
 // The right-click menu of a folder in the sidebar's folder tree: show it, or
-// scan it again (that folder and what is below it), find duplicates or tag
-// its photos on this computer. Also opened with the
+// scan it again (that folder and what is below it), find duplicates, tag
+// its photos or read its aircraft photos on this computer. Also opened with the
 // Menu key or Shift+F10 on the focused folder.
 
 import { useState } from "react";
@@ -18,8 +18,9 @@ export interface FolderMenuProps {
   onShow: () => void;
   /** Start the scan; rejects with why it could not start. */
   onScan: () => Promise<void>;
-  /** Find duplicates or tag the photos of the folder and those in it. */
-  onAi: (what: "duplicates" | "tags") => void;
+  /** Find duplicates, tag the photos or read the aircraft photos of the
+   * folder and those in it. */
+  onAi: (what: "duplicates" | "tags" | "aircraft") => void;
   onClose: () => void;
 }
 
@@ -90,6 +91,17 @@ export function FolderMenu({
         data-testid="folder-menu-tags"
       >
         Tag photos
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          onAi("aircraft");
+          onClose();
+        }}
+        title="Read the registration, airline and type on the photos tagged Airplane, Helicopter or Airport in this folder and the folders in it, on this computer"
+        data-testid="folder-menu-aircraft"
+      >
+        Read aircraft
       </button>
       {!online && <p className="muted">The drive is not connected.</p>}
       {problem && (

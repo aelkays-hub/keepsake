@@ -60,6 +60,16 @@
 
 ---
 
+## Read aircraft for a folder or dates (2026-11-11)
+
+- **Asked:** "batch the Read Aircraft function … at the folder level also … scan all the folder for any pictures with Aircraft tag and do the read function".
+- **Built** (ADR-041, addition): right-click a folder, or a year, month or day, → **Read aircraft**. It reads the photos there tagged Airplane, Helicopter or Airport (AI tag or keyword) that were not read yet, in the progress window Tag photos uses.
+  - Core: `scan::{AIRCRAFT_TAGS, target_items, enqueue_target, target_status, stop_target}`; `Target::query` is crate-visible.
+  - App: `ai_analyze_folder`, `ai_folder_status`, `ai_folder_stop`, `ai_analyze_range`, `ai_range_status`, `ai_range_stop` take `what` = `aircraft`.
+  - UI: the folder menu and the date menu have Read aircraft; the progress window's texts.
+- **Tests, run here (Windows):** `aircraft_tests` (+1: only the tagged photos of the folder and the folders in it, each once, the whole drive, Stop); clippy and fmt; Vitest (+2); mocked Playwright `aircraft.spec.ts` (+2: a folder, a year and Settings when off), `folder-tree`, `ai`, `a11y`, `calendar-tree`.
+- **Not run:** in the real app window; CI. On branch `feat/aircraft-folder` (from `build/merge-all`), not pushed.
+
 ## Everything gathered for main (2026-11-11)
 
 - **Asked:** "push all and merge all into main".

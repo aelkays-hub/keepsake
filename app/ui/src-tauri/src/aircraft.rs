@@ -222,6 +222,41 @@ pub fn aircraft_read_status(
     Ok(st)
 }
 
+/// Read the aircraft photos of a folder or dates (those tagged Airplane,
+/// Helicopter or Airport and not read yet), in the background.
+pub fn target_start(
+    app: &AppHandle,
+    state: &AppState,
+    target: &keepsake_core::ai::Target,
+) -> CmdResult<keepsake_core::ai::analyze::RangeStatus> {
+    if !Settings::load().map_err(err)?.ai.aircraft {
+        return Err("Turn on Read aircraft in Settings first.".into());
+    }
+    let open = state.open()?;
+    let st = {
+        let mut cat = open.writer()?;
+        scan::enqueue_target(&mut cat, target).map_err(err)?
+    };
+    crate::render::start_service(app)?;
+    Ok(st)
+}
+
+pub fn target_status(
+    state: &AppState,
+    target: &keepsake_core::ai::Target,
+) -> CmdResult<keepsake_core::ai::analyze::RangeStatus> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    scan::target_status(&cat, target).map_err(err)
+}
+
+pub fn target_stop(state: &AppState, target: &keepsake_core::ai::Target) -> CmdResult<()> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    scan::stop_target(&mut cat, target).map_err(err)?;
+    Ok(())
+}
+
 /// Stop: items not read yet are not read; keywords already added stay.
 #[tauri::command(async)]
 pub fn aircraft_read_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<()> {

@@ -354,7 +354,7 @@ pub enum Target {
 }
 
 impl Target {
-    fn query(&self) -> Result<SearchQuery, AiError> {
+    pub(crate) fn query(&self) -> Result<SearchQuery, AiError> {
         Ok(match self {
             Target::Dates { from, to } => {
                 check_range(from, to)?;

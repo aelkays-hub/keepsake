@@ -80,7 +80,12 @@ test("right-click a year: find duplicates for those dates only", async ({ page }
   await open(page);
   await calNode(page, "2015").click({ button: "right" });
   const menu = page.getByTestId("date-menu");
-  await expect(menu.getByRole("menuitem")).toHaveText(["Show", "Find duplicates", "Tag photos"]);
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Show",
+    "Find duplicates",
+    "Tag photos",
+    "Read aircraft",
+  ]);
   await menu.getByTestId("date-menu-dups").click();
   expect(await calls(page, "ai_analyze_range")).toEqual([
     { from: "2015-01-01", to: "2015-12-31", what: "duplicates" },

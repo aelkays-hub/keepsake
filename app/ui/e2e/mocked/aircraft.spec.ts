@@ -103,3 +103,68 @@ test("the viewer has Read aircraft for the photo shown; Stop keeps what was read
   await expect(win.getByTestId("ai-job-status")).toContainText("Stopped: 0 of 1 read.");
   expect(await calls(page, "aircraft_read_stop")).toHaveLength(1);
 });
+
+const node = (page: Page, label: string | RegExp) =>
+  page.getByTestId("sidebar").locator("button.cal-node").filter({ hasText: label });
+
+test("right-click a folder: Read aircraft reads its aircraft photos", async ({ page }) => {
+  await page.goto("/?items=2000&aircraft=on");
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  await page
+    .getByTestId("sidebar")
+    .locator('button[data-folder="2016"]')
+    .first()
+    .click({ button: "right" });
+  const menu = page.getByTestId("folder-menu");
+  await menu.getByTestId("folder-menu-aircraft").click();
+  await expect(menu).toHaveCount(0);
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Reading aircraft in Photos A › 2016");
+  await expect(win).toContainText(
+    "The photos tagged Airplane, Helicopter or Airport in this folder",
+  );
+  expect((await calls(page, "ai_analyze_folder")).at(-1)).toEqual({
+    volume: "vOn",
+    folder: "2016",
+    what: "aircraft",
+  });
+  await expect(win.getByTestId("ai-job-status")).toContainText(/read…$/);
+  // Fewer than the folder holds: only its aircraft photos.
+  await expect(win.getByTestId("ai-job-status")).toHaveText(
+    /^[\d,]+ of [\d,]+ aircraft photos read\.$/,
+    { timeout: 15_000 },
+  );
+  // Nothing to compare: no Show duplicates.
+  await expect(win.getByTestId("ai-job-show-dups")).toHaveCount(0);
+  await win.getByTestId("ai-job-close").click();
+  await expect(win).toHaveCount(0);
+});
+
+test("right-click a year: Read aircraft; when it is off the window opens Settings", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on");
+  await node(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-aircraft").click();
+  const win = page.getByTestId("ai-job");
+  await expect(win.getByRole("heading")).toHaveText("Reading aircraft in 2015");
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "aircraft" },
+  ]);
+  await expect(win.getByTestId("ai-job-status")).toHaveText(
+    /^[\d,]+ of [\d,]+ aircraft photos read\.$/,
+    { timeout: 15_000 },
+  );
+
+  // Off: it says so.
+  await open(page);
+  await node(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-aircraft").click();
+  await expect(page.getByTestId("ai-job").getByRole("alert")).toHaveText(
+    "Could not start: Turn on Read aircraft in Settings first.",
+  );
+  await page.getByTestId("ai-job-settings").click();
+  await expect(page.getByTestId("aircraft-settings")).toBeVisible();
+});

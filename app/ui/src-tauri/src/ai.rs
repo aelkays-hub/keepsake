@@ -258,6 +258,10 @@ fn range_dto(from: String, to: String, s: ai::analyze::RangeStatus) -> AiRangeSt
     }
 }
 
+/// `what` = `aircraft`: Read aircraft (ADR-041) for a folder or dates,
+/// handled by [`crate::aircraft`] instead of the AI worker.
+const AIRCRAFT: &str = "aircraft";
+
 fn purpose(what: &str) -> CmdResult<Purpose> {
     Purpose::parse(what).ok_or_else(|| format!("unknown AI task: {what}"))
 }
@@ -274,6 +278,14 @@ pub fn ai_analyze_range(
     to: String,
     what: String,
 ) -> CmdResult<AiRangeStatus> {
+    if what == AIRCRAFT {
+        let target = ai::Target::Dates {
+            from: from.clone(),
+            to: to.clone(),
+        };
+        let s = crate::aircraft::target_start(&app, &state, &target)?;
+        return Ok(range_dto(from, to, s));
+    }
     let purpose = purpose(&what)?;
     if !Settings::load().map_err(err)?.ai.enabled {
         return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
@@ -293,6 +305,14 @@ pub fn ai_range_status(
     to: String,
     what: String,
 ) -> CmdResult<AiRangeStatus> {
+    if what == AIRCRAFT {
+        let target = ai::Target::Dates {
+            from: from.clone(),
+            to: to.clone(),
+        };
+        let s = crate::aircraft::target_status(&state, &target)?;
+        return Ok(range_dto(from, to, s));
+    }
     let purpose = purpose(&what)?;
     let open = state.open()?;
     let cat = open.cat()?;
@@ -315,8 +335,9 @@ fn folder_dto(s: ai::analyze::RangeStatus) -> AiFolderStatus {
     }
 }
 
-/// Find duplicates (`what` = `"duplicates"`) or tag the photos (`"tags"`)
-/// of a folder and the folders in it (`""`: the whole drive).
+/// Find duplicates (`what` = `"duplicates"`), tag the photos (`"tags"`) or
+/// read the aircraft photos (`"aircraft"`, ADR-041) of a folder and the
+/// folders in it (`""`: the whole drive).
 #[tauri::command(async)]
 pub fn ai_analyze_folder(
     app: AppHandle,
@@ -325,6 +346,12 @@ pub fn ai_analyze_folder(
     folder: String,
     what: String,
 ) -> CmdResult<AiFolderStatus> {
+    if what == AIRCRAFT {
+        let target = folder_target(&volume, folder)?;
+        return Ok(folder_dto(crate::aircraft::target_start(
+            &app, &state, &target,
+        )?));
+    }
     let purpose = purpose(&what)?;
     if !Settings::load().map_err(err)?.ai.enabled {
         return Err("Turn on On-device AI in Settings first (it downloads the model once).".into());
@@ -344,6 +371,10 @@ pub fn ai_folder_status(
     folder: String,
     what: String,
 ) -> CmdResult<AiFolderStatus> {
+    if what == AIRCRAFT {
+        let target = folder_target(&volume, folder)?;
+        return Ok(folder_dto(crate::aircraft::target_status(&state, &target)?));
+    }
     let purpose = purpose(&what)?;
     let target = folder_target(&volume, folder)?;
     let open = state.open()?;
@@ -361,6 +392,9 @@ pub fn ai_range_stop(
     to: String,
     what: String,
 ) -> CmdResult<()> {
+    if what == AIRCRAFT {
+        return crate::aircraft::target_stop(&state, &ai::Target::Dates { from, to });
+    }
     let purpose = purpose(&what)?;
     let target = ai::Target::Dates { from, to };
     let open = state.open()?;
@@ -377,6 +411,9 @@ pub fn ai_folder_stop(
     folder: String,
     what: String,
 ) -> CmdResult<()> {
+    if what == AIRCRAFT {
+        return crate::aircraft::target_stop(&state, &folder_target(&volume, folder)?);
+    }
     let purpose = purpose(&what)?;
     let target = folder_target(&volume, folder)?;
     let open = state.open()?;

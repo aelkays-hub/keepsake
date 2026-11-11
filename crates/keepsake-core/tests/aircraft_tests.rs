@@ -47,7 +47,9 @@ impl World {
         let media = tmp.path().join("media");
         std::fs::create_dir_all(&media).unwrap();
         for (i, name) in names.iter().enumerate() {
-            std::fs::write(media.join(name), jpeg(&photo(i as u8 * 40, 800, 600))).unwrap();
+            let file = media.join(name);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, jpeg(&photo(i as u8 * 40, 800, 600))).unwrap();
         }
         Self::of(tmp, media)
     }
@@ -332,6 +334,76 @@ fn a_picture_with_nothing_to_read_gets_no_keywords_and_missing_models_are_said()
     assert_eq!(w.job_state(a), JobState::Done);
     assert!(w.keywords(a).is_empty());
     assert!(w.cat.read(|tx| tx.ai().tag_sources(a)).unwrap().is_empty());
+}
+
+#[test]
+fn a_folder_is_read_for_its_aircraft_photos_only_and_each_once() {
+    use keepsake_core::ai::Target;
+    let mut w = World::new(&["air/a.jpg", "air/deep/b.jpg", "air/c.jpg", "other/d.jpg"]);
+    let (a, b, c, d) = (
+        w.asset("air/a.jpg"),
+        w.asset("air/deep/b.jpg"),
+        w.asset("air/c.jpg"),
+        w.asset("other/d.jpg"),
+    );
+    let volume = {
+        let path = std::fs::canonicalize(w.media.join("air/a.jpg")).unwrap();
+        w.lib.locate(&w.cat, &path).unwrap().unwrap().volume_id
+    };
+    // a and d: tagged Airplane by the on-device AI; b: the user's own
+    // keyword, in a folder below; c: a photo of something else.
+    let tag = |t: &str| TagPath::new([t]).unwrap();
+    let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+    svc.set_ai_tags(a, &[(tag("Airplane"), 0.4)]).unwrap();
+    svc.set_ai_tags(d, &[(tag("Airplane"), 0.4)]).unwrap();
+    svc.set_user_tags(b, &[tag("Helicopter")]).unwrap();
+    svc.set_ai_tags(c, &[(tag("Dog"), 0.9)]).unwrap();
+
+    let air = Target::Folder {
+        volume,
+        folder: "air".into(),
+    };
+    let mut items = scan::target_items(&w.cat, &air).unwrap();
+    items.sort();
+    let mut want = vec![a, b];
+    want.sort();
+    assert_eq!(items, want, "only the tagged ones, the folder below too");
+    let st = scan::enqueue_target(&mut w.cat, &air).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 0, 2));
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&["KLM", "PH-BQB"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 2);
+    for id in [a, b] {
+        assert!(w
+            .keywords(id)
+            .contains(&"Aircraft|Registration|PH-BQB".to_owned()));
+    }
+    assert!(w.keywords(c).is_empty() && w.keywords(d).is_empty());
+    let st = scan::target_status(&w.cat, &air).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (2, 2, 0));
+
+    // Asked again: the photos already read are not read again.
+    let st = scan::enqueue_target(&mut w.cat, &air).unwrap();
+    assert_eq!((st.analysed, st.pending), (2, 0));
+    w.service(fake(&["KLM"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 2);
+
+    // The whole drive: d is the one left; Stop drops it.
+    let all = Target::Folder {
+        volume,
+        folder: String::new(),
+    };
+    let st = scan::enqueue_target(&mut w.cat, &all).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (3, 2, 1));
+    assert_eq!(scan::stop_target(&mut w.cat, &all).unwrap(), 1);
+    let st = scan::target_status(&w.cat, &all).unwrap();
+    assert_eq!((st.items, st.analysed, st.pending), (3, 2, 0));
+    assert!(w.keywords(d).is_empty());
 }
 
 /// The real models on real pictures (see the top of this file). Prints

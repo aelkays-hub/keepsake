@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { aircraftJobLine } from "../aircraft";
+import { AIRCRAFT_TAGS, aircraftBatchLine, aircraftJobLine } from "../aircraft";
 import { api, type AiFolderStatus, type CloudInfo } from "../api";
 import { ALL, chosen, costOf, firstChoice, help, names, usable } from "../cloud";
 import * as fmt from "../format";
@@ -172,6 +172,10 @@ export function AiJobWindow() {
 
   if (!job || !c) return null;
   const tags = job.what === "tags";
+  /** Read aircraft for a folder or dates (the photos with an aircraft tag). */
+  const batch = job.what === "aircraft";
+  const where =
+    "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder";
   const asking = cloud && !go;
   const running = !asking && !problem && (!st || st.pending > 0) && !stopped;
   const pct = st && st.items > 0 ? Math.round((100 * st.analysed) / st.items) : 0;
@@ -185,9 +189,11 @@ export function AiJobWindow() {
     ? `Tagging with ${aiName}:`
     : aircraft
       ? "Reading aircraft:"
-      : tags
-        ? "Tagging"
-        : "Finding duplicates in";
+      : batch
+        ? "Reading aircraft in"
+        : tags
+          ? "Tagging"
+          : "Finding duplicates in";
   const close = () => dispatch({ t: "aiJob", job: null });
   const send = (j: AiJob) => {
     setSent(j);
@@ -208,7 +214,7 @@ export function AiJobWindow() {
           ? all
             ? "All AIs"
             : aiName
-          : aircraft
+          : aircraft || batch
             ? "Aircraft"
             : tags
               ? "Tagging"
@@ -234,10 +240,8 @@ export function AiJobWindow() {
         : "");
   else if (!st) line = "Getting ready…";
   else if (aircraft) line = aircraftJobLine(st, stopped);
-  else if (st.items === 0)
-    line = `No ${tags ? "" : "RAW "}photos ${
-      "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder"
-    }.`;
+  else if (batch) line = aircraftBatchLine(st, stopped, where);
+  else if (st.items === 0) line = `No ${tags ? "" : "RAW "}photos ${where}.`;
   else if (stopped && st.pending === 0)
     line = `Stopped: ${fmt.count(st.analysed)} of ${fmt.count(st.items)} done. What was done stays.`;
   else if (st.pending > 0) line = `${fmt.count(st.analysed)} of ${fmt.count(st.items)} done…`;
@@ -268,11 +272,13 @@ export function AiJobWindow() {
           ? "A 1024-pixel copy of each photo is sent; the tags become keywords."
           : aircraft
             ? "Each photo is read at full size on this computer. The registration, airline and type it finds become keywords under Aircraft."
-            : "undated" in job
-              ? "Photos and videos with no date."
-              : "range" in job
-                ? "Photos taken on these dates."
-                : "This folder and the folders in it."}
+            : batch
+              ? `The photos tagged ${AIRCRAFT_TAGS} ${where}, not read yet. Each is read at full size on this computer; what it finds becomes keywords under Aircraft.`
+              : "undated" in job
+                ? "Photos and videos with no date."
+                : "range" in job
+                  ? "Photos taken on these dates."
+                  : "This folder and the folders in it."}
       </p>
       {asking && ready.length > 1 && (
         <label className="row">
@@ -330,7 +336,7 @@ export function AiJobWindow() {
             Open Settings
           </button>
         )}
-        {aircraft && problem?.includes("Settings") && (
+        {(aircraft || batch) && problem?.includes("Settings") && (
           <button
             onClick={() => {
               dispatch({ t: "screen", screen: "settings" });
@@ -366,7 +372,7 @@ export function AiJobWindow() {
             Hide
           </button>
         )}
-        {!running && !asking && !tags && !problem && st && st.items > 0 && (
+        {!running && !asking && job.what === "duplicates" && !problem && st && st.items > 0 && (
           <button
             onClick={() => {
               dispatch({ t: "duplicates", range: null });

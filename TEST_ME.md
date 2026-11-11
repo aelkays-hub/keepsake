@@ -1,8 +1,29 @@
-# Manual Test Steps — Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft for a folder or dates (ADR-041)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test aircraft_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraft.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts e2e/mocked/folder-tree.spec.ts e2e/mocked/ai.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on (Settings) and a folder whose photos were tagged (Tag photos):
+1. Sidebar → **By folder**. Right-click a folder with aircraft photos → **Read aircraft**. **Expected:** a window in the corner, "Reading aircraft in <drive> › <folder>", saying it reads the photos tagged Airplane, Helicopter or Airport in this folder; then "N of M read…" counting up, where M is the aircraft photos in the folder and the folders in it (fewer than the folder holds).
+2. Let it finish. **Expected:** "M of M aircraft photos read." Select one of them: its keywords include what is painted on the aircraft (`Aircraft|Registration|…`, `Aircraft|Airline|…`), and Tagged with AI has **Aircraft reader**. A photo in the folder with no aircraft tag has no new keywords.
+3. Right-click the same folder → Read aircraft again. **Expected:** it finishes at once ("M of M aircraft photos read."): no photo is read twice. Add new aircraft photos to the folder, tag them, and ask again: only the new ones are read.
+4. **Stop** part-way. **Expected:** "Stopped: N of M read. Keywords already added stay." Asking again carries on with the rest.
+5. A folder never tagged (or with no aircraft). **Expected:** "No photos tagged Airplane, Helicopter or Airport in this folder. Tag the photos first (Tag photos)."
+6. Sidebar → **By date**. Right-click a year, month or day → **Read aircraft**. **Expected:** the same for the photos of those dates ("Reading aircraft in 2024").
+7. With Read aircraft off. **Expected:** "Could not start: Turn on Read aircraft in Settings first." and **Open Settings**.
+8. Originals: unchanged, as for Read aircraft on picked photos.
 
 ---
 

@@ -16,6 +16,10 @@
 //!   catalog and its XMP sidecars like typed ones, with a record that the
 //!   aircraft reader gave them ([`SOURCE`], ADR-039). Keywords the item has
 //!   stay.
+//! - **A folder or dates at once** ([`enqueue_target`]): the items there
+//!   that carry one of [`AIRCRAFT_TAGS`] (Airplane, Helicopter, Airport; as
+//!   a keyword or as an on-device AI tag) and have not been read yet. So
+//!   Tag photos comes first: a photo with no such tag is not read.
 //! - **The type** is the one painted on the aircraft when it was read;
 //!   otherwise the type the picture looks like, when one stands out
 //!   ([`super::types`]). That needs the image encoder of On-device AI: the
@@ -29,11 +33,12 @@ use super::marks::{self, Airlines, Marks};
 use super::ocr::{TextLine, TextReader};
 use super::types::TypeList;
 use super::{install, MODEL_ID};
+use crate::ai::analyze::{RangeStatus, Target};
 use crate::ai::cloud::{job_status, CloudStatus};
 use crate::ai::embedding::Embedding;
 use crate::ai::model::installed_runtime;
 use crate::ai::{analyze, Accel, AiError, ImageModel};
-use crate::catalog::{AssetId, Catalog, MediaKind, NewJob, Priority, TagPath};
+use crate::catalog::{AssetId, Catalog, JobState, MediaKind, NewJob, Priority, TagPath};
 use crate::library::{Library, LibraryError};
 use crate::metadata::MetadataService;
 use crate::render::{full, source, Cache, RenderError, RenderTools};
@@ -46,6 +51,9 @@ pub const SOURCE: &str = "aircraft";
 pub const SOURCE_NAME: &str = "Aircraft reader";
 /// The parent of the keywords.
 pub const TAG_PARENT: &str = "Aircraft";
+/// The tags that mark an item as showing aircraft: a folder or dates are
+/// read for the items with one of them (or a tag below it).
+pub const AIRCRAFT_TAGS: [&str; 3] = ["Airplane", "Helicopter", "Airport"];
 /// The detector sees a full-size picture with its long side at most this:
 /// big enough to find a registration, which is then read from the picture
 /// itself.
@@ -270,6 +278,11 @@ pub fn read_asset(
 /// Queue `ids` to be read (again, if they were before), ahead of the
 /// backlog.
 pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
+    enqueue_ids(cat, ids, true)
+}
+
+/// Queue `ids`; `again`: also those already read.
+fn enqueue_ids(cat: &mut Catalog, ids: &[AssetId], again: bool) -> Result<u64, AiError> {
     let now = crate::jobs::now_ms();
     let size = crate::render::ENQUEUE_CHUNK;
     let mut n = 0;
@@ -285,10 +298,67 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
                     sort_key: i64::try_from(c * size + i).unwrap_or(i64::MAX),
                 })
                 .collect();
-            tx.jobs().enqueue(&jobs, Priority::Recent, now, true)
+            tx.jobs().enqueue(&jobs, Priority::Recent, now, again)
         })?;
     }
     Ok(n)
+}
+
+/// The items of a folder (and those in it) or of dates that carry one of
+/// [`AIRCRAFT_TAGS`], newest first within each tag, each once.
+pub fn target_items(cat: &Catalog, target: &Target) -> Result<Vec<AssetId>, AiError> {
+    let mut out: Vec<AssetId> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for tag in AIRCRAFT_TAGS {
+        let mut q = target.query()?;
+        q.tag = Some(tag.to_owned());
+        for it in cat.read(|tx| tx.ai().matching(&q, crate::ai::MODEL_ID))? {
+            if seen.insert(it.id) {
+                out.push(it.id);
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn status_of(cat: &Catalog, ids: &[AssetId]) -> Result<RangeStatus, AiError> {
+    let mut st = RangeStatus {
+        items: ids.len() as u64,
+        ..RangeStatus::default()
+    };
+    cat.read(|tx| {
+        for id in ids {
+            match tx.jobs().find(JOB_AI_AIRCRAFT, *id)?.map(|j| j.state) {
+                Some(JobState::Done) => st.analysed += 1,
+                Some(JobState::Failed) | None => {}
+                Some(_) => st.pending += 1,
+            }
+        }
+        Ok::<_, crate::catalog::CatalogError>(())
+    })?;
+    Ok(st)
+}
+
+/// Read the aircraft photos of a folder or dates: those with an aircraft
+/// tag not read yet are queued (those read stay as they are). Returns how
+/// far it has got: `items` the aircraft photos there, `analysed` those
+/// read, `pending` those waiting.
+pub fn enqueue_target(cat: &mut Catalog, target: &Target) -> Result<RangeStatus, AiError> {
+    let ids = target_items(cat, target)?;
+    enqueue_ids(cat, &ids, false)?;
+    status_of(cat, &ids)
+}
+
+/// How far reading a folder's or dates' aircraft photos has got.
+pub fn target_status(cat: &Catalog, target: &Target) -> Result<RangeStatus, AiError> {
+    status_of(cat, &target_items(cat, target)?)
+}
+
+/// Stop reading a folder or dates: the queued jobs are dropped (one being
+/// read finishes; what was read stays). Returns how many were dropped.
+pub fn stop_target(cat: &mut Catalog, target: &Target) -> Result<u64, AiError> {
+    let ids = target_items(cat, target)?;
+    stop(cat, &ids)
 }
 
 /// How `ids` are getting on, and the latest problem.

@@ -144,6 +144,9 @@ const AIRCRAFT_TAGS = [
   "Aircraft|Type|Boeing 777-300ER",
 ];
 const AIRCRAFT_BYTES = 95861692;
+/** The mock's aircraft photos (those "tagged Airplane"): every fifth item
+ * that is not a video. */
+const isAircraft = (it: { i: number; kind: string }) => it.i % 5 === 0 && it.kind !== "video";
 
 const CLOUD_TAGS: Record<string, string[]> = {
   claude: ["Beach", "AI|Sand Castle"],
@@ -1612,13 +1615,20 @@ export function installMock(): void {
         case "ai_range_status": {
           const key = `${a.what}|${a.from}|${a.to}`;
           if (cmd === "ai_analyze_range") {
-            if (!st.ai.enabled)
+            if (a.what === "aircraft") {
+              if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            } else if (!st.ai.enabled)
               throw "Turn on On-device AI in Settings first (it downloads the model once).";
             if (!st.aiRanges.has(key)) st.aiRanges.set(key, 2);
           }
           const items = all.filter((it) => {
             const d = day(time(it));
-            return d !== null && d >= String(a.from) && d <= String(a.to);
+            return (
+              d !== null &&
+              d >= String(a.from) &&
+              d <= String(a.to) &&
+              (a.what !== "aircraft" || isAircraft(it))
+            );
           }).length;
           const left = st.aiRanges.get(key);
           if (left === undefined) return { from: a.from, to: a.to, items, analysed: 0, pending: 0 };
@@ -1711,14 +1721,18 @@ export function installMock(): void {
         case "ai_folder_stop": {
           const key = `${a.what}|folder|${a.volume}|${a.folder}`;
           if (cmd === "ai_analyze_folder") {
-            if (!st.ai.enabled)
+            if (a.what === "aircraft") {
+              if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            } else if (!st.ai.enabled)
               throw "Turn on On-device AI in Settings first (it downloads the model once).";
             st.aiRanges.set(key, 3);
           }
           const q = { volume: a.volume, folder: a.folder || undefined } as unknown as Query;
           const items = all
             .filter(matches(q))
-            .filter((it) => a.what === "tags" || it.kind === "raw").length;
+            .filter((it) =>
+              a.what === "aircraft" ? isAircraft(it) : a.what === "tags" || it.kind === "raw",
+            ).length;
           const left = st.aiRanges.get(key) ?? 0;
           if (cmd === "ai_folder_stop") {
             // What was done stays: a third, say.

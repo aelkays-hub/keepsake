@@ -27,6 +27,19 @@ export interface ReadStatus {
   problem?: string | null;
 }
 
+/** The tags a folder or dates are read for. */
+export const AIRCRAFT_TAGS = "Airplane, Helicopter or Airport";
+
+/** The progress window's line for Read aircraft on a folder or dates
+ * (`where`: "in this folder", "on these dates"). */
+export function aircraftBatchLine(st: ReadStatus, stopped: boolean, where: string): string {
+  if (st.items === 0)
+    return `No photos tagged ${AIRCRAFT_TAGS} ${where}. Tag the photos first (Tag photos).`;
+  if (!stopped && st.pending === 0)
+    return `${fmt.count(st.analysed)} of ${fmt.count(st.items)} aircraft photos read.`;
+  return aircraftJobLine(st, stopped);
+}
+
 /** The progress window's line for Read aircraft. */
 export function aircraftJobLine(st: ReadStatus, stopped: boolean): string {
   const of = `${fmt.count(st.analysed)} of ${fmt.count(st.items)}`;

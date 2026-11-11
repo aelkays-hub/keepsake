@@ -1582,8 +1582,15 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 **Not done.**
 - **The type from the registration.** Looking a registration up gives the exact type and operator, but needs a registry database (a new data dependency, to be approved) or the network.
 - A better type guess: cutting the aircraft out of the frame first, or a model trained on aircraft.
-- Reading everything tagged Airplane by itself, or from the calendar's menu (only picked photos now; `keepsake ai aircraft scan --tagged Airplane` does it from the command line).
+- Reading aircraft photos by itself as they are tagged (it is asked for: a folder, dates or picked photos).
 - Removing a wrong keyword does not stop it being given again when the photo is read again.
 - Two airlines for one aircraft when both names are painted (`American Airlines` and `American Eagle`).
 - Military serials, marks without a hyphen where the country writes one, text in other scripts.
 - macOS: built and tested in CI only (no model there, so the model test skips), like the other AI features.
+
+**A folder or dates at once** (2026-11-11, product owner: "I want to be able to batch the Read Aircraft function, I want the click to be enables at the folder level also, and the task will scan all the folder for any pictures with Aircraft tag and do the read function").
+- **Right-click a folder** (By folder) **→ Read aircraft**, and the same on a year, month or day of the calendar. The progress window is the one Tag photos uses, with Stop and Hide.
+- **Which photos.** Those in the folder and the folders in it (or on the dates) that carry **Airplane, Helicopter or Airport** (`scan::AIRCRAFT_TAGS`), as an on-device AI tag or as a keyword, or a tag below one of them. Airport is included because its photos are mostly aircraft at the gate. A photo with none of these is not read, so **Tag photos comes first**; a folder with none says so.
+- **Each once.** A photo already read is left alone (its `ai.aircraft` job is done), so asking again for a folder reads only what is new. Picking photos and choosing Read aircraft still reads them again.
+- Built on what was there: `scan::{target_items, enqueue_target, target_status, stop_target}` over `ai::Target`; the app's folder and date commands take `what` = `aircraft` beside `duplicates` and `tags`. No new command, dependency or schema change.
+- Not done: the calendar's No date; a count of aircraft photos before starting; failed photos are not listed in the window (they are neither read nor waiting).

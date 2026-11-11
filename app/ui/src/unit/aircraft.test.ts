@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { aircraftJobLine, aircraftProgress } from "../aircraft";
+import { aircraftBatchLine, aircraftJobLine, aircraftProgress } from "../aircraft";
 import type { AircraftStatus } from "../api";
 
 const status = (p: Partial<AircraftStatus>): AircraftStatus => ({
@@ -65,6 +65,27 @@ describe("Read aircraft progress window", () => {
     expect(aircraftJobLine(st(40, 1), true)).toBe("40 of 1,200 read…");
     expect(aircraftJobLine(st(1198, 0, 2, "LibRaw could not decode it"), false)).toBe(
       "1,198 of 1,200 photos read. 2 photos could not be: LibRaw could not decode it",
+    );
+  });
+});
+
+describe("Read aircraft for a folder or dates", () => {
+  const st = (items: number, analysed: number, pending: number) => ({ items, analysed, pending });
+
+  it("says when nothing there is tagged as aircraft", () => {
+    expect(aircraftBatchLine(st(0, 0, 0), false, "in this folder")).toBe(
+      "No photos tagged Airplane, Helicopter or Airport in this folder. " +
+        "Tag the photos first (Tag photos).",
+    );
+  });
+
+  it("counts the aircraft photos read, and what stopping keeps", () => {
+    expect(aircraftBatchLine(st(340, 12, 328), false, "on these dates")).toBe("12 of 340 read…");
+    expect(aircraftBatchLine(st(340, 340, 0), false, "on these dates")).toBe(
+      "340 of 340 aircraft photos read.",
+    );
+    expect(aircraftBatchLine(st(340, 12, 0), true, "on these dates")).toBe(
+      "Stopped: 12 of 340 read. Keywords already added stay.",
     );
   });
 });

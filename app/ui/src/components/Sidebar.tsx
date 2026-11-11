@@ -421,6 +421,22 @@ export function Sidebar() {
                       dispatch({ t: "aiJob", job: { range: r, title: r.title, what: "tags" } });
                     },
                   },
+                  {
+                    label: "Read aircraft",
+                    title:
+                      "Read the registration, airline and type on the photos tagged Airplane, Helicopter or Airport on these dates, on this computer",
+                    testId: "date-menu-aircraft",
+                    run: () => {
+                      const c = dated(menu.entry);
+                      const r = c && calRange(c.year, c.month, c.day);
+                      if (!r) return;
+                      openEntry(menu.entry);
+                      dispatch({
+                        t: "aiJob",
+                        job: { range: r, title: r.title, what: "aircraft" },
+                      });
+                    },
+                  },
                 ]
           }
           onClose={() => {
