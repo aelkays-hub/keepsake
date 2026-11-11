@@ -14,8 +14,8 @@ rem Run it from this folder, or copy it anywhere: outside the repository it
 rem clones Keepsake into %USERPROFILE%\keepsake first.
 
 setlocal EnableExtensions
-rem The branch with the newest work. Change it when a newer one is started.
-set "BRANCH=feat/aircraft-reader"
+rem The branch with the newest work: main, now that the work is merged.
+set "BRANCH=main"
 if defined KEEPSAKE_BRANCH set "BRANCH=%KEEPSAKE_BRANCH%"
 
 rem Run from a copy in TEMP: changing branch or getting changes rewrites this

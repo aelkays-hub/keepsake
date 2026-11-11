@@ -183,6 +183,11 @@ The first macos-15 run then failed one UI test, `library.spec.ts` multi-select: 
 - **Not done:** a macOS safety net for crashes.
 
 ---
+## Merged to main; macOS CI on hold (2026-11-08)
+
+- PR #28 (on-device AI) and PR #29 (Tag with Claude, helpers end with the app) are merged into `main`. Both passed Windows CI.
+- **macOS CI is on hold** (product owner: "we can ignore the macOS for now as I have put that on hold for now"). GitHub no longer offers the `macos-14` runner ("The configuration 'macos-14-arm64-us-default' is not supported"), so the required `macos-14 (Rust)` check fails at once. Until macOS work resumes, PRs are merged with the admin override once Windows CI is green. Resuming means moving the job to a supported runner and updating the required check in the branch protection.
+- `scripts/keepsake.bat` now follows `main`.
 
 ## Helpers end with the app (2026-11-08)
 
