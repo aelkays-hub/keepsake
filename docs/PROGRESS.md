@@ -157,6 +157,14 @@
 - **Fix, same day:** Gemini keys in the newer format (`AQ.…`, with dots) were refused as "does not look like a Gemini API key". Keys may now contain dots, and Gemini keys may be up to 256 characters; the key test covers an `AQ.` key.
 - **Fix, same day:** every Gemini request was refused with "Request contains an invalid argument". A check with the product owner's key showed Gemini refuses the tag list as an `enum` in `responseJsonSchema` (it accepts the same request without it, with `thinkingLevel` LOW). The list now goes with the question; the answer is still checked against it. Test: `only_tags_on_the_list_are_kept_without_an_enum`.
 
+## CI: the Mac job runs on macos-15 (2026-11-08)
+
+Since 8 Nov 2026 GitHub refuses the `macos-14` runner ("The configuration 'macos-14-arm64-us-default' is not supported"), so every macOS check was cancelled before it ran, on `main` and on every branch. The Mac job in `.github/workflows/ci.yml` now runs on `macos-15` (Apple Silicon) and is named `macos-15 (Rust)`; the commented-out DMG job in `release.yml` and the Definition of Done in `CLAUDE.md` say the same. Keepsake still supports macOS 14 and later: this only changes the machine the tests run on. The required check on `main` must be renamed from `macos-14 (Rust)` to `macos-15 (Rust)` in the repository's branch protection (done 8 Nov 2026).
+
+The first macos-15 run then failed one UI test, `library.spec.ts` multi-select: on a Mac, Ctrl+click also fires a right-click, and the photo menu from Tag with Claude (ADR-036) opened and took the keyboard. The grid now ignores that event when Ctrl is down, so Ctrl+click only toggles the selection; a right-click, the Menu key and Shift+F10 still open the menu. New mocked test: "Ctrl+click toggles the selection and opens no photo menu" (`claude.spec.ts`).
+
+---
+
 ## Tag the photos with no date (2026-11-08)
 
 - **Asked:** "I have around 1700 pictures that have no date but I can't tag them". Right-clicking **No date** in the calendar did nothing: Tag photos took only a date range.

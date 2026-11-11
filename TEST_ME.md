@@ -46,6 +46,14 @@ keepsake ai aircraft scan --tagged Airplane --limit 20
 
 ---
 
+## CI on macos-15
+
+Nothing to test in the app. On the pull request, check that a check named **macos-15 (Rust)** runs and passes next to **windows-latest**, and that no check named macos-14 is left waiting.
+
+On a Mac: click a photo, then Ctrl+click another. Expected: both are selected and no menu opens; Ctrl+click it again and it is no longer selected. A two-finger click (or right-click) still opens the photo menu. On Windows: Ctrl+click toggles the selection and a right-click opens the menu.
+
+---
+
 ## Face matching tuned (ADR-040)
 
 Automated (run here and in CI):
