@@ -62,6 +62,12 @@
 
 ---
 
+## Version 0.5.0 (2026-11-11)
+
+- **Asked:** "merge all features into the main branch and let us update the version to 0.5 as we did a lot of additions. I want a clean build after the merge".
+- **Done:** version 0.5.0 in `Cargo.toml` (every crate), `tauri.conf.json` (the installers' names), both `package.json` files and the mock; `docs/RELEASE_NOTES.md` rewritten for 0.5.0 (what is new since 0.1.0, the catalog upgrade to schema 15, when Keepsake goes online).
+- Everything goes to `main` in one pull request from `feat/edit-suggestions`, which holds every branch (`build/merge-all`, `feat/aircraft-folder` and those before them).
+
 ## The sidebar tree keeps its place (2026-11-11)
 
 - **Asked:** "When I am right clicking..it always go back to top of tree", then "fix it to save last location it was on".
