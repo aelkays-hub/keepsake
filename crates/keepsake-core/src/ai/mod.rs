@@ -12,6 +12,9 @@
 //! - [`analyze`]: the `ai.analyze` job: one asset's thumbnail in, its
 //!   embedding, hash and AI tags out. Originals are never read or changed.
 //! - [`duplicates`]: groups of near-identical items within one day.
+//! - [`aircraft`]: Read aircraft (ADR-041): the registration, airline and
+//!   type of the planes in the photos the user picks, read on this
+//!   computer.
 //! - [`cloud`]: Tag with AI (ADR-036, ADR-038): photos the user picks are
 //!   sent to Claude, ChatGPT or Gemini, and what it gives becomes their
 //!   keywords.
@@ -19,6 +22,7 @@
 //! The user's decisions (removed AI tags, keepers) are kept by
 //! [`crate::metadata::MetadataService`], in the catalog and XMP sidecars.
 
+pub mod aircraft;
 pub mod analyze;
 pub mod cloud;
 pub mod dhash;
@@ -36,6 +40,7 @@ use thiserror::Error;
 use crate::catalog::CatalogError;
 use crate::render::RenderError;
 
+pub use aircraft::JOB_AI_AIRCRAFT;
 pub use analyze::{
     analyze_asset, enqueue_range, enqueue_target, range_status, stop_target, target_status,
     AnalyzeOutcome, Purpose, Target,
@@ -55,6 +60,26 @@ pub const JOB_AI_TAG: &str = "ai.tag";
 /// Model id stored with each analysis. Bump the version after `@` when the
 /// model file or preprocessing changes: every asset is then analysed again.
 pub const MODEL_ID: &str = "siglip2-b16-224@1";
+
+/// Who can be recorded as having given a keyword (ADR-039): the id as it
+/// is stored, for an id this version knows. The cloud AIs and the aircraft
+/// reader (ADR-041).
+pub fn tag_source_id(id: &str) -> Option<&'static str> {
+    let id = id.trim();
+    if id == aircraft::SOURCE {
+        return Some(aircraft::SOURCE);
+    }
+    cloud::Provider::parse(id).map(cloud::Provider::id)
+}
+
+/// Every keyword source, as (id, name for people), in the order shown.
+pub fn tag_sources() -> Vec<(&'static str, &'static str)> {
+    cloud::Provider::ALL
+        .into_iter()
+        .map(|p| (p.id(), p.name()))
+        .chain(std::iter::once((aircraft::SOURCE, aircraft::SOURCE_NAME)))
+        .collect()
+}
 
 /// Errors from the AI features.
 #[derive(Debug, Error)]

@@ -534,9 +534,9 @@ impl AssetXmp {
             .struct_array(ns::KEEPSAKE, "AITagSources")
             .iter()
             .filter_map(|f| {
-                let by = crate::ai::cloud::Provider::parse(field(f, ns::KEEPSAKE, "By")?.trim())?;
+                let by = crate::ai::tag_source_id(field(f, ns::KEEPSAKE, "By")?)?;
                 let path = TagPath::parse_lightroom(field(f, ns::KEEPSAKE, "Name")?).ok()?;
-                Some((by.id().to_owned(), path))
+                Some((by.to_owned(), path))
             })
             .collect();
         x.ai_tag_sources.sort();

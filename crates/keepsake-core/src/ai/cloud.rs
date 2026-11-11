@@ -575,6 +575,16 @@ pub fn status(
     provider: Provider,
     ids: &[AssetId],
 ) -> Result<(CloudStatus, Option<String>), AiError> {
+    job_status(cat, provider.job_kind(), ids)
+}
+
+/// How the jobs of kind `kind` for `ids` are getting on, and the latest
+/// problem (shared with the aircraft reader, ADR-041).
+pub fn job_status(
+    cat: &Catalog,
+    kind: &str,
+    ids: &[AssetId],
+) -> Result<(CloudStatus, Option<String>), AiError> {
     use crate::catalog::JobState;
     let mut st = CloudStatus {
         items: ids.len() as u64,
@@ -583,7 +593,7 @@ pub fn status(
     let mut problem = None;
     cat.read(|tx| {
         for id in ids {
-            let Some(job) = tx.jobs().find(provider.job_kind(), *id)? else {
+            let Some(job) = tx.jobs().find(kind, *id)? else {
                 continue;
             };
             match job.state {

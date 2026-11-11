@@ -761,6 +761,7 @@ fn bench(ctx: &Ctx, a: BenchArgs) -> Result<u8> {
             ai: false,
             ai_gpu: false,
             faces: false,
+            aircraft: false,
         };
         let svc = RenderService::new(&lib, tools.clone(), cache.clone(), opts);
         if !ctx.json {

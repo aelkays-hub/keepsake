@@ -199,6 +199,12 @@ pub struct AiSettings {
     /// until the user turns it on (which downloads the face models); needs
     /// `enabled`.
     pub faces: bool,
+    /// Read aircraft (ADR-041): read the registration, airline and type of
+    /// the planes in the photos the user picks. Off until the user turns it
+    /// on (which downloads the text models). It does not need `enabled`,
+    /// though the type is only guessed from the look with On-device AI's
+    /// model installed.
+    pub aircraft: bool,
     /// How alike a face must be to a person's average face to be suggested
     /// for them, in percent (cosine × 100; ADR-040): stricter is higher.
     pub face_match_pct: u8,
@@ -261,6 +267,7 @@ impl Default for AiSettings {
             enabled: false,
             gpu: true,
             faces: false,
+            aircraft: false,
             face_match_pct: 55,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),

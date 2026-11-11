@@ -5,7 +5,7 @@
 # (used by CI; skips installing Rust, Node and pnpm).
 # -Arch ARM64|AMD64: fetch binaries for another architecture (the ARM64
 # release is built on an x64 runner). Default: this machine's.
-# -WithAi: also download the AI models (372 MB, and 39 MB for faces) into vendor\models (ADR-035, ADR-040).
+# -WithAi: also download the AI models (372 MB, 39 MB for faces and 96 MB for reading aircraft) into vendor\models (ADR-035, ADR-040, ADR-041).
 param([switch]$VendorOnly, [ValidateSet("", "AMD64", "ARM64")][string]$Arch = "", [switch]$WithAi)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -341,14 +341,22 @@ if ($WithAi) {
         Write-Info "  AI model already present, skipping download."
     }
     # Face models (ADR-040): YuNet (MIT) and SFace (Apache-2.0), OpenCV Zoo
-    # on Hugging Face at pinned revisions.
+    # on Hugging Face at pinned revisions. Text models (ADR-041): PP-OCRv5
+    # server detector and English recogniser (Apache-2.0), ONNX from
+    # monkt/paddleocr-onnx at a pinned revision.
     $Faces = @(
         @{ Dir = "yunet-2023mar"; File = "face_detection_yunet_2023mar.onnx";
            Url = "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx";
            SHA = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4" },
         @{ Dir = "sface-2021dec"; File = "face_recognition_sface_2021dec.onnx";
            Url = "https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx";
-           SHA = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79" }
+           SHA = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79" },
+        @{ Dir = "ppocr-v5-server-det"; File = "det.onnx";
+           Url = "https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v5/det.onnx";
+           SHA = "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133" },
+        @{ Dir = "ppocr-v5-en-rec"; File = "rec.onnx";
+           Url = "https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx";
+           SHA = "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7" }
     )
     foreach ($m in $Faces) {
         $Dir  = Join-Path $Vendor ("models\" + $m.Dir)

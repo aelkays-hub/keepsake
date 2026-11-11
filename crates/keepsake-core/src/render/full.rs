@@ -84,6 +84,22 @@ pub fn decode_raw(dcraw: &Path, path: &Path) -> Result<DynamicImage, RenderError
     Ok(DynamicImage::ImageRgb8(still::parse_ppm(&out.stdout)?))
 }
 
+/// A still file decoded at full size, upright (nothing is cached): a RAW
+/// by LibRaw, a HEIF by FFmpeg, the rest in-process.
+pub fn decode_full(tools: &RenderTools, path: &Path) -> Result<DynamicImage, RenderError> {
+    if is_raw(path) {
+        return decode_raw(&tools.dcraw, path);
+    }
+    if matches!(lower_ext(path).as_str(), "hif" | "heif" | "heic") {
+        return Ok(DynamicImage::ImageRgb8(still::ffmpeg_frame(
+            &tools.ffmpeg,
+            &["-i".into(), path_arg(path)?],
+            None,
+        )?));
+    }
+    still::decode(&std::fs::read(path)?, None)
+}
+
 /// The full-size picture of `asset` (making it if needed).
 pub fn full_image(
     cat: &mut Catalog,

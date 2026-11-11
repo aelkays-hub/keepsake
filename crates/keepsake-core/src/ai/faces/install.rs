@@ -6,25 +6,11 @@
 //! matches. Developers can put them in `vendor/models/` instead (setup
 //! scripts, `-WithAi` / `--with-ai`).
 
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use crate::ai::install::{download_checked, non_empty, remove_model_at, user_models_dir};
+pub use crate::ai::install::ModelFile;
+use crate::ai::install::{download_checked, remove_model_at};
 use crate::ai::AiError;
-
-/// One pinned model file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModelFile {
-    /// Folder under `models/`.
-    pub dir: &'static str,
-    pub file: &'static str,
-    pub url: &'static str,
-    pub bytes: u64,
-    /// BLAKE3 (hex).
-    pub blake3: &'static str,
-    /// Overrides where it is (a file), for tests and developers.
-    pub env: &'static str,
-}
 
 /// Finds faces: YuNet, OpenCV Zoo `face_detection_yunet_2023mar.onnx`
 /// (MIT), Hugging Face `opencv/face_detection_yunet` at revision `3cc26e7f`.
@@ -54,33 +40,6 @@ pub const MODELS: [ModelFile; 2] = [DETECTOR, RECOGNIZER];
 
 /// Bytes to download for both.
 pub const TOTAL_BYTES: u64 = DETECTOR.bytes + RECOGNIZER.bytes;
-
-impl ModelFile {
-    /// Where it is installed in the user's cache folder.
-    pub fn user_path(&self) -> Option<PathBuf> {
-        user_models_dir().map(|d| d.join(self.dir).join(self.file))
-    }
-
-    /// The file, if installed. In order: its environment variable (a file),
-    /// the user's cache folder, then `vendor/models/` (developers).
-    pub fn find(&self) -> Option<PathBuf> {
-        if let Some(p) = std::env::var_os(self.env) {
-            let p = PathBuf::from(p);
-            return non_empty(&p).then_some(p);
-        }
-        self.user_path().filter(|p| non_empty(p)).or_else(|| {
-            crate::probe::tools::vendor_root()
-                .map(|v| v.join("models").join(self.dir).join(self.file))
-                .filter(|p| non_empty(p))
-        })
-    }
-
-    /// The file, or the error saying where it was looked for.
-    pub fn require(&self) -> Result<PathBuf, AiError> {
-        self.find()
-            .ok_or_else(|| AiError::ModelMissing(self.user_path().unwrap_or_default()))
-    }
-}
 
 /// Both face models are installed.
 pub fn installed() -> bool {

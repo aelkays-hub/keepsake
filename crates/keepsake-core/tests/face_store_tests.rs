@@ -104,6 +104,7 @@ impl World {
             ai: false,
             ai_gpu: false,
             faces: true,
+            aircraft: false,
         };
         RenderService::new(&self.lib, tools, self.cache.clone(), opts).with_faces(loader)
     }

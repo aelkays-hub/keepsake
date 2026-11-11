@@ -366,13 +366,21 @@ fn ai_tag_sources_of_an_unknown_ai_are_ignored() {
         ai_tag_sources: vec![
             ("openai".into(), tag("Dog")),
             ("someone".into(), tag("Cat")),
+            // The aircraft reader (ADR-041) is known.
+            ("aircraft".into(), tag("Aircraft|Registration|C-FJZS")),
         ],
         ..Default::default()
     };
     let mut p = XmpPacket::new();
     x.write(&mut p);
     let back = AssetXmp::read(&XmpPacket::parse(&p.to_xml()).unwrap());
-    assert_eq!(back.ai_tag_sources, vec![("openai".to_owned(), tag("Dog"))]);
+    assert_eq!(
+        back.ai_tag_sources,
+        vec![
+            ("aircraft".to_owned(), tag("Aircraft|Registration|C-FJZS")),
+            ("openai".to_owned(), tag("Dog")),
+        ]
+    );
 }
 
 const LIGHTROOM_FACES: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">

@@ -1,5 +1,6 @@
 //! `keepsake ai status | install | run | duplicates | retag | explain` (ADR-035)
 //! and `keepsake ai faces install | scan | status | delete-all` (ADR-040)
+//! and `keepsake ai aircraft install | status | read` (ADR-041)
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -49,6 +50,48 @@ pub enum AiAction {
     Faces {
         #[command(subcommand)]
         action: FacesAction,
+    },
+    /// Aircraft: the text painted on a plane and its type (ADR-041).
+    Aircraft {
+        #[command(subcommand)]
+        action: AircraftAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AircraftAction {
+    /// Download the two text models into this computer's cache folder
+    /// (96 MB).
+    Install,
+    /// Which text models are installed, and whether they are the pinned
+    /// ones.
+    Status,
+    /// Read picture files, or the library's cached pictures of the items
+    /// with a tag (`--tagged`), and print what was found (to check it).
+    Read {
+        /// JPEGs, PNGs or other pictures the app can read.
+        files: Vec<std::path::PathBuf>,
+        /// Read the items with this tag instead (their cached previews).
+        #[arg(long)]
+        tagged: Option<String>,
+        /// With --tagged: at most this many items.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// With --tagged: read the originals at full size, not the cache.
+        #[arg(long)]
+        full: bool,
+        /// With --tagged: skip this many first.
+        #[arg(long, default_value_t = 0)]
+        skip: usize,
+        /// Another text detector model file.
+        #[arg(long)]
+        detector: Option<std::path::PathBuf>,
+        /// The detector sees the picture with its long side at most this.
+        #[arg(long, default_value_t = keepsake_core::ai::aircraft::scan::DETECT_SIDE)]
+        max_side: u32,
+        /// Use the processor only, not the graphics card.
+        #[arg(long)]
+        cpu: bool,
     },
 }
 
@@ -122,6 +165,7 @@ pub fn run(ctx: &Ctx, action: AiAction) -> Result<u8> {
         AiAction::Duplicates { date } => dups(ctx, date.as_deref()),
         AiAction::Explain { file, top, cpu } => explain(ctx, &file, top, !cpu),
         AiAction::Faces { action } => faces(ctx, action),
+        AiAction::Aircraft { action } => aircraft(ctx, action),
         AiAction::Retag => {
             let lib = ctx.library()?;
             let mut cat = lib.open_catalog()?;
@@ -442,6 +486,227 @@ fn faces(ctx: &Ctx, action: FacesAction) -> Result<u8> {
             } else {
                 EXIT_OK
             })
+        }
+    }
+}
+
+fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
+    use keepsake_core::ai::aircraft::{install as text_install, marks, ocr, types};
+    use keepsake_core::catalog::TagPath;
+    use keepsake_core::render::Variant;
+    match action {
+        AircraftAction::Install => {
+            let mut last = 0u64;
+            match text_install::install(cancel_flag(), &mut |done, total| {
+                if !ctx.json && done >= last + 10 * 1024 * 1024 {
+                    last = done;
+                    eprintln!("{} of {}", human_bytes(done), human_bytes(total));
+                }
+            }) {
+                Ok(()) => {
+                    ctx.emit(&json!({ "installed": true }), || {
+                        println!("Installed the text models.")
+                    })?;
+                    Ok(EXIT_OK)
+                }
+                Err(ai::AiError::Cancelled) => Ok(EXIT_CANCELLED),
+                Err(e) => Err(e.into()),
+            }
+        }
+        AircraftAction::Status => {
+            let mut rows = Vec::new();
+            for (what, m) in [
+                ("Detector", text_install::DETECTOR),
+                ("Recogniser", text_install::RECOGNIZER),
+            ] {
+                let found = m.find();
+                let hash = match &found {
+                    Some(p) => Some(install::file_blake3(p)?),
+                    None => None,
+                };
+                rows.push(json!({
+                    "model": what,
+                    "file": found.as_deref().map(path_str),
+                    "blake3": hash,
+                    "pinned": hash.as_deref() == Some(m.blake3),
+                }));
+            }
+            let settings = Settings::load()?;
+            ctx.emit(
+                &json!({
+                    "enabled": settings.ai.aircraft,
+                    "model_id": keepsake_core::ai::aircraft::MODEL_ID,
+                    "models": rows,
+                }),
+                || {
+                    println!(
+                        "Read aircraft in the app: {}",
+                        if settings.ai.aircraft { "on" } else { "off" }
+                    );
+                    for r in &rows {
+                        let what = r["model"].as_str().unwrap_or("?");
+                        match r["file"].as_str() {
+                            Some(f) if r["pinned"].as_bool() == Some(true) => {
+                                println!("{what}: {f}")
+                            }
+                            Some(f) => println!(
+                                "{what}: {f} is not the pinned file (BLAKE3 {})",
+                                r["blake3"].as_str().unwrap_or("?")
+                            ),
+                            None => {
+                                println!("{what}: not installed (keepsake ai aircraft install)")
+                            }
+                        }
+                    }
+                },
+            )?;
+            Ok(EXIT_OK)
+        }
+        AircraftAction::Read {
+            files,
+            tagged,
+            limit,
+            full,
+            skip,
+            detector,
+            max_side,
+            cpu,
+        } => {
+            let mut pictures: Vec<(String, std::path::PathBuf)> =
+                files.iter().map(|f| (path_str(f), f.clone())).collect();
+            if let Some(tag) = &tagged {
+                let lib = ctx.library()?;
+                let mut cat = lib.open_catalog()?;
+                let cache = Cache::new(Settings::load()?.render.cache_root()?);
+                let path = TagPath::parse_lightroom(tag)?;
+                let ids = cat.read(|tx| tx.tags().assets_with(&path))?;
+                for id in ids.into_iter().skip(skip) {
+                    if pictures.len() >= limit {
+                        break;
+                    }
+                    let found = if full {
+                        keepsake_core::render::source::locate(&cat, &lib, id)
+                            .ok()
+                            .map(|s| s.still)
+                    } else {
+                        match cache.lookup(&mut cat, id, Variant::Preview2560)? {
+                            Some(p) => Some(p),
+                            None => cache.lookup(&mut cat, id, Variant::Thumb1024)?,
+                        }
+                    };
+                    if let Some(p) = found {
+                        let name = describe(&cat, &lib, id)
+                            .ok()
+                            .and_then(|r| r.file)
+                            .unwrap_or_else(|| id.to_string());
+                        pictures.push((name, p));
+                    }
+                }
+            }
+            let det = match detector {
+                Some(d) => d,
+                None => text_install::DETECTOR.require()?,
+            };
+            let runtime = install::find_runtime().context("ONNX Runtime not found")?;
+            let mut reader = ocr::TextReader::load(
+                &det,
+                &text_install::RECOGNIZER.require()?,
+                &runtime,
+                !cpu,
+                max_side,
+            )?;
+            if !ctx.json {
+                eprintln!("Text models loaded on the {}.", reader.accel().describe());
+            }
+            let tools = RenderTools::discover();
+            let airlines = marks::Airlines::builtin();
+            let types = types::TypeList::builtin()?;
+            // The look is only compared when the image encoder is installed.
+            let mut image_model = ai::ImageModel::load_installed(!cpu).ok();
+            let mut rows = Vec::new();
+            for (name, file) in &pictures {
+                let t_load = std::time::Instant::now();
+                let img = keepsake_core::render::full::decode_full(&tools, file)
+                    .with_context(|| format!("reading {}", file.display()))?;
+                let load_ms = t_load.elapsed().as_millis() as u64;
+                let t0 = std::time::Instant::now();
+                let lines = reader.read(&img)?;
+                let ms = t0.elapsed().as_millis() as u64;
+                let marks = marks::interpret(&lines, &airlines);
+                let looks: Vec<(String, f32)> = match image_model.as_mut() {
+                    Some(m) => types
+                        .ranked(&m.embed(&img)?)
+                        .into_iter()
+                        .take(3)
+                        .map(|(n, p)| (n.to_owned(), p))
+                        .collect(),
+                    None => Vec::new(),
+                };
+                rows.push(json!({
+                    "file": name,
+                    "picture": path_str(file),
+                    "width": img.width(),
+                    "height": img.height(),
+                    "ms": ms,
+                    "load_ms": load_ms,
+                    "registrations": marks.registrations,
+                    "airlines": marks.airlines,
+                    "types": marks.types,
+                    "looks_like": looks.iter().map(|(n, p)| json!({"type": n, "probability": p})).collect::<Vec<_>>(),
+                    "lines": lines.iter().map(|l| json!({
+                        "text": l.text,
+                        "score": l.score,
+                        "height": l.height(),
+                    })).collect::<Vec<_>>(),
+                }));
+            }
+            ctx.emit(&json!({ "pictures": rows }), || {
+                for r in &rows {
+                    println!(
+                        "{}  ({}x{}, {} ms)\n  {}",
+                        r["file"].as_str().unwrap_or("?"),
+                        r["width"],
+                        r["height"],
+                        r["ms"],
+                        r["picture"].as_str().unwrap_or("?")
+                    );
+                    for key in ["registrations", "airlines", "types"] {
+                        let v: Vec<&str> = r[key]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|x| x.as_str())
+                            .collect();
+                        if !v.is_empty() {
+                            println!("  {key}: {}", v.join(", "));
+                        }
+                    }
+                    let looks: Vec<String> = r["looks_like"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|x| {
+                            format!(
+                                "{} {:.3}",
+                                x["type"].as_str().unwrap_or("?"),
+                                x["probability"].as_f64().unwrap_or(0.0)
+                            )
+                        })
+                        .collect();
+                    if !looks.is_empty() {
+                        println!("  looks like: {}", looks.join("; "));
+                    }
+                    for l in r["lines"].as_array().into_iter().flatten() {
+                        println!(
+                            "    {:>5.2}  {:>4.0} px  {}",
+                            l["score"].as_f64().unwrap_or(0.0),
+                            l["height"].as_f64().unwrap_or(0.0),
+                            l["text"].as_str().unwrap_or("")
+                        );
+                    }
+                }
+            })?;
+            Ok(EXIT_OK)
         }
     }
 }

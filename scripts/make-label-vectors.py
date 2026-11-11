@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Rebuild the AI tag vectors (ADR-035) from crates/keepsake-core/src/ai/labels.tsv.
+"""Rebuild the AI tag vectors (ADR-035) from crates/keepsake-core/src/ai/labels.tsv,
+or, with `aircraft-types` as the second argument, the aircraft type vectors
+(ADR-041) from crates/keepsake-core/src/ai/aircraft/aircraft-types.tsv.
 
 Developer-only. Needs: pip install onnxruntime numpy tokenizers
 and the SigLIP 2 text tower and tokenizer from
 onnx-community/siglip2-base-patch16-224-ONNX (revision ba1f3b08):
   onnx/text_model.onnx, tokenizer.json
 
-Usage: python make-label-vectors.py <dir with text_model.onnx and tokenizer.json>
+Usage: python make-label-vectors.py <dir with text_model.onnx and tokenizer.json> [aircraft-types]
 
 Output format (little-endian), read by keepsake_core::ai::labels:
   b"KSLV2\\0\\0\\0"   magic
@@ -23,8 +25,14 @@ import onnxruntime as ort
 from tokenizers import Tokenizer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TSV = ROOT / "crates/keepsake-core/src/ai/labels.tsv"
-OUT = ROOT / "crates/keepsake-core/src/ai/labels-siglip2-b16-224.bin"
+AI = ROOT / "crates/keepsake-core/src/ai"
+LISTS = {
+    "labels": (AI / "labels.tsv", AI / "labels-siglip2-b16-224.bin"),
+    "aircraft-types": (
+        AI / "aircraft/aircraft-types.tsv",
+        AI / "aircraft/aircraft-types-siglip2-b16-224.bin",
+    ),
+}
 MAX_LEN = 64
 PAD_ID = 0
 
@@ -41,7 +49,8 @@ def parse(text):
 
 def main():
     src = pathlib.Path(sys.argv[1])
-    raw = TSV.read_bytes().replace(b"\r", b"")
+    tsv, out_path = LISTS[sys.argv[2] if len(sys.argv) > 2 else "labels"]
+    raw = tsv.read_bytes().replace(b"\r", b"")
     labels = parse(raw.decode("utf-8"))
     tok = Tokenizer.from_file(str(src / "tokenizer.json"))
     sess = ort.InferenceSession(str(src / "text_model.onnx"), providers=["CPUExecutionProvider"])
@@ -61,8 +70,8 @@ def main():
         print(f"{name}: {len(prompts)} prompt(s)")
     dim = 768
     head = b"KSLV2\0\0\0" + struct.pack("<I", len(raw)) + raw + struct.pack("<II", len(labels), dim)
-    OUT.write_bytes(head + bytes(body))
-    print(f"wrote {OUT} ({len(labels)} labels)")
+    out_path.write_bytes(head + bytes(body))
+    print(f"wrote {out_path} ({len(labels)} labels)")
 
 
 if __name__ == "__main__":

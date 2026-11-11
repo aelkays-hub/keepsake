@@ -719,6 +719,7 @@ fn the_ai_worker_tags_items_after_their_thumbnails() {
         ai: true,
         ai_gpu: false,
         faces: false,
+        aircraft: false,
     };
     let svc = RenderService::new(&w.lib, tools, w.cache.clone(), opts);
     let cancel = AtomicBool::new(false);
@@ -847,6 +848,7 @@ fn cloud_service(w: &World, tagger: std::sync::Arc<FakeCloud>) -> RenderService 
         ai: false,
         ai_gpu: false,
         faces: false,
+        aircraft: false,
     };
     RenderService::new(&w.lib, tools, w.cache.clone(), opts).with_cloud(tagger)
 }

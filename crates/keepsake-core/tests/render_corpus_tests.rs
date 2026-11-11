@@ -112,6 +112,7 @@ fn corpus_arw_and_avchd_render() {
             ai: false,
             ai_gpu: false,
             faces: false,
+            aircraft: false,
         },
     );
     let mut evs = Vec::new();
