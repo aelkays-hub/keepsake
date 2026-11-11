@@ -1734,7 +1734,7 @@ export function installMock(): void {
             }
           }
           // Every mock photo measures dark and grainy.
-          const dark = it.kind !== "video";
+          const dark = true;
           const shown = cur.asking;
           const shownP = shown && CLOUD.find((x) => x.id === shown.provider)!;
           return {

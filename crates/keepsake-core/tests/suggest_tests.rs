@@ -125,22 +125,25 @@ impl World {
     }
 }
 
+/// What the stand-in was sent: the provider, the picture's size and the
+/// blown-out share measured.
+type Sent = (Provider, (u32, u32), f32);
+
 /// Stands in for the AI: records what it was sent, answers with one
 /// suggestion, or fails.
 #[derive(Default)]
 struct Fake {
-    seen: Mutex<Vec<(Provider, (u32, u32), f32)>>,
+    seen: Mutex<Vec<Sent>>,
     fail: Option<(String, bool)>,
 }
 
 impl Adviser for Fake {
     fn advise(&self, provider: Provider, jpeg: &[u8], m: &Measures) -> Result<AiAdvice, AiError> {
         let img = image::load_from_memory(jpeg).unwrap();
-        self.seen.lock().unwrap().push((
-            provider,
-            (img.width(), img.height()),
-            m.highlights,
-        ));
+        self.seen
+            .lock()
+            .unwrap()
+            .push((provider, (img.width(), img.height()), m.highlights));
         if let Some((message, retry)) = &self.fail {
             return Err(AiError::Cloud {
                 message: message.clone(),
@@ -250,10 +253,7 @@ fn a_refused_question_fails_and_says_why_and_stop_drops_it() {
         Some("ChatGPT declined to look at this photo")
     );
     // An answer given after the failure hides it.
-    assert_eq!(
-        suggest::asking(&w.cat, id, Some(i64::MAX)).unwrap(),
-        None
-    );
+    assert_eq!(suggest::asking(&w.cat, id, Some(i64::MAX)).unwrap(), None);
     // Stop: a question not sent yet is not sent.
     suggest::enqueue_ask(&mut w.cat, Provider::Claude, id).unwrap();
     suggest::stop_asking(&mut w.cat, id).unwrap();

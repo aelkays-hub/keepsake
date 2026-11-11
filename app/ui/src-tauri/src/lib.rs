@@ -17,6 +17,7 @@ mod report;
 mod reveal;
 mod shutdown;
 mod state;
+mod suggest;
 mod viewer;
 
 use tauri::Manager;
@@ -180,6 +181,9 @@ pub fn run() {
             aircraft::aircraft_read,
             aircraft::aircraft_read_status,
             aircraft::aircraft_read_stop,
+            suggest::edit_suggestions,
+            suggest::edit_suggestions_ask,
+            suggest::edit_suggestions_stop,
             faces::faces_status,
             faces::faces_enable,
             faces::faces_install_cancel,

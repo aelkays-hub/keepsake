@@ -1063,6 +1063,59 @@ dto! {
 }
 
 dto! {
+    /// Edit suggestions (ADR-042): one edit, and how to do it in each
+    /// program (empty: that program has no tool for it).
+    pub struct EditSuggestionDto {
+        pub title: String,
+        pub why: String,
+        pub photoshop: String,
+        pub topaz: String,
+    }
+
+    /// One line of what Keepsake measured: "Highlights", "3% blown out".
+    pub struct MeasuredDto {
+        pub label: String,
+        pub value: String,
+    }
+
+    /// What an AI advised.
+    pub struct AiAdviceDto {
+        /// The provider's id (`claude`) and name (`Claude`).
+        pub provider: String,
+        pub provider_name: String,
+        pub model: String,
+        pub summary: String,
+        pub suggestions: Vec<EditSuggestionDto>,
+        #[ts(type = "number")]
+        pub made_ms: i64,
+    }
+
+    /// A question to an AI on its way, or one that failed.
+    pub struct AskingDto {
+        pub provider: String,
+        pub provider_name: String,
+        /// Still to be answered; else it failed for good.
+        pub pending: bool,
+        pub problem: Option<String>,
+    }
+
+    /// A photo's edit suggestions. `waiting`: its preview is being made
+    /// first (ask again shortly); nothing else is filled in.
+    pub struct EditAdviceDto {
+        pub id: String,
+        pub waiting: bool,
+        pub measured: Vec<MeasuredDto>,
+        /// One sentence on what the measurements found.
+        pub summary: String,
+        pub suggestions: Vec<EditSuggestionDto>,
+        #[ts(type = "number")]
+        pub made_ms: i64,
+        pub ai: Option<AiAdviceDto>,
+        pub asking: Option<AskingDto>,
+    }
+}
+
+dto! {
     /// The app crashed last time: shown once at start-up.
     pub struct CrashNotice {
         /// The crash file's name in the log folder.

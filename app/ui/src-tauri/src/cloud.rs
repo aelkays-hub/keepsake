@@ -42,6 +42,16 @@ pub fn tagger() -> Arc<dyn cloud::Tagger> {
     ))
 }
 
+/// The adviser the render service uses for edit suggestions (ADR-042):
+/// the same keys and models as tagging.
+pub fn adviser() -> Arc<dyn keepsake_core::ai::suggest::Adviser> {
+    Arc::new(keepsake_core::ai::suggest::CloudAdviser::new(
+        Arc::new(UreqHttp::new()),
+        Arc::new(|p: Provider| keepsake_platform::secrets::api_key(p.id()).ok().flatten()),
+        Arc::new(chosen),
+    ))
+}
+
 #[tauri::command(async)]
 pub fn ai_cloud_info() -> CmdResult<CloudInfo> {
     let settings = Settings::load().map_err(err)?;
