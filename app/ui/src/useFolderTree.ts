@@ -2,11 +2,14 @@
 // import destination), then its folders as they are on disk, each with the
 // number of items in it and below that match the filters. A folder's
 // sub-folders load when it is first expanded, and again when the library or
-// the filters change.
+// the filters change: the old ones stay on screen until the new ones
+// arrive, so the tree never shrinks and keeps its place. The open folders
+// are remembered (`treeMemory`).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type FolderNode, type Query, type Sidebar } from "./api";
+import { keepOpenLevels, openLevels } from "./treeMemory";
 
 export interface FolderTreeNode {
   /** `v:<volume>` or `v:<volume>:<path>`. */
@@ -32,23 +35,29 @@ export function useFolderTree(
   refresh: unknown,
   enabled: boolean,
 ) {
-  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [open, setOpen] = useState<Set<string>>(() => openLevels("folder", []));
   const [levels, setLevels] = useState<Map<string, FolderNode[]>>(() => new Map());
   const loading = useRef(new Set<string>());
+  /** The levels loaded for the current library and filters. */
+  const fresh = useRef(new Set<string>());
   const qkey = JSON.stringify([query, refresh]);
   const current = useRef(qkey);
 
+  useEffect(() => keepOpenLevels("folder", open), [open]);
+
+  // The library or filters changed: every level loads again, the old ones
+  // shown until then.
   useEffect(() => {
     current.current = qkey;
     loading.current = new Set();
-    setLevels(new Map());
+    fresh.current = new Set();
   }, [qkey]);
 
-  // Load each open node's sub-folders once.
+  // Load each open node's sub-folders (once for these filters).
   useEffect(() => {
     if (!enabled) return;
     for (const k of open) {
-      if (levels.has(k) || loading.current.has(k)) continue;
+      if (fresh.current.has(k) || loading.current.has(k)) continue;
       const [, volume, ...rest] = k.split(":");
       const path = rest.length ? rest.join(":") : null;
       const pending = loading.current;
@@ -58,6 +67,7 @@ export function useFolderTree(
         .folderTree(volume, path, query)
         .then((f) => {
           if (asked !== current.current) return;
+          fresh.current.add(k);
           setLevels((m) => new Map(m).set(k, f));
         })
         .catch((e) => console.error("folder tree", e))

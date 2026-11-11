@@ -1,8 +1,26 @@
-# Manual Test Steps — Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## The sidebar tree keeps its place
+
+Automated (run here and in CI):
+```
+cd app/ui; pnpm exec vitest run src/unit/treeMemory.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/tree-place.spec.ts
+```
+
+Manual (both OSes):
+1. Sidebar → **By date**. Open several years and months so the tree is longer than the window, and scroll it down to a month near the bottom.
+2. Right-click that month → **Tag photos**. **Expected:** while the window counts up and when it finishes, the tree stays where it is: it does not jump to the top, and no year or month closes. The counts may change in place.
+3. **By folder**: open a drive and some folders, scroll down, right-click a folder → **Scan again** (or Read aircraft). **Expected:** the same: the tree stays where it is.
+4. Right-click any entry and press Esc, or click elsewhere. **Expected:** the tree does not move.
+5. Scroll each tree to a different place, close Keepsake and start it again. **Expected:** the tree you left open comes back with the same years, months or folders open and scrolled to where it was (after a moment, as its levels load). Switch to the other tree: it is where you left that one.
+6. Change a filter (a camera, a tag). **Expected:** the tree keeps its open levels and its place; only the counts change.
 
 ---
 

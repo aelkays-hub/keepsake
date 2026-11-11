@@ -36,6 +36,10 @@ export interface ContextMenuProps {
   ready?: unknown;
 }
 
+/** Focus without scrolling: the menu floats over a list (the sidebar's
+ * tree, the grid), and a plain focus() scrolls that list to "show" it. */
+const focus = (el: HTMLElement | undefined) => el?.focus({ preventScroll: true });
+
 const enabled = (root: HTMLElement | null) => [
   ...(root?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []),
 ];
@@ -77,7 +81,7 @@ export function ContextMenu({
     const el = root.current;
     const now = document.activeElement;
     if (!el || (now instanceof HTMLButtonElement && el.contains(now))) return;
-    (enabled(el)[0] ?? el).focus();
+    focus(enabled(el)[0] ?? el);
   }, [ready]);
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -86,10 +90,10 @@ export function ContextMenu({
     const all = enabled(root.current);
     const at = all.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "Escape" || e.key === "Tab") onClose();
-    else if (e.key === "ArrowDown") all[(at + 1) % all.length]?.focus();
-    else if (e.key === "ArrowUp") all[(at - 1 + all.length) % all.length]?.focus();
-    else if (e.key === "Home") all[0]?.focus();
-    else if (e.key === "End") all[all.length - 1]?.focus();
+    else if (e.key === "ArrowDown") focus(all[(at + 1) % all.length]);
+    else if (e.key === "ArrowUp") focus(all[(at - 1 + all.length) % all.length]);
+    else if (e.key === "Home") focus(all[0]);
+    else if (e.key === "End") focus(all[all.length - 1]);
     else return;
     e.preventDefault();
   };

@@ -1,11 +1,14 @@
 // The sidebar's calendar tree: years, then a year's months, then a month's
 // days, each with its count. Levels load when they are first expanded, and
-// again when the library or the filters change.
+// again when the library or the filters change: the old ones stay on screen
+// until the new ones arrive, so the tree never shrinks and keeps its place.
+// The open levels are remembered (`treeMemory`).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Bucket, type Query } from "./api";
 import * as fmt from "./format";
+import { keepOpenLevels, openLevels } from "./treeMemory";
 
 export interface CalNode {
   /** `cal`, `2025`, `2025-06`, `2025-06-15` or `undated`. */
@@ -32,23 +35,28 @@ export function dayLabel(year: number, month: number, day: number): string {
 }
 
 export function useCalendarTree(query: Query, refresh: unknown) {
-  const [open, setOpen] = useState<Set<string>>(() => new Set(["cal"]));
+  const [open, setOpen] = useState<Set<string>>(() => openLevels("date", ["cal"]));
   const [levels, setLevels] = useState<Map<string, Bucket[]>>(() => new Map());
   const loading = useRef(new Set<string>());
+  /** The levels loaded for the current library and filters. */
+  const fresh = useRef(new Set<string>());
   const qkey = JSON.stringify([query, refresh]);
   const current = useRef(qkey);
 
-  // The library or filters changed: everything loads again.
+  useEffect(() => keepOpenLevels("date", open), [open]);
+
+  // The library or filters changed: every level loads again, the old ones
+  // shown until then.
   useEffect(() => {
     current.current = qkey;
     loading.current = new Set();
-    setLevels(new Map());
+    fresh.current = new Set();
   }, [qkey]);
 
-  // Load each open level that is not loaded yet.
+  // Load each open level that is not loaded (for these filters) yet.
   useEffect(() => {
     for (const k of open) {
-      if (levels.has(k) || loading.current.has(k) || k === "undated") continue;
+      if (fresh.current.has(k) || loading.current.has(k) || k === "undated") continue;
       const parts = k === "cal" ? [] : k.split("-").map(Number);
       if (parts.length > 2) continue; // days are leaves
       const pending = loading.current;
@@ -65,6 +73,7 @@ export function useCalendarTree(query: Query, refresh: unknown) {
         .then((b) => {
           // An answer for an older library or filter is dropped.
           if (asked !== current.current) return;
+          fresh.current.add(k);
           setLevels((m) => new Map(m).set(k, b));
         })
         .catch((e) => console.error("calendar tree", e))

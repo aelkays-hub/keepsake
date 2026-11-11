@@ -36,6 +36,7 @@
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
 | — | Read aircraft: the registration, airline and type of the aircraft in the photos you pick, read on this computer (ADR-041) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Edit suggestions: right-click a photo for steps to improve it in Photoshop and Topaz Photo, measured here and, if asked, from an AI (ADR-042) | 🟡 Built and tested on Windows; CI not run yet |
+| — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -60,6 +61,17 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## The sidebar tree keeps its place (2026-11-11)
+
+- **Asked:** "When I am right clicking..it always go back to top of tree", then "fix it to save last location it was on".
+- **Found:** both trees (By date, By folder) threw away every loaded level whenever the library changed: a Tag photos, Read aircraft or Scan again job moving on or finishing, an edit saved, a folder being added, a filter changed. The tree shrank to its top level for a moment, so its scroll fell back to the top, and the levels then loaded again. The right-click actions start exactly those jobs. Nothing remembered the tree's place over a restart either.
+- **Fixed:**
+  - `useCalendarTree` and `useFolderTree` keep the loaded levels on screen while they load again, and replace each when its new counts arrive: the tree never shrinks.
+  - `treeMemory` remembers, for each tree, the open levels and how far it is scrolled (this computer's web storage); the sidebar scrolls back there once the levels have loaded (given up after 5 s, or as soon as the user scrolls).
+  - The right-click menus take focus without scrolling the list under them (`ContextMenu`).
+- **Tests, run here (Windows):** mocked Playwright `tree-place.spec.ts` (3, all of which fail on the old code: 600 → 96 px after Tag photos, 300 → 109 px after Scan again, closed after a restart); Vitest `treeMemory.test.ts` (3); `folder-tree`, `calendar-tree`, `ai`, `keyboard`, `show-in-folder`, `aircraft`, `library`; ESLint, Prettier, tsc.
+- **Not run:** in the real app window on the owner's library.
 
 ## Edit suggestions for Photoshop and Topaz Photo (2026-11-11)
 
