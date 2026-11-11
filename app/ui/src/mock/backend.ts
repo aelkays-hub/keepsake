@@ -87,6 +87,9 @@ export interface MockState {
   /** Recognise faces (`?faces=on`: on, models installed). `left`: status
    * polls until a search of all photos is done. */
   faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
+  /** Read aircraft (`?aircraft=on`: on, models installed), and the photos
+   * asked for: status polls left. */
+  aircraft: { enabled: boolean; installed: boolean; asked: Map<string, number> };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -132,6 +135,16 @@ interface MockFace {
 
 /** What each provider tags a photo with in the mock (they differ a little,
  * so the inspector's list per AI can be checked). */
+/** Read aircraft (ADR-041): who gives the keywords, what every photo
+ * "shows", and the size of the text models. */
+const AIRCRAFT = { id: "aircraft", name: "Aircraft reader" };
+const AIRCRAFT_TAGS = [
+  "Aircraft|Registration|C-FJZS",
+  "Aircraft|Airline|Air Canada",
+  "Aircraft|Type|Boeing 777-300ER",
+];
+const AIRCRAFT_BYTES = 95861692;
+
 const CLOUD_TAGS: Record<string, string[]> = {
   claude: ["Beach", "AI|Sand Castle"],
   openai: ["Beach", "Sky"],
@@ -316,6 +329,11 @@ export function installMock(): void {
       scanned: 0,
       people: 0,
       left: 0,
+    },
+    aircraft: {
+      enabled: params.get("aircraft") === "on",
+      installed: params.get("aircraft") === "on",
+      asked: new Map(),
     },
     faceRows: new Map(),
     facesMatch: 55,
@@ -1405,6 +1423,74 @@ export function installMock(): void {
           }
           return [c, r];
         }
+        case "aircraft_status":
+          return {
+            enabled: st.aircraft.enabled,
+            modelsInstalled: st.aircraft.installed,
+            modelsBytes: AIRCRAFT_BYTES,
+            runtimeFound: true,
+            looks: st.ai.modelInstalled,
+            accel: st.aircraft.enabled ? "graphics card (DirectML)" : null,
+            problem: null,
+            installing: null,
+          };
+        case "aircraft_enable":
+          st.aircraft.enabled = Boolean(a.enabled);
+          if (st.aircraft.enabled && !st.aircraft.installed) {
+            st.aircraft.installed = true;
+            void emit("aircraft://install", {
+              done: AIRCRAFT_BYTES,
+              total: AIRCRAFT_BYTES,
+              finished: true,
+              error: null,
+            });
+          }
+          return null;
+        case "aircraft_install_cancel":
+          return null;
+        case "aircraft_remove_models":
+          st.aircraft.enabled = false;
+          st.aircraft.installed = false;
+          return true;
+        case "aircraft_read":
+        case "aircraft_read_status":
+        case "aircraft_read_stop": {
+          let ids = (a.ids ?? []) as string[];
+          if (cmd === "aircraft_read") {
+            if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
+            ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+            st.aircraft.asked.set(ids.join(","), 2);
+          }
+          const key = ids.join(",");
+          const left = st.aircraft.asked.get(key) ?? 0;
+          if (cmd === "aircraft_read_stop") {
+            // Stopped before any was read (−1): none is counted as read.
+            st.aircraft.asked.set(key, left > 0 ? -1 : 0);
+            return null;
+          }
+          if (cmd === "aircraft_read_status" && left > 0) {
+            st.aircraft.asked.set(key, left - 1);
+            if (left === 1)
+              for (const id of ids) {
+                const i = Number(id.slice(1));
+                const cur = st.keywords.get(i) ?? [];
+                st.keywords.set(i, [...new Set([...cur, ...AIRCRAFT_TAGS])]);
+                const by = st.aiSources.get(i) ?? new Map<string, string[]>();
+                by.set(AIRCRAFT.id, [...AIRCRAFT_TAGS].sort());
+                st.aiSources.set(i, by);
+              }
+          }
+          const items = ids.length;
+          const pending = left > 0 ? items : 0;
+          const status = {
+            items,
+            analysed: pending || left < 0 ? 0 : items,
+            pending,
+            failed: 0,
+            problem: null,
+          };
+          return cmd === "aircraft_read" ? { provider: AIRCRAFT.id, ids, status } : status;
+        }
         case "faces_status": {
           const f = st.faces;
           const photos = all.filter((it) => it.kind !== "video").length;
@@ -1688,7 +1774,7 @@ export function installMock(): void {
           // Per AI, the keywords it gave that the item still has.
           const kw = st.keywords.get(i) ?? [];
           const by = st.aiSources.get(i);
-          const byAi = CLOUD.flatMap((p) => {
+          const byAi = [...CLOUD, AIRCRAFT].flatMap((p) => {
             const tags = (by?.get(p.id) ?? []).filter((t) => kw.includes(t));
             return tags.length ? [{ provider: p.id, name: p.name, tags }] : [];
           });

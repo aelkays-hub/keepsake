@@ -1,5 +1,13 @@
 //! Reading aircraft (ADR-041) through the render service, with a stand-in
 //! for the text models: always run, also in CI.
+//!
+//! One more test reads real pictures with the real models. It is ignored
+//! by default and needs `KEEPSAKE_AIRCRAFT_SAMPLES` (a folder of aircraft
+//! photos, never committed) and the models in `vendor/models`:
+//!
+//! ```text
+//! cargo test -p keepsake-core --test aircraft_tests -- --ignored --nocapture
+//! ```
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -36,14 +44,19 @@ fn photo(seed: u8, w: u32, h: u32) -> DynamicImage {
 impl World {
     fn new(names: &[&str]) -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().to_path_buf();
-        let lib = Library::create(&root.join("lib")).unwrap();
-        let mut cat = lib.open_catalog().unwrap();
-        let media = root.join("media");
+        let media = tmp.path().join("media");
         std::fs::create_dir_all(&media).unwrap();
         for (i, name) in names.iter().enumerate() {
             std::fs::write(media.join(name), jpeg(&photo(i as u8 * 40, 800, 600))).unwrap();
         }
+        Self::of(tmp, media)
+    }
+
+    /// A library in `tmp` with the folder `media` added where it is.
+    fn of(tmp: tempfile::TempDir, media: PathBuf) -> Self {
+        let root = tmp.path().to_path_buf();
+        let lib = Library::create(&root.join("lib")).unwrap();
+        let mut cat = lib.open_catalog().unwrap();
         // Read-only: the media folder must stay as it was.
         add_volume(
             &mut cat,
@@ -92,6 +105,10 @@ impl World {
             ffmpeg: PathBuf::from("none"),
             dcraw: PathBuf::from("none"),
         };
+        self.service_with(tools, loader, false)
+    }
+
+    fn service_with(&self, tools: RenderTools, loader: ReaderLoader, gpu: bool) -> RenderService {
         let opts = RenderOptions {
             workers: 1,
             proxy_workers: 0,
@@ -101,7 +118,7 @@ impl World {
             forced_encoder: None,
             evict_every: 25,
             ai: false,
-            ai_gpu: false,
+            ai_gpu: gpu,
             faces: false,
             aircraft: true,
         };
@@ -315,4 +332,53 @@ fn a_picture_with_nothing_to_read_gets_no_keywords_and_missing_models_are_said()
     assert_eq!(w.job_state(a), JobState::Done);
     assert!(w.keywords(a).is_empty());
     assert!(w.cat.read(|tx| tx.ai().tag_sources(a)).unwrap().is_empty());
+}
+
+/// The real models on real pictures (see the top of this file). Prints
+/// what each picture got; checks every picture was read, at full size,
+/// and that the folder is as it was.
+#[test]
+#[ignore = "needs KEEPSAKE_AIRCRAFT_SAMPLES and the models in vendor/models"]
+fn the_real_models_read_real_photos() {
+    let Some(dir) = std::env::var_os("KEEPSAKE_AIRCRAFT_SAMPLES").map(PathBuf::from) else {
+        eprintln!("KEEPSAKE_AIRCRAFT_SAMPLES is not set: skipped");
+        return;
+    };
+    let before = hashes(&dir);
+    let mut w = World::of(tempfile::tempdir().unwrap(), dir.clone());
+    let ids: Vec<AssetId> = w
+        .cat
+        .read(|tx| {
+            tx.ai()
+                .matching(&Default::default(), keepsake_core::ai::MODEL_ID)
+        })
+        .unwrap()
+        .into_iter()
+        .map(|it| it.id)
+        .collect();
+    assert!(!ids.is_empty(), "no pictures in {}", dir.display());
+    scan::enqueue(&mut w.cat, &ids).unwrap();
+    let mut problem = None;
+    w.service_with(RenderTools::discover(), scan::installed_loader(), true)
+        .run(&AtomicBool::new(false), &mut |e| match e {
+            RenderEvent::AircraftReady { accel } => eprintln!("on the {}", accel.describe()),
+            RenderEvent::AircraftUnavailable { reason } => problem = Some(reason.clone()),
+            RenderEvent::Done { kind, ms, .. } if kind == JOB_AI_AIRCRAFT => {
+                eprintln!("read in {ms} ms")
+            }
+            RenderEvent::Failed { error, .. } => eprintln!("failed: {error}"),
+            _ => {}
+        })
+        .unwrap();
+    assert_eq!(problem, None, "the models could not be loaded");
+    for id in &ids {
+        eprintln!("{id}: {:?}", w.keywords(*id));
+    }
+    let (st, why) = scan::status(&w.cat, &ids).unwrap();
+    assert_eq!(
+        (st.done, st.pending, st.failed),
+        (st.items, 0, 0),
+        "{why:?}"
+    );
+    assert_eq!(hashes(&dir), before, "originals unchanged");
 }

@@ -5,6 +5,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
+import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
 import type { AiRangeStatus } from "./bindings/AiRangeStatus";
 import type { AiStatus } from "./bindings/AiStatus";
@@ -77,6 +78,7 @@ export type {
   AiTagDto,
   AiTagsDto,
   AppInfo,
+  AircraftStatus,
   FaceDto,
   FacesStatus,
   PersonDto,
@@ -257,6 +259,16 @@ export const api = {
     invoke<void>("ai_enable", { enabled, gpu }),
   aiInstallCancel: () => invoke<void>("ai_install_cancel"),
   aiRemoveModel: () => invoke<boolean>("ai_remove_model"),
+  /** Read aircraft (ADR-041): on downloads the text models first. */
+  aircraftStatus: () => invoke<AircraftStatus>("aircraft_status"),
+  aircraftEnable: (enabled: boolean) => invoke<void>("aircraft_enable", { enabled }),
+  aircraftInstallCancel: () => invoke<void>("aircraft_install_cancel"),
+  aircraftRemoveModels: () => invoke<boolean>("aircraft_remove_models"),
+  /** Read the aircraft in the picked photos, on this computer; then how
+   * far it has got, and stopping it. */
+  aircraftRead: (selection: Selection) => invoke<CloudStarted>("aircraft_read", { selection }),
+  aircraftReadStatus: (ids: string[]) => invoke<CloudStatusDto>("aircraft_read_status", { ids }),
+  aircraftReadStop: (ids: string[]) => invoke<void>("aircraft_read_stop", { ids }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
@@ -365,6 +377,9 @@ export const events = {
   facesInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("faces://install", (e) => f(e.payload)),
   facesStatus: (f: () => void): Promise<UnlistenFn> => listen("faces://status", () => f()),
+  aircraftInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("aircraft://install", (e) => f(e.payload)),
+  aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

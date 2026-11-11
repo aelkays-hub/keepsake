@@ -1,8 +1,48 @@
-# Manual Test Steps — Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft (ADR-041)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft
+cargo test -p keepsake-core --test aircraft_tests --test xmp_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraft.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts
+```
+With the real models and a folder of aircraft photos of your own (never committed):
+```
+$env:KEEPSAKE_AIRCRAFT_SAMPLES = "C:\path\to\a few aircraft photos"
+cargo test -p keepsake-core --test aircraft_tests -- --ignored --nocapture
+```
+
+Manual (both OSes):
+1. Settings → **Read aircraft**. **Expected:** "Off." and "Turning it on downloads two text models once (95.9 MB)."
+2. Tick **Read aircraft**. **Expected:** a download bar with Cancel; then "Ready." (after the first photo is read: "Ready, on the graphics card (DirectML)." on Windows, Core ML on a Mac). With On-device AI off it says the type is only read when painted on.
+3. In the library, select a few photos of airliners taken side-on, close enough that you can read the registration when zoomed in. Right-click → **Read aircraft**. **Expected:** a window in the corner, "Reading aircraft: N photos", counting up; a few seconds a photo (longer for RAW files on a network drive). **Stop** leaves what was read; **Hide** makes it a small button.
+4. When it says "N of N photos read.", close it and select one of the photos. **Expected:** the Inspector's keywords include what is painted on the aircraft, for example `Aircraft|Registration|C-FJZS`, `Aircraft|Airline|Air Canada` and, where the type is written by the door, `Aircraft|Type|Boeing 777-300ER`. Under **Tagged with AI** there is a row **Aircraft reader** with those keywords.
+5. Type a registration (or an airline) in the search bar and pick the tag. **Expected:** the photos of that aircraft.
+6. A photo with no type painted on it: **Expected:** often no `Type` keyword. When there is one (for example `Aircraft|Type|Boeing 737`), it is a guess from the look: check it. It is rarely given, and wide-bodies are often not told apart.
+7. A photo that is not of an aircraft, or with no readable text: **Expected:** it is read and gets no keywords.
+8. Read the same photos again. **Expected:** no keyword twice. A keyword you removed comes back if it is read again (a known limit).
+9. Open a photo and press **Read aircraft** in the viewer. **Expected:** the same window for that one photo.
+10. With Read aircraft off, right-click → Read aircraft. **Expected:** "Could not start: Turn on Read aircraft in Settings first." and **Open Settings**.
+11. Disconnect the drive the photos are on and read one that has a thumbnail. **Expected:** it is read from the thumbnail: usually the airline only. One without a thumbnail waits.
+12. Check an original's size and modified date before and after (or `keepsake verify`). **Expected:** unchanged. Its XMP sidecar (or the library's copy, for a folder added read-only) has the keywords and `keepsake:AITagSources` rows with `By` `aircraft`.
+13. Untick Read aircraft, then **Delete the downloaded text models**. **Expected:** the keywords stay; the 95.9 MB is freed.
+
+Command line:
+```
+keepsake ai aircraft status
+keepsake ai aircraft read C:\path\to\photo.jpg
+keepsake ai aircraft scan --tagged Airplane --limit 20
+```
+**Expected:** `status` names the two model files (or says how to install them); `read` prints the registrations, airlines and types found, what the picture looks like (three types with their probabilities) and every line of text with its confidence, and changes nothing; `scan` reads the items with that tag and adds the keywords, as the app does.
 
 ---
 

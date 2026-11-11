@@ -1,12 +1,14 @@
-// Tag photos (a year, month, day or folder), Find duplicates (a folder) and
-// Tag with AI (the photos picked): a window in the corner shows how far it
-// has got, with Stop and Hide. Hidden, a small button in the corner brings
+// Tag photos (a year, month, day or folder), Find duplicates (a folder),
+// Tag with AI and Read aircraft (the photos picked): a window in the corner
+// shows how far it has got, with Stop and Hide. Hidden, a small button in the corner brings
 // it back. The work runs in the background either way. Tag with AI first
 // asks which AI (Claude, ChatGPT or Gemini, those with a key, or All of
 // them, ADR-039), and says what it will send and roughly what it costs.
+// Read aircraft (ADR-041) runs on this computer, so it starts at once.
 
 import { useEffect, useMemo, useState } from "react";
 
+import { aircraftJobLine } from "../aircraft";
 import { api, type AiFolderStatus, type CloudInfo } from "../api";
 import { ALL, chosen, costOf, firstChoice, help, names, usable } from "../cloud";
 import * as fmt from "../format";
@@ -61,6 +63,19 @@ function calls(job: AiJob, providers: { id: string; name: string }[]) {
         Promise.all(providers.map((p) => api.aiCloudStop(ids, p.id))).then(() => undefined),
     };
   }
+  if ("aircraft" in job) {
+    // The photos are known once queued: Stop and the status use them.
+    let ids: string[] = [];
+    return {
+      start: async (): Promise<St> => {
+        const r = await api.aircraftRead(job.aircraft);
+        ids = r.ids;
+        return r.status;
+      },
+      status: (): Promise<St> => api.aircraftReadStatus(ids),
+      stop: () => api.aircraftReadStop(ids),
+    };
+  }
   if ("undated" in job) {
     return {
       start: (): Promise<St> => api.aiAnalyzeUndated(job.what),
@@ -87,6 +102,7 @@ export function AiJobWindow() {
   const { s, dispatch } = useUi();
   const job = s.aiJob;
   const cloud = job !== null && "cloud" in job;
+  const aircraft = job !== null && "aircraft" in job;
   /** Tag with AI: the providers, and the one picked to send to. */
   const [info, setInfo] = useState<CloudInfo | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -165,7 +181,13 @@ export function AiJobWindow() {
   const cents = models.reduce((n, m) => n + (m?.centsPerPhoto ?? 0), 0);
   const aiName = sendTo.length > 0 ? names(sendTo.map((p) => p.name)) : "AI";
   const notes = sendTo.map((p) => help(p.id).note).filter((n): n is string => n !== null);
-  const what = cloud ? `Tagging with ${aiName}:` : tags ? "Tagging" : "Finding duplicates in";
+  const what = cloud
+    ? `Tagging with ${aiName}:`
+    : aircraft
+      ? "Reading aircraft:"
+      : tags
+        ? "Tagging"
+        : "Finding duplicates in";
   const close = () => dispatch({ t: "aiJob", job: null });
   const send = (j: AiJob) => {
     setSent(j);
@@ -182,8 +204,16 @@ export function AiJobWindow() {
         title="Show progress"
       >
         {running && <span className="spinner" aria-hidden={true} />}
-        {cloud ? (all ? "All AIs" : aiName) : tags ? "Tagging" : "Duplicates"} ·{" "}
-        {running ? `${pct}%` : "done"}
+        {cloud
+          ? all
+            ? "All AIs"
+            : aiName
+          : aircraft
+            ? "Aircraft"
+            : tags
+              ? "Tagging"
+              : "Duplicates"}{" "}
+        · {running ? `${pct}%` : "done"}
       </button>
     );
 
@@ -203,6 +233,7 @@ export function AiJobWindow() {
           `${names(sendTo.map((p) => p.company))}.`
         : "");
   else if (!st) line = "Getting ready…";
+  else if (aircraft) line = aircraftJobLine(st, stopped);
   else if (st.items === 0)
     line = `No ${tags ? "" : "RAW "}photos ${
       "undated" in job ? "without a date" : "range" in job ? "on these dates" : "in this folder"
@@ -235,11 +266,13 @@ export function AiJobWindow() {
       <p className="muted">
         {cloud
           ? "A 1024-pixel copy of each photo is sent; the tags become keywords."
-          : "undated" in job
-            ? "Photos and videos with no date."
-            : "range" in job
-              ? "Photos taken on these dates."
-              : "This folder and the folders in it."}
+          : aircraft
+            ? "Each photo is read at full size on this computer. The registration, airline and type it finds become keywords under Aircraft."
+            : "undated" in job
+              ? "Photos and videos with no date."
+              : "range" in job
+                ? "Photos taken on these dates."
+                : "This folder and the folders in it."}
       </p>
       {asking && ready.length > 1 && (
         <label className="row">
@@ -287,6 +320,17 @@ export function AiJobWindow() {
           </button>
         )}
         {asking && info && ready.length === 0 && (
+          <button
+            onClick={() => {
+              dispatch({ t: "screen", screen: "settings" });
+              close();
+            }}
+            data-testid="ai-job-settings"
+          >
+            Open Settings
+          </button>
+        )}
+        {aircraft && problem?.includes("Settings") && (
           <button
             onClick={() => {
               dispatch({ t: "screen", screen: "settings" });

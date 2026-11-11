@@ -775,6 +775,20 @@ export function Viewer() {
             Tag with AI
           </button>
         )}
+        {row && only && (
+          <button
+            onClick={() =>
+              dispatch({
+                t: "aiJob",
+                job: { aircraft: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+              })
+            }
+            title="Read the registration, airline and type of the aircraft in this photo (on this computer)"
+            data-testid="viewer-aircraft"
+          >
+            Read aircraft
+          </button>
+        )}
         {row && row.kind !== "video" && (
           <button
             onClick={() =>

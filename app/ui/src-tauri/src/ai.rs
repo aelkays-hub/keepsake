@@ -6,7 +6,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use keepsake_core::ai::cloud::Provider;
 use keepsake_core::ai::{self, duplicates, install, Purpose, JOB_AI, JOB_AI_TAG, MODEL_ID};
 use keepsake_core::catalog::{AssetId, DuplicateChoice, TagPath, TagSource};
 use keepsake_core::metadata::MetadataService;
@@ -494,18 +493,19 @@ pub fn ai_tags(state: State<'_, AppState>, id: String) -> CmdResult<AiTagsDto> {
     })
 }
 
-/// Per AI, the keywords it gave that the item still has.
+/// Per AI (and the aircraft reader, ADR-041), the keywords it gave that
+/// the item still has.
 fn by_ai(
     tags: &[keepsake_core::catalog::AssetTag],
     sources: &[(String, TagPath)],
 ) -> Vec<AiTagSourceDto> {
-    Provider::ALL
+    keepsake_core::ai::tag_sources()
         .into_iter()
-        .filter_map(|p| {
+        .filter_map(|(id, name)| {
             let tags: Vec<String> = sources
                 .iter()
                 .filter(|(by, path)| {
-                    by == p.id()
+                    by == id
                         && tags
                             .iter()
                             .any(|t| t.source == TagSource::User && &t.path == path)
@@ -513,8 +513,8 @@ fn by_ai(
                 .map(|(_, path)| path.to_lightroom())
                 .collect();
             (!tags.is_empty()).then(|| AiTagSourceDto {
-                provider: p.id().to_owned(),
-                name: p.name().to_owned(),
+                provider: id.to_owned(),
+                name: name.to_owned(),
                 tags,
             })
         })

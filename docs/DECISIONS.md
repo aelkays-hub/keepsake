@@ -1538,3 +1538,52 @@ A stronger recogniser than SFace would help more; most are not licensed for this
 - **Inspector → People** (one photo, not a video): the people confirmed in it, how many faces have no name, and **Name and find…**. It never starts a search: a photo not searched yet says so (`faces_of_photo` with `search: false`).
 - **Viewer → Faces** (button, or **P**: F is already full screen) draws the photo's faces over it, at its size and zoom: named faces with their name (a suggestion with "?"), faces with no name dashed. A click or right-click on a box opens its menu: **Name…** (Name and find with that face picked), **Not <name>** (`people::not_this_person`: the name and keyword come off; never suggested for them again), **Not a face** (`people::not_a_face`: hidden for good).
 - **"Not a face"** is a face state, `hidden` (schema v13): not shown, not counted, never suggested, and a new search does not add it again. A new search also keeps a face that has a "not this person", so that decision is not lost. Not written to the sidecar (not kept by a rebuild): a small limit, noted in TEST_ME.
+
+## ADR-041 — Read aircraft: registration, airline and type, on this computer
+
+**Status**: Accepted (2026-11-11, product owner: "a local model that can look at airplane pictures and try to extract the visible text from the planes like airline name, registration number and attempt to identify the type of aircraft"). Chosen in answers: **PP-OCR + SigLIP** (over one small vision-language model, or a larger one with a new runtime); results **as AI tags** (keywords, over dedicated Aircraft fields); "Yes, download all three" (both detectors and the recogniser, to compare them); test on "My library's Airplane photos"; "Yes, download and install" for the type vectors' developer tools. Extends ADR-035 and ADR-039.
+
+**Context.** On-device AI (ADR-035) tags a photo "Airplane" but cannot say which aircraft. The ONNX Runtime it loads (DirectML / Core ML, else the processor) and the pinned, BLAKE3-checked model downloads are there to build on. The owner's library has several hundred aircraft photos, most of them 24-megapixel RAW files on a network drive.
+
+**How it works.**
+1. **Find the text** (`ai::aircraft::ocr`): PP-OCRv5's server detector marks where text is; each region becomes the smallest rectangle around it, at any angle.
+2. **Read it**: each rectangle is cut out of the picture, straightened, and read by PP-OCRv5's English recogniser.
+3. **Say what it is** (`ai::aircraft::marks`):
+   - a **registration** is a word shaped like one country's marks (`C-FJZS`, `D-AIKR`, `N863NN`, `JA801A`); about 150 prefixes are known. The hyphen is required where a country writes one, so ordinary words are not taken for marks;
+   - an **airline** is a line that is a name in `airlines.tsv` (nearly 300 airlines, as painted): the whole line, or a name of several words inside it; a long name may have one character wrong (`ufthansa`). A title split by a wing (`AIR` … `CANADA`) is joined;
+   - a **painted type** is what some airlines write by the door (`BOEING 777-300ER`, `AIRBUS A220-300`, `DREAMLINER`), with misread digits put right (`30DER`).
+4. **The type from the look** (`ai::aircraft::types`), only without a painted one: the photo's SigLIP 2 embedding against the text vectors of 73 types (`aircraft-types.tsv`; airliners as families). Given only when one type stands out (probability at least 0.3 and 3 times the second).
+5. **Keywords.** What was found is added to the photo's keywords: `Aircraft|Registration|C-FJZS`, `Aircraft|Airline|Air Canada`, `Aircraft|Type|Boeing 777-300ER`. They are in the catalog and the XMP sidecar like typed ones, and who gave them is recorded (source `aircraft`, shown as **Aircraft reader** under Tagged with AI; ADR-039). Keywords the photo has stay; reading again adds nothing twice.
+
+**Decisions.**
+- **Photos are read at full size, from their file.** Measured on 25 of the owner's photos: from the 1024 px thumbnails one registration was read; from the full pictures, most of those that can be read by eye. A registration is about 5 px high in a thumbnail and 30 px in the original. So the job decodes the photo (the JPEG of a pair, else the RAW through LibRaw), finds text with the picture's long side at 2560 px, and reads each line from the full picture. Nothing is added to the cache, and **the original is only read**. If the file cannot be reached (drive not connected) the thumbnail is read instead; a video is read from its thumbnail frame.
+- **The server detector, not the small one.** Both were run on the same photos at 1920 and 2560 px. The small one (PP-OCRv4 mobile, 4.7 MB) missed or cut registrations the server one (88 MB) read (`C-GUPG`, `C-FLQZ` → `-FLQZ`, the painted types). It is not shipped. The download is 96 MB, not the 20 MB first estimated: the owner was asked before it was downloaded.
+- **The recogniser runs on the processor**: it is small, and every line has another width, which a graphics card plans anew each time. The detector runs on the graphics card when it can.
+- **Only for the photos picked** (right-click → Read aircraft; a button in the viewer). It takes seconds a photo and reads the original, so it never runs by itself. `[ai] aircraft` turns the worker on; it does not need On-device AI, except for the type from the look.
+- **One job at a time** (`ai.aircraft`), not batches: each takes seconds and saves through `MetadataService`, which writes the sidecar.
+- **Schema v14.** `ai_tag_sources.provider` was limited in the schema to the three cloud AIs. The table is made again without the list (rows kept); the code decides which sources it knows (`ai::tag_source_id`). A sidecar's `keepsake:AITagSources` row with `By` `aircraft` is read back.
+
+**What it found** (40 of the owner's Airplane-tagged photos, full size, a development build): a registration in 8, an airline in 11, a painted type in 3. The rest have no readable text (air shows, aircraft far away, bare metal). About 5 s to read a photo on the graphics card, plus 2.5 s to load a RAW.
+
+**The type from the look is a rough guess.** On the same photos the best-scoring type was right for narrow-bodies (four Boeing 737s, the two whose type is known from the registration both right) and for the Snowbirds, but often wrong between wide-bodies: an A330 scored as an A320, a 787 as a 757, an A380 as a 777. With the thresholds above only the 737s are given. A type painted on the aircraft is always preferred.
+
+**Dependencies** (approved 2026-11-11). No new crate.
+
+| Dependency | Version | Licence | Kind | Why |
+|---|---|---|---|---|
+| PP-OCRv5 server text detector (ONNX, 88.0 MB) | `monkt/paddleocr-onnx` rev `7b02d0a3`, `detection/v5/det.onnx` | Apache-2.0 | model, downloaded by the user | Finds text. |
+| PP-OCRv5 English mobile recogniser (ONNX, 7.8 MB) | same, `languages/english/rec.onnx` | Apache-2.0 | model, downloaded by the user | Reads text. |
+| `ppocrv5_en_dict.txt` (1.4 KB) | same, `languages/english/dict.txt` | Apache-2.0 | committed (`ai/aircraft/`) | The recogniser's characters. |
+| SigLIP 2 text tower and tokenizer (`text_model.onnx`, 1.13 GB; `tokenizer.json`) | onnx-community rev `ba1f3b08` | Apache-2.0 | developer tool only, never shipped | `scripts/make-label-vectors.py … aircraft-types` makes the 77 KB type vectors, which are committed. |
+| onnxruntime (Python) | 1.31.1 | MIT | developer tool only, never shipped | The same script (as in ADR-035). |
+
+Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/RapidOCR`, Apache-2.0), downloaded into a developer's `vendor/` only.
+
+**Not done.**
+- **The type from the registration.** Looking a registration up gives the exact type and operator, but needs a registry database (a new data dependency, to be approved) or the network.
+- A better type guess: cutting the aircraft out of the frame first, or a model trained on aircraft.
+- Reading everything tagged Airplane by itself, or from the calendar's menu (only picked photos now; `keepsake ai aircraft scan --tagged Airplane` does it from the command line).
+- Removing a wrong keyword does not stop it being given again when the photo is read again.
+- Two airlines for one aircraft when both names are painted (`American Airlines` and `American Eagle`).
+- Military serials, marks without a hyphen where the country writes one, text in other scripts.
+- macOS: built and tested in CI only (no model there, so the model test skips), like the other AI features.

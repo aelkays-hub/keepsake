@@ -2,8 +2,8 @@
 // (click, Ctrl/Shift-click, the tick-box on each tile, Select mode, and
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
 // video durations. Right-click, the Menu key or Shift+F10 opens an item's
-// menu: Open, Show in Explorer / Finder, Open in…, Tag with AI (for the
-// selection) and Name and find.
+// menu: Open, Show in Explorer / Finder, Open in…, Tag with AI and Read
+// aircraft (for the selection) and Name and find.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -178,6 +178,22 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
                 t: "aiJob",
                 job: {
                   cloud: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                  what: "tags",
+                },
+              }),
+          },
+          {
+            label: "Read aircraft",
+            title:
+              "Read the registration, airline and type of the aircraft in these photos (on this computer)",
+            testId: "tile-menu-aircraft",
+            run: () =>
+              dispatch({
+                t: "aiJob",
+                job: {
+                  aircraft: selectionPayload(view?.view ?? null, cur),
                   count: n,
                   title: one?.name ?? fmt.plural(n, "photo"),
                   what: "tags",

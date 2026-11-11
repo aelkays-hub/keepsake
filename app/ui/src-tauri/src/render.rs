@@ -130,6 +130,16 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
                     st.faces.note(None, Some(reason.clone()));
                     let _ = app.emit("faces://status", ());
                 }
+                RenderEvent::AircraftReady { accel } => {
+                    let st = app.state::<AppState>();
+                    st.aircraft.note(Some(accel.describe().to_owned()), None);
+                    let _ = app.emit("aircraft://status", ());
+                }
+                RenderEvent::AircraftUnavailable { reason } => {
+                    let st = app.state::<AppState>();
+                    st.aircraft.note(None, Some(reason.clone()));
+                    let _ = app.emit("aircraft://status", ());
+                }
                 // A new thumbnail, or a fingerprint that moved the item's
                 // thumbnails to their new name (ADR-034).
                 RenderEvent::Done {

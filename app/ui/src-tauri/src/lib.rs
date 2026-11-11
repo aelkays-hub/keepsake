@@ -1,4 +1,5 @@
 mod ai;
+mod aircraft;
 pub mod api;
 mod background;
 mod cloud;
@@ -172,6 +173,13 @@ pub fn run() {
             cloud::ai_cloud_tag,
             cloud::ai_cloud_status,
             cloud::ai_cloud_stop,
+            aircraft::aircraft_status,
+            aircraft::aircraft_enable,
+            aircraft::aircraft_install_cancel,
+            aircraft::aircraft_remove_models,
+            aircraft::aircraft_read,
+            aircraft::aircraft_read_status,
+            aircraft::aircraft_read_stop,
             faces::faces_status,
             faces::faces_enable,
             faces::faces_install_cancel,

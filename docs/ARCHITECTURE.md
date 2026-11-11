@@ -148,6 +148,15 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - The user's decisions (removed AI tags, keeper / not kept / not duplicates) go through `MetadataService`, so they are in the catalog and the XMP sidecars. The model lives in the user's cache folder (`ai::install`), downloaded once with the OS's `curl` and checked by BLAKE3.
 - Face clustering and semantic search are not built yet.
 
+### Aircraft (ADR-041)
+`keepsake_core::ai::aircraft`, on this computer only.
+- `ocr::TextReader`: PP-OCRv5's detector (sides multiples of 32, long side at most `max_side`; blue, green, red planes, ImageNet mean and deviation) gives a text probability map. `ocr::boxes` joins pixels over 0.3 into regions, keeps those averaging 0.5 or more, takes the smallest rectangle around each (convex hull, every edge tried) and grows it (DBNet's unclip, 1.6). `ocr::crop` straightens a rectangle out of the full picture (at most 96 px high); `rec_input` scales it to 48 px high; `ctc_decode` reads the recogniser's output with its dictionary. The detector uses `model::open_session` (graphics card first); the recogniser runs on the processor.
+- `marks`: `registration` (country shapes), `Airlines::find` (`airlines.tsv`), `painted_type`, and `interpret`, which turns a picture's lines into `Marks`.
+- `types::TypeList`: a second `labels::LabelSet` (`aircraft-types.tsv` and its vectors); `guess` gives the best type only when it stands out.
+- `scan`: `ai.aircraft` jobs, queued for the picked items (`enqueue`, `status`, `stop` by ids; the status is `cloud::job_status`). The aircraft worker (`RenderService`, when `[ai] aircraft`; `with_aircraft` gives tests a stand-in `Reader`) runs one job at a time: `picture` decodes the photo at full size (`render::full::decode_full`, nothing cached) or falls back to the thumbnail; `examine` reads it and, without a painted type, asks for the look (the stored `ai_analysis` embedding, else the image encoder if installed); the keywords are added with `MetadataService::add_ai_keywords(asset, "aircraft", …)`.
+- `install`: the two pinned models (`ai::install::ModelFile`, shared with the face models), `KEEPSAKE_TEXT_DETECTOR` / `KEEPSAKE_TEXT_RECOGNIZER`.
+- The app's `aircraft_*` commands are thin wrappers; the UI is `AircraftSettings`, the item menu's Read aircraft, the viewer's button, and `AiJobWindow` (the `aircraft` job).
+
 ### Faces (ADR-040)
 `keepsake_core::ai::faces`, on this computer only. Steps 1 (models and pipeline), 2 (searching and storing), 3 (Name and find), 4 (sidecars and search) and 5 (Inspector and viewer) are built; the People screen comes next.
 - `FaceModels::find(picture)`: the picture is fitted into YuNet's fixed 640 × 640 input (blue, green, red, 0–255, black padding right and bottom). Its three grids (8, 16, 32 px cells) are decoded as OpenCV does (score √(cls·obj), box from centre offsets and log size, 5 landmarks), faces scoring under 0.8 dropped and overlapping ones merged (IoU 0.3). Boxes come back in the picture's pixels.
@@ -376,7 +385,7 @@ One sidecar per copy of an asset's original, named `<name>.<ext>.xmp` beside it.
 | Camera, lens, duration | `tiff:Make`, `tiff:Model`, `exifEX:LensModel`, `xmpDM:duration` | |
 | Named faces (ADR-040) | `mwg-rs:Regions` (`AppliedToDimensions`, `RegionList` of `Type` Face, `Name`, `Area` centre x/y, w, h, normalized); `keepsake:FaceNames` (the names Keepsake wrote); `keepsake:FaceRejections` | every named face region, Lightroom's and digiKam's; other regions kept as they are |
 | Identity, event, AI tags, recipes, member files | `keepsake:AssetID`, `keepsake:Event`, `keepsake:AITags`, `keepsake:Recipes`, `keepsake:Files` | |
-| Which AI gave each keyword (Tag with AI) | `keepsake:AITagSources` (`Name`, `By`) | rows of unknown AIs are left out |
+| Which AI gave each keyword (Tag with AI; Read aircraft, ADR-041, as `aircraft`) | `keepsake:AITagSources` (`Name`, `By`) | rows of unknown AIs are left out |
 
 The `keepsake:` namespace is `http://ns.keepsake.app/xmp/1.0/`. `xmp:MetadataDate` decides which sidecar wins when two disagree.
 

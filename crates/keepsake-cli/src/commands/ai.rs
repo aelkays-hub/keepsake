@@ -1,6 +1,6 @@
 //! `keepsake ai status | install | run | duplicates | retag | explain` (ADR-035)
 //! and `keepsake ai faces install | scan | status | delete-all` (ADR-040)
-//! and `keepsake ai aircraft install | status | read` (ADR-041)
+//! and `keepsake ai aircraft install | status | scan | read` (ADR-041)
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -66,6 +66,23 @@ pub enum AircraftAction {
     /// Which text models are installed, and whether they are the pinned
     /// ones.
     Status,
+    /// Read the aircraft in the items with a tag (`--tagged Airplane`), or
+    /// in every item, and add what is found to their keywords, as Read
+    /// aircraft does in the app. Originals are only read.
+    Scan {
+        /// Only the items with this tag (default: every item).
+        #[arg(long)]
+        tagged: Option<String>,
+        /// At most this many items.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Use the processor only, not the graphics card.
+        #[arg(long)]
+        cpu: bool,
+        /// Keep working on battery.
+        #[arg(long)]
+        ignore_battery: bool,
+    },
     /// Read picture files, or the library's cached pictures of the items
     /// with a tag (`--tagged`), and print what was found (to check it).
     Read {
@@ -561,6 +578,94 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                 },
             )?;
             Ok(EXIT_OK)
+        }
+        AircraftAction::Scan {
+            tagged,
+            limit,
+            cpu,
+            ignore_battery,
+        } => {
+            use keepsake_core::ai::aircraft::scan;
+            let lib = ctx.library()?;
+            let settings = Settings::load()?;
+            let cache = Cache::new(settings.render.cache_root()?);
+            let ids = {
+                let mut cat = lib.open_catalog()?;
+                let mut ids = match &tagged {
+                    Some(tag) => {
+                        let path = TagPath::parse_lightroom(tag)?;
+                        cat.read(|tx| tx.tags().assets_with(&path))?
+                    }
+                    None => cat
+                        .read(|tx| tx.ai().matching(&Default::default(), MODEL_ID))?
+                        .into_iter()
+                        .map(|it| it.id)
+                        .collect(),
+                };
+                ids.truncate(limit.unwrap_or(usize::MAX));
+                scan::enqueue(&mut cat, &ids)?;
+                ids
+            };
+            if !ctx.json {
+                eprintln!("{} item(s) to read.", ids.len());
+            }
+            let mut opts = RenderOptions::from_settings(&settings.render);
+            opts.proxy_workers = 0;
+            opts.aircraft = true;
+            opts.ai_gpu = !cpu && settings.ai.gpu;
+            opts.pause_on_battery = settings.render.pause_on_battery && !ignore_battery;
+            let svc = RenderService::new(&lib, RenderTools::discover(), cache, opts)
+                .with_power(Arc::new(keepsake_platform::on_battery));
+            let cancel: &AtomicBool = cancel_flag();
+            let mut rows = Vec::new();
+            let mut problem: Option<String> = None;
+            svc.run(cancel, &mut |ev| match ev {
+                RenderEvent::AircraftReady { accel } => {
+                    if !ctx.json {
+                        eprintln!("Text models loaded on the {}.", accel.describe());
+                    }
+                }
+                RenderEvent::AircraftUnavailable { reason } => problem = Some(reason.clone()),
+                RenderEvent::Done {
+                    kind,
+                    asset,
+                    made,
+                    ms,
+                    ..
+                } if kind == ai::JOB_AI_AIRCRAFT => {
+                    if !ctx.json {
+                        eprintln!("{asset}  {ms} ms  {}", made.join(", "));
+                    }
+                    rows.push(json!({ "asset": asset, "ms": ms, "added": made }));
+                }
+                _ => {}
+            })
+            .context("running the aircraft worker")?;
+            if let Some(p) = problem {
+                anyhow::bail!("the text models could not start: {p}");
+            }
+            let cat = lib.open_catalog()?;
+            let (st, why) = scan::status(&cat, &ids)?;
+            ctx.emit(
+                &json!({
+                    "items": st.items, "read": st.done, "pending": st.pending,
+                    "failed": st.failed, "problem": why, "results": rows,
+                }),
+                || {
+                    println!(
+                        "Read {} of {} item(s); {} waiting, {} failed.",
+                        st.done, st.items, st.pending, st.failed
+                    );
+                    if let Some(w) = &why {
+                        println!("{w}");
+                    }
+                },
+            )?;
+            Ok(if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                EXIT_CANCELLED
+            } else {
+                EXIT_OK
+            })
         }
         AircraftAction::Read {
             files,

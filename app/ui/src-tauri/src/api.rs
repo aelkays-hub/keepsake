@@ -106,6 +106,28 @@ dto! {
         pub failed: u64,
     }
 
+    /// Read aircraft at a glance (Settings; ADR-041).
+    pub struct AircraftStatus {
+        /// Turned on in the settings.
+        pub enabled: bool,
+        /// Both text models are on this computer.
+        pub models_installed: bool,
+        #[ts(type = "number")]
+        pub models_bytes: u64,
+        /// ONNX Runtime is present.
+        pub runtime_found: bool,
+        /// On-device AI's model is installed, so the type can be guessed
+        /// from the look when it is not painted on the aircraft.
+        pub looks: bool,
+        /// Where the text detector runs, once loaded.
+        pub accel: Option<String>,
+        /// Why the aircraft worker is not running, if it is not.
+        pub problem: Option<String>,
+        /// Downloading the models: bytes so far.
+        #[ts(type = "number | null")]
+        pub installing: Option<u64>,
+    }
+
     /// Recognise faces at a glance (Settings; ADR-040).
     pub struct FacesStatus {
         /// Turned on in the settings.

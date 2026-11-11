@@ -73,6 +73,8 @@ export type AiJob = (
   | { undated: true }
   /** Tag with AI: the photos picked, and how many. */
   | { cloud: Selection; count: number }
+  /** Read aircraft (ADR-041): the photos picked, and how many. */
+  | { aircraft: Selection; count: number }
 ) & {
   /** "Pictures › 2025 › May", "July 2026". */
   title: string;

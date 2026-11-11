@@ -34,6 +34,7 @@
 | — | Show in Explorer / Finder: an item's right-click menu (grid, details, viewer) opens its original's folder with the file selected | ✅ Done (Windows; macOS via CI) |
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
+| — | Read aircraft: the registration, airline and type of the aircraft in the photos you pick, read on this computer (ADR-041) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -58,6 +59,20 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Read aircraft: registration, airline and type (2026-11-11)
+
+- **Asked:** "a local model that can look at airplane pictures and try to extract the visible text from the planes like airline name, registration number and attempt to identify the type of aircraft".
+- **Decided** (ADR-041, each choice asked): PP-OCRv5 for the text on the ONNX Runtime already there, SigLIP 2 for the type from the look; results as keywords under `Aircraft`; the server detector (96 MB in all) after comparing it with the small one on the owner's photos.
+- **Found:** registrations cannot be read from thumbnails (about 5 px high), so photos are read at full size from their file, which is only read. On 40 Airplane-tagged photos: a registration in 8, an airline in 11, a painted type in 3. The type from the look is a rough guess (right for 737s, often wrong between wide-bodies), so it is only given when it stands out.
+- **Built:**
+  - Core: `ai::aircraft` (`ocr`, `marks`, `types`, `scan`, `install`), `airlines.tsv`, `aircraft-types.tsv` and its vectors, the aircraft worker in `RenderService` (`RenderOptions::aircraft`, `AircraftReady` / `AircraftUnavailable`), `[ai] aircraft`, `render::full::decode_full`, `ai::install::ModelFile` (moved from the face models), `cloud::job_status`, `ai::tag_source_id` / `tag_sources`, schema v14 (`ai_tag_sources` without the provider list).
+  - CLI: `keepsake ai aircraft install | status | scan | read`.
+  - App: `aircraft_status`, `aircraft_enable`, `aircraft_install_cancel`, `aircraft_remove_models`, `aircraft_read`, `aircraft_read_status`, `aircraft_read_stop`; `aircraft://install`, `aircraft://status`; the inspector's Tagged with AI lists **Aircraft reader**.
+  - UI: Settings → Read aircraft; right-click → Read aircraft and the viewer's button; the progress window.
+  - Scripts: `-WithAi` / `--with-ai` fetch the two text models; `make-label-vectors.py … aircraft-types`.
+- **Tests, run here (Windows):** core unit tests (`ai::aircraft`: boxes at any angle, crops, decoding, registrations, airlines, painted types, the type list, keywords; the v13 → v14 migration); `aircraft_tests` (the worker with a stand-in reader: full size not the thumbnail, keywords and their source, nothing twice, the thumbnail when the file is away, waiting, Stop, missing models; originals unchanged) and, with the real models on three of the owner's photos, KLM / PH-BQB, Air Canada / C-FJZS / Boeing 777-300ER, Emirates; `xmp_tests` (the `aircraft` source is read back); clippy and fmt for core, CLI and app; app bindings; Vitest `aircraft.test.ts`; mocked Playwright `aircraft.spec.ts` (5) and `cloud.spec.ts`; tsc, ESLint, Prettier.
+- **Not run:** the whole workspace's tests and the other Playwright specs (targeted runs only on this machine); CI on Windows and macOS (nothing is pushed yet). Not tried in the real app window, only against the mock backend and from the command line.
 
 ## Face matching tuned (2026-11-09)
 
