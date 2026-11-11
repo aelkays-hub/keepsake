@@ -60,6 +60,16 @@
 
 ---
 
+## Everything gathered for main (2026-11-11)
+
+- **Asked:** "push all and merge all into main".
+- **Pushed:** every local branch that was missing or behind on GitHub (11 branches).
+- **Gathered** on `build/merge-all`, from `feat/aircraft-reader` (which holds `build/all-features`: faces, Tag with AI, the thumbnail and folder work, Read aircraft): `ci/macos-15` (the Mac job on macos-15), `chore/ignore-vite-cache`, `chore/launcher-main` (`keepsake.bat` follows `main`).
+  - The Mac Ctrl+click fix of `ci/macos-15` was already in `useItemMenu` (`isMenuClick`), with its test in `show-in-folder.spec.ts`; the old `claude.spec.ts` stays deleted (it is `cloud.spec.ts` now).
+- **Checked here:** ESLint, Prettier, tsc, Vitest; mocked Playwright show-in-folder, library, aircraft, multi-select. The merges changed no Rust code.
+- **Not done here:** `main` takes it through a pull request, once `windows-latest` and `macos-15 (Rust)` pass.
+- **Installing:** a library opened by this build is at schema v14 and older builds refuse it ("catalog schema version 14 is newer than this build supports"). Install the newest `Keepsake_0.1.0_x64-setup.exe` only: an older installer has the same name.
+
 ## Read aircraft: registration, airline and type (2026-11-11)
 
 - **Asked:** "a local model that can look at airplane pictures and try to extract the visible text from the planes like airline name, registration number and attempt to identify the type of aircraft".
