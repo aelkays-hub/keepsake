@@ -1594,3 +1594,33 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 - **Each once.** A photo already read is left alone (its `ai.aircraft` job is done), so asking again for a folder reads only what is new. Picking photos and choosing Read aircraft still reads them again.
 - Built on what was there: `scan::{target_items, enqueue_target, target_status, stop_target}` over `ai::Target`; the app's folder and date commands take `what` = `aircraft` beside `duplicates` and `tags`. No new command, dependency or schema change.
 - Not done: the calendar's No date; a count of aircraft photos before starting; failed photos are not listed in the window (they are neither read nor waiting).
+
+## ADR-042 — Edit suggestions for Photoshop and Topaz Photo
+
+**Status**: Accepted (2026-11-11, product owner: "I want a new right click option that will analyze the image and give edit suggestions using Photoshop or Topaz"). Chosen in answers: **both** (measured on this computer first, then an AI when asked; over cloud only or this computer only), **kept in Keepsake** (over only shown, or also a note in the sidecar), **one photo at a time** (over a selection).
+
+**Context.** The owner edits in Photoshop 2026 and Topaz Photo, both already in their Open in list (`[open.apps]`). Tag with AI (ADR-036, ADR-038) already sends a 1024 px thumbnail to Claude, ChatGPT or Gemini with keys in the OS credential store, on the render service's queue.
+
+**How it works.**
+1. **Right-click a photo → Edit suggestions…** (or **Edit suggestions** in the viewer) opens a window for that photo.
+2. **Measured here** (`ai::suggest::measure`), from the 1024 px thumbnail: the middle, darkest 5% and brightest 5% tones; the share blown out (every channel 250 or more) and pure black (4 or less); a colour cast from the near-grey pixels (saturation under 0.2, mid tones; only judged when at least 3% of the photo is near-grey); grain (Immerkær's noise estimate, the 20th percentile of 16 px blocks, so detail does not count); sharpness (the strongest 1% of Laplacian edges); a tilted horizon (the commonest angle of strong edges within 15° of level, believed only when 40% of their weight is within a degree of it, and reported between 0.7° and 10°). Plain arithmetic; well under a second.
+3. **Rules** (`ai::suggest::rules`) turn the measurements into suggestions, each with what was found and how to do it in **Photoshop** (Camera Raw panel and slider, with a value to start from; Smart Sharpen; the Crop tool's Straighten) and in **Topaz Photo** (Adjust Lighting, Balance Color, Denoise, Sharpen, Super Focus), or nothing for a program that has no tool for it (Topaz cannot bring back blown highlights). The rules cannot see what the photo is of, so each says what it measured ("unless it is meant to be dark"), and a black-and-white photo is not told to add colour.
+4. **Ask an AI** (when the user presses Ask Claude / ChatGPT / Gemini): the thumbnail, re-encoded as JPEG, and the measurements in words go to the provider picked, with the same keys and models as Tag with AI. The answer is held to a JSON schema: a summary and up to 6 suggestions, each with a title, why, Photoshop steps and Topaz Photo steps (kept: at most 8, text cut at 700 characters). It is told never to name or guess who a person is. One job (`ai.suggest.claude`, `ai.suggest.openai`, `ai.suggest.gemini`) on the cloud worker that already sends Tag with AI's photos; asking one AI drops a question still waiting for another. The window says what it sends and roughly what it costs before the button is pressed (the same cost per photo as tagging: about 2¢ with Claude Opus 5.5).
+5. **Open in Photoshop / Open in Topaz Photo** open the original with the program set up for that file type in Settings → Open in (`open_external`). Keepsake never changes the original; edits saved there are the program's.
+
+**Decisions.**
+- **Kept in the catalog, not the sidecar.** Schema v15 adds `edit_suggestions` (asset, the measurements as JSON, when, the AI's answer as JSON). Opening the window again shows them at once and costs nothing. **Measure again** measures anew and drops the AI's answer to the old measurements; **Ask … again** replaces the answer. They are advice, not metadata, so nothing is written next to the original and a rebuilt catalog does not have them.
+- **The three providers share one request path.** `cloud::Task` (what the AI is told, the question, the schema) is what each provider module now takes; `cloud::send` asks the key and model and reads the answer. Tagging is a `Task` too (`tag_task`), so its requests are unchanged (its tests pass as they were). Gemini's schema has `additionalProperties` taken out at every depth.
+- **Measuring runs in the command**, not on the queue: it is a fraction of a second on a cached thumbnail and the user is waiting for it. With no thumbnail yet, one is queued first and the window looks again every 1.5 s. The AI question, which takes seconds and the network, is a job.
+- **One photo.** A selection would cost money per photo and needs a way to step through the answers; not built.
+- **Noise and focus are rough.** The thumbnail is a small JPEG, which averages grain away and hides missed focus, so the thresholds are low and the window says so. The AI is told the same.
+
+**Dependencies.** None new (no crate, model or tool).
+
+**Not done.**
+- A selection or a folder at once.
+- Measuring the full-size picture (better noise and focus), or reading ISO from the file's metadata.
+- Turning a suggestion into a Camera Raw preset or an XMP develop setting the program would apply by itself.
+- Saving the suggestions to the sidecar (offered, not chosen).
+- Subject-aware rules on this computer (faces are found by ADR-040, but not used here yet).
+- macOS: built and tested in CI only.

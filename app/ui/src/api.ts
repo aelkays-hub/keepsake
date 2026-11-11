@@ -16,6 +16,11 @@ import type { FacesStatus } from "./bindings/FacesStatus";
 import type { PersonDto } from "./bindings/PersonDto";
 import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
 import type { SuggestDto } from "./bindings/SuggestDto";
+import type { AiAdviceDto } from "./bindings/AiAdviceDto";
+import type { AskingDto } from "./bindings/AskingDto";
+import type { EditAdviceDto } from "./bindings/EditAdviceDto";
+import type { EditSuggestionDto } from "./bindings/EditSuggestionDto";
+import type { MeasuredDto } from "./bindings/MeasuredDto";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { AssetMembers } from "./bindings/AssetMembers";
 import type { BackupOverview } from "./bindings/BackupOverview";
@@ -84,6 +89,11 @@ export type {
   PersonDto,
   PhotoFacesDto,
   SuggestDto,
+  AiAdviceDto,
+  AskingDto,
+  EditAdviceDto,
+  EditSuggestionDto,
+  MeasuredDto,
   AssetMembers,
   BackupOverview,
   Bucket,
@@ -281,6 +291,14 @@ export const api = {
   /** Forget every face, person and decision; returns how many faces. */
   facesDeleteAll: () => invoke<number>("faces_delete_all"),
   facesRemoveModels: () => invoke<boolean>("faces_remove_models"),
+  /** Edit suggestions (ADR-042): kept, or measured now (`again`: measured
+   * again). `waiting`: the preview is being made first (ask again). */
+  editSuggestions: (id: string, again = false) =>
+    invoke<EditAdviceDto>("edit_suggestions", { id, again }),
+  /** Ask an AI for this photo's edit suggestions (in the background). */
+  editSuggestionsAsk: (id: string, providerId: string) =>
+    invoke<EditAdviceDto>("edit_suggestions_ask", { id, providerId }),
+  editSuggestionsStop: (id: string) => invoke<void>("edit_suggestions_stop", { id }),
   /** Name and find (ADR-040). A photo not searched yet is searched now:
    * `searched` is false until it has been (ask again). */
   facesOfPhoto: (id: string, search = true) =>

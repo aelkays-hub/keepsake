@@ -35,6 +35,7 @@
 | — | Open in: several applications per file type, and an Open in… menu (inspector, viewer) | ✅ Done (Windows; macOS via CI) |
 | — | Calendar tree in the sidebar: years, months, days with counts | ✅ Done (Windows; macOS via CI) |
 | — | Read aircraft: the registration, airline and type of the aircraft in the photos you pick, read on this computer (ADR-041) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Edit suggestions: right-click a photo for steps to improve it in Photoshop and Topaz Photo, measured here and, if asked, from an AI (ADR-042) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -59,6 +60,18 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Edit suggestions for Photoshop and Topaz Photo (2026-11-11)
+
+- **Asked:** "a new right click option that will analyze the image and give edit suggestions using Photoshop or Topaz".
+- **Decided** (ADR-042, each choice asked): measured on this computer first, an AI asked only when the user presses Ask; kept in the catalog; one photo at a time.
+- **Built:**
+  - Core: `ai::suggest` (`measure`, `rules`, `ask`), schema v15 (`edit_suggestions`), `ai.suggest.<provider>` jobs on the cloud worker (`RenderService::with_adviser`). The provider modules take a shared `cloud::Task`, so tagging and suggestions use one request path.
+  - App: `edit_suggestions`, `edit_suggestions_ask`, `edit_suggestions_stop` (`src-tauri/src/suggest.rs`); DTOs in `api.rs`; bindings regenerated.
+  - UI: **Edit suggestions…** in the photo menu, **Edit suggestions** in the viewer, `EditAdviceWindow` (suggestions, what was measured, Ask an AI with its cost, Open in Photoshop / Topaz Photo, Measure again); the mock backend (`?apps=ps`, `?suggestWait=1`).
+- **Tests, run here (Windows):** keepsake-core unit tests for `ai::suggest`, `ai::cloud` (unchanged ones pass) and migrations; `suggest_tests` (3: measuring, asking through the render service with a stand-in AI, a refusal and Stop); Vitest `editAdvice.test.ts`; mocked Playwright `edit-advice.spec.ts`.
+- **Not run:** in the real app window with a real AI key; CI. On branch `feat/edit-suggestions` (from `feat/aircraft-folder`), not pushed.
+- **Installing:** a library opened by this build is at schema v15; older builds refuse it.
 
 ## Read aircraft for a folder or dates (2026-11-11)
 

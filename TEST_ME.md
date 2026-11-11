@@ -1,8 +1,36 @@
-# Manual Test Steps — Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Edit suggestions (ADR-042)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::suggest
+cargo test -p keepsake-core --test suggest_tests
+cd app/ui; pnpm exec vitest run src/unit/editAdvice.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/edit-advice.spec.ts
+```
+
+Before you start: Settings → Open in has Photoshop and Topaz Photo for your photo types (for example `arw, jpg`). For step 5, Settings → Tag with AI has a key for at least one AI. Use a test library or note that the suggestions are stored in the catalog (nothing is written next to the photos).
+
+Manual (both OSes):
+1. Right-click a photo in the grid. **Expected:** the menu has **Edit suggestions…** below Name and find. On a video it is greyed out.
+2. Choose it. **Expected:** a window "Edit suggestions: <name>", briefly "Measuring the photo…", then a sentence ("Keepsake measured the photo and found N things to look at." or "Nothing stands out…") and a numbered list. Each item has a title, why, a **Photoshop:** line naming a Camera Raw slider or tool with a value, and, where Topaz Photo has a tool for it, a **Topaz Photo:** line.
+3. Try a dark photo, a photo with a white sky, a high-ISO night photo and a photo with a tilted horizon. **Expected:** respectively "Brighten the photo" (Exposure +…), "Recover the highlights", "Reduce the noise" (Denoise), "Straighten it" (about N° clockwise or counter-clockwise, the right way round). A well-exposed photo gets few or none. Open **What Keepsake measured**: eight lines (Brightness … Level) that match what you see.
+4. **Open in Photoshop**. **Expected:** the original opens in Photoshop; the window says "Opened with Photoshop". The same for **Open in Topaz Photo**. With a program not set up for that file type, its button is greyed out and its tooltip says to add it in Settings → Open in.
+5. Under the list: the line says it sends a 1024-pixel preview and the measurements to the AI, by its company, and roughly what it costs, and that the original is not sent. With keys for more than one AI, pick one. Press **Ask Claude** (or ChatGPT / Gemini). **Expected:** "Asking Claude…", then within a minute "From Claude (<model>)" with a summary and suggestions that mention what is in the photo (for example something to remove, or a crop). No person is named.
+6. Close the window and open it again on the same photo. **Expected:** everything, the AI's answer too, is shown at once (no "Asking…", nothing sent again). **Measure again** measures anew and the AI's answer is gone; **Ask … again** asks again.
+7. Press Ask and then **Stop** at once. **Expected:** "Asking…" goes away and nothing is charged (if it was already sent, its answer may still appear next time).
+8. With no AI key at all. **Expected:** a line saying to add a key in Settings → Tag with AI; no Ask button.
+9. A wrong key (edit it in Settings to something invalid but of the right shape). **Expected:** "<AI> could not answer: <AI> did not accept the API key: check it in Settings."
+10. A photo with no thumbnail yet (just added). **Expected:** "Making the preview first…", then the suggestions.
+11. Open a photo in the viewer. **Expected:** an **Edit suggestions** button in the bar; it opens the same window. Esc closes it.
+12. Originals: compare a photo's file size and modified time before and after steps 2–7: unchanged. No new file next to it.
 
 ---
 

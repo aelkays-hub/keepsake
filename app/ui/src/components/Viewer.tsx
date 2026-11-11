@@ -802,6 +802,20 @@ export function Viewer() {
         )}
         {row && row.kind !== "video" && (
           <button
+            onClick={() =>
+              dispatch({
+                t: "editAdvice",
+                photo: { photo: row.id, title: row.name ?? "this photo" },
+              })
+            }
+            title="Measure this photo and suggest edits for Photoshop and Topaz Photo"
+            data-testid="viewer-edit-advice"
+          >
+            Edit suggestions
+          </button>
+        )}
+        {row && row.kind !== "video" && (
+          <button
             onClick={() => setShowFaces((v) => !v)}
             aria-pressed={showFaces}
             title="Show the faces and who they are (P)"

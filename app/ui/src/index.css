@@ -1709,3 +1709,47 @@ button.danger {
 .dup-badge {
   color: var(--ok);
 }
+
+/* Edit suggestions (ADR-042) */
+.edit-advice .advice-list {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.edit-advice .advice-list li {
+  margin-bottom: 10px;
+}
+.edit-advice .advice-list p {
+  margin: 2px 0;
+}
+.edit-advice .advice-app {
+  font-weight: 600;
+}
+.edit-advice .advice-measured dl {
+  margin: 6px 0;
+}
+.edit-advice .advice-measured .row {
+  display: flex;
+  gap: 12px;
+}
+.edit-advice .advice-measured dt {
+  width: 7em;
+  color: var(--muted);
+}
+.edit-advice .advice-measured dd {
+  margin: 0;
+}
+.edit-advice .advice-ai {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.edit-advice .advice-ai h3 {
+  margin: 4px 0;
+  font-size: 1em;
+}
+.edit-advice .advice-ai .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}

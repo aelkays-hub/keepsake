@@ -3,7 +3,7 @@
 // dragging a rectangle) and keyboard, offline badges, ratings, labels and
 // video durations. Right-click, the Menu key or Shift+F10 opens an item's
 // menu: Open, Show in Explorer / Finder, Open in…, Tag with AI and Read
-// aircraft (for the selection) and Name and find.
+// aircraft (for the selection), Name and find and Edit suggestions.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -210,6 +210,21 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
               const r = rows.get(i);
               if (r)
                 dispatch({ t: "nameFind", photo: { photo: r.id, title: r.name ?? "this photo" } });
+            },
+          },
+          {
+            label: "Edit suggestions…",
+            title:
+              "Measure this photo and suggest edits for Photoshop and Topaz Photo (an AI can be asked too)",
+            testId: "tile-menu-edit-advice",
+            disabled: rows.get(i)?.kind === "video",
+            run: () => {
+              const r = rows.get(i);
+              if (r)
+                dispatch({
+                  t: "editAdvice",
+                  photo: { photo: r.id, title: r.name ?? "this photo" },
+                });
             },
           },
         ],

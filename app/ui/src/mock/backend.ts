@@ -8,6 +8,7 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
+import type { AiAdviceDto } from "../bindings/AiAdviceDto";
 import type { Bucket } from "../bindings/Bucket";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
@@ -115,6 +116,18 @@ export interface MockState {
     def: string;
     asked: Map<string, number>;
   };
+  /** Edit suggestions (ADR-042), by item: when measured, the AI's answer,
+   * and a question on its way (status polls left; `bad`: it fails).
+   * `?suggestWait=1`: the first look waits for the preview. */
+  suggest: Map<
+    number,
+    {
+      madeMs: number;
+      ai: AiAdviceDto | null;
+      asking: { provider: string; left: number; failed: string | null } | null;
+    }
+  >;
+  suggestWait: number;
 }
 
 const AI_LABELS = ["People", "Beach", "Dog", "Food", "Sunset", "Mountain"];
@@ -354,6 +367,8 @@ export function installMock(): void {
       def: params.get("ai-default") ?? "claude",
       asked: new Map(),
     },
+    suggest: new Map(),
+    suggestWait: params.get("suggestWait") === "1" ? 1 : 0,
     history: [],
     folders: [],
     settings: {
@@ -366,7 +381,13 @@ export function installMock(): void {
       workersDefault: 4,
       proxyWorkers: 1,
       pauseOnBattery: true,
-      openApps: [],
+      openApps:
+        params.get("apps") === "ps"
+          ? ["jpg", "arw"].flatMap((ext) => [
+              { ext, app: "C:\\Program Files\\Adobe\\Adobe Photoshop 2026\\Photoshop.exe" },
+              { ext, app: "C:\\Program Files\\Topaz Labs LLC\\Topaz Photo\\Topaz Photo.exe" },
+            ])
+          : [],
       import: {
         // `?autoImport=1`: on, to E:\Pictures; `=Z`: on, to a drive not connected.
         auto: params.has("autoImport"),
@@ -1638,6 +1659,135 @@ export function installMock(): void {
           // ?queueing=<ms>: queueing the work takes that long (a busy drive).
           const ms = cmd === "ai_analyze_range" ? Number(params.get("queueing") ?? 0) : 0;
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
+        }
+        case "edit_suggestions":
+        case "edit_suggestions_ask":
+        case "edit_suggestions_stop": {
+          const i = Number(String(a.id).slice(1));
+          const it = all[i];
+          if (!it) throw `no item ${String(a.id)}`;
+          if (it.kind === "video") throw "Edit suggestions are for photos.";
+          if (cmd === "edit_suggestions_stop") {
+            const cur = st.suggest.get(i);
+            if (cur?.asking && cur.asking.left > 0) cur.asking = null;
+            return null;
+          }
+          if (cmd === "edit_suggestions_ask") {
+            const p = CLOUD.find((x) => x.id === a.providerId);
+            if (!p) throw `unknown AI ${String(a.providerId)}`;
+            if (!st.cloud.keys[p.id])
+              throw `Add your ${p.name} API key in Settings first (Settings → Tag with AI).`;
+            const cur = st.suggest.get(i) ?? { madeMs: Date.now(), ai: null, asking: null };
+            cur.asking = { provider: p.id, left: 2, failed: null };
+            st.suggest.set(i, cur);
+          } else if (st.suggestWait > 0) {
+            st.suggestWait--;
+            return {
+              id: String(a.id),
+              waiting: true,
+              measured: [],
+              summary: "",
+              suggestions: [],
+              madeMs: 0,
+              ai: null,
+              asking: null,
+            };
+          }
+          let cur = st.suggest.get(i);
+          if (!cur || a.again) {
+            cur = { madeMs: Date.now(), ai: null, asking: cur?.asking ?? null };
+            st.suggest.set(i, cur);
+          }
+          // The question moves on one step each look.
+          const q = cur.asking;
+          if (q && cmd === "edit_suggestions" && q.left > 0) {
+            q.left--;
+            const p = CLOUD.find((x) => x.id === q.provider)!;
+            if (q.left === 0) {
+              if (st.cloud.keys[p.id]?.endsWith("bad")) {
+                q.failed = `${p.name} did not accept the API key: check it in Settings`;
+              } else {
+                cur.ai = {
+                  provider: p.id,
+                  providerName: p.name,
+                  model: st.cloud.models[p.id],
+                  summary:
+                    "A lovely evening scene; the sky is a little blown and the foreground dark.",
+                  suggestions: [
+                    {
+                      title: "Recover the sky",
+                      why: "The clouds at the top are nearly white.",
+                      photoshop: "Camera Raw > Masking > Select Sky, then Highlights -50",
+                      topaz: "",
+                    },
+                    {
+                      title: "Remove the bin on the right",
+                      why: "It pulls the eye away from the people.",
+                      photoshop: "Remove tool (J): paint over the bin",
+                      topaz: "Remove: brush over the bin",
+                    },
+                  ],
+                  madeMs: Date.now(),
+                };
+                cur.asking = null;
+              }
+            }
+          }
+          // Every mock photo measures dark and grainy.
+          const dark = it.kind !== "video";
+          const shown = cur.asking;
+          const shownP = shown && CLOUD.find((x) => x.id === shown.provider)!;
+          return {
+            id: String(a.id),
+            waiting: false,
+            measured: [
+              {
+                label: "Brightness",
+                value: dark ? "Dark (middle tone 18%)" : "Fine (middle tone 44%)",
+              },
+              { label: "Highlights", value: "0% blown out" },
+              { label: "Shadows", value: "0.4% pure black" },
+              { label: "Contrast", value: "Fine" },
+              { label: "Colour", value: "Greys look neutral" },
+              { label: "Noise", value: dark ? "Shows" : "Low" },
+              { label: "Sharpness", value: "Fine" },
+              { label: "Level", value: "No tilt found" },
+            ],
+            summary: dark
+              ? "Keepsake measured the photo and found 2 things to look at."
+              : "Nothing stands out: exposure, contrast, colour, noise and sharpness all measure fine.",
+            suggestions: dark
+              ? [
+                  {
+                    title: "Brighten the photo",
+                    why: "Half of it is darker than 18% grey and nothing is blown out, so there is room to lift it (unless it is meant to be dark).",
+                    photoshop:
+                      "Camera Raw > Light: Exposure +1.8, then Shadows +20 if the dark parts are still heavy.",
+                    topaz:
+                      "Adjust Lighting: start at Strength 30 and raise it until the subject looks right.",
+                  },
+                  {
+                    title: "Reduce the noise",
+                    why: "The smooth areas are grainy even in the small preview; at full size it will show more.",
+                    photoshop:
+                      "Camera Raw > Detail: Denoise (for a raw file) at 40, or Manual Noise Reduction: Luminance 25, Color 25.",
+                    topaz:
+                      "Denoise: the Standard model on Auto; lower Strength if fine detail turns waxy.",
+                  },
+                ]
+              : [],
+            madeMs: cur.madeMs,
+            ai: cur.ai,
+            asking:
+              shown && shownP
+                ? {
+                    provider: shownP.id,
+                    providerName: shownP.name,
+                    pending: shown.failed === null,
+                    problem: shown.failed,
+                  }
+                : null,
+          };
         }
         case "ai_cloud_info":
         case "ai_cloud_set_key":

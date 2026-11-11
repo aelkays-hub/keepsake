@@ -158,6 +158,15 @@ On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the rend
 - `install`: the two pinned models (`ai::install::ModelFile`, shared with the face models), `KEEPSAKE_TEXT_DETECTOR` / `KEEPSAKE_TEXT_RECOGNIZER`.
 - The app's `aircraft_*` commands are thin wrappers; the UI is `AircraftSettings`, the item menu's Read aircraft, the viewer's button, and `AiJobWindow` (the `aircraft` job).
 
+### Edit suggestions (ADR-042)
+`keepsake_core::ai::suggest`, for one photo at a time.
+- `measure::measure(image)` works on the 1024 px thumbnail (`analyze::thumbnail`): a luma histogram (tones, percentiles), blown and black shares, average saturation, a cast from near-grey pixels, grain (Immerkær's mask in 16 px blocks, 20th percentile), sharpness (99th percentile of the 4-neighbour Laplacian) and tilt (Sobel gradients of a half-size copy, a histogram of angles within 15° of level). It returns `Measures` (serialisable).
+- `rules::suggest` / `describe` / `summary` turn `Measures` into `Suggestion`s (title, why, Photoshop, Topaz Photo) and lines of what was measured.
+- `ask`: the AI's `Task` (system text, the question with the measurements, the schema), `tidy`, and `CloudAdviser` (an `Adviser` over `cloud::send`). `cloud::Task` and `cloud::send` are shared with tagging; each provider module has `body(…, task)` and `answer(status, body, task)`.
+- Storage: `edit_suggestions` (schema v15), through `Ai::{edit_advice, put_edit_measures, put_edit_ai}`. `suggest::{stored, advice, measure_asset}` read and measure; `ask_asset` is one job; `enqueue_ask`, `stop_asking` and `asking` queue, stop and follow the `ai.suggest.<provider>` jobs.
+- The render service's cloud worker (`JOB_AI_CLAUDE`, started when it has a tagger or an adviser) claims `CLOUD_JOBS` and `SUGGEST_JOBS`; `with_adviser` gives it the `Adviser` (tests use a stand-in).
+- The app's `edit_suggestions*` commands (`src-tauri/src/suggest.rs`) are thin; the UI is `EditAdviceWindow`, opened from the grid's item menu and the viewer (`editAdvice` in the UI state). Open in uses `open_choices` and `open_external`.
+
 ### Faces (ADR-040)
 `keepsake_core::ai::faces`, on this computer only. Steps 1 (models and pipeline), 2 (searching and storing), 3 (Name and find), 4 (sidecars and search) and 5 (Inspector and viewer) are built; the People screen comes next.
 - `FaceModels::find(picture)`: the picture is fitted into YuNet's fixed 640 × 640 input (blue, green, red, 0–255, black padding right and bottom). Its three grids (8, 16, 32 px cells) are decoded as OpenCV does (score √(cls·obj), box from centre offsets and log size, 5 landmarks), faces scoring under 0.8 dropped and overlapping ones merged (IoU 0.3). Boxes come back in the picture's pixels.

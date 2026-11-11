@@ -58,6 +58,8 @@ export interface UiState {
     /** Open on Check <name>'s faces instead. */
     check?: { id: number; name: string };
   } | null;
+  /** Edit suggestions (ADR-042): the photo they are for. */
+  editAdvice: { photo: string; title: string } | null;
 }
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or
@@ -116,7 +118,8 @@ export type Msg =
         face?: number;
         check?: { id: number; name: string };
       } | null;
-    };
+    }
+  | { t: "editAdvice"; photo: { photo: string; title: string } | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -134,6 +137,7 @@ export const initial: UiState = {
   dupRange: null,
   aiJob: null,
   nameFind: null,
+  editAdvice: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -191,6 +195,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, aiJob: m.job };
     case "nameFind":
       return { ...s, nameFind: m.photo };
+    case "editAdvice":
+      return { ...s, editAdvice: m.photo };
   }
 }
 
