@@ -78,6 +78,11 @@ jobs:
         working-directory: app/ui
         run: pnpm tauri build --bundles msi,nsis
 
+      # The command-line tool is its own crate: `tauri build` builds only the
+      # app. The smoke test runs it (keepsake --version, corpus scan).
+      - name: Build CLI — x64
+        run: cargo build --release --locked -p keepsake-cli
+
       - name: Sign installers (skip if no certificate)
         if: env.WINDOWS_CERTIFICATE != ''
         env:
