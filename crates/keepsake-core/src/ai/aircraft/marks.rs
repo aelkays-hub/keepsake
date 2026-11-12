@@ -16,8 +16,11 @@ use super::ocr::TextLine;
 
 /// A line is trusted for a registration from this confidence.
 pub const REGISTRATION_MIN: f32 = 0.8;
-/// And for an airline or a type.
+/// And for an airline.
 pub const NAME_MIN: f32 = 0.85;
+/// And for a painted type: its shape is checked closely (`BOEING`, a model
+/// `7x7`, a known variant), so a less clear line will do.
+pub const TYPE_MIN: f32 = 0.7;
 /// At most this many of each are kept for one picture.
 pub const MAX_EACH: usize = 3;
 /// Only this many lines (the biggest) are tried in pairs for split titles.
@@ -555,11 +558,13 @@ pub fn interpret(lines: &[TextLine], airlines: &Airlines) -> Marks {
             add(&mut m.registrations, r);
         }
     }
-    let sure: Vec<&TextLine> = lines.iter().filter(|l| l.score >= NAME_MIN).collect();
-    for l in &sure {
+    for l in by_score.iter().filter(|l| l.score >= TYPE_MIN) {
         if let Some(t) = painted_type(&l.text) {
             add(&mut m.types, t);
         }
+    }
+    let sure: Vec<&TextLine> = lines.iter().filter(|l| l.score >= NAME_MIN).collect();
+    for l in &sure {
         if let Some(a) = airlines.find(&l.text) {
             add(&mut m.airlines, a.to_owned());
         }
@@ -747,5 +752,39 @@ mod tests {
             line("AIR CANADA rouge", 0.9, 0.0, 50.0),
         ];
         assert_eq!(interpret(&rouge, &a).airlines, ["Air Canada Rouge"]);
+    }
+
+    #[test]
+    fn a_jet_airways_777_is_read_from_what_the_owner_s_photo_gave() {
+        // DSC05972 (24 December 2017), as read: the airline with its J cut
+        // off, the type in mixed case and a little unsure.
+        let a = Airlines::builtin();
+        let lines = [
+            line("ETAIRWAYS", 1.0, 100.0, 66.0),
+            line("000000000000000", 0.83, 400.0, 48.0),
+            line("VT-JEX", 1.0, 700.0, 44.0),
+            line("BoeinG 777-300eR", 0.81, 300.0, 30.0),
+        ];
+        let m = interpret(&lines, &a);
+        assert_eq!(m.registrations, ["VT-JEX"]);
+        assert_eq!(m.airlines, ["Jet Airways"]);
+        assert_eq!(m.types, ["Boeing 777-300ER"]);
+        // A type is trusted from a little less certainty than a name, but
+        // not from a guess.
+        assert_eq!(
+            interpret(&[line("BOEING 787-9", 0.72, 0.0, 30.0)], &a).types,
+            ["Boeing 787-9"]
+        );
+        assert!(interpret(&[line("BOEING 787-9", 0.6, 0.0, 30.0)], &a).is_empty());
+        assert!(interpret(&[line("BOEING", 0.99, 0.0, 30.0)], &a).is_empty());
+        // Airlines that no longer fly are known, for older photos.
+        for (painted, name) in [
+            ("JET AIRWAYS", "Jet Airways"),
+            ("airberlin", "Air Berlin"),
+            ("US AIRWAYS", "US Airways"),
+            ("kingfisher", "Kingfisher Airlines"),
+        ] {
+            assert_eq!(a.find(painted), Some(name), "{painted}");
+        }
     }
 }

@@ -1,8 +1,25 @@
-# Manual Test Steps — The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft reads more of what is painted
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft
+cargo test -p keepsake-core --test aircraft_tests
+```
+
+Manual (both OSes), with Read aircraft on:
+1. Find a photo taken from below with the registration painted under the wing (for example DSC05834 of 24 December 2017). Right-click it → **Read aircraft**. **Expected:** its keywords include `Aircraft|Registration|VT-JEX` (or that aircraft's registration).
+2. A photo with the type painted by the door, in any mix of capitals (DSC05972: `Boeing 777-300ER`). **Expected:** `Aircraft|Type|Boeing 777-300ER`, and `Aircraft|Airline|Jet Airways`.
+3. A photo of an airline that no longer flies (Air Berlin, US Airways, Jet Airways…). **Expected:** the airline is given.
+4. A few photos that gave nothing before and have no readable text. **Expected:** still nothing (no made-up marks).
+5. Photos already read are not read again by a folder or dates: select them and choose Read aircraft to read them with this version.
 
 ---
 

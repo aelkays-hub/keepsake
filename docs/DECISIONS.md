@@ -1595,6 +1595,14 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 - Built on what was there: `scan::{target_items, enqueue_target, target_status, stop_target}` over `ai::Target`; the app's folder and date commands take `what` = `aircraft` beside `duplicates` and `tags`. No new command, dependency or schema change.
 - Not done: the calendar's No date; a count of aircraft photos before starting; failed photos are not listed in the window (they are neither read nor waiting).
 
+**Reading more of what is painted** (2026-11-12, product owner: "there are pictures that are very clear with registration type and aircraft type that are not being recognized", with DSC05834 and DSC05972 of 24 December 2017, a Jet Airways Boeing 777-300ER, VT-JEX).
+- **Text upside down.** A registration painted under the wing runs along it; in a photo from below it is upright and reads bottom to top. A straightened line is always cut out top to bottom, so it reached the recogniser upside down and came back as `a000000`. A line read with less than 0.95 confidence (`ocr::TURN_BELOW`) is now read again turned half a turn (`ocr::turned`), and the more confident reading is kept. PP-OCR's own answer is a third model that tells which way up a line is; reading twice needs no new download.
+- **A painted type from 0.7 confidence** (`marks::TYPE_MIN`), not 0.85 as for an airline: `BoeinG 777-300eR` was read at 0.81 and dropped. A type has to have a close shape (`BOEING`, a model `7x7`, a known variant), so a less clear line cannot make one up.
+- **Airlines that no longer fly**, for older photos: Jet Airways, Kingfisher, Air Berlin, Germanwings, Monarch, Thomas Cook, Virgin America, US Airways, Continental, Northwest.
+- **Checked** on the two photos (now VT-JEX on both; Jet Airways and Boeing 777-300ER on the second) and on 30 of the owner's Airplane-tagged photos against what 0.5.0 stored: 18 marks kept, none lost, Air Berlin gained, nothing new from the 15 that had none. Same speed.
+- Photos already read are not read again by themselves (a folder or dates reads each once): to read them with this version, pick them and choose Read aircraft.
+- Not done (seen in the sample): an airline's web address on the fuselage (`www.egyptair.com`, `flysunwing.com`), older painted names (`SAUDI ARABIAN`), badly misread names (`AIRGANAE`).
+
 ## ADR-042 — Edit suggestions for Photoshop and Topaz Photo
 
 **Status**: Accepted (2026-11-11, product owner: "I want a new right click option that will analyze the image and give edit suggestions using Photoshop or Topaz"). Chosen in answers: **both** (measured on this computer first, then an AI when asked; over cloud only or this computer only), **kept in Keepsake** (over only shown, or also a note in the sidecar), **one photo at a time** (over a selection).
