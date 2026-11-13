@@ -65,13 +65,13 @@
 
 ---
 
-## The filters at the top showed nothing (2026-11-13, in progress)
+## The filters at the top showed nothing (2026-11-13, fixed)
 
 - **Reported:** with the test build, every filter at the top left the grid empty and the count unchanged.
 - **Ruled out** (on a copy of the owner's live catalog, made read-only): the search index (all 129,127 items), the view query (every filter answers in under 0.1 s), the on-screen update (0.5 s for 200 photos), the review window's refresh (27 ms for 458 reads); the library filter tests pass.
 - **Seen in the log:** one on-screen update held the catalog's write lock for 54 s, and photos that cannot be rendered were put back in the queue every time they were on screen, all day.
 - **Changed:** a slow write logs how long it waited for the lock, worked and committed; a slow filter (`view_open`, `view_rows`) logs where its time went; the on-screen update runs on its own thread (the latest set only), never on a command thread where a filter would wait behind it; a photo whose rendering failed for good is not queued again for being on screen (`render_tests`, +1).
-- **Next:** the owner tries the filters again with this build; the log then names what holds the lock.
+- **Confirmed** by the owner with a test build: "Filters work now".
 
 ## Read aircraft looks registrations up, and tags the same plane's other photos (2026-11-13)
 
