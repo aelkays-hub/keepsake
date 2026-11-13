@@ -25,16 +25,55 @@ pub fn command_for(path: &Path, app: Option<&str>) -> (String, Vec<String>) {
 /// The path as other programs understand it: Windows' verbatim prefix
 /// removed (`\\?\E:\a` → `E:\a`, and a network share `\\?\UNC\srv\x` →
 /// `\\srv\x`; dropping only `\\?\` there would leave `UNC\srv\x`, which no
-/// program can open).
-fn plain(path: &Path) -> String {
+/// program can open). A share mapped to a drive letter is given by its
+/// letter (`Z:\x`): some programs (Topaz Photo) open files by letter only.
+pub fn plain(path: &Path) -> String {
+    plain_with(path, &mapped_drives())
+}
+
+/// [`plain`] with these mapped drives: `(letter path "Z:", its share
+/// "\\srv\x")`.
+pub fn plain_with(path: &Path, mapped: &[(String, String)]) -> String {
     let s = path.to_string_lossy();
-    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+    let unc = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{rest}")
     } else if let Some(rest) = s.strip_prefix(r"\\?\") {
-        rest.to_owned()
+        return rest.to_owned();
     } else {
         s.into_owned()
+    };
+    for (letter, share) in mapped {
+        let n = share.len();
+        if unc.len() >= n
+            && unc.is_char_boundary(n)
+            && unc[..n].eq_ignore_ascii_case(share)
+            && (unc.len() == n || unc[n..].starts_with('\\'))
+        {
+            return format!("{letter}{}", &unc[n..]);
+        }
     }
+    unc
+}
+
+/// The network shares mapped to a drive letter on this computer, as
+/// `("Z:", "\\srv\share")`: a mapped letter's real path is its share.
+pub fn mapped_drives() -> Vec<(String, String)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for c in b'D'..=b'Z' {
+        let letter = format!("{}:", c as char);
+        let Ok(real) = std::fs::canonicalize(format!("{letter}\\")) else {
+            continue;
+        };
+        let real = real.to_string_lossy().into_owned();
+        if let Some(rest) = real.strip_prefix(r"\\?\UNC\") {
+            let share = format!(r"\\{}", rest.trim_end_matches('\\'));
+            out.push((letter, share));
+        }
+    }
+    out
 }
 
 /// Launch it, detached (the app keeps running after Keepsake). The file is
@@ -99,6 +138,29 @@ fn outlive_app(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_share_is_given_by_its_drive_letter_when_mapped() {
+        let mapped = [("Z:".to_owned(), r"\\MYCLOUD-92LNT0\aelkays".to_owned())];
+        let p = Path::new(r"\\?\UNC\MYCLOUD-92LNT0\aelkays\Photos-OldAcer\2018\DSC08634.ARW");
+        assert_eq!(
+            plain_with(p, &mapped),
+            r"Z:\Photos-OldAcer\2018\DSC08634.ARW"
+        );
+        // Case does not matter; another share stays a share.
+        let q = Path::new(r"\\?\UNC\mycloud-92lnt0\AELKAYS\a.jpg");
+        assert_eq!(plain_with(q, &mapped), r"Z:\a.jpg");
+        let other = Path::new(r"\\?\UNC\NAS\photos\a.jpg");
+        assert_eq!(plain_with(other, &mapped), r"\\NAS\photos\a.jpg");
+        // Only a whole share name: aelkays2 is not aelkays.
+        let near = Path::new(r"\\?\UNC\MYCLOUD-92LNT0\aelkays2\a.jpg");
+        assert_eq!(
+            plain_with(near, &mapped),
+            r"\\MYCLOUD-92LNT0\aelkays2\a.jpg"
+        );
+        assert_eq!(plain_with(Path::new(r"\\?\E:\a.jpg"), &mapped), r"E:\a.jpg");
+        assert_eq!(plain_with(Path::new(r"E:\a.jpg"), &mapped), r"E:\a.jpg");
+    }
 
     #[test]
     fn default_and_configured_apps() {

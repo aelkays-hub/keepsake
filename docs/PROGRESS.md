@@ -65,6 +65,13 @@
 
 ---
 
+## Show in Explorer and Open in for the network drive (2026-11-13)
+
+- **Reported:** "the open in topaz does not seem to be working, also open explorer to file location does not seem to be working for the Z: drive".
+- **Found:** Show in Explorer took only `\?\` off a network path, handing Explorer `UNC\MYCLOUD-92LNT0\…`, which is no path. Open in gave the share path `\MYCLOUD-92LNT0\…`, which some programs (Topaz Photo) do not open; Photoshop does.
+- **Fixed:** both use `external::plain`, which gives a mapped share by its drive letter (`Z:\Photos-OldAcer\…`, found from the drive letters' real paths), else `\srv\share\…`. Unit tests (letter, case, a near share name, local paths); on this computer DSC08634 is handed over as `Z:\Photos-OldAcer8-25-2018\DSC08634.ARW`, which exists.
+- **Not run:** in the app on both; Topaz with the drive-letter path.
+
 ## The filters at the top showed nothing (2026-11-13, fixed)
 
 - **Reported:** with the test build, every filter at the top left the grid empty and the count unchanged.
