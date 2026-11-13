@@ -67,12 +67,17 @@ pub enum AircraftAction {
     /// ones.
     Status,
     /// Read the aircraft in the items with a tag (`--tagged Airplane`), or
-    /// in every item, and add what is found to their keywords, as Read
-    /// aircraft does in the app. Originals are only read.
+    /// in every item, and keep what is found for review in the app's Read
+    /// aircraft window (nothing becomes a keyword until accepted).
+    /// Originals are only read.
     Scan {
         /// Only the items with this tag (default: every item).
         #[arg(long)]
         tagged: Option<String>,
+        /// Accept what is found at once, at the confidence set in the app
+        /// (Settings → Read aircraft), instead of leaving it for review.
+        #[arg(long)]
+        accept: bool,
         /// At most this many items.
         #[arg(long)]
         limit: Option<usize>,
@@ -584,6 +589,7 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
             limit,
             cpu,
             ignore_battery,
+            accept,
         } => {
             use keepsake_core::ai::aircraft::scan;
             let lib = ctx.library()?;
@@ -636,7 +642,7 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                     if !ctx.json {
                         eprintln!("{asset}  {ms} ms  {}", made.join(", "));
                     }
-                    rows.push(json!({ "asset": asset, "ms": ms, "added": made }));
+                    rows.push(json!({ "asset": asset, "ms": ms, "found": made }));
                 }
                 _ => {}
             })
@@ -644,18 +650,38 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
             if let Some(p) = problem {
                 anyhow::bail!("the text models could not start: {p}");
             }
-            let cat = lib.open_catalog()?;
+            let mut cat = lib.open_catalog()?;
+            let mut accepted = 0u64;
+            if accept {
+                let conf = settings.ai.aircraft_confidence();
+                for item in scan::review_items(&cat, &ids)? {
+                    if item.review != scan::Review::Waiting {
+                        continue;
+                    }
+                    let paths = scan::offered(&item, &conf)?;
+                    if !paths.is_empty() {
+                        scan::accept(&mut cat, &lib, item.asset, &paths)?;
+                        accepted += 1;
+                    }
+                }
+            }
             let (st, why) = scan::status(&cat, &ids)?;
             ctx.emit(
                 &json!({
                     "items": st.items, "read": st.done, "pending": st.pending,
                     "failed": st.failed, "problem": why, "results": rows,
+                    "accepted": accepted,
                 }),
                 || {
                     println!(
                         "Read {} of {} item(s); {} waiting, {} failed.",
                         st.done, st.items, st.pending, st.failed
                     );
+                    if accept {
+                        println!("Accepted what was found for {accepted} item(s).");
+                    } else {
+                        println!("Review what was found in the app (right-click → Read aircraft).");
+                    }
                     if let Some(w) = &why {
                         println!("{w}");
                     }

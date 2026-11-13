@@ -547,50 +547,154 @@ fn add(list: &mut Vec<String>, v: String) {
     }
 }
 
-/// Read the marks out of a picture's text lines (as [`super::ocr`] gives
-/// them, biggest first).
-pub fn interpret(lines: &[TextLine], airlines: &Airlines) -> Marks {
-    let mut m = Marks::default();
+/// How sure the line a mark was read from must be, for each kind of mark
+/// (0–1). The user sets them in the review window; the defaults are
+/// [`REGISTRATION_MIN`], [`NAME_MIN`] and [`TYPE_MIN`].
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Confidence {
+    pub registration: f32,
+    pub airline: f32,
+    pub aircraft_type: f32,
+}
+
+impl Default for Confidence {
+    fn default() -> Self {
+        Self {
+            registration: REGISTRATION_MIN,
+            airline: NAME_MIN,
+            aircraft_type: TYPE_MIN,
+        }
+    }
+}
+
+impl Confidence {
+    /// Each level kept between 0.5 (what is read at all) and 1.
+    pub fn clamped(self) -> Self {
+        let c = |v: f32| {
+            if v.is_finite() {
+                v.clamp(TEXT_FLOOR, 1.0)
+            } else {
+                TEXT_FLOOR
+            }
+        };
+        Self {
+            registration: c(self.registration),
+            airline: c(self.airline),
+            aircraft_type: c(self.aircraft_type),
+        }
+    }
+}
+
+/// The lowest confidence a level can be set to: lines read less surely
+/// than this are not kept ([`super::ocr::TEXT_MIN`]).
+pub const TEXT_FLOOR: f32 = super::ocr::TEXT_MIN;
+
+/// Every mark the text could give, each with the confidence of the surest
+/// line it was read from (for a title in two parts, the less sure part).
+/// [`Candidates::at`] keeps those sure enough.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct Candidates {
+    /// Most surely read first.
+    pub registrations: Vec<(String, f32)>,
+    /// Biggest titles first.
+    pub airlines: Vec<(String, f32)>,
+    /// Most surely read first.
+    pub types: Vec<(String, f32)>,
+}
+
+fn note(list: &mut Vec<(String, f32)>, v: String, score: f32) {
+    match list.iter_mut().find(|(n, _)| *n == v) {
+        Some(e) => e.1 = e.1.max(score),
+        None => list.push((v, score)),
+    }
+}
+
+/// Every mark in a picture's text lines (as [`super::ocr`] gives them,
+/// biggest first), whatever its confidence.
+pub fn candidates(lines: &[TextLine], airlines: &Airlines) -> Candidates {
+    let mut c = Candidates::default();
     let mut by_score: Vec<&TextLine> = lines.iter().collect();
     by_score.sort_by(|a, b| b.score.total_cmp(&a.score));
-    for l in by_score.iter().filter(|l| l.score >= REGISTRATION_MIN) {
+    for l in &by_score {
         for r in registrations_in(&l.text) {
-            add(&mut m.registrations, r);
+            note(&mut c.registrations, r, l.score);
         }
-    }
-    for l in by_score.iter().filter(|l| l.score >= TYPE_MIN) {
         if let Some(t) = painted_type(&l.text) {
-            add(&mut m.types, t);
+            note(&mut c.types, t, l.score);
         }
     }
-    let sure: Vec<&TextLine> = lines.iter().filter(|l| l.score >= NAME_MIN).collect();
-    for l in &sure {
+    for l in lines {
         if let Some(a) = airlines.find(&l.text) {
-            add(&mut m.airlines, a.to_owned());
+            note(&mut c.airlines, a.to_owned(), l.score);
         }
     }
     // Titles in two parts: lines of about the same size, left then right.
-    let top = &sure[..sure.len().min(PAIR_LINES)];
+    let top = &lines[..lines.len().min(PAIR_LINES)];
     for a in top {
         for b in top {
             let same_size = {
                 let r = a.height() / b.height().max(f32::MIN_POSITIVE);
                 (0.6..=1.6).contains(&r)
             };
-            if !std::ptr::eq(*a, *b) && same_size && a.center()[0] < b.center()[0] {
+            if !std::ptr::eq(a, b) && same_size && a.center()[0] < b.center()[0] {
                 if let Some(name) = airlines.find(&format!("{} {}", a.text, b.text)) {
-                    add(&mut m.airlines, name.to_owned());
+                    note(&mut c.airlines, name.to_owned(), a.score.min(b.score));
                 }
             }
         }
     }
-    // A name that is part of a longer one found too says nothing more.
-    let all = m.airlines.clone();
-    m.airlines.retain(|a| {
-        !all.iter()
-            .any(|o| o != a && o.to_uppercase().contains(&a.to_uppercase()))
-    });
-    m
+    c
+}
+
+impl Candidates {
+    /// The marks read at least as surely as `conf` asks, at most
+    /// [`MAX_EACH`] of each.
+    pub fn at(&self, conf: &Confidence) -> Marks {
+        let keep = |list: &[(String, f32)], min: f32| -> Vec<String> {
+            let mut out = Vec::new();
+            for (name, score) in list {
+                if *score >= min {
+                    add(&mut out, name.clone());
+                }
+            }
+            out
+        };
+        let mut m = Marks {
+            registrations: keep(&self.registrations, conf.registration),
+            airlines: keep(&self.airlines, conf.airline),
+            types: keep(&self.types, conf.aircraft_type),
+        };
+        // A name that is part of a longer one found too says nothing more.
+        let all = m.airlines.clone();
+        m.airlines.retain(|a| {
+            !all.iter()
+                .any(|o| o != a && o.to_uppercase().contains(&a.to_uppercase()))
+        });
+        m
+    }
+
+    /// The confidence a mark was read with (`None`: not a candidate).
+    pub fn score_of(&self, kind: MarkKind, name: &str) -> Option<f32> {
+        let list = match kind {
+            MarkKind::Registration => &self.registrations,
+            MarkKind::Airline => &self.airlines,
+            MarkKind::Type => &self.types,
+        };
+        list.iter().find(|(n, _)| n == name).map(|(_, s)| *s)
+    }
+}
+
+/// The kinds of mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkKind {
+    Registration,
+    Airline,
+    Type,
+}
+
+/// Read the marks out of a picture's text lines at the default confidence.
+pub fn interpret(lines: &[TextLine], airlines: &Airlines) -> Marks {
+    candidates(lines, airlines).at(&Confidence::default())
 }
 
 #[cfg(test)]

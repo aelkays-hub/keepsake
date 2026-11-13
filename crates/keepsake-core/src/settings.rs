@@ -208,6 +208,12 @@ pub struct AiSettings {
     /// How alike a face must be to a person's average face to be suggested
     /// for them, in percent (cosine × 100; ADR-040): stricter is higher.
     pub face_match_pct: u8,
+    /// Read aircraft's review window (ADR-041): how sure, in percent, a
+    /// line must be for a registration, an airline and a painted type to
+    /// be offered. Set with the window's sliders; kept for next time.
+    pub aircraft_registration_pct: u8,
+    pub aircraft_airline_pct: u8,
+    pub aircraft_type_pct: u8,
     /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
     /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
@@ -222,6 +228,26 @@ impl AiSettings {
     /// The provider offered first (Claude if the setting names none known).
     pub fn cloud_provider(&self) -> crate::ai::Provider {
         crate::ai::Provider::parse(&self.cloud_provider).unwrap_or_default()
+    }
+
+    /// Read aircraft's confidence for each kind of mark, kept in range.
+    pub fn aircraft_confidence(&self) -> crate::ai::aircraft::marks::Confidence {
+        let f = |p: u8| f32::from(p) / 100.0;
+        crate::ai::aircraft::marks::Confidence {
+            registration: f(self.aircraft_registration_pct),
+            airline: f(self.aircraft_airline_pct),
+            aircraft_type: f(self.aircraft_type_pct),
+        }
+        .clamped()
+    }
+
+    /// Keep Read aircraft's confidence (rounded to whole percents).
+    pub fn set_aircraft_confidence(&mut self, c: crate::ai::aircraft::marks::Confidence) {
+        let c = c.clamped();
+        let p = |v: f32| (v * 100.0).round().clamp(0.0, 100.0) as u8;
+        self.aircraft_registration_pct = p(c.registration);
+        self.aircraft_airline_pct = p(c.airline);
+        self.aircraft_type_pct = p(c.aircraft_type);
     }
 
     /// The face cut-off as a cosine, kept in range.
@@ -269,6 +295,9 @@ impl Default for AiSettings {
             faces: false,
             aircraft: false,
             face_match_pct: 55,
+            aircraft_registration_pct: 80,
+            aircraft_airline_pct: 85,
+            aircraft_type_pct: 70,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),
             gemini_model: Provider::Gemini.default_model().id().to_owned(),

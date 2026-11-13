@@ -28,12 +28,12 @@ pub use migrations::LATEST_VERSION;
 pub use model::*;
 pub use repo::{box_iou, name_key, RESTORED_MODEL, SAME_FACE_IOU};
 pub use repo::{
-    Ai, AiCounts, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel, DayCount, DayItem,
-    DriveRow, EditAdviceRow, EditFields, EventSpan, Events, FaceCounts, FaceRow, FaceScan,
-    FaceState, Faces, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs, Labels,
-    LibraryReport, Meta, NewFace, NewJob, Person, Priority, RangeItem, Recipes, Renditions, Report,
-    ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags, Volumes,
-    UNKNOWN,
+    Ai, AiCounts, AircraftReadRow, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel,
+    DayCount, DayItem, DriveRow, EditAdviceRow, EditFields, EventSpan, Events, FaceCounts, FaceRow,
+    FaceScan, FaceState, Faces, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs,
+    Labels, LibraryReport, Meta, NewFace, NewJob, Person, Priority, RangeItem, Recipes, Renditions,
+    Report, ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags,
+    Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 

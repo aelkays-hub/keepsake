@@ -47,6 +47,35 @@ pub struct AiCounts {
     pub failed: u64,
 }
 
+/// What Read aircraft found in a photo, kept for review (ADR-041).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AircraftReadRow {
+    pub asset_id: AssetId,
+    /// JSON written by `ai::aircraft::marks::Candidates`.
+    pub candidates: String,
+    pub looks_like: Option<String>,
+    pub full_size: bool,
+    pub made_ms: i64,
+    /// `waiting`, `accepted` or `dismissed`.
+    pub review: String,
+    pub reviewed_ms: Option<i64>,
+}
+
+fn aircraft_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AircraftReadRow> {
+    Ok(AircraftReadRow {
+        asset_id: r.get(0)?,
+        candidates: r.get(1)?,
+        looks_like: r.get(2)?,
+        full_size: r.get::<_, i64>(3)? != 0,
+        made_ms: r.get(4)?,
+        review: r.get(5)?,
+        reviewed_ms: r.get(6)?,
+    })
+}
+
+const AIRCRAFT_COLS: &str =
+    "asset_id, candidates, looks_like, full_size, made_ms, review, reviewed_ms";
+
 /// A photo's stored edit suggestions (ADR-042): JSON kept by
 /// `ai::suggest`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +113,19 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// What Read aircraft found in `asset`, if it has been read with this
+    /// version.
+    pub fn aircraft_read(&self, asset: AssetId) -> Result<Option<AircraftReadRow>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {AIRCRAFT_COLS} FROM aircraft_reads WHERE asset_id = ?1"),
+                [asset],
+                aircraft_row,
+            )
+            .optional()?)
+    }
+
     /// The asset's stored edit suggestions.
     pub fn edit_advice(&self, asset: AssetId) -> Result<Option<EditAdviceRow>, CatalogError> {
         Ok(self
@@ -323,6 +365,40 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Keep what Read aircraft found in `asset`, waiting for review (a
+    /// read before is replaced).
+    pub fn put_aircraft_read(
+        &self,
+        asset: AssetId,
+        candidates: &str,
+        looks_like: Option<&str>,
+        full_size: bool,
+        made_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_reads (asset_id, candidates, looks_like, full_size, made_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(asset_id) DO UPDATE SET candidates = excluded.candidates,
+               looks_like = excluded.looks_like, full_size = excluded.full_size,
+               made_ms = excluded.made_ms, review = 'waiting', reviewed_ms = NULL",
+            params![asset, candidates, looks_like, i64::from(full_size), made_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Mark a read accepted or dismissed. Returns whether there was one.
+    pub fn set_aircraft_review(
+        &self,
+        asset: AssetId,
+        review: &str,
+        at_ms: i64,
+    ) -> Result<bool, CatalogError> {
+        Ok(self.conn.execute(
+            "UPDATE aircraft_reads SET review = ?2, reviewed_ms = ?3 WHERE asset_id = ?1",
+            params![asset, review, at_ms],
+        )? > 0)
+    }
+
     /// Store an asset's measurements; with `keep_ai` false, the AI's advice
     /// for the old ones is dropped.
     pub fn put_edit_measures(
