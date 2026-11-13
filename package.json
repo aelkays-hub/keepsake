@@ -1,7 +1,7 @@
 {
   "name": "keepsake",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "scripts": {
     "dev": "pnpm --filter ui tauri dev",
     "build": "pnpm --filter ui tauri build",

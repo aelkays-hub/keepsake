@@ -64,6 +64,12 @@
 
 ---
 
+## Version 0.5.1 (2026-11-13)
+
+- **Asked:** "push this change to v0.5"; chose a new release 0.5.1 (over replacing the published 0.5.0, or only merging).
+- **Done:** version 0.5.1 everywhere it is set; `docs/RELEASE_NOTES.md` leads with what is new in 0.5.1 (the review window, reading more, the tree keeping its place, the catalog upgrade to schema 16). Goes to `main` in one pull request from `feat/aircraft-review`, which holds pull request 37.
+- Before installing a test build on the owner's library, its catalog was backed up and checked (`E:\Pictures\2026\catalog-backup-20261113-045121-before-v16\`: integrity ok, schema 15, the row counts of assets, files, tags, jobs and AI sources equal to the live one).
+
 ## Read aircraft: you set the confidence and accept what is kept (2026-11-13)
 
 - **Asked:** "make the confidence something that the user sets, and even when doing batch, create a new window in middle of screen and allow the user to play with the confidence … and the user will decide what to accept".
