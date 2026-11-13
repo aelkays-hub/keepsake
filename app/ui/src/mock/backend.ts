@@ -96,6 +96,8 @@ export interface MockState {
    * sliders. */
   aircraftReads: Map<number, { left: number; review: string }>;
   aircraftConf: { registrationPct: number; airlinePct: number; typePct: number };
+  /** Look registrations up online (`?lookup=on`). */
+  aircraftLookup: boolean;
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -358,6 +360,7 @@ export function installMock(): void {
     },
     aircraftReads: new Map(),
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+    aircraftLookup: params.get("lookup") === "on",
     faceRows: new Map(),
     facesMatch: 55,
     facesAsked: new Set(),
@@ -1465,6 +1468,7 @@ export function installMock(): void {
             problem: null,
             installing: null,
             confidence: st.aircraftConf,
+            lookup: st.aircraftLookup,
           };
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
@@ -1573,11 +1577,34 @@ export function installMock(): void {
                 .map((m) => `Aircraft|Airline|${m.name}`),
             ];
             const painted = types.filter((m) => m.pct >= conf.typePct);
+            // With the lookup on, the registry says a 777-200LR of Air Canada.
+            const looked = st.aircraftLookup && conf.registrationPct <= 96;
+            const fromLookup = looked
+              ? ["Aircraft|Airline|Air Canada", "Aircraft|Type|Boeing 777-200LR"]
+              : [];
             offered.push(
               ...(painted.length
                 ? painted.map((m) => `Aircraft|Type|${m.name}`)
-                : ["Aircraft|Type|Boeing 777"]),
+                : looked
+                  ? []
+                  : ["Aircraft|Type|Boeing 777"]),
             );
+            for (const k of fromLookup) if (!offered.includes(k)) offered.push(k);
+            const unticked = looked
+              ? painted.map((m) => `Aircraft|Type|${m.name}`).filter((k) => !fromLookup.includes(k))
+              : [];
+            // The next photo was taken 2 s later and is alike; the one
+            // before, 5 s earlier, is not.
+            const neighbours = [i + 1, i - 1]
+              .filter((j) => all[j] && all[j].kind !== "video")
+              .map((j) => ({
+                id: `a${j}`,
+                name: all[j].name,
+                thumb: null,
+                seconds: j > i ? 2 : -5,
+                similarityPct: j > i ? 96 : 61,
+                alike: j > i,
+              }));
             items.push({
               id,
               name: all[i]?.name ?? null,
@@ -1589,6 +1616,21 @@ export function installMock(): void {
               types,
               looksLike: "Boeing 777",
               offered,
+              unticked,
+              fromLookup,
+              lookups: looked
+                ? [
+                    {
+                      registration: "C-FJZS",
+                      known: true,
+                      aircraftType: "Boeing 777-200LR",
+                      airline: "Air Canada",
+                      owner: "Air Canada",
+                      country: "Canada",
+                    },
+                  ]
+                : [],
+              neighbours: r.review === "waiting" ? neighbours : [],
             });
           }
           return {
@@ -1600,6 +1642,31 @@ export function installMock(): void {
             failed: 0,
             problem: null,
           };
+        }
+        case "aircraft_set_lookup":
+          st.aircraftLookup = Boolean(a.enabled);
+          return null;
+        case "aircraft_same_plane": {
+          // Two other photos of C-FJZS lack the type.
+          const keep = (a.keywords ?? []) as string[];
+          const type = keep.find((k) => k.startsWith("Aircraft|Type|"));
+          if (!keep.includes("Aircraft|Registration|C-FJZS") || !type) return [];
+          return [900, 901]
+            .filter((j) => !(st.keywords.get(j) ?? []).includes(type))
+            .map((j) => ({
+              id: `a${j}`,
+              name: all[j]?.name ?? null,
+              thumb: null,
+              missing: [type],
+            }));
+        }
+        case "aircraft_add_keywords": {
+          const keep = (a.keywords ?? []) as string[];
+          for (const id of (a.ids ?? []) as string[]) {
+            const j = Number(id.slice(1));
+            st.keywords.set(j, [...new Set([...(st.keywords.get(j) ?? []), ...keep])]);
+          }
+          return ((a.ids ?? []) as string[]).length;
         }
         case "aircraft_set_confidence":
           st.aircraftConf = a.confidence as typeof st.aircraftConf;
@@ -1613,6 +1680,10 @@ export function installMock(): void {
           if (keep.some((k) => !k.startsWith("Aircraft|")))
             throw "only aircraft keywords can be accepted";
           r.review = keep.length ? "accepted" : "dismissed";
+          for (const nid of (a.neighbours ?? []) as string[]) {
+            const j = Number(nid.slice(1));
+            st.keywords.set(j, [...new Set([...(st.keywords.get(j) ?? []), ...keep])]);
+          }
           if (keep.length) {
             const cur = st.keywords.get(i) ?? [];
             st.keywords.set(i, [...new Set([...cur, ...keep])]);

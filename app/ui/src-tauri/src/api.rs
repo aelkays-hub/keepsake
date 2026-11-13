@@ -128,6 +128,8 @@ dto! {
         pub installing: Option<u64>,
         /// The review window's confidence, as last set.
         pub confidence: AircraftConfidenceDto,
+        /// Registrations are looked up online (adsbdb.com).
+        pub lookup: bool,
     }
 
     /// Recognise faces at a glance (Settings; ADR-040).
@@ -1097,6 +1099,47 @@ dto! {
         pub looks_like: Option<String>,
         /// The keywords offered at the window's confidence (`A|B|C`).
         pub offered: Vec<String>,
+        /// Of those, the ones not ticked at first (a painted type the
+        /// online lookup disagrees with).
+        pub unticked: Vec<String>,
+        /// Of those, the ones the online lookup gave.
+        pub from_lookup: Vec<String>,
+        /// What the lookup said about its registrations.
+        pub lookups: Vec<AircraftLookupDto>,
+        /// Photos taken by the same camera within 10 seconds.
+        pub neighbours: Vec<AircraftNeighbourDto>,
+    }
+
+    /// What the online lookup (adsbdb.com) said about a registration.
+    pub struct AircraftLookupDto {
+        pub registration: String,
+        /// The service knows it.
+        pub known: bool,
+        pub aircraft_type: Option<String>,
+        pub airline: Option<String>,
+        pub owner: Option<String>,
+        pub country: Option<String>,
+    }
+
+    /// A photo taken just before or after a read one.
+    pub struct AircraftNeighbourDto {
+        pub id: String,
+        pub name: Option<String>,
+        pub thumb: Option<String>,
+        /// Seconds after the read photo (before: below zero).
+        pub seconds: f32,
+        /// How alike, in percent, when both were analysed by On-device AI.
+        pub similarity_pct: Option<u8>,
+        /// Alike enough to be the same shot: ticked at first.
+        pub alike: bool,
+    }
+
+    /// Another photo of the same registration, and the keywords it lacks.
+    pub struct SamePlaneDto {
+        pub id: String,
+        pub name: Option<String>,
+        pub thumb: Option<String>,
+        pub missing: Vec<String>,
     }
 
     /// The review window's photos: those read so far, and how reading the

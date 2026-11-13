@@ -14,15 +14,20 @@ import {
   type AircraftConfidenceDto,
   type AircraftReviewDto,
   type AircraftReviewItemDto,
+  type SamePlaneDto,
 } from "../api";
 import {
   alsoRead,
+  isTicked,
   KINDS,
+  lookupLine,
   MIN_PCT,
   parts,
-  pctOf,
   progressLine,
+  secondsLabel,
+  sourceOf,
   ticked,
+  tickedNeighbours,
   waitingCount,
 } from "../aircraftReview";
 import * as fmt from "../format";
@@ -53,15 +58,19 @@ function stop(job: AircraftJob, ids: string[]): Promise<void> {
 
 function Photo({
   item,
-  unticked,
+  toggled,
+  toggledNear,
   onToggle,
+  onToggleNear,
   onAccept,
   onDismiss,
   busy,
 }: {
   item: AircraftReviewItemDto;
-  unticked: Set<string> | undefined;
+  toggled: Set<string> | undefined;
+  toggledNear: Set<string> | undefined;
   onToggle: (keyword: string) => void;
+  onToggleNear: (id: string) => void;
   onAccept: () => void;
   onDismiss: () => void;
   busy: boolean;
@@ -69,6 +78,8 @@ function Photo({
   const thumb = fileUrl(item.thumb);
   const also = alsoRead(item);
   const done = item.review !== "waiting";
+  const looked = lookupLine(item);
+  const near = tickedNeighbours(item, toggledNear);
   return (
     <li className={`ar-photo ${item.review}`} data-testid="ar-photo">
       {thumb ? (
@@ -94,35 +105,76 @@ function Photo({
           <ul className="ar-marks">
             {item.offered.map((k) => {
               const [kind, name] = parts(k);
-              const pct = pctOf(item, k);
               return (
                 <li key={k}>
                   <label>
                     <input
                       type="checkbox"
-                      checked={!unticked?.has(k)}
+                      checked={isTicked(item, k, toggled)}
                       disabled={done || busy}
                       onChange={() => onToggle(k)}
                       data-testid="ar-mark"
                     />{" "}
                     <span className="muted">{kind}</span> {name}{" "}
-                    <span className="muted">{pct === null ? "(its look)" : `${pct}%`}</span>
+                    <span className="muted">{sourceOf(item, k)}</span>
                   </label>
                 </li>
               );
             })}
           </ul>
         )}
+        {looked && (
+          <p className="muted ar-lookup" data-testid="ar-lookup">
+            Registry (adsbdb): {looked}
+          </p>
+        )}
         {also.length > 0 && (
           <p className="muted ar-also" data-testid="ar-also">
             Also read, below your confidence: {also.map((a) => `${a.label} ${a.pct}%`).join(", ")}
           </p>
         )}
+        {!done && item.neighbours.length > 0 && (
+          <div className="ar-near" data-testid="ar-near">
+            <span className="muted">
+              Taken within 10 s by the same camera (ticked ones get the same keywords):
+            </span>
+            <ul>
+              {item.neighbours.map((n) => {
+                const nt = fileUrl(n.thumb);
+                return (
+                  <li key={n.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={near.includes(n.id)}
+                        disabled={busy}
+                        onChange={() => onToggleNear(n.id)}
+                        data-testid="ar-near-photo"
+                      />{" "}
+                      {nt && <img src={nt} alt="" className="ar-near-thumb" loading="lazy" />}{" "}
+                      {n.name ?? "Photo"}{" "}
+                      <span className="muted">
+                        {secondsLabel(n.seconds)},{" "}
+                        {n.similarityPct === null
+                          ? "not compared yet"
+                          : `${n.similarityPct}% alike`}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
       {!done && (
         <div className="ar-actions">
           <button onClick={onAccept} disabled={busy} data-testid="ar-accept">
-            {ticked(item, unticked).length ? "Accept" : "Nothing to keep"}
+            {ticked(item, toggled).length
+              ? near.length
+                ? `Accept (and ${near.length} more)`
+                : "Accept"
+              : "Nothing to keep"}
           </button>
           <button onClick={onDismiss} disabled={busy} data-testid="ar-dismiss">
             Dismiss
@@ -133,13 +185,21 @@ function Photo({
   );
 }
 
+/** Other photos of the same registration, offered what they lack. */
+interface SamePlane {
+  registration: string;
+  photos: SamePlaneDto[];
+}
+
 export function AircraftReviewWindow() {
   const { s, dispatch } = useUi();
   const job = s.aircraftReview;
   const [ids, setIds] = useState<string[] | null>(null);
   const [review, setReview] = useState<AircraftReviewDto | null>(null);
   const [conf, setConf] = useState<AircraftConfidenceDto | null>(null);
-  const [unticked, setUnticked] = useState<Map<string, Set<string>>>(new Map());
+  const [toggled, setToggled] = useState<Map<string, Set<string>>>(new Map());
+  const [toggledNear, setToggledNear] = useState<Map<string, Set<string>>>(new Map());
+  const [same, setSame] = useState<SamePlane[]>([]);
   const [all, setAll] = useState(false);
   const [shown, setShown] = useState(PAGE);
   const [stopped, setStopped] = useState(false);
@@ -152,7 +212,9 @@ export function AircraftReviewWindow() {
   useEffect(() => {
     setIds(null);
     setReview(null);
-    setUnticked(new Map());
+    setToggled(new Map());
+    setToggledNear(new Map());
+    setSame([]);
     setStopped(false);
     setShown(PAGE);
     setProblem(null);
@@ -215,19 +277,34 @@ export function AircraftReviewWindow() {
     setReview((r) =>
       r ? { ...r, items: r.items.map((i) => (i.id === id ? { ...i, review: state } : i)) } : r,
     );
-  const toggle = (id: string, k: string) =>
-    setUnticked((m) => {
+  const flip = (set: typeof setToggled) => (id: string, k: string) =>
+    set((m) => {
       const n = new Map(m);
-      const set = new Set(n.get(id));
-      if (set.has(k)) set.delete(k);
-      else set.add(k);
-      n.set(id, set);
+      const one = new Set(n.get(id));
+      if (one.has(k)) one.delete(k);
+      else one.add(k);
+      n.set(id, one);
       return n;
     });
+  const toggle = flip(setToggled);
+  const toggleNear = flip(setToggledNear);
   const accept = async (item: AircraftReviewItemDto) => {
-    const keep = ticked(item, unticked.get(item.id));
-    await api.aircraftAccept(item.id, keep);
+    const keep = ticked(item, toggled.get(item.id));
+    const near = keep.length ? tickedNeighbours(item, toggledNear.get(item.id)) : [];
+    await api.aircraftAccept(item.id, keep, near);
     setState(item.id, keep.length ? "accepted" : "dismissed");
+    // The same aircraft's other photos that lack its airline or type.
+    const reg = keep.find((k) => parts(k)[0] === "Registration");
+    if (reg && keep.some((k) => ["Airline", "Type"].includes(parts(k)[0]))) {
+      const photos = (await api.aircraftSamePlane(item.id, keep)).filter(
+        (p) => !near.includes(p.id),
+      );
+      if (photos.length)
+        setSame((s) => [
+          ...s.filter((x) => x.registration !== parts(reg)[1]),
+          { registration: parts(reg)[1], photos },
+        ]);
+    }
   };
   const run = (f: () => Promise<void>) => {
     setBusy(true);
@@ -328,13 +405,47 @@ export function AircraftReviewWindow() {
           </div>
         )}
 
+        {same.map((sp) => {
+          const lacks = [...new Set(sp.photos.flatMap((p) => p.missing.map((k) => parts(k)[1])))];
+          return (
+            <div className="ar-same" key={sp.registration} data-testid="ar-same">
+              <p>
+                <strong>
+                  {fmt.plural(sp.photos.length, "other photo")} of {sp.registration}
+                </strong>{" "}
+                lack {lacks.join(", ")}.
+              </p>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    for (const p of sp.photos) await api.aircraftAddKeywords([p.id], p.missing);
+                    setSame((s) => s.filter((x) => x.registration !== sp.registration));
+                  })
+                }
+                data-testid="ar-same-add"
+              >
+                Add to {fmt.plural(sp.photos.length, "photo")}
+              </button>{" "}
+              <button
+                onClick={() => setSame((s) => s.filter((x) => x.registration !== sp.registration))}
+                data-testid="ar-same-skip"
+              >
+                Not now
+              </button>
+            </div>
+          );
+        })}
+
         <ul className="ar-list">
           {items.slice(0, shown).map((item) => (
             <Photo
               key={item.id}
               item={item}
-              unticked={unticked.get(item.id)}
+              toggled={toggled.get(item.id)}
+              toggledNear={toggledNear.get(item.id)}
               onToggle={(k) => toggle(item.id, k)}
+              onToggleNear={(n) => toggleNear(item.id, n)}
               onAccept={() => run(() => accept(item))}
               onDismiss={() =>
                 run(() => api.aircraftDismiss(item.id).then(() => setState(item.id, "dismissed")))

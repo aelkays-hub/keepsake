@@ -96,6 +96,11 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
         .with_power(power())
         .with_cloud(crate::cloud::tagger())
         .with_adviser(crate::cloud::adviser());
+    let svc = if open.settings.ai.aircraft_lookup {
+        svc.with_lookup(crate::aircraft::lookup())
+    } else {
+        svc
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render

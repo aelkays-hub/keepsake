@@ -13,6 +13,7 @@ const status = (p: Partial<AircraftStatus>): AircraftStatus => ({
   problem: null,
   installing: null,
   confidence: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+  lookup: false,
   ...p,
 });
 

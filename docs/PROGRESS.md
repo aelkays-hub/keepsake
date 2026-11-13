@@ -39,6 +39,7 @@
 | — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -63,6 +64,14 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Read aircraft looks registrations up, and tags the same plane's other photos (2026-11-13)
+
+- **Asked:** look registrations up in free online databases and tag with what they say; tag other photos of the same registration that lack it; and photos within 10 seconds either side, when identical.
+- **Decided** (ADR-041, addition; each asked): adsbdb.com, off until turned on in Settings; offered in the review window; the same plane's other photos suggested in the window; neighbours near-identical by On-device AI.
+- **Built:** core `ai::aircraft::lookup` (with `icao-types.tsv`), schema v17 `aircraft_lookups`, `scan::{offer, found_for, neighbours, same_registration, add_to}`, `Ai::taken_near`, `Http::get`, the worker's lookup; app `aircraft_set_lookup`, `aircraft_same_plane`, `aircraft_add_keywords`, Accept with neighbours, the review data's lookups, neighbours and default-unticked keywords; UI: the registry line and "(adsbdb)" keywords, the burst list, the same-plane panel, the Settings switch; the mock backend.
+- **Tests, run here (Windows):** core `ai::aircraft` (+3 for the lookup's answers), `aircraft_tests` (7, +3: a lookup asked once and offered with a disagreeing painted type unticked; neighbours by camera, time and likeness; the same registration's other photos); migrations, settings, catalog; app lib tests; Vitest (74, +2); mocked Playwright `aircraft` (8, +1), `a11y`; clippy and fmt on Rust 1.100, ESLint, Prettier, tsc. The live service was asked twice by hand (C-FIUJ known, VT-JEX unknown) to check its answer's shape.
+- **Not run:** in the real app with the lookup on; CI. On branch `feat/aircraft-lookup` (from main at 0.5.1), not pushed. A library opened by this build moves to schema v17.
 
 ## Version 0.5.1 (2026-11-13)
 

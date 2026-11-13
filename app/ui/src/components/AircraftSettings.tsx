@@ -82,6 +82,21 @@ export function AircraftSettings() {
       <p role="status" data-testid="aircraft-progress">
         {aircraftProgress(st)}
       </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={st.lookup}
+          disabled={!st.enabled}
+          onChange={(e) => run(api.aircraftSetLookup(e.target.checked))}
+          data-testid="aircraft-lookup"
+        />
+        Look registrations up online (adsbdb.com)
+      </label>
+      <p className="muted">
+        Sends only the registration read (for example C-FIUJ), never a photo, to the free
+        adsbdb.com, and offers the type and airline it knows in the Read aircraft window. Each
+        registration is asked about once.
+      </p>
       <p className="muted" data-testid="aircraft-confidence">
         Offered from: registration {st.confidence.registrationPct}%, airline{" "}
         {st.confidence.airlinePct}%, type {st.confidence.typePct}% sure (set with the sliders in the

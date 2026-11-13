@@ -21,7 +21,7 @@ export function parts(keyword: string): [string, string] {
 }
 
 /** How surely the mark a keyword names was read (percent), or `null` for
- * the type guessed from the look. */
+ * the type from the look or from the online lookup. */
 export function pctOf(item: AircraftReviewItemDto, keyword: string): number | null {
   const [kind, name] = parts(keyword);
   const list =
@@ -35,9 +35,47 @@ export function pctOf(item: AircraftReviewItemDto, keyword: string): number | nu
   return list.find((m) => m.name.replace(/[/|]/g, "-") === name)?.pct ?? null;
 }
 
-/** The keywords left ticked: those offered, less those the user unticked. */
-export function ticked(item: AircraftReviewItemDto, unticked: Set<string> | undefined): string[] {
-  return item.offered.filter((k) => !unticked?.has(k));
+/** Where an offered keyword comes from, for its label. */
+export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
+  const pct = pctOf(item, keyword);
+  if (item.fromLookup.includes(keyword)) return pct === null ? "(adsbdb)" : `${pct}%, adsbdb`;
+  return pct === null ? "(its look)" : `${pct}%`;
+}
+
+/** Is `keyword` ticked? Ticked at first unless offered unticked; each
+ * click the user made (`toggled`) turns it over. */
+export function isTicked(
+  item: AircraftReviewItemDto,
+  keyword: string,
+  toggled: Set<string> | undefined,
+): boolean {
+  return !item.unticked.includes(keyword) !== Boolean(toggled?.has(keyword));
+}
+
+/** The keywords left ticked. */
+export function ticked(item: AircraftReviewItemDto, toggled: Set<string> | undefined): string[] {
+  return item.offered.filter((k) => isTicked(item, k, toggled));
+}
+
+/** The neighbours left ticked: alike ones at first; clicks turn over. */
+export function tickedNeighbours(
+  item: AircraftReviewItemDto,
+  toggled: Set<string> | undefined,
+): string[] {
+  return item.neighbours.filter((n) => n.alike !== Boolean(toggled?.has(n.id))).map((n) => n.id);
+}
+
+/** What the lookup said, in a line ("" when it said nothing). */
+export function lookupLine(item: AircraftReviewItemDto): string {
+  return item.lookups
+    .map((l) =>
+      l.known
+        ? `${l.registration}: ${[l.aircraftType, l.airline ?? l.owner, l.country]
+            .filter(Boolean)
+            .join(", ")}`
+        : `adsbdb does not know ${l.registration}`,
+    )
+    .join("; ");
 }
 
 /** Possible marks below the window's confidence, for "also read". */
@@ -53,6 +91,12 @@ export function alsoRead(item: AircraftReviewItemDto): { label: string; pct: num
       if (!offered.has(m.name)) out.push({ label: `${kind} ${m.name}`, pct: m.pct });
   }
   return out;
+}
+
+/** "+3 s", "−6 s". */
+export function secondsLabel(s: number): string {
+  const r = Math.round(s);
+  return r < 0 ? `−${-r} s` : `+${r} s`;
 }
 
 /** The window's line on how reading is getting on. */

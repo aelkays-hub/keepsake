@@ -37,4 +37,8 @@ installing: number | null,
 /**
  * The review window's confidence, as last set.
  */
-confidence: AircraftConfidenceDto, };
+confidence: AircraftConfidenceDto, 
+/**
+ * Registrations are looked up online (adsbdb.com).
+ */
+lookup: boolean, };

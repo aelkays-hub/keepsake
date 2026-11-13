@@ -664,7 +664,7 @@ fn other_photos_of_the_same_registration_get_what_they_lack() {
     let mut svc = MetadataService::new(&w.lib, &mut w.cat);
     svc.set_user_tags(a, &[reg.clone(), airline.clone(), kind.clone()])
         .unwrap();
-    svc.set_user_tags(b, &[reg.clone()]).unwrap();
+    svc.set_user_tags(b, std::slice::from_ref(&reg)).unwrap();
     svc.set_user_tags(c, &[reg.clone(), airline.clone()])
         .unwrap();
     let wanted = [airline.clone(), kind.clone()];
