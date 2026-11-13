@@ -1,8 +1,23 @@
-# Keepsake 0.5.1
+# Keepsake 0.5.2
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.1 makes Read aircraft read more of what is painted on a plane, and lets you decide what it keeps.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.2 lets Read aircraft look a registration up online, and carry what it finds to the same plane's other photos and to the rest of a burst. It also fixes the filters, Show in Explorer and Open in for network drives.
 
-## New in 0.5.1
+## New in 0.5.2
+
+**Read aircraft**
+- **Look registrations up online** (Settings → Read aircraft; off until you turn it on): each registration read is looked up once at the free adsbdb.com. Only the registration's text is sent, never a photo. The type and airline it knows are offered in the review window, marked "(adsbdb)"; a painted type it disagrees with is offered unticked. Aircraft no longer flying may be unknown there.
+- **The same plane's other photos:** after you accept a photo's registration with its airline or type, the window offers them to your other photos of that registration that lack them (**Add to N photos**).
+- **The rest of a burst:** photos taken by the same camera within 10 seconds that look alike (On-device AI's comparison) are ticked under the photo, and get the same keywords when you accept.
+- **Names partly hidden** by an engine or a wing are read (Air Transat as `trainsa`), and a registry's company name counts as the airline ("Emirates Airline" → Emirates).
+
+**Fixes**
+- The filters at the top could leave the grid empty: the work that marks the photos on screen held the library up. It now runs on its own.
+- Photos that cannot be rendered are no longer tried again every time they are on screen.
+- **Show in Explorer** works for photos on a network drive, and **Open in** hands them over by drive letter (`Z:\…`), so Topaz Photo opens them. If Topaz Photo is already open, Keepsake says so: close it and choose Open in again.
+
+**Upgrading from 0.5.1:** the first time 0.5.2 opens your library it updates the catalog (schema 17). Older versions cannot open it after that, so install 0.5.2 on every computer that opens the library.
+
+## New in 0.5.1 (included)
 
 **Read aircraft: you decide what is kept**
 - Every Read aircraft (the photos you pick, the viewer, a folder, a year, month or day) opens a review window in the middle of the screen. Photos appear as they are read.
@@ -17,7 +32,7 @@ Keepsake is a local-first replacement for Sony PlayMemories Home. It imports cam
 **Also**
 - The sidebar tree keeps its place after a right-click action and over a restart.
 
-**Upgrading from 0.5.0:** the first time 0.5.1 opens your library it updates the catalog (schema 16). Older versions cannot open it after that, so install 0.5.1 on every computer that opens the library. Photos read by Read aircraft before 0.5.1 keep their keywords; to review them in the new window, read them again (a folder or dates does this by itself for photos read before).
+Photos read by Read aircraft before 0.5.1 keep their keywords; to review them in the window, read them again (a folder or dates does this by itself for photos read before).
 
 **This release is for Windows 11 (x64 and ARM64).** macOS will follow in a later release.
 
@@ -27,14 +42,14 @@ Download the installer for your PC:
 
 | PC | File |
 |---|---|
-| Most PCs (Intel or AMD) | `Keepsake_0.5.1_x64_en-US.msi` or `Keepsake_0.5.1_x64-setup.exe` |
-| ARM PCs (Snapdragon) | `Keepsake_0.5.1_arm64_en-US.msi` or `Keepsake_0.5.1_arm64-setup.exe` |
+| Most PCs (Intel or AMD) | `Keepsake_0.5.2_x64_en-US.msi` or `Keepsake_0.5.2_x64-setup.exe` |
+| ARM PCs (Snapdragon) | `Keepsake_0.5.2_arm64_en-US.msi` or `Keepsake_0.5.2_arm64-setup.exe` |
 
 The installers are **not code-signed yet**, so Windows SmartScreen may warn you. Click **More info → Run anyway**.
 
 Everything Keepsake needs is included: FFmpeg, ExifTool and LibRaw. Keepsake connects to the internet only when you ask it to: to download an AI model you turn on in Settings, or to send a photo's small preview to Claude, ChatGPT or Gemini (Tag with AI, Ask in Edit suggestions).
 
-**Upgrading from 0.1.0:** the catalog is updated the first time 0.5.1 opens your library; older versions cannot open it after that.
+**Upgrading from 0.1.0:** the catalog is updated the first time 0.5.2 opens your library; older versions cannot open it after that.
 
 ## New in 0.5.0 (included)
 

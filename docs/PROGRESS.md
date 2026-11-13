@@ -65,6 +65,11 @@
 
 ---
 
+## Version 0.5.2 (2026-11-13)
+
+- **Asked:** "push everything and publish a new version".
+- **Done:** version 0.5.2 everywhere it is set; release notes lead with what is new in 0.5.2 (the registration lookup, the same plane, the burst, names partly hidden, the filter, Explorer and Open in fixes, the catalog upgrade to schema 17). Goes to `main` with pull request 39.
+
 ## Show in Explorer and Open in for the network drive (2026-11-13)
 
 - **Reported:** "the open in topaz does not seem to be working, also open explorer to file location does not seem to be working for the Z: drive".
