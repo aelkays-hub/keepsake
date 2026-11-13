@@ -96,6 +96,8 @@ export interface MockState {
    * sliders. */
   aircraftReads: Map<number, { left: number; review: string }>;
   aircraftConf: { registrationPct: number; airlinePct: number; typePct: number };
+  /** Look registrations up online (`?lookup=on`). */
+  aircraftLookup: boolean;
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -358,6 +360,7 @@ export function installMock(): void {
     },
     aircraftReads: new Map(),
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+    aircraftLookup: params.get("lookup") === "on",
     faceRows: new Map(),
     facesMatch: 55,
     facesAsked: new Set(),
@@ -542,7 +545,7 @@ export function installMock(): void {
       st.calls.push({ cmd, args: a });
       switch (cmd) {
         case "app_info": {
-          const reply = { version: "0.5.1-mock", library, uiTest: true };
+          const reply = { version: "0.5.2-mock", library, uiTest: true };
           // ?opening=<ms>: the library takes that long to open.
           const ms = Number(params.get("opening") ?? 0);
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
@@ -550,7 +553,7 @@ export function installMock(): void {
         case "library_create":
         case "library_open":
           library = String(a.path);
-          return { version: "0.5.1-mock", library, uiTest: true };
+          return { version: "0.5.2-mock", library, uiTest: true };
         case "view_open": {
           const q = a.query as Query;
           const s = a.sort as SortSpec;
@@ -958,11 +961,16 @@ export function installMock(): void {
             ];
           const app = (a.app as string | null | undefined) ?? null;
           st.opened.push({ id: String(a.id), member: String(a.member) });
-          if (app === null) return apps.length ? name(apps[0]) : "the system default";
-          if (app === "") return "the system default";
+          const line = (n: string) =>
+            // ?topazOpen=1: Topaz is already running (it ignores files then).
+            /topaz/i.test(n) && params.get("topazOpen") === "1"
+              ? `${n} was already open, so it may not show this photo: close ${n} and choose Open in again.`
+              : `Opened with ${n}`;
+          if (app === null) return line(apps.length ? name(apps[0]) : "the system default");
+          if (app === "") return line("the system default");
           if (!apps.includes(app))
             throw new Error(`${name(app)} is not set up in Settings for this file type`);
-          return name(app);
+          return line(name(app));
         }
         case "original_place": {
           const it = all[Number(String(a.id).slice(1))];
@@ -1230,7 +1238,7 @@ export function installMock(): void {
           return [
             "Keepsake diagnostic report",
             "==========================",
-            "Program: keepsake-app 0.5.1-mock",
+            "Program: keepsake-app 0.5.2-mock",
             "Tools:",
             "  exiftool   13.59  [~\\AppData\\Local\\Keepsake\\exiftool\\exiftool.exe]",
             `Library: D:\\Keepsake`,
@@ -1465,6 +1473,7 @@ export function installMock(): void {
             problem: null,
             installing: null,
             confidence: st.aircraftConf,
+            lookup: st.aircraftLookup,
           };
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
@@ -1573,11 +1582,34 @@ export function installMock(): void {
                 .map((m) => `Aircraft|Airline|${m.name}`),
             ];
             const painted = types.filter((m) => m.pct >= conf.typePct);
+            // With the lookup on, the registry says a 777-200LR of Air Canada.
+            const looked = st.aircraftLookup && conf.registrationPct <= 96;
+            const fromLookup = looked
+              ? ["Aircraft|Airline|Air Canada", "Aircraft|Type|Boeing 777-200LR"]
+              : [];
             offered.push(
               ...(painted.length
                 ? painted.map((m) => `Aircraft|Type|${m.name}`)
-                : ["Aircraft|Type|Boeing 777"]),
+                : looked
+                  ? []
+                  : ["Aircraft|Type|Boeing 777"]),
             );
+            for (const k of fromLookup) if (!offered.includes(k)) offered.push(k);
+            const unticked = looked
+              ? painted.map((m) => `Aircraft|Type|${m.name}`).filter((k) => !fromLookup.includes(k))
+              : [];
+            // The next photo was taken 2 s later and is alike; the one
+            // before, 5 s earlier, is not.
+            const neighbours = [i + 1, i - 1]
+              .filter((j) => all[j] && all[j].kind !== "video")
+              .map((j) => ({
+                id: `a${j}`,
+                name: all[j].name,
+                thumb: null,
+                seconds: j > i ? 2 : -5,
+                similarityPct: j > i ? 96 : 61,
+                alike: j > i,
+              }));
             items.push({
               id,
               name: all[i]?.name ?? null,
@@ -1589,6 +1621,21 @@ export function installMock(): void {
               types,
               looksLike: "Boeing 777",
               offered,
+              unticked,
+              fromLookup,
+              lookups: looked
+                ? [
+                    {
+                      registration: "C-FJZS",
+                      known: true,
+                      aircraftType: "Boeing 777-200LR",
+                      airline: "Air Canada",
+                      owner: "Air Canada",
+                      country: "Canada",
+                    },
+                  ]
+                : [],
+              neighbours: r.review === "waiting" ? neighbours : [],
             });
           }
           return {
@@ -1600,6 +1647,31 @@ export function installMock(): void {
             failed: 0,
             problem: null,
           };
+        }
+        case "aircraft_set_lookup":
+          st.aircraftLookup = Boolean(a.enabled);
+          return null;
+        case "aircraft_same_plane": {
+          // Two other photos of C-FJZS lack the type.
+          const keep = (a.keywords ?? []) as string[];
+          const type = keep.find((k) => k.startsWith("Aircraft|Type|"));
+          if (!keep.includes("Aircraft|Registration|C-FJZS") || !type) return [];
+          return [900, 901]
+            .filter((j) => !(st.keywords.get(j) ?? []).includes(type))
+            .map((j) => ({
+              id: `a${j}`,
+              name: all[j]?.name ?? null,
+              thumb: null,
+              missing: [type],
+            }));
+        }
+        case "aircraft_add_keywords": {
+          const keep = (a.keywords ?? []) as string[];
+          for (const id of (a.ids ?? []) as string[]) {
+            const j = Number(id.slice(1));
+            st.keywords.set(j, [...new Set([...(st.keywords.get(j) ?? []), ...keep])]);
+          }
+          return ((a.ids ?? []) as string[]).length;
         }
         case "aircraft_set_confidence":
           st.aircraftConf = a.confidence as typeof st.aircraftConf;
@@ -1613,6 +1685,10 @@ export function installMock(): void {
           if (keep.some((k) => !k.startsWith("Aircraft|")))
             throw "only aircraft keywords can be accepted";
           r.review = keep.length ? "accepted" : "dismissed";
+          for (const nid of (a.neighbours ?? []) as string[]) {
+            const j = Number(nid.slice(1));
+            st.keywords.set(j, [...new Set([...(st.keywords.get(j) ?? []), ...keep])]);
+          }
           if (keep.length) {
             const cur = st.keywords.get(i) ?? [];
             st.keywords.set(i, [...new Set([...cur, ...keep])]);

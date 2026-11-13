@@ -288,6 +288,44 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Is `read` the start of `name` with the rest hidden (by an engine, a
+/// wing or the frame), but for one character changed, added or missing?
+/// Only for names of seven or more, with at least seven tenths of the name
+/// read: `TRAINSA` for `TRANSAT` (its `T` behind the engine).
+fn cut_off(read: &str, name: &str) -> bool {
+    let (r, n): (Vec<char>, Vec<char>) = (read.chars().collect(), name.chars().collect());
+    if n.len() < 7 || r.len() < 6 || r.len() > n.len() {
+        return false;
+    }
+    let least = (n.len() * 7).div_ceil(10);
+    (r.len().saturating_sub(1)..=r.len() + 1)
+        .filter(|&k| k >= least && k < n.len())
+        .any(|k| within_one(read, &n[..k].iter().collect::<String>()))
+}
+
+/// Words a company's registered name adds to the airline's: `Emirates
+/// Airline`, `JetBlue Airways`, `TUI Airways Ltd`.
+const COMPANY_WORDS: [&str; 18] = [
+    "AIR",
+    "AIRLINE",
+    "AIRLINES",
+    "AIRWAYS",
+    "LINES",
+    "AVIATION",
+    "INTERNATIONAL",
+    "GROUP",
+    "INC",
+    "LTD",
+    "LIMITED",
+    "LLC",
+    "CORP",
+    "CORPORATION",
+    "CO",
+    "COMPANY",
+    "PLC",
+    "AG",
+];
+
 /// Are the two the same but for one character changed, added or missing?
 fn within_one(a: &str, b: &str) -> bool {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
@@ -359,6 +397,24 @@ impl Airlines {
         self.entries.is_empty()
     }
 
+    /// The airline a company's registered name is (an online registry's
+    /// owner): the airline's name followed only by company words
+    /// ([`COMPANY_WORDS`]). A leasing company or a bank is none.
+    pub fn owner(&self, owner: &str) -> Option<&str> {
+        let mut w = words(owner);
+        while w.len() > 1
+            && w.last()
+                .is_some_and(|x| COMPANY_WORDS.contains(&x.as_str()))
+        {
+            w.pop();
+        }
+        let joined = w.concat();
+        self.entries
+            .iter()
+            .find(|(_, aliases)| aliases.iter().any(|a| a.concat() == joined))
+            .map(|(name, _)| name.as_str())
+    }
+
     /// The airline a line of text names, if any. The longest name wins
     /// (`Air Canada Rouge` over `Air Canada`).
     pub fn find(&self, text: &str) -> Option<&str> {
@@ -368,6 +424,8 @@ impl Airlines {
         }
         let joined = line.concat();
         let mut best: Option<(usize, &str)> = None;
+        // A name with its end hidden counts only when nothing else does.
+        let mut cut: Option<(usize, &str)> = None;
         for (name, aliases) in &self.entries {
             for alias in aliases {
                 let compact = alias.concat();
@@ -381,6 +439,12 @@ impl Airlines {
                             .strip_prefix(compact.as_str())
                             .is_some_and(|rest| rest.chars().count() == 1))
                     || (n >= 7 && within_one(&joined, &compact));
+                if line.len() == 1
+                    && cut_off(&joined, &compact)
+                    && cut.is_none_or(|(len, _)| n < len)
+                {
+                    cut = Some((n, name));
+                }
                 // Or a name of several words is somewhere in the line. One
                 // word inside a longer line (UNITED STATES OF AMERICA) is
                 // not enough.
@@ -392,7 +456,7 @@ impl Airlines {
                 }
             }
         }
-        best.map(|(_, name)| name)
+        best.or(cut).map(|(_, name)| name)
     }
 }
 
@@ -856,6 +920,32 @@ mod tests {
             line("AIR CANADA rouge", 0.9, 0.0, 50.0),
         ];
         assert_eq!(interpret(&rouge, &a).airlines, ["Air Canada Rouge"]);
+    }
+
+    #[test]
+    fn a_name_cut_off_by_the_engine_is_still_read() {
+        let a = Airlines::builtin();
+        // DSC08634: Air Transat's `transat`, its `t` behind the engine.
+        assert_eq!(a.find("trainsa"), Some("Air Transat"));
+        assert_eq!(a.find("SUNWIN"), Some("Sunwing Airlines"));
+        // Too little of the name, or an ordinary word: nothing.
+        assert_eq!(a.find("TRANS"), None);
+        assert_eq!(a.find("BRITISH"), None);
+        assert_eq!(a.find("PARKING"), None);
+        assert_eq!(a.find("EMIRATESX"), Some("Emirates"));
+    }
+
+    #[test]
+    fn a_registered_owner_is_its_airline_without_the_company_words() {
+        let a = Airlines::builtin();
+        assert_eq!(a.owner("Emirates Airline"), Some("Emirates"));
+        assert_eq!(a.owner("JetBlue Airways"), Some("JetBlue"));
+        assert_eq!(a.owner("TUI Airways Ltd"), Some("TUI"));
+        assert_eq!(a.owner("Air Canada"), Some("Air Canada"));
+        assert_eq!(a.owner("WestJet"), Some("WestJet"));
+        assert_eq!(a.owner("Wells Fargo Trust Co"), None);
+        assert_eq!(a.owner("Delta Leasing"), None);
+        assert_eq!(a.owner("Newton Air Inc"), None);
     }
 
     #[test]

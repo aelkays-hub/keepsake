@@ -33,9 +33,9 @@ pub fn file_manager_name() -> &'static str {
 /// is passed as written (`raw_arg`): Explorer wants `/select,"path"`, not
 /// the whole argument quoted.
 pub fn reveal_command(path: &Path) -> (String, Vec<String>) {
-    let p = path.to_string_lossy().into_owned();
-    // Explorer does not understand verbatim (`\\?\`) paths.
-    let p = p.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(p);
+    // Explorer does not understand verbatim (`\\?\`) paths; a network
+    // share is given as `\\srv\x`, or by its drive letter when mapped.
+    let p = keepsake_core::external::plain(path);
     if cfg!(windows) {
         // Windows paths cannot contain `"`, so this quoting is safe.
         ("explorer".into(), vec![format!("/select,\"{p}\"")])

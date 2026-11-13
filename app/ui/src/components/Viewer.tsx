@@ -662,7 +662,7 @@ export function Viewer() {
     if (!row) return;
     api
       .openExternal(row.id, member)
-      .then((app) => setNote(`Opened with ${app}`))
+      .then((line) => setNote(line))
       .catch((e) => setNote(String(e)));
   };
 

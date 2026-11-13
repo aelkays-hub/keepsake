@@ -232,11 +232,18 @@ pub fn open_external(
     let path = file_to_open(&state, &id, member)?;
     let settings = Settings::load().map_err(err)?;
     let app = pick_app(&settings, &path, app.as_deref())?;
+    // Asked before launching: a program that ignores files while open
+    // (Topaz Photo) shows nothing new when it already runs.
+    let ignored = app.as_deref().is_some_and(|a| {
+        keepsake_core::external::ignores_files_when_open(a)
+            && keepsake_platform::program_running(std::path::Path::new(a))
+    });
     keepsake_core::external::open(&path, app.as_deref()).map_err(err)?;
-    Ok(match &app {
+    let name = match &app {
         Some(a) => app_name(a),
         None => "the system default".into(),
-    })
+    };
+    Ok(keepsake_core::external::opened_line(&name, ignored))
 }
 
 #[cfg(test)]

@@ -399,6 +399,185 @@ pub fn accept(
     Ok(added)
 }
 
+/// What the review window offers for a read: the keywords (ticked unless
+/// in `unticked`), and which came from an online lookup.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Offer {
+    pub keywords: Vec<TagPath>,
+    /// Offered but not ticked: a painted type the lookup disagrees with.
+    pub unticked: Vec<TagPath>,
+    /// Those the lookup gave.
+    pub from_lookup: Vec<TagPath>,
+}
+
+/// The keywords to offer for a read at `conf`, with what lookups of its
+/// registrations said (`found`, those known): a looked-up type and airline
+/// are offered beside what was read; a painted type that disagrees is
+/// offered unticked; the type from the look only when neither gives one.
+pub fn offer(
+    item: &ReviewItem,
+    conf: &Confidence,
+    found: &[super::lookup::Found],
+) -> Result<Offer, AiError> {
+    let marks = item.candidates.at(conf);
+    let known: Vec<&super::lookup::Found> = found
+        .iter()
+        .filter(|f| f.known && marks.registrations.contains(&f.registration))
+        .collect();
+    let looked_type = known.iter().find_map(|f| f.aircraft_type.clone());
+    let look = if marks.types.is_empty() && looked_type.is_none() {
+        item.looks_like.as_deref()
+    } else {
+        None
+    };
+    let mut out = Offer {
+        keywords: keyword_paths(&marks, look)?,
+        ..Offer::default()
+    };
+    let path = |kind: &str, name: &str| {
+        TagPath::new([TAG_PARENT, kind, name.replace(['/', '|'], "-").as_str()])
+    };
+    for f in &known {
+        for (kind, name) in [("Airline", &f.airline), ("Type", &f.aircraft_type)] {
+            if let Some(name) = name {
+                let p = path(kind, name)?;
+                if !out.keywords.contains(&p) {
+                    out.keywords.push(p.clone());
+                }
+                out.from_lookup.push(p);
+            }
+        }
+    }
+    if let Some(t) = &looked_type {
+        for painted in &marks.types {
+            if painted != t {
+                out.unticked.push(path("Type", painted)?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// What lookups said about the registrations a read offers at `conf`
+/// (kept ones only: nothing is asked here).
+pub fn found_for(
+    cat: &Catalog,
+    item: &ReviewItem,
+    conf: &Confidence,
+) -> Result<Vec<super::lookup::Found>, AiError> {
+    let mut out = Vec::new();
+    for reg in item.candidates.at(conf).registrations {
+        if let Some(f) = super::lookup::kept(cat, &reg)? {
+            out.push(f);
+        }
+    }
+    Ok(out)
+}
+
+/// Photos taken this close (either side) are offered with a read.
+pub const NEIGHBOUR_MS: i64 = 10_000;
+
+/// A photo taken just before or after a read one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Neighbour {
+    pub asset: AssetId,
+    /// Milliseconds after the read photo (before: below zero).
+    pub ms: i64,
+    /// How alike the two pictures are (On-device AI's comparison), when
+    /// both have been analysed.
+    pub similarity: Option<f32>,
+    /// Alike enough to be the same shot of the same aircraft.
+    pub alike: bool,
+}
+
+/// The photos taken by the same camera within [`NEIGHBOUR_MS`] of `asset`,
+/// nearest first, each with how alike it is (alike: at least
+/// [`crate::ai::duplicates::COSINE_BURST`], the bar Duplicates uses for
+/// photos taken moments apart). Not analysed by On-device AI: no
+/// similarity, not alike.
+pub fn neighbours(cat: &Catalog, asset: AssetId) -> Result<Vec<Neighbour>, AiError> {
+    let emb = |id: AssetId| -> Result<Option<Embedding>, AiError> {
+        Ok(cat
+            .read(|tx| tx.ai().analysis(id))?
+            .filter(|a| a.model == crate::ai::MODEL_ID)
+            .and_then(|a| Embedding::from_quantized(&a.embedding, a.emb_scale).ok()))
+    };
+    let mine = emb(asset)?;
+    let mut out = Vec::new();
+    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, NEIGHBOUR_MS))? {
+        let similarity = match (&mine, emb(id)?) {
+            (Some(a), Some(b)) => Some(a.cosine(&b)),
+            _ => None,
+        };
+        out.push(Neighbour {
+            asset: id,
+            ms,
+            similarity,
+            alike: similarity.is_some_and(|s| s >= crate::ai::duplicates::COSINE_BURST),
+        });
+    }
+    Ok(out)
+}
+
+/// Other photos with `registration` as a keyword that lack some of
+/// `wanted` (an airline or type accepted for it): each with what it lacks.
+pub fn same_registration(
+    cat: &Catalog,
+    registration: &str,
+    wanted: &[TagPath],
+    except: &[AssetId],
+) -> Result<Vec<(AssetId, Vec<TagPath>)>, AiError> {
+    let reg = TagPath::new([TAG_PARENT, "Registration", registration])?;
+    let ids = cat.read(|tx| tx.tags().assets_with(&reg))?;
+    let mut out = Vec::new();
+    for id in ids {
+        if except.contains(&id) {
+            continue;
+        }
+        let has: Vec<TagPath> = cat
+            .read(|tx| tx.tags().for_asset(id))?
+            .into_iter()
+            .map(|t| t.path)
+            .collect();
+        let missing: Vec<TagPath> = wanted
+            .iter()
+            .filter(|w| !has.contains(w))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            out.push((id, missing));
+        }
+    }
+    Ok(out)
+}
+
+/// Add aircraft keywords to photos (the same aircraft's other photos, or a
+/// read photo's neighbours), recorded as given by the aircraft reader.
+/// Returns how many photos got something new.
+pub fn add_to(
+    cat: &mut Catalog,
+    lib: &Library,
+    ids: &[AssetId],
+    paths: &[TagPath],
+) -> Result<u64, AiError> {
+    if let Some(p) = paths.iter().find(|p| !is_aircraft_keyword(p)) {
+        return Err(AiError::Image(format!(
+            "{} is not an aircraft keyword",
+            p.to_lightroom()
+        )));
+    }
+    let mut n = 0;
+    for id in ids {
+        let added = MetadataService::new(lib, cat)
+            .add_ai_keywords(*id, SOURCE, paths)
+            .map_err(lib_err)?;
+        if !added.is_empty() {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
 /// Dismiss a read: nothing becomes a keyword.
 pub fn dismiss(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
     let now = crate::jobs::now_ms();

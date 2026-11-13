@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import type { AircraftReviewDto, AircraftReviewItemDto } from "../api";
-import { alsoRead, parts, pctOf, progressLine, ticked, waitingCount } from "../aircraftReview";
+import {
+  alsoRead,
+  isTicked,
+  lookupLine,
+  parts,
+  pctOf,
+  progressLine,
+  secondsLabel,
+  sourceOf,
+  ticked,
+  tickedNeighbours,
+  waitingCount,
+} from "../aircraftReview";
 
 const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => ({
   id: "a1",
@@ -14,6 +26,10 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   types: [{ name: "Boeing 777-300ER", pct: 81 }],
   looksLike: "Boeing 777",
   offered: ["Aircraft|Registration|VT-JEX", "Aircraft|Type|Boeing 777-300ER"],
+  unticked: [],
+  fromLookup: [],
+  lookups: [],
+  neighbours: [],
   ...p,
 });
 
@@ -61,5 +77,60 @@ describe("Read aircraft review", () => {
     ).toBe("4 of 5 photos read. 1 photo could not be read: no file.");
     expect(progressLine(review({ total: 0, read: 0, pending: 0 }), false)).toBe("Nothing to read.");
     expect(waitingCount(review())).toBe(1);
+  });
+
+  it("starts a disagreeing painted type unticked; a click turns any over", () => {
+    const it2 = item({
+      offered: [
+        "Aircraft|Registration|C-FIUJ",
+        "Aircraft|Type|Boeing 777-300ER",
+        "Aircraft|Type|Boeing 777-200LR",
+      ],
+      unticked: ["Aircraft|Type|Boeing 777-300ER"],
+      fromLookup: ["Aircraft|Type|Boeing 777-200LR"],
+    });
+    expect(ticked(it2, undefined)).toEqual([
+      "Aircraft|Registration|C-FIUJ",
+      "Aircraft|Type|Boeing 777-200LR",
+    ]);
+    const clicks = new Set(["Aircraft|Type|Boeing 777-300ER", "Aircraft|Type|Boeing 777-200LR"]);
+    expect(isTicked(it2, "Aircraft|Type|Boeing 777-300ER", clicks)).toBe(true);
+    expect(isTicked(it2, "Aircraft|Type|Boeing 777-200LR", clicks)).toBe(false);
+    expect(sourceOf(it2, "Aircraft|Type|Boeing 777-200LR")).toBe("(adsbdb)");
+    expect(sourceOf(it2, "Aircraft|Registration|C-FIUJ")).toBe("(its look)");
+  });
+
+  it("ticks alike neighbours, says what the registry knows", () => {
+    const it3 = item({
+      neighbours: [
+        { id: "b", name: "B", thumb: null, seconds: 2, similarityPct: 96, alike: true },
+        { id: "c", name: "C", thumb: null, seconds: -5, similarityPct: 61, alike: false },
+      ],
+      lookups: [
+        {
+          registration: "C-FIUJ",
+          known: true,
+          aircraftType: "Boeing 777-200LR",
+          airline: "Air Canada",
+          owner: "Air Canada",
+          country: "Canada",
+        },
+        {
+          registration: "VT-JEX",
+          known: false,
+          aircraftType: null,
+          airline: null,
+          owner: null,
+          country: null,
+        },
+      ],
+    });
+    expect(tickedNeighbours(it3, undefined)).toEqual(["b"]);
+    expect(tickedNeighbours(it3, new Set(["b", "c"]))).toEqual(["c"]);
+    expect(lookupLine(it3)).toBe(
+      "C-FIUJ: Boeing 777-200LR, Air Canada, Canada; adsbdb does not know VT-JEX",
+    );
+    expect(secondsLabel(2.4)).toBe("+2 s");
+    expect(secondsLabel(-5)).toBe("−5 s");
   });
 });

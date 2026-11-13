@@ -300,6 +300,35 @@ fn queue_runs_visible_then_recent_then_backlog_newest_first() {
 }
 
 #[test]
+fn a_photo_that_failed_for_good_is_not_queued_again_for_being_on_screen() {
+    let mut cat = Catalog::open_in_memory().unwrap();
+    let ids = assets(
+        &mut cat,
+        &[(MediaKind::Photo, Some(1)), (MediaKind::Photo, Some(2))],
+    );
+    render::enqueue(&mut cat, &ids, Priority::Backlog, false).unwrap();
+    // The first cannot be rendered (no preview in the RAW): failed for good.
+    let j = claim(&mut cat, &[]).unwrap();
+    let bad = j.asset_id;
+    cat.write(|tx| tx.jobs().fail(j.id, "no embedded preview", None, 0))
+        .unwrap();
+    let cache = Cache::new(std::env::temp_dir().join("keepsake-no-cache"));
+    // On screen, again and again: it stays failed; the other is visible.
+    for _ in 0..3 {
+        render::set_visible(&mut cat, &cache, &ids).unwrap();
+    }
+    let state = |id| {
+        cat.read(|tx| tx.jobs().find(JOB_STILLS, id))
+            .unwrap()
+            .unwrap()
+            .state
+    };
+    assert_eq!(state(bad), JobState::Failed);
+    let good = if bad == ids[0] { ids[1] } else { ids[0] };
+    assert_eq!(claim(&mut cat, &[]).unwrap().asset_id, good);
+}
+
+#[test]
 fn visibility_moves_with_the_screen_and_enqueue_never_duplicates() {
     let mut cat = Catalog::open_in_memory().unwrap();
     let ids = assets(

@@ -18,6 +18,9 @@ import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
 import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AiAdviceDto } from "./bindings/AiAdviceDto";
 import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
+import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
+import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
+import type { SamePlaneDto } from "./bindings/SamePlaneDto";
 import type { AircraftReviewDto } from "./bindings/AircraftReviewDto";
 import type { AircraftReviewItemDto } from "./bindings/AircraftReviewItemDto";
 import type { ScoredMarkDto } from "./bindings/ScoredMarkDto";
@@ -95,6 +98,9 @@ export type {
   SuggestDto,
   AiAdviceDto,
   AircraftConfidenceDto,
+  AircraftLookupDto,
+  AircraftNeighbourDto,
+  SamePlaneDto,
   AircraftReviewDto,
   AircraftReviewItemDto,
   ScoredMarkDto,
@@ -232,7 +238,9 @@ export const api = {
   fullImage: (id: string, member: MemberDto) => invoke<string>("full_image", { id, member }),
   assetMembers: (id: string) => invoke<AssetMembers>("asset_members", { id }),
   videoInfo: (id: string) => invoke<VideoInfo>("video_info", { id }),
-  /** Open in another application: `app` from `openChoices` ("" = system default), or the default. */
+  /** Open in another application: `app` from `openChoices` ("" = system default), or the default.
+   * Returns the line to show ("Opened with Photoshop", or what to do when
+   * the program was already open and may not show the photo). */
   openExternal: (id: string, member: MemberDto, app: string | null = null) =>
     invoke<string>("open_external", { id, member, app }),
   /** Every metadata tag of an item's file (ExifTool; read only). */
@@ -304,9 +312,18 @@ export const api = {
     invoke<AircraftReviewDto>("aircraft_review", { ids, confidence }),
   aircraftSetConfidence: (confidence: AircraftConfidenceDto) =>
     invoke<AircraftConfidenceDto>("aircraft_set_confidence", { confidence }),
-  /** Accept a photo's read: these keywords are added (none: dismissed). */
-  aircraftAccept: (id: string, keywords: string[]) =>
-    invoke<string[]>("aircraft_accept", { id, keywords }),
+  /** Accept a photo's read: these keywords are added (none: dismissed),
+   * to the photo and to the `neighbours` ticked. */
+  aircraftAccept: (id: string, keywords: string[], neighbours: string[] = []) =>
+    invoke<string[]>("aircraft_accept", { id, keywords, neighbours }),
+  /** The other photos of an accepted registration that lack its airline
+   * or type. */
+  aircraftSamePlane: (id: string, keywords: string[]) =>
+    invoke<SamePlaneDto[]>("aircraft_same_plane", { id, keywords }),
+  aircraftAddKeywords: (ids: string[], keywords: string[]) =>
+    invoke<number>("aircraft_add_keywords", { ids, keywords }),
+  /** Look registrations up online (adsbdb.com). */
+  aircraftSetLookup: (enabled: boolean) => invoke<void>("aircraft_set_lookup", { enabled }),
   aircraftDismiss: (id: string) => invoke<void>("aircraft_dismiss", { id }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),

@@ -96,6 +96,11 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
         .with_power(power())
         .with_cloud(crate::cloud::tagger())
         .with_adviser(crate::cloud::adviser());
+    let svc = if open.settings.ai.aircraft_lookup {
+        svc.with_lookup(crate::aircraft::lookup())
+    } else {
+        svc
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render
@@ -217,6 +222,53 @@ pub fn render_status(state: State<'_, AppState>) -> CmdResult<RenderSummary> {
 pub fn render_set_visible(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<u64> {
     let ids = convert::ids(&ids)?;
     let open = state.open()?;
-    let mut cat = open.writer()?;
-    render::set_visible(&mut cat, &open.cache, &ids).map_err(err)
+    let (lib, cache) = (open.lib.clone(), open.cache.clone());
+    // It writes the catalog, which can wait for other writers: never on a
+    // command thread (a filter or a scroll would wait behind it). Only the
+    // latest set matters: one waiting replaces the one before.
+    let n = ids.len() as u64;
+    let start = {
+        let mut slot = VISIBLE.lock().map_err(|_| "visible state poisoned")?;
+        let idle = slot.0.is_none();
+        slot.1 = Some(ids);
+        if idle {
+            slot.0 = Some(());
+        }
+        idle
+    };
+    if start {
+        std::thread::Builder::new()
+            .name("render-visible".into())
+            .spawn(move || loop {
+                let next = match VISIBLE.lock() {
+                    Ok(mut slot) => match slot.1.take() {
+                        Some(ids) => ids,
+                        None => {
+                            slot.0 = None;
+                            return;
+                        }
+                    },
+                    Err(_) => return,
+                };
+                let t0 = std::time::Instant::now();
+                let r = lib
+                    .open_catalog()
+                    .map_err(|e| e.to_string())
+                    .and_then(|mut cat| {
+                        render::set_visible(&mut cat, &cache, &next).map_err(|e| e.to_string())
+                    });
+                if let Err(e) = r {
+                    tracing::warn!("render_set_visible: {e}");
+                }
+                if t0.elapsed().as_millis() >= 1000 {
+                    tracing::warn!(ms = t0.elapsed().as_millis(), "slow render_set_visible");
+                }
+            })
+            .map_err(err)?;
+    }
+    Ok(n)
 }
+
+/// The on-screen update's thread: running, and the set waiting for it.
+static VISIBLE: std::sync::Mutex<(Option<()>, Option<Vec<keepsake_core::catalog::AssetId>>)> =
+    std::sync::Mutex::new((None, None));

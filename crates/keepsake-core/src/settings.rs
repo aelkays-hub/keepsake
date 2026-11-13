@@ -214,6 +214,9 @@ pub struct AiSettings {
     pub aircraft_registration_pct: u8,
     pub aircraft_airline_pct: u8,
     pub aircraft_type_pct: u8,
+    /// Look registrations up online (adsbdb.com) and offer what it knows
+    /// in the review window (ADR-041). Off until the user turns it on.
+    pub aircraft_lookup: bool,
     /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
     /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
@@ -298,6 +301,7 @@ impl Default for AiSettings {
             aircraft_registration_pct: 80,
             aircraft_airline_pct: 85,
             aircraft_type_pct: 70,
+            aircraft_lookup: false,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),
             gemini_model: Provider::Gemini.default_model().id().to_owned(),

@@ -120,14 +120,28 @@ pub fn library_open(
 
 #[tauri::command(async)]
 pub fn view_open(state: State<'_, AppState>, query: Query, sort: SortSpec) -> CmdResult<ViewInfo> {
+    let t0 = std::time::Instant::now();
     let open = state.open()?;
+    let t_open = t0.elapsed();
     let q = convert::query(&query)?;
     let s = convert::sort(&sort);
-    let ids = open
-        .cat()?
+    let reader = open.cat()?;
+    let t_reader = t0.elapsed();
+    let ids = reader
         .read(|tx| tx.browse().ordered_ids(&q, s))
         .map_err(err)?;
+    drop(reader);
     let count = ids.len() as u64;
+    if t0.elapsed().as_millis() >= 500 {
+        tracing::warn!(
+            ms = t0.elapsed().as_millis(),
+            open_ms = t_open.as_millis(),
+            reader_ms = (t_reader - t_open).as_millis(),
+            query_ms = (t0.elapsed() - t_reader).as_millis(),
+            count,
+            "slow view_open"
+        );
+    }
     let view = state.add_view(View { ids });
     Ok(ViewInfo { view, count })
 }
@@ -139,6 +153,7 @@ pub fn view_rows(
     offset: u64,
     limit: u32,
 ) -> CmdResult<Vec<Row>> {
+    let t0 = std::time::Instant::now();
     let open = state.open()?;
     let ids = state.with_view(view, |v| {
         let start = (offset as usize).min(v.ids.len());
@@ -148,6 +163,14 @@ pub fn view_rows(
     let cat = open.cat()?;
     let rows = cat.read(|tx| tx.browse().rows(&ids)).map_err(err)?;
     let online = open.online_volumes(&cat);
+    if t0.elapsed().as_millis() >= 500 {
+        tracing::warn!(
+            ms = t0.elapsed().as_millis(),
+            offset,
+            limit,
+            "slow view_rows"
+        );
+    }
     Ok(rows
         .iter()
         .map(|r| convert::row(r, &open.cache, &online))

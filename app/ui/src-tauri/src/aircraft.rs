@@ -16,8 +16,9 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AircraftConfidenceDto, AircraftReviewDto, AircraftReviewItemDto,
-    AircraftStatus, CloudStarted, CloudStatusDto, ScoredMarkDto, Selection,
+    AiInstallProgress, AircraftConfidenceDto, AircraftLookupDto, AircraftNeighbourDto,
+    AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted, CloudStatusDto,
+    SamePlaneDto, ScoredMarkDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -67,6 +68,7 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         problem: get(&st.problem).flatten().filter(|_| on),
         installing: get(&st.install).flatten().map(|(_, done)| done),
         confidence: confidence_dto(settings.ai.aircraft_confidence()),
+        lookup: settings.ai.aircraft_lookup,
     })
 }
 
@@ -349,23 +351,26 @@ pub fn aircraft_review(
     let (st, problem) = scan::status(&cat, &ids).map_err(err)?;
     let mut items = Vec::new();
     for it in scan::review_items(&cat, &ids).map_err(err)? {
-        let name = cat
-            .read(|tx| tx.files().originals(it.asset))
-            .map_err(err)?
-            .first()
-            .map(|f| f.rel_path.file_name().to_owned());
-        let thumb = keepsake_core::render::source::source_hash(&cat, it.asset)
-            .ok()
-            .flatten()
-            .and_then(|h| {
-                convert::cached(&open.cache, Some(&h), Variant::Thumb256)
-                    .or_else(|| convert::cached(&open.cache, Some(&h), Variant::Thumb1024))
-            });
-        let offered = scan::offered(&it, &conf)
-            .map_err(err)?
-            .iter()
-            .map(TagPath::to_lightroom)
-            .collect();
+        let (name, thumb) = photo_of(&cat, &open.cache, it.asset)?;
+        let found = scan::found_for(&cat, &it, &conf).map_err(err)?;
+        let offer = scan::offer(&it, &conf, &found).map_err(err)?;
+        let names = |v: &[TagPath]| v.iter().map(TagPath::to_lightroom).collect::<Vec<_>>();
+        let mut neighbours = Vec::new();
+        if it.review == scan::Review::Waiting {
+            for n in scan::neighbours(&cat, it.asset).map_err(err)? {
+                let (name, thumb) = photo_of(&cat, &open.cache, n.asset)?;
+                neighbours.push(AircraftNeighbourDto {
+                    id: n.asset.to_string(),
+                    name,
+                    thumb,
+                    seconds: n.ms as f32 / 1000.0,
+                    similarity_pct: n
+                        .similarity
+                        .map(|s| (s * 100.0).round().clamp(0.0, 100.0) as u8),
+                    alike: n.alike,
+                });
+            }
+        }
         items.push(AircraftReviewItemDto {
             id: it.asset.to_string(),
             name,
@@ -376,7 +381,21 @@ pub fn aircraft_review(
             airlines: scored(&it.candidates.airlines),
             types: scored(&it.candidates.types),
             looks_like: it.looks_like.clone(),
-            offered,
+            offered: names(&offer.keywords),
+            unticked: names(&offer.unticked),
+            from_lookup: names(&offer.from_lookup),
+            lookups: found
+                .into_iter()
+                .map(|f| AircraftLookupDto {
+                    registration: f.registration,
+                    known: f.known,
+                    aircraft_type: f.aircraft_type,
+                    airline: f.airline,
+                    owner: f.owner,
+                    country: f.country,
+                })
+                .collect(),
+            neighbours,
         });
     }
     let read = items.len() as u64;
@@ -408,22 +427,132 @@ pub fn aircraft_set_confidence(
     Ok(confidence_dto(s.ai.aircraft_confidence()))
 }
 
+fn paths_of(keywords: &[String]) -> CmdResult<Vec<TagPath>> {
+    keywords
+        .iter()
+        .map(|k| TagPath::parse_lightroom(k).map_err(err))
+        .collect()
+}
+
+/// A photo's file name and thumbnail, for the window.
+fn photo_of(
+    cat: &keepsake_core::catalog::Catalog,
+    cache: &keepsake_core::render::Cache,
+    asset: AssetId,
+) -> CmdResult<(Option<String>, Option<String>)> {
+    let name = cat
+        .read(|tx| tx.files().originals(asset))
+        .map_err(err)?
+        .first()
+        .map(|f| f.rel_path.file_name().to_owned());
+    let thumb = keepsake_core::render::source::source_hash(cat, asset)
+        .ok()
+        .flatten()
+        .and_then(|h| {
+            convert::cached(cache, Some(&h), Variant::Thumb256)
+                .or_else(|| convert::cached(cache, Some(&h), Variant::Thumb1024))
+        });
+    Ok((name, thumb))
+}
+
+/// The lookup the render service uses (adsbdb.com).
+pub fn lookup() -> Arc<dyn keepsake_core::ai::aircraft::lookup::Lookup> {
+    Arc::new(keepsake_core::ai::aircraft::lookup::AdsbDb::new(Arc::new(
+        keepsake_core::ai::cloud::UreqHttp::new(),
+    )))
+}
+
+/// Turn the online registration lookup on or off.
+#[tauri::command(async)]
+pub fn aircraft_set_lookup(app: AppHandle, enabled: bool) -> CmdResult<()> {
+    let mut s = Settings::load().map_err(err)?;
+    s.ai.aircraft_lookup = enabled;
+    s.save().map_err(err)?;
+    let state = app.state::<AppState>();
+    if state.try_open().is_some() {
+        state.reload_settings()?;
+        crate::render::restart_service(&app)?;
+    }
+    let _ = app.emit("aircraft://status", ());
+    Ok(())
+}
+
 /// Accept a photo's read: `keywords` (`Aircraft|…|…`, those left ticked)
-/// become its keywords. None: the read is dismissed. Returns those added.
+/// become its keywords, and the `neighbours` ticked (photos of the same
+/// burst) get them too. None: the read is dismissed. Returns those added.
 #[tauri::command(async)]
 pub fn aircraft_accept(
     state: State<'_, AppState>,
     id: String,
     keywords: Vec<String>,
+    neighbours: Option<Vec<String>>,
 ) -> CmdResult<Vec<String>> {
     let asset: AssetId = convert::id(&id, "asset")?;
-    let mut paths = Vec::new();
-    for k in &keywords {
-        paths.push(TagPath::parse_lightroom(k).map_err(err)?);
-    }
+    let paths = paths_of(&keywords)?;
     let open = state.open()?;
     let mut cat = open.writer()?;
-    scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
+    let added = scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)?;
+    let others = convert::ids(&neighbours.unwrap_or_default())?;
+    if !paths.is_empty() && !others.is_empty() {
+        scan::add_to(&mut cat, &open.lib, &others, &paths).map_err(err)?;
+    }
+    Ok(added)
+}
+
+/// After accepting `keywords` for a photo: the other photos of its
+/// registration that lack the airline or type among them.
+#[tauri::command(async)]
+pub fn aircraft_same_plane(
+    state: State<'_, AppState>,
+    id: String,
+    keywords: Vec<String>,
+) -> CmdResult<Vec<SamePlaneDto>> {
+    let asset: AssetId = convert::id(&id, "asset")?;
+    let paths = paths_of(&keywords)?;
+    let kind = |p: &TagPath| p.segments().get(1).cloned().unwrap_or_default();
+    let wanted: Vec<TagPath> = paths
+        .iter()
+        .filter(|p| matches!(kind(p).as_str(), "Airline" | "Type"))
+        .cloned()
+        .collect();
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let mut out = Vec::new();
+    for reg in paths.iter().filter(|p| kind(p) == "Registration") {
+        if wanted.is_empty() {
+            break;
+        }
+        for (other, missing) in
+            scan::same_registration(&cat, reg.leaf(), &wanted, &[asset]).map_err(err)?
+        {
+            if out.iter().any(|o: &SamePlaneDto| o.id == other.to_string()) {
+                continue;
+            }
+            let (name, thumb) = photo_of(&cat, &open.cache, other)?;
+            out.push(SamePlaneDto {
+                id: other.to_string(),
+                name,
+                thumb,
+                missing: missing.iter().map(TagPath::to_lightroom).collect(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Add aircraft keywords to photos (the same aircraft's other photos).
+/// Returns how many got something new.
+#[tauri::command(async)]
+pub fn aircraft_add_keywords(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    keywords: Vec<String>,
+) -> CmdResult<u64> {
+    let ids = convert::ids(&ids)?;
+    let paths = paths_of(&keywords)?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    scan::add_to(&mut cat, &open.lib, &ids, &paths).map_err(err)
 }
 
 /// Dismiss a photo's read: nothing becomes a keyword.

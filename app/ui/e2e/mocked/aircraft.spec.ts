@@ -206,3 +206,59 @@ test("right-click a year: Read aircraft; when it is off the window opens Setting
   await page.getByTestId("ar-settings").click();
   await expect(page.getByTestId("aircraft-settings")).toBeVisible();
 });
+
+test("with the online lookup: the registry's type and airline, neighbours and the same plane", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on");
+  await page.getByTestId("tile").nth(10).click({ button: "right" });
+  await page.getByTestId("tile-menu-aircraft").click();
+  const win = page.getByTestId("aircraft-review");
+  const photo = win.getByTestId("ar-photo").first();
+  await expect(photo.getByTestId("ar-lookup")).toHaveText(
+    "Registry (adsbdb): C-FJZS: Boeing 777-200LR, Air Canada, Canada",
+  );
+  await expect(photo).toContainText("Type Boeing 777-200LR (adsbdb)");
+  // The painted type (66 %) comes in when the type is lowered, unticked:
+  // the registry says otherwise.
+  await win.getByTestId("ar-typePct").fill("60");
+  const painted = photo.locator("label", { hasText: "Boeing 777-300ER" }).getByTestId("ar-mark");
+  await expect(painted).not.toBeChecked();
+  const looked = photo.locator("label", { hasText: "Boeing 777-200LR" }).getByTestId("ar-mark");
+  await expect(looked).toBeChecked();
+
+  // Neighbours: the alike one ticked, the other not.
+  const near = photo.getByTestId("ar-near");
+  const alike = near.locator("label", { hasText: "96% alike" }).getByTestId("ar-near-photo");
+  const other = near.locator("label", { hasText: "61% alike" }).getByTestId("ar-near-photo");
+  if (await alike.count()) await expect(alike).toBeChecked();
+  if (await other.count()) await expect(other).not.toBeChecked();
+  const nearTicked = await alike.count();
+
+  await photo.getByTestId("ar-accept").click();
+  const sent = (await calls(page, "aircraft_accept"))[0] as {
+    keywords: string[];
+    neighbours: string[];
+  };
+  expect(sent.keywords).toContain("Aircraft|Type|Boeing 777-200LR");
+  expect(sent.keywords).not.toContain("Aircraft|Type|Boeing 777-300ER");
+  expect(sent.neighbours).toHaveLength(nearTicked);
+
+  // The registration's other photos that lack the type are offered it.
+  const same = win.getByTestId("ar-same");
+  await expect(same).toContainText("2 other photos of C-FJZS lack Boeing 777-200LR.");
+  await same.getByTestId("ar-same-add").click();
+  await expect(same).toHaveCount(0);
+  expect(await calls(page, "aircraft_add_keywords")).toEqual([
+    { ids: ["a900"], keywords: ["Aircraft|Type|Boeing 777-200LR"] },
+    { ids: ["a901"], keywords: ["Aircraft|Type|Boeing 777-200LR"] },
+  ]);
+
+  // Settings: the lookup is on, and can be turned off.
+  await win.getByTestId("ar-close").click();
+  await settings(page);
+  const box = page.getByTestId("aircraft-lookup");
+  await expect(box).toBeChecked();
+  await box.uncheck();
+  expect(await calls(page, "aircraft_set_lookup")).toEqual([{ enabled: false }]);
+});

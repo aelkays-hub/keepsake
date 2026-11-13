@@ -237,6 +237,15 @@ pub fn set_visible(
     let mut stale = Vec::new();
     let mut fine = Vec::new();
     for a in assets {
+        // A photo that could not be rendered (a RAW without a preview, a
+        // file that is not a picture) is not tried again each time it is
+        // on screen; "Retry failed" or a rescan does that.
+        let failed = cat
+            .read(|tx| tx.jobs().find(JOB_STILLS, *a))?
+            .is_some_and(|j| j.state == crate::catalog::JobState::Failed);
+        if failed {
+            continue;
+        }
         if needs_render(cat, cache, *a)? {
             stale.push(*a);
         } else {

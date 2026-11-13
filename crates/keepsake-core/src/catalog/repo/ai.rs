@@ -113,6 +113,39 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// What an online lookup said about `registration` (JSON), if asked.
+    pub fn aircraft_lookup(&self, registration: &str) -> Result<Option<String>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT found FROM aircraft_lookups WHERE registration = ?1",
+                [registration],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The other items taken by the same camera (make and model) within
+    /// `window_ms` of `asset`, as `(id, milliseconds after it)`; nearest
+    /// first. None when `asset` has no capture time.
+    pub fn taken_near(
+        &self,
+        asset: AssetId,
+        window_ms: i64,
+    ) -> Result<Vec<(AssetId, i64)>, CatalogError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT o.id, o.capture_ts_ms - a.capture_ts_ms FROM assets a
+               JOIN assets o ON o.capture_ts_ms BETWEEN a.capture_ts_ms - ?2
+                                                    AND a.capture_ts_ms + ?2
+                AND o.id <> a.id
+                AND o.camera_make IS a.camera_make AND o.camera_model IS a.camera_model
+              WHERE a.id = ?1 AND a.capture_ts_ms IS NOT NULL
+              ORDER BY abs(o.capture_ts_ms - a.capture_ts_ms), o.capture_ts_ms",
+        )?;
+        let rows = stmt.query_map(params![asset, window_ms], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// What Read aircraft found in `asset`, if it has been read with this
     /// version.
     pub fn aircraft_read(&self, asset: AssetId) -> Result<Option<AircraftReadRow>, CatalogError> {
@@ -365,6 +398,22 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Keep what an online lookup said about `registration`.
+    pub fn put_aircraft_lookup(
+        &self,
+        registration: &str,
+        found: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_lookups (registration, found, looked_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(registration) DO UPDATE SET found = excluded.found,
+               looked_ms = excluded.looked_ms",
+            params![registration, found, at_ms],
+        )?;
+        Ok(())
+    }
+
     /// Keep what Read aircraft found in `asset`, waiting for review (a
     /// read before is replaced).
     pub fn put_aircraft_read(

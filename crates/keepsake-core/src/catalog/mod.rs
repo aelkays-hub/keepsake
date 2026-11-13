@@ -182,10 +182,12 @@ impl Catalog {
         E: From<CatalogError>,
     {
         let caller = std::panic::Location::caller();
+        let asked = std::time::Instant::now();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(CatalogError::from)?;
+        let waited = asked.elapsed().as_millis();
         // Held from here: every other writer waits.
         let held = std::time::Instant::now();
         let tx = Tx {
@@ -193,10 +195,20 @@ impl Catalog {
             _mode: PhantomData,
         };
         let out = f(&tx)?;
+        let work = held.elapsed().as_millis();
         tx.tx.commit().map_err(CatalogError::from)?;
         let ms = held.elapsed().as_millis();
         if ms >= SLOW_WRITE_MS {
-            tracing::warn!(ms, at = %caller, "slow catalog write: others wait for it");
+            tracing::warn!(
+                ms,
+                work_ms = work,
+                commit_ms = ms - work,
+                waited_ms = waited,
+                at = %caller,
+                "slow catalog write: others wait for it"
+            );
+        } else if waited >= SLOW_WRITE_MS {
+            tracing::warn!(waited_ms = waited, at = %caller, "catalog write waited for the lock");
         }
         Ok(out)
     }

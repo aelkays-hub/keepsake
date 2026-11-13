@@ -64,7 +64,7 @@ export function OpenInMenu({
     if (!id) return;
     api
       .openExternal(id, member, c.app)
-      .then((name) => onOpened(`Opened with ${name}`))
+      .then((line) => onOpened(line))
       .catch((e) => onOpened(String(e)));
   };
   const onMenuKey = (e: React.KeyboardEvent) => {

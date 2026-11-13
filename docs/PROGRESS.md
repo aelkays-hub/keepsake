@@ -39,6 +39,7 @@
 | — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -63,6 +64,35 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Version 0.5.2 (2026-11-13)
+
+- **Asked:** "push everything and publish a new version".
+- **Done:** version 0.5.2 everywhere it is set; release notes lead with what is new in 0.5.2 (the registration lookup, the same plane, the burst, names partly hidden, the filter, Explorer and Open in fixes, the catalog upgrade to schema 17). Goes to `main` with pull request 39.
+
+## Show in Explorer and Open in for the network drive (2026-11-13)
+
+- **Reported:** "the open in topaz does not seem to be working, also open explorer to file location does not seem to be working for the Z: drive".
+- **Found:** Show in Explorer took only `\\?\` off a network path, handing Explorer `UNC\MYCLOUD-92LNT0\…`, which is no path. Open in gave the share path `\\MYCLOUD-92LNT0\…`, which some programs (Topaz Photo) do not open; Photoshop does.
+- **Fixed:** both use `external::plain`, which gives a mapped share by its drive letter (`Z:\Photos-OldAcer\…`, found from the drive letters' real paths), else `\\srv\share\…`. Unit tests (letter, case, a near share name, local paths); on this computer DSC08634 is handed over as `Z:\Photos-OldAcer8-25-2018\DSC08634.ARW`, which exists.
+- **Confirmed** by the owner with a test build: Open in Topaz Photo works on a Z: photo. When Topaz is already open it does not show a photo handed to a new launch (it opened at 11:43 with PICT1439.JPG; later attempts showed nothing until it was closed): Topaz's own behaviour.
+- **Then asked:** say so when the program is already open. Open in now checks, before launching, whether a program known to ignore files while open (`external::IGNORE_FILES_WHEN_OPEN`: Topaz) is running (`keepsake_platform::program_running`, `tasklist` on Windows) and then says "Topaz Photo was already open, so it may not show this photo: close Topaz Photo and choose Open in again." Photoshop, which takes files while open, still says "Opened with Photoshop". Tests: core and platform unit tests, `open-in.spec.ts` (+1).
+
+## The filters at the top showed nothing (2026-11-13, fixed)
+
+- **Reported:** with the test build, every filter at the top left the grid empty and the count unchanged.
+- **Ruled out** (on a copy of the owner's live catalog, made read-only): the search index (all 129,127 items), the view query (every filter answers in under 0.1 s), the on-screen update (0.5 s for 200 photos), the review window's refresh (27 ms for 458 reads); the library filter tests pass.
+- **Seen in the log:** one on-screen update held the catalog's write lock for 54 s, and photos that cannot be rendered were put back in the queue every time they were on screen, all day.
+- **Changed:** a slow write logs how long it waited for the lock, worked and committed; a slow filter (`view_open`, `view_rows`) logs where its time went; the on-screen update runs on its own thread (the latest set only), never on a command thread where a filter would wait behind it; a photo whose rendering failed for good is not queued again for being on screen (`render_tests`, +1).
+- **Confirmed** by the owner with a test build: "Filters work now".
+
+## Read aircraft looks registrations up, and tags the same plane's other photos (2026-11-13)
+
+- **Asked:** look registrations up in free online databases and tag with what they say; tag other photos of the same registration that lack it; and photos within 10 seconds either side, when identical.
+- **Decided** (ADR-041, addition; each asked): adsbdb.com, off until turned on in Settings; offered in the review window; the same plane's other photos suggested in the window; neighbours near-identical by On-device AI.
+- **Built:** core `ai::aircraft::lookup` (with `icao-types.tsv`), schema v17 `aircraft_lookups`, `scan::{offer, found_for, neighbours, same_registration, add_to}`, `Ai::taken_near`, `Http::get`, the worker's lookup; app `aircraft_set_lookup`, `aircraft_same_plane`, `aircraft_add_keywords`, Accept with neighbours, the review data's lookups, neighbours and default-unticked keywords; UI: the registry line and "(adsbdb)" keywords, the burst list, the same-plane panel, the Settings switch; the mock backend.
+- **Tests, run here (Windows):** core `ai::aircraft` (+3 for the lookup's answers), `aircraft_tests` (7, +3: a lookup asked once and offered with a disagreeing painted type unticked; neighbours by camera, time and likeness; the same registration's other photos); migrations, settings, catalog; app lib tests; Vitest (74, +2); mocked Playwright `aircraft` (8, +1), `a11y`; clippy and fmt on Rust 1.100, ESLint, Prettier, tsc. The live service was asked twice by hand (C-FIUJ known, VT-JEX unknown) to check its answer's shape.
+- **Not run:** in the real app with the lookup on; CI. On branch `feat/aircraft-lookup` (from main at 0.5.1), not pushed. A library opened by this build moves to schema v17.
 
 ## Version 0.5.1 (2026-11-13)
 
