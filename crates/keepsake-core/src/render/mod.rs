@@ -221,13 +221,9 @@ pub fn needs_render(cat: &mut Catalog, cache: &Cache, asset: AssetId) -> Result<
     }
     let video =
         cat.read(|tx| tx.assets().get(asset))?.map(|a| a.media_kind) == Some(MediaKind::Video);
-    if video
+    Ok(video
         && cache.find(cat, &hash, Variant::CameraProxy)?.is_none()
-        && cache.find(cat, &hash, Variant::Proxy720)?.is_none()
-    {
-        return Ok(true);
-    }
-    Ok(false)
+        && cache.find(cat, &hash, Variant::Proxy720)?.is_none())
 }
 
 /// The assets on screen: their jobs run first, and are queued again if a
