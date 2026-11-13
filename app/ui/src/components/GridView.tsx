@@ -191,12 +191,11 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
             testId: "tile-menu-aircraft",
             run: () =>
               dispatch({
-                t: "aiJob",
+                t: "aircraftReview",
                 job: {
-                  aircraft: selectionPayload(view?.view ?? null, cur),
+                  selection: selectionPayload(view?.view ?? null, cur),
                   count: n,
                   title: one?.name ?? fmt.plural(n, "photo"),
-                  what: "tags",
                 },
               }),
           },

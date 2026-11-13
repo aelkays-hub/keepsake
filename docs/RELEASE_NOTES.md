@@ -1,6 +1,23 @@
-# Keepsake 0.5.0
+# Keepsake 0.5.1
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.0 adds folders catalogued where they are, faster thumbnails, a library report, and AI that tags photos, finds duplicates, recognises people, reads aircraft and suggests edits.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.1 makes Read aircraft read more of what is painted on a plane, and lets you decide what it keeps.
+
+## New in 0.5.1
+
+**Read aircraft: you decide what is kept**
+- Every Read aircraft (the photos you pick, the viewer, a folder, a year, month or day) opens a review window in the middle of the screen. Photos appear as they are read.
+- Three sliders set how sure a **registration**, an **airline** and a **type** must be to be offered. Moving one re-sorts every photo at once (nothing is read again), and they are remembered.
+- Each photo shows what was found, ticked, with how surely it was read, and what was read below your levels. Untick mistakes, then **Accept**, **Dismiss**, or **Accept all shown**. Nothing becomes a keyword until you accept it.
+
+**Read aircraft reads more**
+- Registrations painted under the wing (upside down in a photo from below) are read.
+- Painted types read a little less clearly (`Boeing 777-300ER`) are kept.
+- Airlines that no longer fly are known, for older photos: Jet Airways, Air Berlin, Kingfisher, Germanwings, Monarch, Thomas Cook, Virgin America, US Airways, Continental, Northwest.
+
+**Also**
+- The sidebar tree keeps its place after a right-click action and over a restart.
+
+**Upgrading from 0.5.0:** the first time 0.5.1 opens your library it updates the catalog (schema 16). Older versions cannot open it after that, so install 0.5.1 on every computer that opens the library. Photos read by Read aircraft before 0.5.1 keep their keywords; to review them in the new window, read them again (a folder or dates does this by itself for photos read before).
 
 **This release is for Windows 11 (x64 and ARM64).** macOS will follow in a later release.
 
@@ -10,16 +27,16 @@ Download the installer for your PC:
 
 | PC | File |
 |---|---|
-| Most PCs (Intel or AMD) | `Keepsake_0.5.0_x64_en-US.msi` or `Keepsake_0.5.0_x64-setup.exe` |
-| ARM PCs (Snapdragon) | `Keepsake_0.5.0_arm64_en-US.msi` or `Keepsake_0.5.0_arm64-setup.exe` |
+| Most PCs (Intel or AMD) | `Keepsake_0.5.1_x64_en-US.msi` or `Keepsake_0.5.1_x64-setup.exe` |
+| ARM PCs (Snapdragon) | `Keepsake_0.5.1_arm64_en-US.msi` or `Keepsake_0.5.1_arm64-setup.exe` |
 
 The installers are **not code-signed yet**, so Windows SmartScreen may warn you. Click **More info → Run anyway**.
 
 Everything Keepsake needs is included: FFmpeg, ExifTool and LibRaw. Keepsake connects to the internet only when you ask it to: to download an AI model you turn on in Settings, or to send a photo's small preview to Claude, ChatGPT or Gemini (Tag with AI, Ask in Edit suggestions).
 
-**Upgrading from 0.1.0:** the first time 0.5.0 opens your library it updates the catalog (schema 15). Older versions of Keepsake cannot open it after that, so install 0.5.0 on every computer that opens the library.
+**Upgrading from 0.1.0:** the catalog is updated the first time 0.5.1 opens your library; older versions cannot open it after that.
 
-## New in 0.5.0
+## New in 0.5.0 (included)
 
 **Your existing folders**
 - **Add a folder in place**: photos you already have are catalogued where they are, read-only. Large folders fill in as they are read and resume if stopped; full checks run in the background. **Scan again** (right-click a folder) finds new, changed and removed files.

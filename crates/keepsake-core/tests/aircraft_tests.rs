@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, Rgb, RgbImage};
+use keepsake_core::ai::aircraft::marks::Confidence;
 use keepsake_core::ai::aircraft::ocr::TextLine;
 use keepsake_core::ai::aircraft::scan::{self, Reader, ReaderLoader, JOB_AI_AIRCRAFT, SOURCE};
 use keepsake_core::ai::{Accel, AiError, Embedding};
@@ -138,6 +139,41 @@ impl World {
             .collect()
     }
 
+    /// What the read of `id` offers for review at the default confidence,
+    /// sorted (empty when it has not been read).
+    fn offered(&self, id: AssetId) -> Vec<String> {
+        let items = scan::review_items(&self.cat, &[id]).unwrap();
+        let mut out: Vec<String> = items
+            .first()
+            .map(|it| {
+                scan::offered(it, &Confidence::default())
+                    .unwrap()
+                    .iter()
+                    .map(TagPath::to_lightroom)
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    /// Accept everything offered for `id` at the default confidence.
+    fn accept_offered(&mut self, id: AssetId) -> Vec<String> {
+        let paths: Vec<TagPath> = self
+            .offered(id)
+            .iter()
+            .map(|p| TagPath::parse_lightroom(p).unwrap())
+            .collect();
+        scan::accept(&mut self.cat, &self.lib, id, &paths).unwrap()
+    }
+
+    fn review(&self, id: AssetId) -> Option<scan::Review> {
+        scan::review_items(&self.cat, &[id])
+            .unwrap()
+            .first()
+            .map(|it| it.review)
+    }
+
     fn job_state(&self, id: AssetId) -> JobState {
         self.cat
             .read(|tx| tx.jobs().find(JOB_AI_AIRCRAFT, id))
@@ -216,7 +252,7 @@ const FOUND: [&str; 3] = [
 ];
 
 #[test]
-fn the_aircraft_worker_reads_the_full_size_picture_and_adds_keywords() {
+fn the_aircraft_worker_reads_the_full_size_picture_and_keeps_it_for_review() {
     let mut w = World::new(&["a.jpg", "b.jpg"]);
     let before = hashes(&w.media);
     let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));
@@ -242,11 +278,13 @@ fn the_aircraft_worker_reads_the_full_size_picture_and_adds_keywords() {
         .iter()
         .any(|e| matches!(e, RenderEvent::AircraftReady { accel: Accel::Cpu })));
     assert_eq!(*seen.lock().unwrap(), [(800, 600)], "the photo, not b");
-    let mut want: Vec<String> = FOUND.iter().map(|s| (*s).to_owned()).collect();
-    want.push("Trips|Toronto".to_owned());
-    assert_eq!(w.keywords(a), want);
-    assert!(w.keywords(b).is_empty());
-    // The job says what it added, and who gave each keyword is recorded.
+    // Reading adds no keyword: the read waits for review.
+    assert_eq!(w.keywords(a), ["Trips|Toronto"]);
+    assert!(w.cat.read(|tx| tx.ai().tag_sources(a)).unwrap().is_empty());
+    assert_eq!(w.review(a), Some(scan::Review::Waiting));
+    assert_eq!(w.review(b), None, "b was not read");
+    assert_eq!(w.offered(a), FOUND);
+    // The job says what it found.
     let made = events.iter().find_map(|e| match e {
         RenderEvent::Done { kind, made, .. } if kind == JOB_AI_AIRCRAFT => Some(made.clone()),
         _ => None,
@@ -254,6 +292,14 @@ fn the_aircraft_worker_reads_the_full_size_picture_and_adds_keywords() {
     let mut made = made.unwrap();
     made.sort();
     assert_eq!(made, FOUND);
+    // Accepted: the keywords are added, and who gave each is recorded.
+    let mut added = w.accept_offered(a);
+    added.sort();
+    assert_eq!(added, FOUND);
+    let mut want: Vec<String> = FOUND.iter().map(|s| (*s).to_owned()).collect();
+    want.push("Trips|Toronto".to_owned());
+    assert_eq!(w.keywords(a), want);
+    assert_eq!(w.review(a), Some(scan::Review::Accepted));
     let sources: Vec<(String, String)> = w
         .cat
         .read(|tx| tx.ai().tag_sources(a))
@@ -267,16 +313,21 @@ fn the_aircraft_worker_reads_the_full_size_picture_and_adds_keywords() {
     let (st, _) = scan::status(&w.cat, &[a]).unwrap();
     assert_eq!((st.done, st.pending), (1, 0));
 
-    // Read again: nothing is added twice.
+    // Read again: it waits for review again; accepting adds nothing twice.
     scan::enqueue(&mut w.cat, &[a]).unwrap();
-    let mut again = Vec::new();
     w.service(fake(&AIR_CANADA, &seen))
-        .run(&AtomicBool::new(false), &mut |e| again.push(e.clone()))
+        .run(&AtomicBool::new(false), &mut |_| {})
         .unwrap();
-    assert!(again.iter().any(|e| matches!(
-        e,
-        RenderEvent::Done { kind, made, .. } if kind == JOB_AI_AIRCRAFT && made.is_empty()
-    )));
+    assert_eq!(w.review(a), Some(scan::Review::Waiting));
+    assert_eq!(w.keywords(a), want);
+    assert!(w.accept_offered(a).is_empty());
+    assert_eq!(w.keywords(a), want);
+    // Dismissed: nothing is added; accepting nothing dismisses too.
+    scan::dismiss(&mut w.cat, a).unwrap();
+    assert_eq!(w.review(a), Some(scan::Review::Dismissed));
+    // Only aircraft keywords can be accepted.
+    let other = TagPath::new(["People", "Someone"]).unwrap();
+    assert!(scan::accept(&mut w.cat, &w.lib, a, &[other]).is_err());
     assert_eq!(w.keywords(a), want);
     assert_eq!(hashes(&w.media), before, "originals unchanged");
 }
@@ -296,9 +347,10 @@ fn a_photo_whose_file_is_away_is_read_from_its_thumbnail_or_waits() {
         .unwrap();
     assert_eq!(*seen.lock().unwrap(), [(1024, 768)], "a's thumbnail");
     assert_eq!(
-        w.keywords(a),
+        w.offered(a),
         ["Aircraft|Airline|KLM", "Aircraft|Registration|PH-BQB"]
     );
+    assert!(w.keywords(a).is_empty(), "nothing until accepted");
     // b has no thumbnail either: it waits, it has not failed.
     assert_eq!(w.job_state(a), JobState::Done);
     assert_eq!(w.job_state(b), JobState::Queued);
@@ -332,6 +384,7 @@ fn a_picture_with_nothing_to_read_gets_no_keywords_and_missing_models_are_said()
         .run(&AtomicBool::new(false), &mut |_| {})
         .unwrap();
     assert_eq!(w.job_state(a), JobState::Done);
+    assert!(w.offered(a).is_empty());
     assert!(w.keywords(a).is_empty());
     assert!(w.cat.read(|tx| tx.ai().tag_sources(a)).unwrap().is_empty());
 }
@@ -378,10 +431,10 @@ fn a_folder_is_read_for_its_aircraft_photos_only_and_each_once() {
     assert_eq!(seen.lock().unwrap().len(), 2);
     for id in [a, b] {
         assert!(w
-            .keywords(id)
+            .offered(id)
             .contains(&"Aircraft|Registration|PH-BQB".to_owned()));
     }
-    assert!(w.keywords(c).is_empty() && w.keywords(d).is_empty());
+    assert!(w.offered(c).is_empty() && w.offered(d).is_empty());
     let st = scan::target_status(&w.cat, &air).unwrap();
     assert_eq!((st.items, st.analysed, st.pending), (2, 2, 0));
 
@@ -392,6 +445,20 @@ fn a_folder_is_read_for_its_aircraft_photos_only_and_each_once() {
         .run(&AtomicBool::new(false), &mut |_| {})
         .unwrap();
     assert_eq!(seen.lock().unwrap().len(), 2);
+
+    // A photo read before reads were kept (its job done, no read) is read
+    // again when the folder is asked for.
+    rusqlite::Connection::open(w.lib.catalog_path())
+        .unwrap()
+        .execute("DELETE FROM aircraft_reads WHERE asset_id = ?1", [b])
+        .unwrap();
+    let st = scan::enqueue_target(&mut w.cat, &air).unwrap();
+    assert_eq!((st.analysed, st.pending), (1, 1));
+    w.service(fake(&["KLM"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 3);
+    assert_eq!(w.offered(b), ["Aircraft|Airline|KLM"]);
 
     // The whole drive: d is the one left; Stop drops it.
     let all = Target::Folder {

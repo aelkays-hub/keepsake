@@ -10,15 +10,21 @@
 //!   to the cache. When the file cannot be reached (its drive is not
 //!   connected) the thumbnail is read instead: the airline's name is usually
 //!   big enough there. A video is read from its thumbnail frame.
-//! - **What is kept.** The registration, the airline and the type become
-//!   the item's keywords under [`TAG_PARENT`] (`Aircraft|Registration|C-FJZS`,
-//!   `Aircraft|Airline|Air Canada`, `Aircraft|Type|Boeing 777-300ER`), in the
-//!   catalog and its XMP sidecars like typed ones, with a record that the
-//!   aircraft reader gave them ([`SOURCE`], ADR-039). Keywords the item has
-//!   stay.
+//! - **What is kept.** Every registration, airline and type the text could
+//!   give, each with the confidence it was read with ([`marks::Candidates`]),
+//!   and the type the picture looks like, in `aircraft_reads`, waiting for
+//!   review. Nothing becomes a keyword by itself: in the review window the
+//!   user sets how sure each kind must be ([`marks::Confidence`]), unticks
+//!   mistakes and accepts ([`accept`]) or dismisses ([`dismiss`]). What is
+//!   accepted becomes the item's keywords under [`TAG_PARENT`]
+//!   (`Aircraft|Registration|C-FJZS`, `Aircraft|Airline|Air Canada`,
+//!   `Aircraft|Type|Boeing 777-300ER`), in the catalog and its XMP sidecars
+//!   like typed ones, with a record that the aircraft reader gave them
+//!   ([`SOURCE`], ADR-039). Keywords the item has stay.
 //! - **A folder or dates at once** ([`enqueue_target`]): the items there
 //!   that carry one of [`AIRCRAFT_TAGS`] (Airplane, Helicopter, Airport; as
-//!   a keyword or as an on-device AI tag) and have not been read yet. So
+//!   a keyword or as an on-device AI tag) and have not been read yet (by
+//!   this version: a photo read before reads were kept is read again). So
 //!   Tag photos comes first: a photo with no such tag is not read.
 //! - **The type** is the one painted on the aircraft when it was read;
 //!   otherwise the type the picture looks like, when one stands out
@@ -29,7 +35,7 @@ use std::sync::Arc;
 
 use image::DynamicImage;
 
-use super::marks::{self, Airlines, Marks};
+use super::marks::{self, Airlines, Candidates, Confidence, Marks};
 use super::ocr::{TextLine, TextReader};
 use super::types::TypeList;
 use super::{install, MODEL_ID};
@@ -146,16 +152,25 @@ impl Lists {
     }
 }
 
-/// What reading one item found and did.
+/// What reading one item found (kept for review; no keyword is added).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Outcome {
+    pub candidates: Candidates,
+    /// What the default confidence would give.
     pub marks: Marks,
-    /// The type guessed from the look (only without a painted one).
+    /// The type the picture looks like, when one stands out.
     pub looks_like: Option<String>,
-    /// The keywords added, as `A|B|C`.
-    pub added: Vec<String>,
     /// The picture was read at full size (not from the thumbnail).
     pub full_size: bool,
+}
+
+impl Outcome {
+    /// What it found at the default confidence, as keywords (`A|B|C`).
+    pub fn found(&self) -> Vec<String> {
+        keyword_paths(&self.marks, self.looks_like.as_deref())
+            .map(|p| p.iter().map(TagPath::to_lightroom).collect())
+            .unwrap_or_default()
+    }
 }
 
 /// The picture to read for `asset`, and whether it is the full-size one.
@@ -207,26 +222,24 @@ pub fn keyword_paths(marks: &Marks, looks_like: Option<&str>) -> Result<Vec<TagP
     Ok(out)
 }
 
-/// What a picture shows: its marks and, without a painted type, the type
-/// it looks like. `stored`: the item's embedding, if it has been analysed.
+/// What a picture shows: every possible mark and the type it looks like
+/// (asked for even with a painted type: the user may set the type's
+/// confidence above it). `stored`: the item's embedding, if it has been
+/// analysed.
 pub fn examine(
     reader: &mut dyn Reader,
     lists: &Lists,
     img: &DynamicImage,
     stored: Option<Embedding>,
-) -> Result<(Marks, Option<String>), AiError> {
+) -> Result<(Candidates, Option<String>), AiError> {
     let lines = reader.read(img)?;
-    let marks = marks::interpret(&lines, &lists.airlines);
-    let looks_like = if marks.types.is_empty() {
-        let emb = match stored {
-            Some(e) => Some(e),
-            None => reader.embed(img)?,
-        };
-        emb.and_then(|e| lists.types.guess(&e).map(|(name, _)| name.to_owned()))
-    } else {
-        None
+    let found = marks::candidates(&lines, &lists.airlines);
+    let emb = match stored {
+        Some(e) => Some(e),
+        None => reader.embed(img)?,
     };
-    Ok((marks, looks_like))
+    let looks_like = emb.and_then(|e| lists.types.guess(&e).map(|(name, _)| name.to_owned()));
+    Ok((found, looks_like))
 }
 
 fn lib_err(e: LibraryError) -> AiError {
@@ -236,9 +249,8 @@ fn lib_err(e: LibraryError) -> AiError {
     }
 }
 
-/// One aircraft job: read `asset`'s picture and add what it shows to the
-/// asset's keywords (those it has stay), recording that the aircraft
-/// reader gave them.
+/// One aircraft job: read `asset`'s picture and keep what it shows for
+/// review (a read before is replaced, and waits for review again).
 pub fn read_asset(
     cat: &mut Catalog,
     lib: &Library,
@@ -253,26 +265,148 @@ pub fn read_asset(
         .read(|tx| tx.ai().analysis(asset))?
         .filter(|a| a.model == crate::ai::MODEL_ID)
         .and_then(|a| Embedding::from_quantized(&a.embedding, a.emb_scale).ok());
-    let (marks, looks_like) = examine(reader, lists, &img, stored)?;
+    let (candidates, looks_like) = examine(reader, lists, &img, stored)?;
     drop(img);
-    let paths = keyword_paths(&marks, looks_like.as_deref())?;
+    let json = serde_json::to_string(&candidates)
+        .map_err(|e| AiError::Image(format!("the read could not be kept: {e}")))?;
+    let now = crate::jobs::now_ms();
+    cat.write(|tx| {
+        tx.ai()
+            .put_aircraft_read(asset, &json, looks_like.as_deref(), full_size, now)
+    })?;
+    let out = Outcome {
+        marks: candidates.at(&Confidence::default()),
+        candidates,
+        looks_like,
+        full_size,
+    };
+    tracing::info!(asset = %asset, model = MODEL_ID, full_size, "aircraft read: {:?}", out.found());
+    Ok(out)
+}
+
+/// Where a read stands in review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Review {
+    /// Read; nothing accepted yet.
+    Waiting,
+    /// The user accepted (some of) it: those are the keywords.
+    Accepted,
+    /// The user said there is nothing to keep.
+    Dismissed,
+}
+
+impl Review {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Waiting => "waiting",
+            Self::Accepted => "accepted",
+            Self::Dismissed => "dismissed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "accepted" => Self::Accepted,
+            "dismissed" => Self::Dismissed,
+            _ => Self::Waiting,
+        }
+    }
+}
+
+/// One read photo, for the review window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewItem {
+    pub asset: AssetId,
+    pub candidates: Candidates,
+    pub looks_like: Option<String>,
+    pub full_size: bool,
+    pub made_ms: i64,
+    pub review: Review,
+}
+
+/// The reads of `ids`, in their order (those not read yet are left out).
+pub fn review_items(cat: &Catalog, ids: &[AssetId]) -> Result<Vec<ReviewItem>, AiError> {
+    let rows = cat.read(|tx| {
+        let mut out = Vec::new();
+        for id in ids {
+            if let Some(r) = tx.ai().aircraft_read(*id)? {
+                out.push(r);
+            }
+        }
+        Ok::<_, crate::catalog::CatalogError>(out)
+    })?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ReviewItem {
+            asset: r.asset_id,
+            // A read this version cannot understand counts as no mark.
+            candidates: serde_json::from_str(&r.candidates).unwrap_or_default(),
+            looks_like: r.looks_like,
+            full_size: r.full_size,
+            made_ms: r.made_ms,
+            review: Review::parse(&r.review),
+        })
+        .collect())
+}
+
+/// The keywords to offer for a read at `conf`: its marks, then the type it
+/// looks like when no painted type is sure enough.
+pub fn offered(item: &ReviewItem, conf: &Confidence) -> Result<Vec<TagPath>, AiError> {
+    keyword_paths(&item.candidates.at(conf), item.looks_like.as_deref())
+}
+
+/// Is `path` a keyword the aircraft reader can give
+/// (`Aircraft|Registration|…`, `…|Airline|…`, `…|Type|…`)?
+pub fn is_aircraft_keyword(path: &TagPath) -> bool {
+    let parts = path.segments();
+    parts.len() == 3
+        && parts[0] == TAG_PARENT
+        && matches!(parts[1].as_str(), "Registration" | "Airline" | "Type")
+}
+
+/// Accept a read: `paths` (those the user kept ticked) become the item's
+/// keywords, recorded as given by the aircraft reader. Returns the keywords
+/// added (`A|B|C`). Paths that are not aircraft keywords are refused.
+pub fn accept(
+    cat: &mut Catalog,
+    lib: &Library,
+    asset: AssetId,
+    paths: &[TagPath],
+) -> Result<Vec<String>, AiError> {
+    if let Some(p) = paths.iter().find(|p| !is_aircraft_keyword(p)) {
+        return Err(AiError::Image(format!(
+            "{} is not an aircraft keyword",
+            p.to_lightroom()
+        )));
+    }
     let added: Vec<String> = if paths.is_empty() {
         Vec::new()
     } else {
         MetadataService::new(lib, cat)
-            .add_ai_keywords(asset, SOURCE, &paths)
+            .add_ai_keywords(asset, SOURCE, paths)
             .map_err(lib_err)?
             .iter()
             .map(TagPath::to_lightroom)
             .collect()
     };
-    tracing::info!(asset = %asset, model = MODEL_ID, full_size, "aircraft read: {added:?}");
-    Ok(Outcome {
-        marks,
-        looks_like,
-        added,
-        full_size,
-    })
+    let now = crate::jobs::now_ms();
+    let review = if paths.is_empty() {
+        Review::Dismissed
+    } else {
+        Review::Accepted
+    };
+    cat.write(|tx| tx.ai().set_aircraft_review(asset, review.as_str(), now))?;
+    Ok(added)
+}
+
+/// Dismiss a read: nothing becomes a keyword.
+pub fn dismiss(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
+    let now = crate::jobs::now_ms();
+    cat.write(|tx| {
+        tx.ai()
+            .set_aircraft_review(asset, Review::Dismissed.as_str(), now)
+    })?;
+    Ok(())
 }
 
 /// Queue `ids` to be read (again, if they were before), ahead of the
@@ -345,7 +479,17 @@ fn status_of(cat: &Catalog, ids: &[AssetId]) -> Result<RangeStatus, AiError> {
 /// read, `pending` those waiting.
 pub fn enqueue_target(cat: &mut Catalog, target: &Target) -> Result<RangeStatus, AiError> {
     let ids = target_items(cat, target)?;
-    enqueue_ids(cat, &ids, false)?;
+    // Read before reads were kept: read again, to have something to review.
+    let unkept = cat.read(|tx| {
+        let mut out = Vec::new();
+        for id in &ids {
+            if tx.ai().aircraft_read(*id)?.is_none() {
+                out.push(*id);
+            }
+        }
+        Ok::<_, crate::catalog::CatalogError>(out)
+    })?;
+    enqueue_ids(cat, &unkept, true)?;
     status_of(cat, &ids)
 }
 
@@ -433,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn the_look_is_only_asked_for_without_a_painted_type() {
+    fn the_look_is_asked_for_and_marks_come_at_a_confidence() {
         let lists = Lists::builtin().unwrap();
         let img = DynamicImage::new_rgb8(8, 8);
         let mut painted = Fake {
@@ -441,10 +585,13 @@ mod tests {
             embedding: None,
             embedded: 0,
         };
-        let (marks, looks) = examine(&mut painted, &lists, &img, None).unwrap();
+        let (found, looks) = examine(&mut painted, &lists, &img, None).unwrap();
+        let marks = found.at(&Confidence::default());
         assert_eq!(marks.airlines, ["Air Canada"]);
         assert_eq!(marks.types, ["Boeing 787-9"]);
-        assert_eq!((looks, painted.embedded), (None, 0));
+        // The look is asked for too (the type's confidence may be set
+        // above the painted one), but no encoder: no guess.
+        assert_eq!((looks, painted.embedded), (None, 1));
 
         // No painted type and no image encoder: no guess.
         let mut bare = Fake {
@@ -452,8 +599,69 @@ mod tests {
             embedding: None,
             embedded: 0,
         };
-        let (marks, looks) = examine(&mut bare, &lists, &img, None).unwrap();
-        assert_eq!(marks.airlines, ["KLM"]);
+        let (found, looks) = examine(&mut bare, &lists, &img, None).unwrap();
+        assert_eq!(found.at(&Confidence::default()).airlines, ["KLM"]);
         assert_eq!((looks, bare.embedded), (None, 1));
+    }
+
+    #[test]
+    fn only_aircraft_keywords_can_be_accepted() {
+        let ok = TagPath::new(["Aircraft", "Registration", "VT-JEX"]).unwrap();
+        assert!(is_aircraft_keyword(&ok));
+        for bad in [
+            TagPath::new(["People", "Ahmad"]).unwrap(),
+            TagPath::new(["Aircraft", "Pilot", "Ahmad"]).unwrap(),
+            TagPath::new(["Aircraft", "Registration"]).unwrap(),
+        ] {
+            assert!(!is_aircraft_keyword(&bad), "{}", bad.to_lightroom());
+        }
+        assert_eq!(Review::parse("accepted"), Review::Accepted);
+        assert_eq!(Review::parse(Review::Dismissed.as_str()), Review::Dismissed);
+        assert_eq!(Review::parse("?"), Review::Waiting);
+    }
+
+    #[test]
+    fn what_is_offered_follows_the_confidence() {
+        let item = ReviewItem {
+            asset: AssetId(uuid::Uuid::nil()),
+            candidates: Candidates {
+                registrations: vec![("VT-JEX".into(), 0.97)],
+                airlines: vec![("Jet Airways".into(), 0.82)],
+                types: vec![("Boeing 777-300ER".into(), 0.66)],
+            },
+            looks_like: Some("Boeing 777".into()),
+            full_size: true,
+            made_ms: 0,
+            review: Review::Waiting,
+        };
+        let at = |r: f32, a: f32, t: f32| -> Vec<String> {
+            offered(
+                &item,
+                &Confidence {
+                    registration: r,
+                    airline: a,
+                    aircraft_type: t,
+                },
+            )
+            .unwrap()
+            .iter()
+            .map(TagPath::to_lightroom)
+            .collect()
+        };
+        // The defaults: the airline (0.82) and the painted type (0.66) are
+        // not sure enough; the look stands in for the type.
+        assert_eq!(
+            at(0.8, 0.85, 0.7),
+            ["Aircraft|Registration|VT-JEX", "Aircraft|Type|Boeing 777"]
+        );
+        assert_eq!(
+            at(0.8, 0.8, 0.6),
+            [
+                "Aircraft|Registration|VT-JEX",
+                "Aircraft|Airline|Jet Airways",
+                "Aircraft|Type|Boeing 777-300ER"
+            ]
+        );
+        assert_eq!(at(0.99, 0.99, 0.99), ["Aircraft|Type|Boeing 777"]);
     }
 }

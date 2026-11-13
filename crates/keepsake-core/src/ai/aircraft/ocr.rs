@@ -56,6 +56,11 @@ const REC_MAX_WIDTH: u32 = 2400;
 pub const CROP_MAX_HEIGHT: f32 = 96.0;
 /// A line read with less confidence than this is dropped.
 pub const TEXT_MIN: f32 = 0.5;
+/// A line read with less confidence than this is read again turned half a
+/// turn, and the better reading kept: a straightened line can come out
+/// upside down (a registration painted along the wing, read from below),
+/// and the recogniser reads only upright text.
+pub const TURN_BELOW: f32 = 0.95;
 
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
@@ -355,6 +360,21 @@ fn sample(img: &RgbImage, x: f32, y: f32) -> [f32; 3] {
     out
 }
 
+/// The same rectangle the other way up: read from its far end, so its
+/// letters turn half a turn.
+pub fn turned(quad: &Quad) -> Quad {
+    [quad[2], quad[3], quad[0], quad[1]]
+}
+
+/// The better of two readings of one line: the more confident.
+pub fn better(a: (String, f32), b: (String, f32)) -> (String, f32) {
+    if b.1 > a.1 && !b.0.is_empty() {
+        b
+    } else {
+        a
+    }
+}
+
 /// The part of `img` inside `quad`, straightened (the quad's first side
 /// along the top), at the picture's own scale, or smaller so that it is at
 /// most [`CROP_MAX_HEIGHT`] high. `None` when it is empty.
@@ -581,7 +601,19 @@ impl TextReader {
             let Some(line) = crop(&rgb, &quad) else {
                 continue;
             };
-            let (text, score) = self.read_line(&line)?;
+            let mut read = self.read_line(&line)?;
+            let mut quad = quad;
+            if read.1 < TURN_BELOW {
+                let other = turned(&quad);
+                if let Some(line) = crop(&rgb, &other) {
+                    let again = self.read_line(&line)?;
+                    if again.1 > read.1 && !again.0.is_empty() {
+                        quad = other;
+                    }
+                    read = better(read, again);
+                }
+            }
+            let (text, score) = read;
             if !text.is_empty() && score >= TEXT_MIN {
                 out.push(TextLine { text, score, quad });
             }
@@ -594,6 +626,32 @@ impl TextReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turned_line_is_cut_out_upside_down() {
+        // Left half dark, right half light: turned, light comes first.
+        let img = RgbImage::from_fn(40, 10, |x, _| Rgb([if x < 20 { 10 } else { 240 }; 3]));
+        let quad: Quad = [[0.0, 0.0], [40.0, 0.0], [40.0, 10.0], [0.0, 10.0]];
+        let upright = crop(&img, &quad).unwrap();
+        let other = crop(&img, &turned(&quad)).unwrap();
+        assert_eq!(other.dimensions(), upright.dimensions());
+        assert!(upright.get_pixel(2, 5).0[0] < 50 && upright.get_pixel(37, 5).0[0] > 200);
+        assert!(other.get_pixel(2, 5).0[0] > 200 && other.get_pixel(37, 5).0[0] < 50);
+        // Pixel for pixel, half a turn.
+        for (x, y, p) in upright.enumerate_pixels() {
+            assert_eq!(*p, *other.get_pixel(39 - x, 9 - y));
+        }
+        assert_eq!(turned(&turned(&quad)), quad);
+    }
+
+    #[test]
+    fn the_more_confident_reading_is_kept() {
+        let a = ("a000000".to_owned(), 0.64);
+        let b = ("VT-JEX".to_owned(), 0.97);
+        assert_eq!(better(a.clone(), b.clone()).0, "VT-JEX");
+        assert_eq!(better(b.clone(), a.clone()).0, "VT-JEX");
+        assert_eq!(better(a.clone(), (String::new(), 0.99)).0, "a000000");
+    }
 
     #[test]
     fn the_detector_size_is_a_multiple_of_32_and_never_bigger() {

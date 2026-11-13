@@ -972,7 +972,7 @@ impl RenderService {
                         kind: job.kind.clone(),
                         asset: job.asset_id,
                         ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
-                        made: out.added,
+                        made: out.found(),
                         encoder: None,
                     });
                 }

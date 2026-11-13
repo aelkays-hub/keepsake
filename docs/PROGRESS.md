@@ -37,6 +37,8 @@
 | — | Read aircraft: the registration, airline and type of the aircraft in the photos you pick, read on this computer (ADR-041) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Edit suggestions: right-click a photo for steps to improve it in Photoshop and Topaz Photo, measured here and, if asked, from an AI (ADR-042) | 🟡 Built and tested on Windows; CI not run yet |
 | — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -61,6 +63,36 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Version 0.5.1 (2026-11-13)
+
+- **Asked:** "push this change to v0.5"; chose a new release 0.5.1 (over replacing the published 0.5.0, or only merging).
+- **Done:** version 0.5.1 everywhere it is set; `docs/RELEASE_NOTES.md` leads with what is new in 0.5.1 (the review window, reading more, the tree keeping its place, the catalog upgrade to schema 16). Goes to `main` in one pull request from `feat/aircraft-review`, which holds pull request 37.
+- Before installing a test build on the owner's library, its catalog was backed up and checked (`E:\Pictures\2026\catalog-backup-20261113-045121-before-v16\`: integrity ok, schema 15, the row counts of assets, files, tags, jobs and AI sources equal to the live one).
+
+## Read aircraft: you set the confidence and accept what is kept (2026-11-13)
+
+- **Asked:** "make the confidence something that the user sets, and even when doing batch, create a new window in middle of screen and allow the user to play with the confidence … and the user will decide what to accept".
+- **Decided** (ADR-041, addition; each asked): the sliders re-sort saved reads at once (nothing read again); only what is accepted becomes keywords; every Read aircraft opens the window; one slider per kind.
+- **Built:**
+  - Core: `marks::{Confidence, Candidates, candidates}`; `scan::{review_items, offered, accept, dismiss, Review}`; schema v16 `aircraft_reads`; reading keeps candidates and adds nothing; folders and dates re-read photos read before; settings `ai.aircraft_{registration,airline,type}_pct` (80, 85, 70). CLI `scan --accept`.
+  - App: `aircraft_target_ids`, `aircraft_review`, `aircraft_set_confidence`, `aircraft_accept`, `aircraft_dismiss`; the levels in `AircraftStatus`.
+  - UI: `AircraftReviewWindow` from the photo menu, the viewer, folders and dates; the levels in Settings → Read aircraft; the mock backend.
+  - Also: clippy on Rust 1.100 (`needless_bool` in `render::needs_render`, on pull request 37's branch).
+- **Tests, run here (Windows):** core `ai::aircraft`, migrations, settings (35), `aircraft_tests` (4, now: nothing added until accepted, accept and dismiss, only aircraft keywords, old reads read again), `catalog_tests`; app lib tests (bindings); Vitest (72, +4 for the window's helpers); mocked Playwright `aircraft` (7, rewritten for the window: sliders, untick, accept, dismiss, accept all, Stop, Open Settings, folder, year), `ai`, `folder-tree`, `calendar-tree`, `viewer`, `a11y`, `keyboard`, `tree-place`; fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
+- **Not run:** in the real app window on the owner's library; CI. On branch `feat/aircraft-review` (from `fix/aircraft-reading`), not pushed. A library opened by this build moves to schema v16.
+
+## Read aircraft reads more of what is painted (2026-11-12)
+
+- **Asked:** "the module that reads aircraft information seems to be not very accurate, as there are pictures that are very clear with registration type and aircraft type that are not being recognized" (DSC05834: the registration under the wing; DSC05972: the type by the door).
+- **Found:** the registration under the wing reached the text recogniser upside down; the type was read (`BoeinG 777-300eR`, 0.81) but dropped below the 0.85 cut-off; Jet Airways was not in the airline list.
+- **Fixed** (ADR-041, addition): unsure lines are also read turned half a turn; painted types count from 0.7; airlines that no longer fly are listed.
+- **Tests, run here (Windows):** `ai::aircraft` unit tests (25, +3: a turned crop, the better reading, the owner's Jet Airways lines), `aircraft_tests`; clippy, fmt. The two photos and 30 of the owner's Airplane photos read with the CLI (copies; originals only read): 18 marks kept, 0 lost, 1 gained.
+
+## Release 0.5.0 published (2026-11-12)
+
+- The first run of the Release workflow failed: the x64 job uploaded `keepsake.exe` for the smoke test, but `tauri build` builds only the app. Pull request 36 adds a *Build CLI* step. Its macOS check could not get a runner (GitHub capacity), so the owner chose to merge it with Windows green only ("merge with out the macos"); the change touches only the Windows release workflow.
+- Tag `v0.5.0` was moved to that merge (the retry in `scripts/release.md`); every release job passed, including the install test, and the owner published the release.
 
 ## Version 0.5.0 (2026-11-11)
 
