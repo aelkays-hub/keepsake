@@ -294,7 +294,7 @@ fn words(text: &str) -> Vec<String> {
 /// read: `TRAINSA` for `TRANSAT` (its `T` behind the engine).
 fn cut_off(read: &str, name: &str) -> bool {
     let (r, n): (Vec<char>, Vec<char>) = (read.chars().collect(), name.chars().collect());
-    if n.len() < 7 || r.len() < 6 || r.len() >= n.len() + 1 {
+    if n.len() < 7 || r.len() < 6 || r.len() > n.len() {
         return false;
     }
     let least = (n.len() * 7).div_ceil(10);
