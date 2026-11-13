@@ -253,6 +253,12 @@ pub trait Http: Send + Sync {
         headers: &[(&str, &str)],
         body: &[u8],
     ) -> Result<(u16, String), String>;
+
+    /// A GET (the registration lookup, ADR-041).
+    fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+        let _ = (url, headers);
+        Err("this client only posts".into())
+    }
 }
 
 /// [`Http`] over HTTPS with ureq.
@@ -290,6 +296,20 @@ impl Http for UreqHttp {
             req = req.header(*k, *v);
         }
         let mut resp = req.send(body).map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        let text = resp
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        Ok((status, text))
+    }
+
+    fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+        let mut req = self.agent.get(url);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let mut resp = req.call().map_err(|e| e.to_string())?;
         let status = resp.status().as_u16();
         let text = resp
             .body_mut()

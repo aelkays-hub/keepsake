@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, Rgb, RgbImage};
+use keepsake_core::ai::aircraft::lookup;
 use keepsake_core::ai::aircraft::marks::Confidence;
 use keepsake_core::ai::aircraft::ocr::TextLine;
 use keepsake_core::ai::aircraft::scan::{self, Reader, ReaderLoader, JOB_AI_AIRCRAFT, SOURCE};
@@ -520,4 +521,171 @@ fn the_real_models_read_real_photos() {
         "{why:?}"
     );
     assert_eq!(hashes(&dir), before, "originals unchanged");
+}
+
+/// Stands in for adsbdb: knows C-FJZS (an Air Canada 777-200LR); counts
+/// what it is asked.
+struct FakeLookup {
+    asked: Mutex<Vec<String>>,
+}
+
+impl lookup::Lookup for FakeLookup {
+    fn lookup(&self, registration: &str) -> Result<lookup::Found, AiError> {
+        self.asked.lock().unwrap().push(registration.to_owned());
+        let body = r#"{"response":{"aircraft":{"type":"777 233LR","icao_type":"B77L","manufacturer":"Boeing","registered_owner":"Air Canada","registered_owner_country_name":"Canada"}}}"#;
+        let status = if registration == "C-FJZS" { 200 } else { 404 };
+        lookup::parse(
+            registration,
+            status,
+            body,
+            &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+        )
+    }
+}
+
+#[test]
+fn registrations_are_looked_up_once_and_offered_beside_what_was_read() {
+    let mut w = World::new(&["a.jpg"]);
+    let a = w.asset("a.jpg");
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    let registry = Arc::new(FakeLookup {
+        asked: Mutex::new(Vec::new()),
+    });
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    // Painted: a 777-300ER; the registry says 777-200LR.
+    w.service(fake(&AIR_CANADA, &seen))
+        .with_lookup(registry.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(*registry.asked.lock().unwrap(), ["C-FJZS"]);
+    let found = lookup::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert_eq!(found.aircraft_type.as_deref(), Some("Boeing 777-200LR"));
+
+    let item = &scan::review_items(&w.cat, &[a]).unwrap()[0];
+    let conf = Confidence::default();
+    let found = scan::found_for(&w.cat, item, &conf).unwrap();
+    let offer = scan::offer(item, &conf, &found).unwrap();
+    let names = |v: &[TagPath]| -> Vec<String> { v.iter().map(TagPath::to_lightroom).collect() };
+    assert_eq!(
+        names(&offer.keywords),
+        [
+            "Aircraft|Registration|C-FJZS",
+            "Aircraft|Airline|Air Canada",
+            "Aircraft|Type|Boeing 777-300ER",
+            "Aircraft|Type|Boeing 777-200LR",
+        ]
+    );
+    // The lookup gave the airline (also read) and its type; the painted
+    // type it disagrees with starts unticked.
+    assert_eq!(
+        names(&offer.from_lookup),
+        [
+            "Aircraft|Airline|Air Canada",
+            "Aircraft|Type|Boeing 777-200LR"
+        ]
+    );
+    assert_eq!(names(&offer.unticked), ["Aircraft|Type|Boeing 777-300ER"]);
+
+    // Read again: kept, not asked again.
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    w.service(fake(&AIR_CANADA, &seen))
+        .with_lookup(registry.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(registry.asked.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn photos_moments_apart_from_the_same_camera_are_neighbours_when_alike() {
+    use keepsake_core::ai::Embedding;
+    use keepsake_core::catalog::AiAnalysis;
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"]);
+    let [a, b, c, d, e] = ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"].map(|n| w.asset(n));
+    // a at t; b 3 s after and alike; c 6 s before, a different plane;
+    // d 30 s after; e 2 s after, another camera.
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, t, cam) in [
+        (a, 1_000_000i64, "ILCE-7M3"),
+        (b, 1_003_000, "ILCE-7M3"),
+        (c, 994_000, "ILCE-7M3"),
+        (d, 1_030_000, "ILCE-7M3"),
+        (e, 1_002_000, "ILCE-6400"),
+    ] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2, camera_make = 'SONY', camera_model = ?3 WHERE id = ?1",
+            rusqlite::params![id, t, cam],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let vec = |k: f32| Embedding::new((0..64).map(|i| ((i as f32) * k).sin()).collect()).unwrap();
+    for (id, v) in [(a, vec(0.3)), (b, vec(0.301)), (c, vec(1.7))] {
+        let (q, scale) = v.quantize();
+        w.cat
+            .write(|tx| {
+                tx.ai().put_analysis(&AiAnalysis {
+                    asset_id: id,
+                    model: keepsake_core::ai::MODEL_ID.to_owned(),
+                    embedding: q.clone(),
+                    emb_scale: scale,
+                    dhash: 0,
+                    made_ms: 0,
+                    tag_list: 0,
+                })
+            })
+            .unwrap();
+    }
+    let n = scan::neighbours(&w.cat, a).unwrap();
+    let ids: Vec<AssetId> = n.iter().map(|x| x.asset).collect();
+    assert_eq!(
+        ids,
+        [b, c],
+        "nearest first; not d (30 s) nor e (another camera)"
+    );
+    assert_eq!(n[0].ms, 3_000);
+    assert_eq!(n[1].ms, -6_000);
+    assert!(n[0].alike && n[0].similarity.unwrap() > 0.99);
+    assert!(!n[1].alike, "{:?}", n[1].similarity);
+    // A photo with no capture time has none.
+    assert!(scan::neighbours(&w.cat, d)
+        .unwrap()
+        .iter()
+        .all(|x| x.asset != e));
+}
+
+#[test]
+fn other_photos_of_the_same_registration_get_what_they_lack() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg"]);
+    let [a, b, c] = ["a.jpg", "b.jpg", "c.jpg"].map(|n| w.asset(n));
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let reg = p("Aircraft|Registration|C-FJZS");
+    let airline = p("Aircraft|Airline|Air Canada");
+    let kind = p("Aircraft|Type|Boeing 777-300ER");
+    let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+    svc.set_user_tags(a, &[reg.clone(), airline.clone(), kind.clone()])
+        .unwrap();
+    svc.set_user_tags(b, &[reg.clone()]).unwrap();
+    svc.set_user_tags(c, &[reg.clone(), airline.clone()])
+        .unwrap();
+    let wanted = [airline.clone(), kind.clone()];
+    let mut others = scan::same_registration(&w.cat, "C-FJZS", &wanted, &[a]).unwrap();
+    others.sort_by_key(|(id, _)| *id);
+    let mut want = vec![
+        (b, vec![airline.clone(), kind.clone()]),
+        (c, vec![kind.clone()]),
+    ];
+    want.sort_by_key(|(id, _)| *id);
+    assert_eq!(others, want);
+    assert_eq!(
+        scan::add_to(&mut w.cat, &w.lib, &[b, c], &wanted).unwrap(),
+        2
+    );
+    assert!(scan::same_registration(&w.cat, "C-FJZS", &wanted, &[a])
+        .unwrap()
+        .is_empty());
+    assert!(w
+        .keywords(b)
+        .contains(&"Aircraft|Type|Boeing 777-300ER".to_owned()));
+    // Only aircraft keywords.
+    assert!(scan::add_to(&mut w.cat, &w.lib, &[b], &[p("People|Someone")]).is_err());
 }

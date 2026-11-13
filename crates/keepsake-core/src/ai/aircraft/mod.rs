@@ -12,6 +12,7 @@
 //!   `Aircraft|…` keywords out. Originals are only read.
 
 pub mod install;
+pub mod lookup;
 pub mod marks;
 pub mod ocr;
 pub mod scan;

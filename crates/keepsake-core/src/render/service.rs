@@ -273,6 +273,8 @@ pub struct RenderService {
     /// Loads the aircraft worker's reader (ADR-041); the installed models
     /// when not set.
     aircraft: Option<ReaderLoader>,
+    /// Looks read registrations up online (ADR-041), when set.
+    lookup: Option<Arc<dyn crate::ai::aircraft::lookup::Lookup>>,
 }
 
 struct Shared {
@@ -311,12 +313,19 @@ impl RenderService {
             adviser: None,
             faces: None,
             aircraft: None,
+            lookup: None,
         }
     }
 
     /// Load the aircraft worker's reader with this (tests use a stand-in).
     pub fn with_aircraft(mut self, loader: ReaderLoader) -> Self {
         self.aircraft = Some(loader);
+        self
+    }
+
+    /// Look the registrations read up online with this (ADR-041).
+    pub fn with_lookup(mut self, lookup: Arc<dyn crate::ai::aircraft::lookup::Lookup>) -> Self {
+        self.lookup = Some(lookup);
         self
     }
 
@@ -962,6 +971,9 @@ impl RenderService {
                 &lists,
                 job.asset_id,
             );
+            if let (Ok(out), Some(lookup)) = (&read, self.lookup.as_deref()) {
+                self.look_up(cat, cancel, lookup, out);
+            }
             match read {
                 Ok(out) => {
                     let now = now_ms();
@@ -983,6 +995,39 @@ impl RenderService {
             }
         }
         Ok(())
+    }
+
+    /// Look a read's registrations up (those read surely enough, not asked
+    /// about before), one at a time with a pause between. A failure is
+    /// logged: the read stands without it.
+    fn look_up(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        lookup: &dyn crate::ai::aircraft::lookup::Lookup,
+        out: &aircraft_scan::Outcome,
+    ) {
+        use crate::ai::aircraft::lookup as lk;
+        for (reg, score) in out.candidates.registrations.iter().take(lk::MAX_PER_PHOTO) {
+            if *score < lk::LOOKUP_MIN || cancel.load(Ordering::SeqCst) {
+                continue;
+            }
+            match lk::kept(cat, reg) {
+                Ok(Some(_)) => continue,
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::debug!("aircraft lookup: {e}");
+                    continue;
+                }
+            }
+            match lk::lookup_cached(cat, Some(lookup), reg) {
+                Ok(f) => {
+                    tracing::info!(registration = %reg, known = f.is_some_and(|f| f.known), "aircraft lookup")
+                }
+                Err(e) => tracing::warn!(registration = %reg, "aircraft lookup: {e}"),
+            }
+            Self::sleep(cancel, lk::MIN_GAP);
+        }
     }
 
     /// An AI job's error as a render error. Without a thumbnail, it is made
