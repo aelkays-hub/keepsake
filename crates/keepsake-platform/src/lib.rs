@@ -7,6 +7,7 @@ pub mod devices;
 pub mod fake;
 pub mod power;
 pub mod reveal;
+pub mod running;
 pub mod secrets;
 
 #[cfg(windows)]
@@ -23,6 +24,7 @@ pub use fake::FakeDevices;
 pub use keepsake_core::devices::{DeviceEvent, VolumeIdentity};
 pub use power::{on_battery, power_source, PowerSource};
 pub use reveal::{file_manager_name, FakeReveal, FileReveal, SystemReveal};
+pub use running::program_running;
 
 /// End Keepsake's helper processes (ExifTool, FFmpeg, …) when the app ends,
 /// however it ends; call once at start-up. On Windows the app joins a job

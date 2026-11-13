@@ -76,6 +76,33 @@ pub fn mapped_drives() -> Vec<(String, String)> {
     out
 }
 
+/// Programs that, when already running, do not show a file handed to a
+/// new launch (seen with Topaz Photo, 2026-11-13): matched in the
+/// program's file name, ignoring case.
+pub const IGNORE_FILES_WHEN_OPEN: [&str; 1] = ["topaz"];
+
+/// Does `app` (its path) ignore a file handed to it while it is open?
+pub fn ignores_files_when_open(app: &str) -> bool {
+    let name = Path::new(app)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    IGNORE_FILES_WHEN_OPEN.iter().any(|p| name.contains(p))
+}
+
+/// What the item menu says after opening a file with `name`: that it
+/// opened, or, when the program was already open and ignores files handed
+/// to it then, what to do.
+pub fn opened_line(name: &str, already_open_and_ignores: bool) -> String {
+    if already_open_and_ignores {
+        format!(
+            "{name} was already open, so it may not show this photo: close {name} and choose Open in again."
+        )
+    } else {
+        format!("Opened with {name}")
+    }
+}
+
 /// Launch it, detached (the app keeps running after Keepsake). The file is
 /// only handed over; Keepsake does not change it.
 pub fn open(path: &Path, app: Option<&str>) -> Result<(), LibraryError> {
@@ -138,6 +165,18 @@ fn outlive_app(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn topaz_is_said_to_ignore_files_while_open_and_photoshop_is_not() {
+        assert!(ignores_files_when_open(
+            r"C:\Program Files\Topaz Labs LLC\Topaz Photo\Topaz Photo.exe"
+        ));
+        assert!(!ignores_files_when_open(
+            r"C:\Program Files\Adobe\Adobe Photoshop 2026\Photoshop.exe"
+        ));
+        assert_eq!(opened_line("Photoshop", false), "Opened with Photoshop");
+        assert!(opened_line("Topaz Photo", true).starts_with("Topaz Photo was already open"));
+    }
 
     #[test]
     fn a_share_is_given_by_its_drive_letter_when_mapped() {

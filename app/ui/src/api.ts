@@ -238,7 +238,9 @@ export const api = {
   fullImage: (id: string, member: MemberDto) => invoke<string>("full_image", { id, member }),
   assetMembers: (id: string) => invoke<AssetMembers>("asset_members", { id }),
   videoInfo: (id: string) => invoke<VideoInfo>("video_info", { id }),
-  /** Open in another application: `app` from `openChoices` ("" = system default), or the default. */
+  /** Open in another application: `app` from `openChoices` ("" = system default), or the default.
+   * Returns the line to show ("Opened with Photoshop", or what to do when
+   * the program was already open and may not show the photo). */
   openExternal: (id: string, member: MemberDto, app: string | null = null) =>
     invoke<string>("open_external", { id, member, app }),
   /** Every metadata tag of an item's file (ExifTool; read only). */

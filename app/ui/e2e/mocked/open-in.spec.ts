@@ -20,8 +20,8 @@ const name = `DSC${String(photo).padStart(5, "0")}`;
 const PS = "C:\\Program Files\\Adobe\\Adobe Photoshop 2026\\Photoshop.exe";
 const TOPAZ = "C:\\Program Files\\Topaz Labs LLC\\Topaz Photo\\Topaz Photo.exe";
 
-async function setUp(page: Page) {
-  await page.goto("/?items=2000");
+async function setUp(page: Page, query = "") {
+  await page.goto(`/?items=2000${query}`);
   await expect(page.getByTestId("count")).toHaveText("2,000 items");
   await page.keyboard.press("Control+,");
   const screen = page.getByTestId("settings-screen");
@@ -108,4 +108,19 @@ test("in the viewer, Escape closes the menu but not the viewer", async ({ page }
       member: "primary",
       app: null,
     });
+});
+
+test("Topaz Photo already open: the note says to close it", async ({ page }) => {
+  await setUp(page, "&topazOpen=1");
+  const inspector = page.getByTestId("inspector");
+  await inspector.getByTestId("open-in").click();
+  const menu = inspector.getByRole("menu", { name: "Open in" });
+  await menu.getByRole("menuitem", { name: "Topaz Photo" }).click();
+  await expect(inspector.getByTestId("opened")).toHaveText(
+    "Topaz Photo was already open, so it may not show this photo: close Topaz Photo and choose Open in again.",
+  );
+  // Photoshop takes files while open: no note.
+  await inspector.getByTestId("open-in").click();
+  await menu.getByRole("menuitem", { name: /Photoshop/ }).click();
+  await expect(inspector.getByTestId("opened")).toHaveText("Opened with Photoshop");
 });

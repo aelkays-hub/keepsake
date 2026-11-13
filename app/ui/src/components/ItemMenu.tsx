@@ -62,8 +62,8 @@ export function ItemMenu({ x, y, id, name, onClose, onNote, actions }: ItemMenuP
     setProblem(null);
     api
       .openExternal(id, "primary", c.app)
-      .then((app) => {
-        onNote?.(`Opened with ${app}`);
+      .then((line) => {
+        onNote?.(line);
         onClose();
       })
       .catch((e) => setProblem(String(e)));

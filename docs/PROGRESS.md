@@ -71,6 +71,7 @@
 - **Found:** Show in Explorer took only `\\?\` off a network path, handing Explorer `UNC\MYCLOUD-92LNT0\…`, which is no path. Open in gave the share path `\\MYCLOUD-92LNT0\…`, which some programs (Topaz Photo) do not open; Photoshop does.
 - **Fixed:** both use `external::plain`, which gives a mapped share by its drive letter (`Z:\Photos-OldAcer\…`, found from the drive letters' real paths), else `\\srv\share\…`. Unit tests (letter, case, a near share name, local paths); on this computer DSC08634 is handed over as `Z:\Photos-OldAcer8-25-2018\DSC08634.ARW`, which exists.
 - **Confirmed** by the owner with a test build: Open in Topaz Photo works on a Z: photo. When Topaz is already open it does not show a photo handed to a new launch (it opened at 11:43 with PICT1439.JPG; later attempts showed nothing until it was closed): Topaz's own behaviour.
+- **Then asked:** say so when the program is already open. Open in now checks, before launching, whether a program known to ignore files while open (`external::IGNORE_FILES_WHEN_OPEN`: Topaz) is running (`keepsake_platform::program_running`, `tasklist` on Windows) and then says "Topaz Photo was already open, so it may not show this photo: close Topaz Photo and choose Open in again." Photoshop, which takes files while open, still says "Opened with Photoshop". Tests: core and platform unit tests, `open-in.spec.ts` (+1).
 
 ## The filters at the top showed nothing (2026-11-13, fixed)
 

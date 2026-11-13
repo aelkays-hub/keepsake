@@ -961,11 +961,16 @@ export function installMock(): void {
             ];
           const app = (a.app as string | null | undefined) ?? null;
           st.opened.push({ id: String(a.id), member: String(a.member) });
-          if (app === null) return apps.length ? name(apps[0]) : "the system default";
-          if (app === "") return "the system default";
+          const line = (n: string) =>
+            // ?topazOpen=1: Topaz is already running (it ignores files then).
+            /topaz/i.test(n) && params.get("topazOpen") === "1"
+              ? `${n} was already open, so it may not show this photo: close ${n} and choose Open in again.`
+              : `Opened with ${n}`;
+          if (app === null) return line(apps.length ? name(apps[0]) : "the system default");
+          if (app === "") return line("the system default");
           if (!apps.includes(app))
             throw new Error(`${name(app)} is not set up in Settings for this file type`);
-          return name(app);
+          return line(name(app));
         }
         case "original_place": {
           const it = all[Number(String(a.id).slice(1))];

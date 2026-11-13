@@ -144,7 +144,7 @@ export function EditAdviceWindow() {
     setProblem(null);
     api
       .openExternal(job.photo, "primary", c.app)
-      .then((app) => setNote(`Opened with ${app}`))
+      .then((line) => setNote(line))
       .catch((e) => setProblem(String(e)));
   };
 
