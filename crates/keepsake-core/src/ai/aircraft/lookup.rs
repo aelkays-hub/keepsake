@@ -84,15 +84,19 @@ pub fn type_name(
     if let Some(n) = icao.and_then(icao_type_name) {
         return Some(n.to_owned());
     }
-    let model = raw?.split_whitespace().next()?;
-    Some(
-        match manufacturer.map(str::trim).filter(|m| !m.is_empty()) {
-            Some(m) if !model.to_lowercase().starts_with(&m.to_lowercase()) => {
-                format!("{m} {model}")
-            }
-            _ => model.to_owned(),
-        },
-    )
+    let raw = raw?.trim();
+    let maker = manufacturer.map(str::trim).filter(|m| !m.is_empty());
+    // The model is the first word after the manufacturer's name, if the
+    // service repeats it (`Boeing 787` as well as `787 8`).
+    let rest = match maker {
+        Some(m) if raw.to_lowercase().starts_with(&m.to_lowercase()) => &raw[m.len()..],
+        _ => raw,
+    };
+    let model = rest.split_whitespace().next()?;
+    Some(match maker {
+        Some(m) => format!("{m} {model}"),
+        None => model.to_owned(),
+    })
 }
 
 /// Read the service's answer for `registration`.
