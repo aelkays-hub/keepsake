@@ -465,8 +465,8 @@ export function Sidebar() {
                       if (!r) return;
                       openEntry(menu.entry);
                       dispatch({
-                        t: "aiJob",
-                        job: { range: r, title: r.title, what: "aircraft" },
+                        t: "aircraftReview",
+                        job: { from: r.from, to: r.to, title: r.title },
                       });
                     },
                   },
@@ -501,6 +501,14 @@ export function Sidebar() {
           onAi={(what) => {
             const f = menu.entry.fold;
             if (!f) return;
+            const title = folderTitle(data?.volumes ?? [], f.volume, f.path ?? "");
+            if (what === "aircraft") {
+              dispatch({
+                t: "aircraftReview",
+                job: { volume: f.volume, folder: f.path ?? "", title },
+              });
+              return;
+            }
             dispatch({
               t: "aiJob",
               job: {

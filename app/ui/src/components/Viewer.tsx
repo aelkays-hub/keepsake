@@ -779,8 +779,8 @@ export function Viewer() {
           <button
             onClick={() =>
               dispatch({
-                t: "aiJob",
-                job: { aircraft: only, count: 1, title: row.name ?? "this photo", what: "tags" },
+                t: "aircraftReview",
+                job: { selection: only, count: 1, title: row.name ?? "this photo" },
               })
             }
             title="Read the registration, airline and type of the aircraft in this photo (on this computer)"

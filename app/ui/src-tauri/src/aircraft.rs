@@ -7,13 +7,18 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use keepsake_core::ai::aircraft::marks::Confidence;
 use keepsake_core::ai::aircraft::{install, scan};
 use keepsake_core::ai::install as ai_install;
-use keepsake_core::catalog::AssetId;
+use keepsake_core::catalog::{AssetId, TagPath};
+use keepsake_core::render::Variant;
 use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::api::{AiInstallProgress, AircraftStatus, CloudStarted, CloudStatusDto, Selection};
+use crate::api::{
+    AiInstallProgress, AircraftConfidenceDto, AircraftReviewDto, AircraftReviewItemDto,
+    AircraftStatus, CloudStarted, CloudStatusDto, ScoredMarkDto, Selection,
+};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
@@ -61,6 +66,7 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         accel: get(&st.accel).flatten().filter(|_| on),
         problem: get(&st.problem).flatten().filter(|_| on),
         installing: get(&st.install).flatten().map(|(_, done)| done),
+        confidence: confidence_dto(settings.ai.aircraft_confidence()),
     })
 }
 
@@ -265,4 +271,166 @@ pub fn aircraft_read_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdRe
     let mut cat = open.writer()?;
     scan::stop(&mut cat, &ids).map_err(err)?;
     Ok(())
+}
+
+fn confidence_dto(c: Confidence) -> AircraftConfidenceDto {
+    let p = |v: f32| (v * 100.0).round().clamp(0.0, 100.0) as u8;
+    AircraftConfidenceDto {
+        registration_pct: p(c.registration),
+        airline_pct: p(c.airline),
+        type_pct: p(c.aircraft_type),
+    }
+}
+
+fn confidence_of(d: &AircraftConfidenceDto) -> Confidence {
+    let f = |p: u8| f32::from(p) / 100.0;
+    Confidence {
+        registration: f(d.registration_pct),
+        airline: f(d.airline_pct),
+        aircraft_type: f(d.type_pct),
+    }
+    .clamped()
+}
+
+fn scored(list: &[(String, f32)]) -> Vec<ScoredMarkDto> {
+    let mut out: Vec<ScoredMarkDto> = list
+        .iter()
+        .map(|(name, s)| ScoredMarkDto {
+            name: name.clone(),
+            pct: (s * 100.0).round().clamp(0.0, 100.0) as u8,
+        })
+        .collect();
+    out.sort_by_key(|m| std::cmp::Reverse(m.pct));
+    out
+}
+
+/// The photos of a folder (`volume` and `folder`) or of dates (`from`,
+/// `to`) that Read aircraft reads: those with an aircraft tag.
+#[tauri::command(async)]
+pub fn aircraft_target_ids(
+    state: State<'_, AppState>,
+    volume: Option<String>,
+    folder: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+) -> CmdResult<Vec<String>> {
+    let target = match (volume, from, to) {
+        (Some(v), _, _) => keepsake_core::ai::Target::Folder {
+            volume: convert::id(&v, "volume")?,
+            folder: folder.unwrap_or_default(),
+        },
+        (None, Some(from), Some(to)) => keepsake_core::ai::Target::Dates { from, to },
+        _ => return Err("Read aircraft needs a folder or dates.".into()),
+    };
+    let open = state.open()?;
+    let cat = open.cat()?;
+    Ok(scan::target_items(&cat, &target)
+        .map_err(err)?
+        .iter()
+        .map(ToString::to_string)
+        .collect())
+}
+
+/// The review window: what was read in `ids` so far, offered at
+/// `confidence` (the saved one when `None`), and how reading is getting on.
+#[tauri::command(async)]
+pub fn aircraft_review(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    confidence: Option<AircraftConfidenceDto>,
+) -> CmdResult<AircraftReviewDto> {
+    let conf = match &confidence {
+        Some(c) => confidence_of(c),
+        None => Settings::load().map_err(err)?.ai.aircraft_confidence(),
+    };
+    let ids = unique(convert::ids(&ids)?);
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let (st, problem) = scan::status(&cat, &ids).map_err(err)?;
+    let mut items = Vec::new();
+    for it in scan::review_items(&cat, &ids).map_err(err)? {
+        let name = cat
+            .read(|tx| tx.files().originals(it.asset))
+            .map_err(err)?
+            .first()
+            .map(|f| f.rel_path.file_name().to_owned());
+        let thumb = keepsake_core::render::source::source_hash(&cat, it.asset)
+            .ok()
+            .flatten()
+            .and_then(|h| {
+                convert::cached(&open.cache, Some(&h), Variant::Thumb256)
+                    .or_else(|| convert::cached(&open.cache, Some(&h), Variant::Thumb1024))
+            });
+        let offered = scan::offered(&it, &conf)
+            .map_err(err)?
+            .iter()
+            .map(TagPath::to_lightroom)
+            .collect();
+        items.push(AircraftReviewItemDto {
+            id: it.asset.to_string(),
+            name,
+            thumb,
+            review: it.review.as_str().to_owned(),
+            full_size: it.full_size,
+            registrations: scored(&it.candidates.registrations),
+            airlines: scored(&it.candidates.airlines),
+            types: scored(&it.candidates.types),
+            looks_like: it.looks_like.clone(),
+            offered,
+        });
+    }
+    let read = items.len() as u64;
+    let mut problem = problem;
+    if st.pending > 0 && problem.is_none() {
+        problem = get(&state.aircraft.problem)
+            .flatten()
+            .map(|p| format!("Not running: {p}"));
+    }
+    Ok(AircraftReviewDto {
+        items,
+        confidence: confidence_dto(conf),
+        total: st.items,
+        read,
+        pending: st.pending,
+        failed: st.failed,
+        problem,
+    })
+}
+
+/// Keep the review window's confidence for next time.
+#[tauri::command(async)]
+pub fn aircraft_set_confidence(
+    confidence: AircraftConfidenceDto,
+) -> CmdResult<AircraftConfidenceDto> {
+    let mut s = Settings::load().map_err(err)?;
+    s.ai.set_aircraft_confidence(confidence_of(&confidence));
+    s.save().map_err(err)?;
+    Ok(confidence_dto(s.ai.aircraft_confidence()))
+}
+
+/// Accept a photo's read: `keywords` (`Aircraft|…|…`, those left ticked)
+/// become its keywords. None: the read is dismissed. Returns those added.
+#[tauri::command(async)]
+pub fn aircraft_accept(
+    state: State<'_, AppState>,
+    id: String,
+    keywords: Vec<String>,
+) -> CmdResult<Vec<String>> {
+    let asset: AssetId = convert::id(&id, "asset")?;
+    let mut paths = Vec::new();
+    for k in &keywords {
+        paths.push(TagPath::parse_lightroom(k).map_err(err)?);
+    }
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
+}
+
+/// Dismiss a photo's read: nothing becomes a keyword.
+#[tauri::command(async)]
+pub fn aircraft_dismiss(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let asset: AssetId = convert::id(&id, "asset")?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    scan::dismiss(&mut cat, asset).map_err(err)
 }

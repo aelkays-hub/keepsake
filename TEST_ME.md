@@ -1,8 +1,32 @@
-# Manual Test Steps — Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft: the review window
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft
+cargo test -p keepsake-core --test aircraft_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftReview.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on. A library opened by this build moves to schema 16 (older builds cannot open it after).
+1. Select a few aircraft photos → right-click → **Read aircraft**. **Expected:** a window in the middle of the screen, "Read aircraft: N photos", "Reading… x of N read" with Stop, three sliders (Registration 80%, Airline 85%, Type 70% the first time), and each photo appearing as it is read with what was found, ticked, each with its confidence (the type from the look says "(its look)"), and "Also read, below your confidence" for the rest.
+2. Nothing is a keyword yet: select one of the photos (window closed or not) and look at its keywords. **Expected:** no new Aircraft keywords.
+3. Move the Type slider down to 60. **Expected:** at once, painted types read between 60 and 70% are offered (in place of the look), with no reading again. Move Airline down: more airlines are offered, maybe some wrong ones; move it up: fewer.
+4. Untick a wrong mark on one photo and press **Accept**. **Expected:** the photo leaves the list; its keywords are the ticked ones only, and the inspector's Tagged with AI shows them as from the Aircraft reader.
+5. **Dismiss** another. **Expected:** it leaves the list, no keyword added. **Accept all shown** accepts the rest. Tick "Show accepted and dismissed too": every photo is there, marked Accepted or Dismissed.
+6. Close and open Settings → Read aircraft. **Expected:** "Offered from: registration …%, airline …%, type …%" as last set. Read aircraft again: the sliders start there.
+7. Right-click a folder (By folder) or a year, month or day → **Read aircraft**. **Expected:** the same window for its photos tagged Airplane, Helicopter or Airport. Photos read with an earlier version are read again; those read with this one are shown at once.
+8. **Stop** while reading. **Expected:** "Stopped: x of N read."; what was read can still be reviewed.
+9. With Read aircraft off: the window says "Turn on Read aircraft in Settings first." with **Open Settings**.
+10. Originals: unchanged (only read).
 
 ---
 

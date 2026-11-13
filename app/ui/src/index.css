@@ -1753,3 +1753,73 @@ button.danger {
   gap: 8px;
   align-items: center;
 }
+
+/* Read aircraft's review window (ADR-041) */
+.aircraft-review {
+  width: min(860px, calc(100vw - 32px));
+}
+.aircraft-review .ar-sliders {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.aircraft-review .ar-slider {
+  display: grid;
+  grid-template-columns: 7em 1fr 3.5em;
+  gap: 10px;
+  align-items: center;
+}
+.aircraft-review .ar-slider output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.aircraft-review .ar-filter {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+}
+.aircraft-review .ar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.aircraft-review .ar-photo {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.aircraft-review .ar-photo.accepted,
+.aircraft-review .ar-photo.dismissed {
+  opacity: 0.65;
+}
+.aircraft-review .ar-thumb {
+  display: block;
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+.aircraft-review .ar-marks {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.aircraft-review .ar-also,
+.aircraft-review .ar-body p {
+  margin: 2px 0;
+}
+.aircraft-review .ar-state {
+  margin-left: 8px;
+  font-size: 0.85em;
+}
+.aircraft-review .ar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -91,6 +91,11 @@ export interface MockState {
   /** Read aircraft (`?aircraft=on`: on, models installed), and the photos
    * asked for: status polls left. */
   aircraft: { enabled: boolean; installed: boolean; asked: Map<string, number> };
+  /** Read aircraft's review window: each photo's read (`left`: reviews
+   * until it is read; −1: stopped before) and review state, and the
+   * sliders. */
+  aircraftReads: Map<number, { left: number; review: string }>;
+  aircraftConf: { registrationPct: number; airlinePct: number; typePct: number };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -351,6 +356,8 @@ export function installMock(): void {
       installed: params.get("aircraft") === "on",
       asked: new Map(),
     },
+    aircraftReads: new Map(),
+    aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70 },
     faceRows: new Map(),
     facesMatch: 55,
     facesAsked: new Set(),
@@ -1457,6 +1464,7 @@ export function installMock(): void {
             accel: st.aircraft.enabled ? "graphics card (DirectML)" : null,
             problem: null,
             installing: null,
+            confidence: st.aircraftConf,
           };
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
@@ -1484,12 +1492,19 @@ export function installMock(): void {
             if (!st.aircraft.enabled) throw "Turn on Read aircraft in Settings first.";
             ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
             st.aircraft.asked.set(ids.join(","), 2);
+            // Read again: waits for review again.
+            for (const id of ids)
+              st.aircraftReads.set(Number(id.slice(1)), { left: 1, review: "waiting" });
           }
           const key = ids.join(",");
           const left = st.aircraft.asked.get(key) ?? 0;
           if (cmd === "aircraft_read_stop") {
             // Stopped before any was read (−1): none is counted as read.
             st.aircraft.asked.set(key, left > 0 ? -1 : 0);
+            for (const id of ids) {
+              const r = st.aircraftReads.get(Number(id.slice(1)));
+              if (r && r.left > 0) r.left = -1;
+            }
             return null;
           }
           if (cmd === "aircraft_read_status" && left > 0) {
@@ -1514,6 +1529,98 @@ export function installMock(): void {
             problem: null,
           };
           return cmd === "aircraft_read" ? { provider: AIRCRAFT.id, ids, status } : status;
+        }
+        case "aircraft_target_ids": {
+          const pick = all.filter((it) => {
+            if (!isAircraft(it)) return false;
+            if (a.volume)
+              return matches({
+                volume: a.volume,
+                folder: a.folder || undefined,
+              } as unknown as Query)(it);
+            const d = day(time(it));
+            return d !== null && d >= String(a.from) && d <= String(a.to);
+          });
+          for (const it of pick)
+            if (!st.aircraftReads.has(it.i))
+              st.aircraftReads.set(it.i, { left: 1, review: "waiting" });
+          return pick.map((it) => `a${it.i}`);
+        }
+        case "aircraft_review": {
+          const conf =
+            (a.confidence as typeof st.aircraftConf | null | undefined) ?? st.aircraftConf;
+          const ids = (a.ids ?? []) as string[];
+          let pending = 0;
+          const items = [];
+          for (const id of ids) {
+            const i = Number(id.slice(1));
+            const r = st.aircraftReads.get(i);
+            if (!r || r.left < 0) continue;
+            if (r.left > 0) {
+              r.left -= 1;
+              pending += 1;
+              continue;
+            }
+            const registrations = [{ name: "C-FJZS", pct: 96 }];
+            const airlines = [{ name: "Air Canada", pct: 82 + (i % 3) * 5 }];
+            const types = [{ name: "Boeing 777-300ER", pct: 66 }];
+            const offered = [
+              ...registrations
+                .filter((m) => m.pct >= conf.registrationPct)
+                .map((m) => `Aircraft|Registration|${m.name}`),
+              ...airlines
+                .filter((m) => m.pct >= conf.airlinePct)
+                .map((m) => `Aircraft|Airline|${m.name}`),
+            ];
+            const painted = types.filter((m) => m.pct >= conf.typePct);
+            offered.push(
+              ...(painted.length
+                ? painted.map((m) => `Aircraft|Type|${m.name}`)
+                : ["Aircraft|Type|Boeing 777"]),
+            );
+            items.push({
+              id,
+              name: all[i]?.name ?? null,
+              thumb: null,
+              review: r.review,
+              fullSize: true,
+              registrations,
+              airlines,
+              types,
+              looksLike: "Boeing 777",
+              offered,
+            });
+          }
+          return {
+            items,
+            confidence: conf,
+            total: ids.length,
+            read: items.length,
+            pending,
+            failed: 0,
+            problem: null,
+          };
+        }
+        case "aircraft_set_confidence":
+          st.aircraftConf = a.confidence as typeof st.aircraftConf;
+          return st.aircraftConf;
+        case "aircraft_accept":
+        case "aircraft_dismiss": {
+          const i = Number(String(a.id).slice(1));
+          const r = st.aircraftReads.get(i);
+          if (!r) throw `${String(a.id)} has not been read`;
+          const keep = cmd === "aircraft_accept" ? ((a.keywords ?? []) as string[]) : [];
+          if (keep.some((k) => !k.startsWith("Aircraft|")))
+            throw "only aircraft keywords can be accepted";
+          r.review = keep.length ? "accepted" : "dismissed";
+          if (keep.length) {
+            const cur = st.keywords.get(i) ?? [];
+            st.keywords.set(i, [...new Set([...cur, ...keep])]);
+            const by = st.aiSources.get(i) ?? new Map<string, string[]>();
+            by.set(AIRCRAFT.id, [...new Set([...(by.get(AIRCRAFT.id) ?? []), ...keep])].sort());
+            st.aiSources.set(i, by);
+          }
+          return cmd === "aircraft_accept" ? keep : null;
         }
         case "faces_status": {
           const f = st.faces;
@@ -1864,6 +1971,8 @@ export function installMock(): void {
         }
         case "ai_range_stop": {
           st.aiRanges.set(`${a.what}|${a.from}|${a.to}`, 0);
+          if (a.what === "aircraft")
+            for (const r of st.aircraftReads.values()) if (r.left > 0) r.left = -1;
           return null;
         }
         case "ai_analyze_folder":
@@ -1887,6 +1996,8 @@ export function installMock(): void {
           if (cmd === "ai_folder_stop") {
             // What was done stays: a third, say.
             st.aiRanges.set(key, -Math.ceil(items / 3));
+            if (a.what === "aircraft")
+              for (const r of st.aircraftReads.values()) if (r.left > 0) r.left = -1;
             return null;
           }
           if (left < 0) return { items, analysed: -left, pending: 0 };

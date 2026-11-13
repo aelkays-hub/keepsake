@@ -60,7 +60,20 @@ export interface UiState {
   } | null;
   /** Edit suggestions (ADR-042): the photo they are for. */
   editAdvice: { photo: string; title: string } | null;
+  /** Read aircraft's review window (ADR-041): what is read. */
+  aircraftReview: AircraftJob | null;
 }
+
+/** What Read aircraft reads: the photos picked, a folder (and those in
+ * it) or dates. */
+export type AircraftJob = (
+  | { selection: Selection; count: number }
+  | { volume: string; folder: string }
+  | { from: string; to: string }
+) & {
+  /** "3 photos", "Pictures › 2025 › May", "July 2026". */
+  title: string;
+};
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or
  * for a year, month or day. */
@@ -119,7 +132,8 @@ export type Msg =
         check?: { id: number; name: string };
       } | null;
     }
-  | { t: "editAdvice"; photo: { photo: string; title: string } | null };
+  | { t: "editAdvice"; photo: { photo: string; title: string } | null }
+  | { t: "aircraftReview"; job: AircraftJob | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -138,6 +152,7 @@ export const initial: UiState = {
   aiJob: null,
   nameFind: null,
   editAdvice: null,
+  aircraftReview: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -197,6 +212,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, nameFind: m.photo };
     case "editAdvice":
       return { ...s, editAdvice: m.photo };
+    case "aircraftReview":
+      return { ...s, aircraftReview: m.job };
   }
 }
 

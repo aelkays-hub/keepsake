@@ -126,6 +126,8 @@ dto! {
         /// Downloading the models: bytes so far.
         #[ts(type = "number | null")]
         pub installing: Option<u64>,
+        /// The review window's confidence, as last set.
+        pub confidence: AircraftConfidenceDto,
     }
 
     /// Recognise faces at a glance (Settings; ADR-040).
@@ -1059,6 +1061,61 @@ dto! {
         pub settings: SettingsInfo,
         /// The cache moved: the previous folder, whose files can be removed.
         pub old_cache: Option<String>,
+    }
+}
+
+dto! {
+    /// Read aircraft's review window (ADR-041): how sure, in percent, a
+    /// line must be for each kind of mark to be offered.
+    pub struct AircraftConfidenceDto {
+        pub registration_pct: u8,
+        pub airline_pct: u8,
+        pub type_pct: u8,
+    }
+
+    /// A possible mark and how surely it was read (percent).
+    pub struct ScoredMarkDto {
+        pub name: String,
+        pub pct: u8,
+    }
+
+    /// One read photo in the review window.
+    pub struct AircraftReviewItemDto {
+        pub id: String,
+        pub name: Option<String>,
+        /// Its thumbnail file, when made.
+        pub thumb: Option<String>,
+        /// `waiting`, `accepted` or `dismissed`.
+        pub review: String,
+        /// Read from the full-size picture (else from the thumbnail).
+        pub full_size: bool,
+        /// Every possible mark, most surely read first.
+        pub registrations: Vec<ScoredMarkDto>,
+        pub airlines: Vec<ScoredMarkDto>,
+        pub types: Vec<ScoredMarkDto>,
+        /// The type the picture looks like, when one stands out.
+        pub looks_like: Option<String>,
+        /// The keywords offered at the window's confidence (`A|B|C`).
+        pub offered: Vec<String>,
+    }
+
+    /// The review window's photos: those read so far, and how reading the
+    /// rest is getting on.
+    pub struct AircraftReviewDto {
+        pub items: Vec<AircraftReviewItemDto>,
+        pub confidence: AircraftConfidenceDto,
+        #[ts(type = "number")]
+        pub total: u64,
+        /// Read (with this version).
+        #[ts(type = "number")]
+        pub read: u64,
+        /// Still to read.
+        #[ts(type = "number")]
+        pub pending: u64,
+        /// Could not be read.
+        #[ts(type = "number")]
+        pub failed: u64,
+        pub problem: Option<String>,
     }
 }
 

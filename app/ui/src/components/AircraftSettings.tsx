@@ -50,9 +50,10 @@ export function AircraftSettings() {
       <h2>Read aircraft</h2>
       <p className="muted">
         For the photos you pick (right-click them and choose Read aircraft), Keepsake reads the
-        registration and the airline painted on the aircraft and works out its type. What it finds
-        becomes keywords under Aircraft. It runs on this computer: nothing is sent anywhere, and
-        your originals are only read, never changed.
+        registration and the airline painted on the aircraft and works out its type. A window then
+        shows what it found: you choose how sure each kind must be, untick mistakes and accept, and
+        only what you accept becomes keywords under Aircraft. It runs on this computer: nothing is
+        sent anywhere, and your originals are only read, never changed.
       </p>
       <label className="check">
         <input
@@ -80,6 +81,11 @@ export function AircraftSettings() {
       )}
       <p role="status" data-testid="aircraft-progress">
         {aircraftProgress(st)}
+      </p>
+      <p className="muted" data-testid="aircraft-confidence">
+        Offered from: registration {st.confidence.registrationPct}%, airline{" "}
+        {st.confidence.airlinePct}%, type {st.confidence.typePct}% sure (set with the sliders in the
+        Read aircraft window).
       </p>
       {st.modelsInstalled && !st.enabled && (
         <button onClick={() => run(api.aircraftRemoveModels())} data-testid="aircraft-remove">

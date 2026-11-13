@@ -38,6 +38,7 @@
 | — | Edit suggestions: right-click a photo for steps to improve it in Photoshop and Topaz Photo, measured here and, if asked, from an AI (ADR-042) | 🟡 Built and tested on Windows; CI not run yet |
 | — | The sidebar tree keeps its place after right-click actions, and after a restart | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -62,6 +63,18 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Read aircraft: you set the confidence and accept what is kept (2026-11-13)
+
+- **Asked:** "make the confidence something that the user sets, and even when doing batch, create a new window in middle of screen and allow the user to play with the confidence … and the user will decide what to accept".
+- **Decided** (ADR-041, addition; each asked): the sliders re-sort saved reads at once (nothing read again); only what is accepted becomes keywords; every Read aircraft opens the window; one slider per kind.
+- **Built:**
+  - Core: `marks::{Confidence, Candidates, candidates}`; `scan::{review_items, offered, accept, dismiss, Review}`; schema v16 `aircraft_reads`; reading keeps candidates and adds nothing; folders and dates re-read photos read before; settings `ai.aircraft_{registration,airline,type}_pct` (80, 85, 70). CLI `scan --accept`.
+  - App: `aircraft_target_ids`, `aircraft_review`, `aircraft_set_confidence`, `aircraft_accept`, `aircraft_dismiss`; the levels in `AircraftStatus`.
+  - UI: `AircraftReviewWindow` from the photo menu, the viewer, folders and dates; the levels in Settings → Read aircraft; the mock backend.
+  - Also: clippy on Rust 1.100 (`needless_bool` in `render::needs_render`, on pull request 37's branch).
+- **Tests, run here (Windows):** core `ai::aircraft`, migrations, settings (35), `aircraft_tests` (4, now: nothing added until accepted, accept and dismiss, only aircraft keywords, old reads read again), `catalog_tests`; app lib tests (bindings); Vitest (72, +4 for the window's helpers); mocked Playwright `aircraft` (7, rewritten for the window: sliders, untick, accept, dismiss, accept all, Stop, Open Settings, folder, year), `ai`, `folder-tree`, `calendar-tree`, `viewer`, `a11y`, `keyboard`, `tree-place`; fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
+- **Not run:** in the real app window on the owner's library; CI. On branch `feat/aircraft-review` (from `fix/aircraft-reading`), not pushed. A library opened by this build moves to schema v16.
 
 ## Read aircraft reads more of what is painted (2026-11-12)
 

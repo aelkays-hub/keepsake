@@ -17,6 +17,10 @@ import type { PersonDto } from "./bindings/PersonDto";
 import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
 import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AiAdviceDto } from "./bindings/AiAdviceDto";
+import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
+import type { AircraftReviewDto } from "./bindings/AircraftReviewDto";
+import type { AircraftReviewItemDto } from "./bindings/AircraftReviewItemDto";
+import type { ScoredMarkDto } from "./bindings/ScoredMarkDto";
 import type { AskingDto } from "./bindings/AskingDto";
 import type { EditAdviceDto } from "./bindings/EditAdviceDto";
 import type { EditSuggestionDto } from "./bindings/EditSuggestionDto";
@@ -90,6 +94,10 @@ export type {
   PhotoFacesDto,
   SuggestDto,
   AiAdviceDto,
+  AircraftConfidenceDto,
+  AircraftReviewDto,
+  AircraftReviewItemDto,
+  ScoredMarkDto,
   AskingDto,
   EditAdviceDto,
   EditSuggestionDto,
@@ -281,6 +289,25 @@ export const api = {
   aircraftRead: (selection: Selection) => invoke<CloudStarted>("aircraft_read", { selection }),
   aircraftReadStatus: (ids: string[]) => invoke<CloudStatusDto>("aircraft_read_status", { ids }),
   aircraftReadStop: (ids: string[]) => invoke<void>("aircraft_read_stop", { ids }),
+  /** The review window: the photos a folder (`volume`, `folder`) or dates
+   * (`from`, `to`) are read for. */
+  aircraftTargetIds: (t: { volume?: string; folder?: string; from?: string; to?: string }) =>
+    invoke<string[]>("aircraft_target_ids", {
+      volume: t.volume ?? null,
+      folder: t.folder ?? null,
+      from: t.from ?? null,
+      to: t.to ?? null,
+    }),
+  /** What was read in `ids` so far, offered at `confidence` (the saved one
+   * when `null`). */
+  aircraftReview: (ids: string[], confidence: AircraftConfidenceDto | null = null) =>
+    invoke<AircraftReviewDto>("aircraft_review", { ids, confidence }),
+  aircraftSetConfidence: (confidence: AircraftConfidenceDto) =>
+    invoke<AircraftConfidenceDto>("aircraft_set_confidence", { confidence }),
+  /** Accept a photo's read: these keywords are added (none: dismissed). */
+  aircraftAccept: (id: string, keywords: string[]) =>
+    invoke<string[]>("aircraft_accept", { id, keywords }),
+  aircraftDismiss: (id: string) => invoke<void>("aircraft_dismiss", { id }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
