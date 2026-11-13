@@ -151,7 +151,7 @@ pub fn parse(
         ),
         airline: owner
             .as_deref()
-            .and_then(|o| airlines.find(o))
+            .and_then(|o| airlines.owner(o).or_else(|| airlines.find(o)))
             .map(str::to_owned),
         manufacturer: text("manufacturer"),
         owner,
