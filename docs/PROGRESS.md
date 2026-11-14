@@ -65,6 +65,13 @@
 
 ---
 
+## Aircraft report in Tools → Report (2026-11-14)
+
+- Tools → **Report** now has **Library** and **Aircraft** (ADR-043). Aircraft: photos tagged Airplane or with a keyword under Aircraft; distinct shots (copies in other folders once); how many name an airline, type or registration; airlines, types and registrations counted; reads waiting for review; photos by year; one table each for airlines, types and registrations with photos, registrations, main airlines and types, first and last day seen, and Find. A row opens its photos; **Export to CSV…** writes it all.
+- Core: `catalog::AircraftReportRepo::aircraft` (`tx.aircraft_report()`), `report::aircraft_to_csv` / `write_aircraft_csv`. App: `aircraft_report`, `aircraft_report_csv`. UI: `AircraftReportView`, `aircraftReport.ts`.
+- Tests: `report_tests` (+5: totals and tables, every row opens exactly its photos, reads waiting, empty, CSV), Vitest `aircraftReport` (4), mocked Playwright `report` (+2), fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
+- **Not run:** CI; in the app on the real library. On branch `feat/aircraft-report` (from `fix/aircraft-reading-2`).
+
 ## Read aircraft: registrations misread as digits; the same-shot window; Tag with AI to the same shot (2026-11-14)
 
 - **Asked:** A7202143.jpg's OO-SFO, clear on the tail and the wing, was not read; a slider for the ± seconds (10 at first); Tag with AI's tags to identical photos within that window, same camera and lens.

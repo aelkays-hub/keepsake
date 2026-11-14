@@ -16,6 +16,7 @@ import type { HistoryRun } from "../bindings/HistoryRun";
 import type { Details } from "../bindings/Details";
 import type { ImportRequest } from "../bindings/ImportRequest";
 import type { ItemKind } from "../bindings/ItemKind";
+import type { AircraftReport } from "../bindings/AircraftReport";
 import type { LibraryReport } from "../bindings/LibraryReport";
 import type { Preset } from "../bindings/Preset";
 import type { Query } from "../bindings/Query";
@@ -255,6 +256,92 @@ const day = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 
 /** Tools → Report over the mock items: a RAW item is a RAW+JPEG pair (one
  * photo, two files, the JPEG 6 MB). Same ordering rules as the backend. */
+/** Report → Aircraft: a small fixed fleet. */
+function mockAircraftReport(): AircraftReport {
+  const row = (
+    kind: string,
+    name: string,
+    photos: number,
+    registrations: number,
+    airlines: string[],
+    types: string[],
+    first: string | null,
+    last: string | null,
+  ) => ({
+    name,
+    path: `Aircraft|${kind}|${name}`,
+    photos,
+    registrations,
+    airlines,
+    types,
+    first,
+    last,
+  });
+  return {
+    totals: {
+      photos: 120,
+      shots: 110,
+      withMarks: 40,
+      withAirline: 38,
+      withType: 30,
+      withRegistration: 25,
+      airlines: 3,
+      types: 3,
+      registrations: 4,
+      waitingReview: 7,
+    },
+    airlines: [
+      row(
+        "Airline",
+        "Air Canada",
+        20,
+        2,
+        [],
+        ["Boeing 787-9", "Boeing 777-300ER"],
+        "2018-01-02",
+        "2024-06-01",
+      ),
+      row("Airline", "KLM", 12, 1, [], ["Boeing 747"], "2019-01-06", "2019-01-06"),
+      row("Airline", "Interjet", 6, 1, [], [], "2019-01-06", "2019-01-06"),
+    ],
+    types: [
+      row("Type", "Boeing 787-9", 14, 2, ["Air Canada"], [], "2018-01-02", "2024-06-01"),
+      row("Type", "Boeing 747", 12, 1, ["KLM"], [], "2019-01-06", "2019-01-06"),
+      row("Type", "Boeing 777-300ER", 4, 1, ["Air Canada"], [], "2020-02-02", "2020-02-02"),
+    ],
+    registrations: [
+      row("Registration", "PH-BFA", 12, 0, ["KLM"], ["Boeing 747"], "2019-01-06", "2019-01-06"),
+      row(
+        "Registration",
+        "C-FVLU",
+        10,
+        0,
+        ["Air Canada"],
+        ["Boeing 787-9"],
+        "2018-01-02",
+        "2024-06-01",
+      ),
+      row(
+        "Registration",
+        "C-FITU",
+        4,
+        0,
+        ["Air Canada"],
+        ["Boeing 777-300ER"],
+        "2020-02-02",
+        "2020-02-02",
+      ),
+      row("Registration", "XA-MBA", 6, 0, ["Interjet"], [], "2019-01-06", "2019-01-06"),
+    ],
+    years: [
+      { year: "2018", photos: 30, withMarks: 10 },
+      { year: "2019", photos: 60, withMarks: 25 },
+      { year: "2024", photos: 25, withMarks: 5 },
+      { year: null, photos: 5, withMarks: 0 },
+    ],
+  };
+}
+
 function mockReport(all: Item[]): LibraryReport {
   type Acc = Map<string | null, ReportGroup>;
   const blank = (g: string | null, split: boolean): ReportGroup => ({
@@ -1026,6 +1113,13 @@ export function installMock(): void {
           return mockReport(all);
         case "plugin:dialog|save":
           return "C:\\Users\\me\\Documents\\Keepsake report.csv";
+        case "aircraft_report":
+          return mockAircraftReport();
+        case "aircraft_report_csv": {
+          const path = String(a.path ?? "").trim();
+          if (!path) throw new Error("choose where to save the report");
+          return /\.[^\\/.]+$/.test(path) ? path : `${path}.csv`;
+        }
         case "library_report_csv": {
           const path = String(a.path ?? "").trim();
           if (!path) throw new Error("choose where to save the report");

@@ -1,7 +1,8 @@
 // Report: how many photos and videos the library holds and how much disk
 // they take, by year, month, day, camera, lens, file type and drive, from
 // the catalog alone (no media file is read). Export writes every breakdown
-// to one CSV file. A row's name opens its items in the library.
+// to one CSV file. A row's name opens its items in the library. The
+// Aircraft report (AircraftReportView) is beside it.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -19,12 +20,47 @@ import {
   type ReportLine,
 } from "../report";
 import { useUi } from "../state";
+import { AircraftReportView } from "./AircraftReportView";
+
+type Kind = "library" | "aircraft";
+/** The report shown last (Library or Aircraft). */
+let lastKind: Kind = "library";
+
+export function ReportScreen() {
+  const [kind, setKindState] = useState<Kind>(lastKind);
+  const setKind = (k: Kind) => {
+    lastKind = k;
+    setKindState(k);
+  };
+  return (
+    <section className="screen" aria-label="Report" data-testid="report-screen">
+      <h1 className="heading">Report</h1>
+      <div className="segmented" role="group" aria-label="Report">
+        <button
+          aria-pressed={kind === "library"}
+          onClick={() => setKind("library")}
+          data-testid="report-kind-library"
+        >
+          Library
+        </button>
+        <button
+          aria-pressed={kind === "aircraft"}
+          onClick={() => setKind("aircraft")}
+          data-testid="report-kind-aircraft"
+        >
+          Aircraft
+        </button>
+      </div>
+      {kind === "library" ? <LibraryReportView /> : <AircraftReportView />}
+    </section>
+  );
+}
 
 /** The breakdown shown last, so that coming back from a row's items shows
  * the same table. */
 let lastBy: Breakdown = "year";
 
-export function ReportScreen() {
+function LibraryReportView() {
   const [r, setR] = useState<LibraryReport | null>(null);
   const { dispatch } = useUi();
   const [by, setByState] = useState<Breakdown>(lastBy);
@@ -56,8 +92,7 @@ export function ReportScreen() {
   const rows = r ? lines(r, by) : [];
   const meta = BREAKDOWNS.find((b) => b.key === by) ?? BREAKDOWNS[0];
   return (
-    <section className="screen" aria-label="Report" data-testid="report-screen">
-      <h1 className="heading">Report</h1>
+    <>
       <p className="muted">
         What the library holds and the disk space it takes. A RAW+JPEG pair counts as one photo;
         files and size include every file of an item (both halves of a pair, sidecars), counted once
@@ -168,7 +203,7 @@ export function ReportScreen() {
           </table>
         )}
       </div>
-    </section>
+    </>
   );
 }
 

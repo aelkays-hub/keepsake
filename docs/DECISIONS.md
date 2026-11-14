@@ -1657,3 +1657,23 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 - Saving the suggestions to the sidecar (offered, not chosen).
 - Subject-aware rules on this computer (faces are found by ADR-040, but not used here yet).
 - macOS: built and tested in CI only.
+
+---
+
+## ADR-043 — Aircraft report
+
+**Status**: Accepted (2026-11-14, product owner: "I want to have the airlines, aircraft type, registration and then the total number of photos I have"; then "I want this report in the application under reports").
+
+**Context.** Read aircraft (ADR-041) and the owner's own keywords put `Aircraft|Airline|…`, `Aircraft|Type|…` and `Aircraft|Registration|…` on their photos, and on-device AI tags aircraft photos `Airplane`. The owner wanted one page of what that adds up to. A first version was a separate web page made from the catalog; this puts it in the app.
+
+**Decision.**
+- Tools → **Report** has two reports: **Library** (as before) and **Aircraft**. The one shown last is shown again.
+- **Which photos count:** an item with the `Airplane` tag (keyword or AI tag, or a tag below it) or any keyword under `Aircraft`. Airlines, types and registrations come only from those keywords: typed, or found by Read aircraft and accepted. Reads still waiting for review are counted apart ("Waiting for review") and named nowhere else, so the report never shows a guess as a fact.
+- **Totals:** aircraft photos; distinct shots (copies of one picture in several folders, same file name and capture time, counted once: the owner's library keeps the same picture in, for example, 2019/January and Edited/WebSite); how many name an airline, a type, a registration; how many different airlines, types and registrations; reads waiting.
+- **By year:** aircraft photos per capture year, and how many of them name something (oldest first, undated last).
+- **Airlines, Types, Registrations:** one table at a time, most photos first, with Find (name, airline or type). Each row: photos, different registrations, up to three airlines and types (most photos first), first and last capture day. A row's name opens its photos in the library (the keyword as the tag filter), and **Report** goes back to the same table.
+- **Export to CSV…** writes the totals and all three tables to one file (UTF-8 with a byte-order mark, like the library report).
+- From the catalog alone (`AircraftReportRepo::aircraft`): two scans of `asset_tags` and one of the items found; no media file is read. Counted on the owner's library: 46,491 aircraft photos, 41,790 distinct shots.
+
+**Not done.** A chart of airlines over time; counting the type the picture looks like (it is only offered, never a keyword unless accepted).
+

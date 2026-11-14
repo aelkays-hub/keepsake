@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::catalog::{LibraryReport, ReportRow};
+use crate::catalog::{AircraftReport, AircraftRow, LibraryReport, ReportRow};
 
 /// The CSV columns.
 pub const CSV_HEADER: &str = "Breakdown,Group,Photos,Videos,Items,Files,Bytes,Size";
@@ -95,6 +95,64 @@ pub fn to_csv(r: &LibraryReport) -> String {
 pub fn write_csv(r: &LibraryReport, path: &Path) -> std::io::Result<()> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(to_csv(r).as_bytes());
+    std::fs::write(path, bytes)
+}
+
+/// The aircraft report's CSV columns.
+pub const AIRCRAFT_CSV_HEADER: &str =
+    "Table,Name,Photos,Registrations,Airlines,Types,First seen,Last seen";
+
+fn aircraft_line(out: &mut String, table: &str, r: &AircraftRow) {
+    out.push_str(&format!(
+        "{},{},{},{},{},{},{},{}\r\n",
+        field(table),
+        field(&r.name),
+        r.photos,
+        r.registrations,
+        field(&r.airlines.join("; ")),
+        field(&r.types.join("; ")),
+        r.first.as_deref().unwrap_or_default(),
+        r.last.as_deref().unwrap_or_default(),
+    ));
+}
+
+/// The aircraft report: the totals as name–value lines, then airlines,
+/// types and registrations (CRLF line ends).
+pub fn aircraft_to_csv(r: &AircraftReport) -> String {
+    let t = &r.totals;
+    let mut out = String::new();
+    out.push_str(AIRCRAFT_CSV_HEADER);
+    out.push_str("\r\n");
+    for (name, n) in [
+        ("Aircraft photos", t.photos),
+        ("Distinct shots", t.shots),
+        ("With airline, type or registration", t.with_marks),
+        ("With an airline", t.with_airline),
+        ("With a type", t.with_type),
+        ("With a registration", t.with_registration),
+        ("Airlines", t.airlines),
+        ("Types", t.types),
+        ("Registrations", t.registrations),
+        ("Reads waiting for review", t.waiting_review),
+    ] {
+        out.push_str(&format!("Total,{},{n},,,,,\r\n", field(name)));
+    }
+    for (table, rows) in [
+        ("Airline", &r.airlines),
+        ("Type", &r.types),
+        ("Registration", &r.registrations),
+    ] {
+        for row in rows {
+            aircraft_line(&mut out, table, row);
+        }
+    }
+    out
+}
+
+/// Write [`aircraft_to_csv`] to `path` (UTF-8 with a byte-order mark).
+pub fn write_aircraft_csv(r: &AircraftReport, path: &Path) -> std::io::Result<()> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(aircraft_to_csv(r).as_bytes());
     std::fs::write(path, bytes)
 }
 
