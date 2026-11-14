@@ -275,6 +275,9 @@ pub struct RenderService {
     aircraft: Option<ReaderLoader>,
     /// Looks read registrations up online (ADR-041), when set.
     lookup: Option<Arc<dyn crate::ai::aircraft::lookup::Lookup>>,
+    /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
+    /// tags to the alike photos taken this close by the same camera and lens.
+    same_shot_ms: i64,
 }
 
 struct Shared {
@@ -314,12 +317,19 @@ impl RenderService {
             faces: None,
             aircraft: None,
             lookup: None,
+            same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
     }
 
     /// Load the aircraft worker's reader with this (tests use a stand-in).
     pub fn with_aircraft(mut self, loader: ReaderLoader) -> Self {
         self.aircraft = Some(loader);
+        self
+    }
+
+    /// The same-shot window, in seconds (1–60).
+    pub fn with_same_shot(mut self, seconds: u8) -> Self {
+        self.same_shot_ms = i64::from(seconds.clamp(1, 60)) * 1000;
         self
     }
 
@@ -1169,6 +1179,7 @@ impl RenderService {
                     tagger,
                     provider,
                     job.asset_id,
+                    self.same_shot_ms,
                 ) {
                     Ok(added) => Ok((added, None)),
                     Err(e) => Err(Self::ai_error(cat, job, e)?),

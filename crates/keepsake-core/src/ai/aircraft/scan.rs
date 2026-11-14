@@ -450,12 +450,43 @@ pub fn offer(
     }
     if let Some(t) = &looked_type {
         for painted in &marks.types {
-            if painted != t {
+            if !same_type(painted, t) {
                 out.unticked.push(path("Type", painted)?);
             }
         }
     }
     Ok(out)
+}
+
+/// A painted type agrees with the looked-up one when it is the same, or
+/// the same maker and model said less exactly: "Boeing 787 Dreamliner" is
+/// a "Boeing 787-9" (A7202202.ARW, C-FVLU), "Airbus A320neo" an "Airbus
+/// A320-251N"; "Boeing 777-300ER" is not a "Boeing 777-200LR".
+fn same_type(painted: &str, looked: &str) -> bool {
+    if painted.eq_ignore_ascii_case(looked) {
+        return true;
+    }
+    // The maker, then the model's family ("787", "A320") and whether a
+    // variant follows it ("-9", "-300ER").
+    fn split(s: &str) -> Option<(String, String, bool)> {
+        let mut words = s.split_whitespace();
+        let maker = words.next()?.to_ascii_lowercase();
+        let model = words.next()?.to_ascii_lowercase();
+        let digits_end = model
+            .char_indices()
+            .skip_while(|(_, c)| c.is_ascii_alphabetic())
+            .find(|(_, c)| !c.is_ascii_digit())
+            .map_or(model.len(), |(i, _)| i);
+        let (family, after) = model.split_at(digits_end);
+        if !family.chars().any(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        Some((maker, family.to_owned(), after.starts_with('-')))
+    }
+    match (split(painted), split(looked)) {
+        (Some((pm, pf, p_variant)), Some((lm, lf, _))) => pm == lm && pf == lf && !p_variant,
+        _ => false,
+    }
 }
 
 /// What lookups said about the registrations a read offers at `conf`
@@ -474,7 +505,8 @@ pub fn found_for(
     Ok(out)
 }
 
-/// Photos taken this close (either side) are offered with a read.
+/// Photos taken this close (either side) are offered with a read, unless
+/// the user sets another window (`ai.same_shot_s`).
 pub const NEIGHBOUR_MS: i64 = 10_000;
 
 /// A photo taken just before or after a read one.
@@ -490,12 +522,16 @@ pub struct Neighbour {
     pub alike: bool,
 }
 
-/// The photos taken by the same camera within [`NEIGHBOUR_MS`] of `asset`,
+/// The photos taken by the same camera and lens within `window_ms` of `asset`,
 /// nearest first, each with how alike it is (alike: at least
 /// [`crate::ai::duplicates::COSINE_BURST`], the bar Duplicates uses for
 /// photos taken moments apart). Not analysed by On-device AI: no
 /// similarity, not alike.
-pub fn neighbours(cat: &Catalog, asset: AssetId) -> Result<Vec<Neighbour>, AiError> {
+pub fn neighbours(
+    cat: &Catalog,
+    asset: AssetId,
+    window_ms: i64,
+) -> Result<Vec<Neighbour>, AiError> {
     let emb = |id: AssetId| -> Result<Option<Embedding>, AiError> {
         Ok(cat
             .read(|tx| tx.ai().analysis(id))?
@@ -504,7 +540,7 @@ pub fn neighbours(cat: &Catalog, asset: AssetId) -> Result<Vec<Neighbour>, AiErr
     };
     let mine = emb(asset)?;
     let mut out = Vec::new();
-    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, NEIGHBOUR_MS))? {
+    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, window_ms))? {
         let similarity = match (&mine, emb(id)?) {
             (Some(a), Some(b)) => Some(a.cosine(&b)),
             _ => None,
@@ -797,6 +833,18 @@ mod tests {
         assert_eq!(Review::parse("accepted"), Review::Accepted);
         assert_eq!(Review::parse(Review::Dismissed.as_str()), Review::Dismissed);
         assert_eq!(Review::parse("?"), Review::Waiting);
+    }
+
+    #[test]
+    fn a_painted_type_said_less_exactly_agrees_with_the_registry() {
+        assert!(same_type("Boeing 787 Dreamliner", "Boeing 787-9"));
+        assert!(same_type("Boeing 787", "Boeing 787-9"));
+        assert!(same_type("Airbus A320neo", "Airbus A320-251N"));
+        assert!(same_type("Boeing 777-300ER", "boeing 777-300er"));
+        assert!(!same_type("Boeing 777-300ER", "Boeing 777-200LR"));
+        assert!(!same_type("Boeing 787 Dreamliner", "Boeing 777-300ER"));
+        assert!(!same_type("Airbus A330", "Boeing 787-9"));
+        assert!(!same_type("Airbus A321", "Airbus A320-251N"));
     }
 
     #[test]

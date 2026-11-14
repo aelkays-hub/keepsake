@@ -1073,6 +1073,8 @@ dto! {
         pub registration_pct: u8,
         pub airline_pct: u8,
         pub type_pct: u8,
+        /// The same-shot window, seconds either side (1–60).
+        pub same_shot_s: u8,
     }
 
     /// A possible mark and how surely it was read (percent).
@@ -1106,8 +1108,9 @@ dto! {
         pub from_lookup: Vec<String>,
         /// What the lookup said about its registrations.
         pub lookups: Vec<AircraftLookupDto>,
-        /// Photos taken by the same camera within 10 seconds.
-        pub neighbours: Vec<AircraftNeighbourDto>,
+        /// Photos taken by the same camera and lens within the same-shot
+        /// window; `None`: not looked for (the photo is not on screen).
+        pub neighbours: Option<Vec<AircraftNeighbourDto>>,
     }
 
     /// What the online lookup (adsbdb.com) said about a registration.

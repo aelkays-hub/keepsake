@@ -95,7 +95,12 @@ export interface MockState {
    * until it is read; −1: stopped before) and review state, and the
    * sliders. */
   aircraftReads: Map<number, { left: number; review: string }>;
-  aircraftConf: { registrationPct: number; airlinePct: number; typePct: number };
+  aircraftConf: {
+    registrationPct: number;
+    airlinePct: number;
+    typePct: number;
+    sameShotS: number;
+  };
   /** Look registrations up online (`?lookup=on`). */
   aircraftLookup: boolean;
   /** Name and find: the faces found so far (by id), the photos asked
@@ -359,7 +364,7 @@ export function installMock(): void {
       asked: new Map(),
     },
     aircraftReads: new Map(),
-    aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+    aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
     aircraftLookup: params.get("lookup") === "on",
     faceRows: new Map(),
     facesMatch: 55,

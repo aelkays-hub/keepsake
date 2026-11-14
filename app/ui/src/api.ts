@@ -307,14 +307,19 @@ export const api = {
       to: t.to ?? null,
     }),
   /** What was read in `ids` so far, offered at `confidence` (the saved one
-   * when `null`). */
-  aircraftReview: (ids: string[], confidence: AircraftConfidenceDto | null = null) =>
-    invoke<AircraftReviewDto>("aircraft_review", { ids, confidence }),
+   * when `null`). Thumbnails and neighbours only for `shown` (all when
+   * `null`). */
+  aircraftReview: (
+    ids: string[],
+    confidence: AircraftConfidenceDto | null = null,
+    shown: string[] | null = null,
+  ) => invoke<AircraftReviewDto>("aircraft_review", { ids, confidence, shown }),
   aircraftSetConfidence: (confidence: AircraftConfidenceDto) =>
     invoke<AircraftConfidenceDto>("aircraft_set_confidence", { confidence }),
   /** Accept a photo's read: these keywords are added (none: dismissed),
-   * to the photo and to the `neighbours` ticked. */
-  aircraftAccept: (id: string, keywords: string[], neighbours: string[] = []) =>
+   * to the photo and to the `neighbours` ticked (`null`: not shown, so the
+   * alike ones). */
+  aircraftAccept: (id: string, keywords: string[], neighbours: string[] | null = []) =>
     invoke<string[]>("aircraft_accept", { id, keywords, neighbours }),
   /** The other photos of an accepted registration that lack its airline
    * or type. */

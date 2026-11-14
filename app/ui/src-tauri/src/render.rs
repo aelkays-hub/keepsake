@@ -95,7 +95,8 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
         .with_power(power())
         .with_cloud(crate::cloud::tagger())
-        .with_adviser(crate::cloud::adviser());
+        .with_adviser(crate::cloud::adviser())
+        .with_same_shot(open.settings.ai.same_shot_s);
     let svc = if open.settings.ai.aircraft_lookup {
         svc.with_lookup(crate::aircraft::lookup())
     } else {
