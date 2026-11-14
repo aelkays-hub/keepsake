@@ -474,7 +474,8 @@ pub fn found_for(
     Ok(out)
 }
 
-/// Photos taken this close (either side) are offered with a read.
+/// Photos taken this close (either side) are offered with a read, unless
+/// the user sets another window (`ai.same_shot_s`).
 pub const NEIGHBOUR_MS: i64 = 10_000;
 
 /// A photo taken just before or after a read one.
@@ -490,12 +491,16 @@ pub struct Neighbour {
     pub alike: bool,
 }
 
-/// The photos taken by the same camera within [`NEIGHBOUR_MS`] of `asset`,
+/// The photos taken by the same camera and lens within `window_ms` of `asset`,
 /// nearest first, each with how alike it is (alike: at least
 /// [`crate::ai::duplicates::COSINE_BURST`], the bar Duplicates uses for
 /// photos taken moments apart). Not analysed by On-device AI: no
 /// similarity, not alike.
-pub fn neighbours(cat: &Catalog, asset: AssetId) -> Result<Vec<Neighbour>, AiError> {
+pub fn neighbours(
+    cat: &Catalog,
+    asset: AssetId,
+    window_ms: i64,
+) -> Result<Vec<Neighbour>, AiError> {
     let emb = |id: AssetId| -> Result<Option<Embedding>, AiError> {
         Ok(cat
             .read(|tx| tx.ai().analysis(id))?
@@ -504,7 +509,7 @@ pub fn neighbours(cat: &Catalog, asset: AssetId) -> Result<Vec<Neighbour>, AiErr
     };
     let mine = emb(asset)?;
     let mut out = Vec::new();
-    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, NEIGHBOUR_MS))? {
+    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, window_ms))? {
         let similarity = match (&mine, emb(id)?) {
             (Some(a), Some(b)) => Some(a.cosine(&b)),
             _ => None,

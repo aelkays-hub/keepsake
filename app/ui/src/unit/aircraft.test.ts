@@ -12,7 +12,7 @@ const status = (p: Partial<AircraftStatus>): AircraftStatus => ({
   accel: "graphics card (DirectML)",
   problem: null,
   installing: null,
-  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
   lookup: false,
   ...p,
 });

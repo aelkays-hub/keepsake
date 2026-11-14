@@ -35,7 +35,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
 
 const review = (p: Partial<AircraftReviewDto> = {}): AircraftReviewDto => ({
   items: [item(), item({ id: "a2", review: "accepted" })],
-  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
   total: 5,
   read: 2,
   pending: 3,

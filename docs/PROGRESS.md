@@ -65,6 +65,14 @@
 
 ---
 
+## Read aircraft: registrations misread as digits; the same-shot window; Tag with AI to the same shot (2026-11-14)
+
+- **Asked:** A7202143.jpg's OO-SFO, clear on the tail and the wing, was not read; a slider for the ± seconds (10 at first); Tag with AI's tags to identical photos within that window, same camera and lens.
+- **Found:** the tail's registration was read (88 %) as `0O-SFO`; the wing's (small, slanted) is not found by the text detector.
+- **Built:** misread digits in a registration read as letters (`marks::registration`); `ai.same_shot_s` and its slider in the review window; neighbours by camera **and lens** within the window; `cloud::tag_asset` gives its tags to the alike photos of the same shot.
+- **Tests, run here (Windows):** `ai::aircraft` (+1: `0O-SFO`, `OO-SF0`, real prefixes with digits kept, no `OO-OOO` from zeros), `aircraft_tests` (8, +1: Tag with AI to the same shot, not another lens, not outside the window; the wider window and the lens rule for neighbours), app lib tests; Vitest (74), mocked Playwright `aircraft` (8); fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
+- **Not run:** in the app; CI. On branch `fix/aircraft-reading-2` (from main at 0.5.2), not pushed.
+
 ## Version 0.5.2 (2026-11-13)
 
 - **Asked:** "push everything and publish a new version".

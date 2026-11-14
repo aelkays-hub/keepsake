@@ -255,7 +255,38 @@ pub fn registration(word: &str) -> Option<String> {
     } else {
         us_mark(w) || PLAIN.iter().any(|p| fits(p, w))
     };
-    ok.then(|| w.to_owned())
+    if ok {
+        return Some(w.to_owned());
+    }
+    // Letters read as digits that look like them (`0O-SFO` for OO-SFO):
+    // the prefix, then the rest, then both, as letters; kept only when it
+    // is then a country's shape.
+    let (prefix, rest) = w.split_once('-')?;
+    [
+        format!("{}-{rest}", letters_again(prefix)),
+        format!("{prefix}-{}", letters_again(rest)),
+        format!("{}-{}", letters_again(prefix), letters_again(rest)),
+    ]
+    .into_iter()
+    .find(|c| c != w && DASHED.iter().any(|p| fits(p, c)))
+}
+
+/// Digits that look like letters, read as letters: `0O` → `OO`. Only in a
+/// part that has a letter already: a row of zeros (`00-000`) is not read
+/// as `OO-OOO`.
+fn letters_again(s: &str) -> String {
+    if !s.chars().any(|c| c.is_ascii_alphabetic()) {
+        return s.to_owned();
+    }
+    s.chars()
+        .map(|c| match c {
+            '0' => 'O',
+            '1' => 'I',
+            '5' => 'S',
+            '8' => 'B',
+            c => c,
+        })
+        .collect()
 }
 
 /// The registrations in one line of text: each word, and two words next
@@ -920,6 +951,20 @@ mod tests {
             line("AIR CANADA rouge", 0.9, 0.0, 50.0),
         ];
         assert_eq!(interpret(&rouge, &a).airlines, ["Air Canada Rouge"]);
+    }
+
+    #[test]
+    fn letters_read_as_digits_in_a_registration_are_put_right() {
+        // A7202143.jpg: Brussels Airlines' OO-SFO read as `0O-SFO`.
+        assert_eq!(registration("0O-SFO").as_deref(), Some("OO-SFO"));
+        assert_eq!(registration("OO-SF0").as_deref(), Some("OO-SFO"));
+        // Real prefixes with digits stay as they are.
+        assert_eq!(registration("A6-EDA").as_deref(), Some("A6-EDA"));
+        assert_eq!(registration("9V-SKA").as_deref(), Some("9V-SKA"));
+        assert_eq!(registration("B-18901").as_deref(), Some("B-18901"));
+        // No country's shape either way: nothing.
+        assert_eq!(registration("00-000"), None);
+        assert_eq!(registration("12-345"), None);
     }
 
     #[test]

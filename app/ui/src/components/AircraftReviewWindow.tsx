@@ -65,6 +65,7 @@ function Photo({
   onAccept,
   onDismiss,
   busy,
+  sameShotS,
 }: {
   item: AircraftReviewItemDto;
   toggled: Set<string> | undefined;
@@ -74,6 +75,7 @@ function Photo({
   onAccept: () => void;
   onDismiss: () => void;
   busy: boolean;
+  sameShotS: number;
 }) {
   const thumb = fileUrl(item.thumb);
   const also = alsoRead(item);
@@ -136,7 +138,8 @@ function Photo({
         {!done && item.neighbours.length > 0 && (
           <div className="ar-near" data-testid="ar-near">
             <span className="muted">
-              Taken within 10 s by the same camera (ticked ones get the same keywords):
+              Taken within ±{sameShotS} s by the same camera and lens (ticked ones get the same
+              keywords):
             </span>
             <ul>
               {item.neighbours.map((n) => {
@@ -380,10 +383,25 @@ export function AircraftReviewWindow() {
                 <output>{conf[key]}%</output>
               </label>
             ))}
+            <label className="ar-slider">
+              <span>Same shot</span>
+              <input
+                type="range"
+                min={1}
+                max={60}
+                step={1}
+                value={conf.sameShotS}
+                onChange={(e) => setConf({ ...conf, sameShotS: Number(e.target.value) })}
+                data-testid="ar-sameShotS"
+                aria-valuetext={`${conf.sameShotS} seconds`}
+              />
+              <output>±{conf.sameShotS} s</output>
+            </label>
             <p className="muted">
               Lower finds more, with more mistakes; higher finds less, more surely. What was read is
-              kept, so moving these re-sorts at once and nothing is read again. Remembered for next
-              time.
+              kept, so moving these re-sorts at once and nothing is read again. Same shot: photos
+              this many seconds either side, by the same camera and lens, that look alike (Tag with
+              AI uses it too). Remembered for next time.
             </p>
           </fieldset>
         )}
@@ -451,6 +469,7 @@ export function AircraftReviewWindow() {
                 run(() => api.aircraftDismiss(item.id).then(() => setState(item.id, "dismissed")))
               }
               busy={busy}
+              sameShotS={conf?.sameShotS ?? 10}
             />
           ))}
         </ul>

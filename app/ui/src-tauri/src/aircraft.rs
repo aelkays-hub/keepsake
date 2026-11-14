@@ -67,7 +67,7 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         accel: get(&st.accel).flatten().filter(|_| on),
         problem: get(&st.problem).flatten().filter(|_| on),
         installing: get(&st.install).flatten().map(|(_, done)| done),
-        confidence: confidence_dto(settings.ai.aircraft_confidence()),
+        confidence: confidence_dto(settings.ai.aircraft_confidence(), settings.ai.same_shot_s),
         lookup: settings.ai.aircraft_lookup,
     })
 }
@@ -275,12 +275,13 @@ pub fn aircraft_read_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdRe
     Ok(())
 }
 
-fn confidence_dto(c: Confidence) -> AircraftConfidenceDto {
+fn confidence_dto(c: Confidence, same_shot_s: u8) -> AircraftConfidenceDto {
     let p = |v: f32| (v * 100.0).round().clamp(0.0, 100.0) as u8;
     AircraftConfidenceDto {
         registration_pct: p(c.registration),
         airline_pct: p(c.airline),
         type_pct: p(c.aircraft_type),
+        same_shot_s: same_shot_s.clamp(1, 60),
     }
 }
 
@@ -341,10 +342,15 @@ pub fn aircraft_review(
     ids: Vec<String>,
     confidence: Option<AircraftConfidenceDto>,
 ) -> CmdResult<AircraftReviewDto> {
+    let saved = Settings::load().map_err(err)?;
     let conf = match &confidence {
         Some(c) => confidence_of(c),
-        None => Settings::load().map_err(err)?.ai.aircraft_confidence(),
+        None => saved.ai.aircraft_confidence(),
     };
+    let same_shot_s = confidence
+        .as_ref()
+        .map_or(saved.ai.same_shot_s, |c| c.same_shot_s)
+        .clamp(1, 60);
     let ids = unique(convert::ids(&ids)?);
     let open = state.open()?;
     let cat = open.cat()?;
@@ -357,7 +363,7 @@ pub fn aircraft_review(
         let names = |v: &[TagPath]| v.iter().map(TagPath::to_lightroom).collect::<Vec<_>>();
         let mut neighbours = Vec::new();
         if it.review == scan::Review::Waiting {
-            for n in scan::neighbours(&cat, it.asset).map_err(err)? {
+            for n in scan::neighbours(&cat, it.asset, i64::from(same_shot_s) * 1000).map_err(err)? {
                 let (name, thumb) = photo_of(&cat, &open.cache, n.asset)?;
                 neighbours.push(AircraftNeighbourDto {
                     id: n.asset.to_string(),
@@ -407,7 +413,7 @@ pub fn aircraft_review(
     }
     Ok(AircraftReviewDto {
         items,
-        confidence: confidence_dto(conf),
+        confidence: confidence_dto(conf, same_shot_s),
         total: st.items,
         read,
         pending: st.pending,
@@ -423,8 +429,9 @@ pub fn aircraft_set_confidence(
 ) -> CmdResult<AircraftConfidenceDto> {
     let mut s = Settings::load().map_err(err)?;
     s.ai.set_aircraft_confidence(confidence_of(&confidence));
+    s.ai.same_shot_s = confidence.same_shot_s.clamp(1, 60);
     s.save().map_err(err)?;
-    Ok(confidence_dto(s.ai.aircraft_confidence()))
+    Ok(confidence_dto(s.ai.aircraft_confidence(), s.ai.same_shot_s))
 }
 
 fn paths_of(keywords: &[String]) -> CmdResult<Vec<TagPath>> {

@@ -1073,6 +1073,8 @@ dto! {
         pub registration_pct: u8,
         pub airline_pct: u8,
         pub type_pct: u8,
+        /// The same-shot window, seconds either side (1–60).
+        pub same_shot_s: u8,
     }
 
     /// A possible mark and how surely it was read (percent).

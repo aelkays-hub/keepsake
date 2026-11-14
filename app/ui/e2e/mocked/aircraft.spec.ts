@@ -83,7 +83,7 @@ test("right-click photos: the review window reads them; only what is accepted is
   await expect(first).not.toContainText("(its look)");
   await expect
     .poll(async () => (await calls(page, "aircraft_set_confidence")).at(-1))
-    .toEqual({ confidence: { registrationPct: 80, airlinePct: 85, typePct: 60 } });
+    .toEqual({ confidence: { registrationPct: 80, airlinePct: 85, typePct: 60, sameShotS: 10 } });
   expect(await calls(page, "aircraft_read")).toHaveLength(1);
 
   // Untick the type and accept: the type does not become a keyword.
