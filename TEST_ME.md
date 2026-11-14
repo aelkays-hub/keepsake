@@ -25,7 +25,8 @@ Manual (both OSes):
 6. Read aircraft on A7202202.ARW (2019, January; C-FVLU). **Expected:** C-FVLU, Air Canada, Boeing 787-9 (adsbdb) and Boeing 787 Dreamliner all ticked.
 7. Read aircraft on a folder or dates with hundreds of aircraft photos. **Expected:** the window fills in as they are read, and when reading ends it says "N of N photos read." within a few seconds, not "Reading…" for ever. Moving a slider re-sorts within a second or two; **Show more** brings thumbnails and neighbours for the next photos. **Accept all shown** gives a photo's keywords to its alike neighbours too, also for photos further down.
 8. Read aircraft on A7202769.jpg (Edited/WebSite/Air Lingus). **Expected:** EI-EWR and Airbus A330-200; with the online lookup on, Aer Lingus from adsbdb.
-9. Originals: unchanged.
+9. Read aircraft on A7202535.ARW (2019, January; an Interjet A320 far off). **Expected:** XA-MBA and Interjet.
+10. Originals: unchanged.
 
 ---
 

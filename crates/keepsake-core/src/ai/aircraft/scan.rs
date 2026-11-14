@@ -30,6 +30,11 @@
 //!   otherwise the type the picture looks like, when one stands out
 //!   ([`super::types`]). That needs the image encoder of On-device AI: the
 //!   item's stored analysis, or the encoder itself if it is installed.
+//! - **A closer look** ([`read_lines`]). The detector sees the picture at
+//!   most [`DETECT_SIDE`] across, so on a big photo of a distant aircraft
+//!   the registration is too small to be found. When an airline's name is
+//!   read but no registration, the fuselage around the name is read again
+//!   at full size ([`closer_look`]).
 
 use std::sync::Arc;
 
@@ -222,6 +227,80 @@ pub fn keyword_paths(marks: &Marks, looks_like: Option<&str>) -> Result<Vec<TagP
     Ok(out)
 }
 
+/// Around an airline's name, how far the fuselage is looked at: this many
+/// times the name's width to either side, half that above and below.
+const LOOK_AROUND: f32 = 5.0;
+
+/// Where to read `w`×`h` again at full size, after `lines` were read from
+/// it whole: around the airline names, when no registration was read and
+/// the picture was shrunk for the detector (the region is at most 3/4 of
+/// the picture's long side, or nothing is gained). `[x, y, w, h]`.
+pub fn closer_look(lines: &[TextLine], airlines: &Airlines, w: u32, h: u32) -> Option<[u32; 4]> {
+    let long = w.max(h) as f32;
+    if long <= DETECT_SIDE as f32 * 1.25 {
+        return None;
+    }
+    let found = marks::candidates(lines, airlines);
+    if !found.registrations.is_empty() {
+        return None;
+    }
+    let names: Vec<&TextLine> = lines
+        .iter()
+        .filter(|l| airlines.find(&l.text).is_some())
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for l in names {
+        let [cx, cy] = l.center();
+        let size = l.width().max(l.height() * 3.0);
+        x0 = x0.min(cx - size * LOOK_AROUND);
+        x1 = x1.max(cx + size * LOOK_AROUND);
+        y0 = y0.min(cy - size * LOOK_AROUND / 2.0);
+        y1 = y1.max(cy + size * LOOK_AROUND / 2.0);
+    }
+    let x0 = x0.clamp(0.0, w as f32) as u32;
+    let y0 = y0.clamp(0.0, h as f32) as u32;
+    let x1 = x1.clamp(0.0, w as f32) as u32;
+    let y1 = y1.clamp(0.0, h as f32) as u32;
+    let (cw, ch) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
+    let small = cw.max(ch) as f32 <= long * 0.75;
+    (small && cw >= 32 && ch >= 32).then_some([x0, y0, cw, ch])
+}
+
+/// Every line of text in `img` ([`Reader::read`]), and then, when an
+/// airline is read but no registration, the lines read closer around it
+/// ([`closer_look`]), in the picture's coordinates.
+pub fn read_lines(
+    read: &mut dyn FnMut(&DynamicImage) -> Result<Vec<TextLine>, AiError>,
+    airlines: &Airlines,
+    img: &DynamicImage,
+) -> Result<Vec<TextLine>, AiError> {
+    let mut lines = read(img)?;
+    if let Some([x, y, w, h]) = closer_look(&lines, airlines, img.width(), img.height()) {
+        let part = img.crop_imm(x, y, w, h);
+        let closer = read(&part)?;
+        tracing::debug!(
+            x,
+            y,
+            w,
+            h,
+            "aircraft: read closer: {:?}",
+            closer.iter().map(|l| &l.text).collect::<Vec<_>>()
+        );
+        for mut l in closer {
+            for p in &mut l.quad {
+                p[0] += x as f32;
+                p[1] += y as f32;
+            }
+            lines.push(l);
+        }
+        lines.sort_by(|a, b| b.height().total_cmp(&a.height()));
+    }
+    Ok(lines)
+}
+
 /// What a picture shows: every possible mark and the type it looks like
 /// (asked for even with a painted type: the user may set the type's
 /// confidence above it). `stored`: the item's embedding, if it has been
@@ -232,7 +311,7 @@ pub fn examine(
     img: &DynamicImage,
     stored: Option<Embedding>,
 ) -> Result<(Candidates, Option<String>), AiError> {
-    let lines = reader.read(img)?;
+    let lines = read_lines(&mut |i| reader.read(i), &lists.airlines, img)?;
     let found = marks::candidates(&lines, &lists.airlines);
     let emb = match stored {
         Some(e) => Some(e),
@@ -833,6 +912,58 @@ mod tests {
         assert_eq!(Review::parse("accepted"), Review::Accepted);
         assert_eq!(Review::parse(Review::Dismissed.as_str()), Review::Dismissed);
         assert_eq!(Review::parse("?"), Review::Waiting);
+    }
+
+    fn at(text: &str, x: f32, y: f32, w: f32, h: f32) -> TextLine {
+        TextLine {
+            text: text.to_owned(),
+            score: 0.95,
+            quad: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+        }
+    }
+
+    #[test]
+    fn a_distant_aircraft_is_read_again_closer_around_its_airline() {
+        // A7202535: Interjet's title read, XA-MBA too small to be found.
+        let airlines = Airlines::builtin();
+        let title = at("interJet", 2000.0, 1100.0, 226.0, 34.0);
+        let [x, y, w, h] =
+            closer_look(std::slice::from_ref(&title), &airlines, 4519, 2468).unwrap();
+        assert!(x < 2000 && x + w > 2226 + 1000 && y < 1100 && y + h > 1134);
+        assert!(w.max(h) as f32 <= 4519.0 * 0.75);
+        // Not when a registration was read, nor without an airline.
+        let reg = at("XA-MBA", 2900.0, 1100.0, 80.0, 17.0);
+        assert_eq!(
+            closer_look(&[title.clone(), reg], &airlines, 4519, 2468),
+            None
+        );
+        let other = at("ARE YOU READY", 2000.0, 1100.0, 226.0, 34.0);
+        assert_eq!(closer_look(&[other], &airlines, 4519, 2468), None);
+        // Nor when the picture was barely shrunk, or the title fills it.
+        assert_eq!(closer_look(&[title], &airlines, 2600, 1700), None);
+        let big = at("interJet", 1000.0, 1100.0, 1500.0, 220.0);
+        assert_eq!(closer_look(&[big], &airlines, 4519, 2468), None);
+
+        // What is read closer is put in the picture's coordinates.
+        let img = DynamicImage::new_rgb8(4519, 2468);
+        let mut calls = 0;
+        let mut read = |i: &DynamicImage| {
+            calls += 1;
+            Ok(if i.width() == 4519 {
+                vec![at("interJet", 2000.0, 1100.0, 226.0, 34.0)]
+            } else {
+                vec![at("XA-MBA", 10.0, 20.0, 80.0, 17.0)]
+            })
+        };
+        let lines = read_lines(&mut read, &airlines, &img).unwrap();
+        assert_eq!(calls, 2);
+        let reg = lines.iter().find(|l| l.text == "XA-MBA").unwrap();
+        let [x, y, ..] = closer_look(&lines[..1], &airlines, 4519, 2468).unwrap();
+        assert_eq!(reg.quad[0], [x as f32 + 10.0, y as f32 + 20.0]);
+        assert_eq!(
+            marks::candidates(&lines, &airlines).registrations[0].0,
+            "XA-MBA"
+        );
     }
 
     #[test]

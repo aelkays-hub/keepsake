@@ -513,7 +513,7 @@ fn faces(ctx: &Ctx, action: FacesAction) -> Result<u8> {
 }
 
 fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
-    use keepsake_core::ai::aircraft::{install as text_install, marks, ocr, types};
+    use keepsake_core::ai::aircraft::{install as text_install, marks, ocr, scan, types};
     use keepsake_core::catalog::TagPath;
     use keepsake_core::render::Variant;
     match action {
@@ -761,7 +761,7 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                     .with_context(|| format!("reading {}", file.display()))?;
                 let load_ms = t_load.elapsed().as_millis() as u64;
                 let t0 = std::time::Instant::now();
-                let lines = reader.read(&img)?;
+                let lines = scan::read_lines(&mut |i| reader.read(i), &airlines, &img)?;
                 let ms = t0.elapsed().as_millis() as u64;
                 let marks = marks::interpret(&lines, &airlines);
                 let looks: Vec<(String, f32)> = match image_model.as_mut() {
