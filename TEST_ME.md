@@ -21,7 +21,11 @@ Manual (both OSes):
 2. In the review window, find the fourth slider, **Same shot**, set to ±10 s. Move it to 30 s. **Expected:** the neighbours line reads "Taken within ±30 s by the same camera and lens"; more photos of a burst appear. Close and open the window again. **Expected:** it is still 30 s. Set it back to 10.
 3. A burst shot with two lenses (or two cameras). **Expected:** photos taken with the other lens are not listed as neighbours.
 4. Tag with AI (Claude, ChatGPT or Gemini) one photo of a burst whose photos have been analysed by On-device AI. **Expected:** the alike photos within the slider's seconds, from the same camera and lens, get the same tags; the inspector's "which AI tagged it" names that AI for them. Photos from another lens, or further apart in time, get nothing.
-5. Originals: unchanged.
+5. Read aircraft on the RAW A7202143.ARW (2019, January). **Expected:** OO-SFO and Brussels Airlines.
+6. Read aircraft on A7202202.ARW (2019, January; C-FVLU). **Expected:** C-FVLU, Air Canada, Boeing 787-9 (adsbdb) and Boeing 787 Dreamliner all ticked.
+7. Read aircraft on a folder or dates with hundreds of aircraft photos. **Expected:** the window fills in as they are read, and when reading ends it says "N of N photos read." within a few seconds, not "Reading…" for ever. Moving a slider re-sorts within a second or two; **Show more** brings thumbnails and neighbours for the next photos. **Accept all shown** gives a photo's keywords to its alike neighbours too, also for photos further down.
+8. Read aircraft on A7202769.jpg (Edited/WebSite/Air Lingus). **Expected:** EI-EWR and Airbus A330-200; with the online lookup on, Aer Lingus from adsbdb.
+9. Originals: unchanged.
 
 ---
 

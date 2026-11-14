@@ -238,6 +238,21 @@ fn us_mark(word: &str) -> bool {
 /// `word` as a registration, if it is shaped like one: upper case, with
 /// what stands for the hyphen made a hyphen.
 pub fn registration(word: &str) -> Option<String> {
+    shaped(word).or_else(|| {
+        // A capital I read as a small l (`El-EWR` for EI-EWR, A7202769), in
+        // a word otherwise in capitals: a word in small letters (a
+        // signature, `el-kays`) is not one.
+        let capitals = word.chars().any(|c| c.is_ascii_uppercase())
+            && word.chars().all(|c| !c.is_ascii_lowercase() || c == 'l');
+        if capitals && word.contains('l') {
+            shaped(&word.replace('l', "I"))
+        } else {
+            None
+        }
+    })
+}
+
+fn shaped(word: &str) -> Option<String> {
     let w: String = word
         .trim()
         .chars()
@@ -260,7 +275,12 @@ pub fn registration(word: &str) -> Option<String> {
     }
     // Letters read as digits that look like them (`0O-SFO` for OO-SFO):
     // the prefix, then the rest, then both, as letters; kept only when it
-    // is then a country's shape.
+    // is then a country's shape. Only in a word that has a letter already:
+    // a row of zeros (`00-000`) is not read as `OO-OOO`; but `00-SFO`
+    // (A7202143.ARW) is OO-SFO.
+    if !w.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
     let (prefix, rest) = w.split_once('-')?;
     [
         format!("{}-{rest}", letters_again(prefix)),
@@ -271,13 +291,8 @@ pub fn registration(word: &str) -> Option<String> {
     .find(|c| c != w && DASHED.iter().any(|p| fits(p, c)))
 }
 
-/// Digits that look like letters, read as letters: `0O` → `OO`. Only in a
-/// part that has a letter already: a row of zeros (`00-000`) is not read
-/// as `OO-OOO`.
+/// Digits that look like letters, read as letters: `0O` → `OO`.
 fn letters_again(s: &str) -> String {
-    if !s.chars().any(|c| c.is_ascii_alphabetic()) {
-        return s.to_owned();
-    }
     s.chars()
         .map(|c| match c {
             '0' => 'O',
@@ -613,10 +628,35 @@ pub fn painted_type(text: &str) -> Option<String> {
             ["A320NEO"] | ["A321NEO"] | ["A330NEO"] => {
                 return Some(format!("Airbus {}neo", &toks[0][..4]))
             }
+            [t] => {
+                if let Some(t) = airbus_model(t) {
+                    return Some(t);
+                }
+            }
             _ => {}
         }
     }
     None
+}
+
+/// An Airbus model and its variant written alone (`A330-200`), also with
+/// one stray letter read before it (`CA330-200`, A7202769).
+fn airbus_model(t: &str) -> Option<String> {
+    const MODELS: &[&str] = &[
+        "220", "300", "310", "318", "319", "320", "321", "330", "340", "350", "380",
+    ];
+    let t = match t.strip_prefix(|c: char| c.is_ascii_uppercase() && c != 'A') {
+        Some(r) if r.starts_with('A') => r,
+        _ => t,
+    };
+    let (model, variant) = t.strip_prefix('A')?.split_once('-')?;
+    if !MODELS.contains(&model) {
+        return None;
+    }
+    let digits = variant.chars().take_while(char::is_ascii_digit).count();
+    let tail = &variant[digits..];
+    (digits == 3 && tail.len() <= 2 && tail.chars().all(|c| c.is_ascii_uppercase()))
+        .then(|| format!("Airbus A{model}-{variant}"))
 }
 
 /// What the text in a picture says about the aircraft in it.
@@ -958,6 +998,9 @@ mod tests {
         // A7202143.jpg: Brussels Airlines' OO-SFO read as `0O-SFO`.
         assert_eq!(registration("0O-SFO").as_deref(), Some("OO-SFO"));
         assert_eq!(registration("OO-SF0").as_deref(), Some("OO-SFO"));
+        // A7202143.ARW: both of the prefix's letters read as zeros.
+        assert_eq!(registration("00-SFO").as_deref(), Some("OO-SFO"));
+        assert_eq!(registration("00-SF0").as_deref(), Some("OO-SFO"));
         // Real prefixes with digits stay as they are.
         assert_eq!(registration("A6-EDA").as_deref(), Some("A6-EDA"));
         assert_eq!(registration("9V-SKA").as_deref(), Some("9V-SKA"));
@@ -965,6 +1008,33 @@ mod tests {
         // No country's shape either way: nothing.
         assert_eq!(registration("00-000"), None);
         assert_eq!(registration("12-345"), None);
+    }
+
+    #[test]
+    fn a_capital_i_read_as_a_small_l_is_put_right() {
+        // A7202769.jpg: Aer Lingus' EI-EWR.
+        assert_eq!(registration("El-EWR").as_deref(), Some("EI-EWR"));
+        // Words in small letters are not registrations.
+        assert_eq!(registration("el-kays"), None);
+        assert_eq!(registration("ahmad el-kays"), None);
+    }
+
+    #[test]
+    fn an_airbus_model_written_alone_is_its_type() {
+        // A7202769.jpg: `A330-200` with a stray letter before it.
+        assert_eq!(
+            painted_type("CA330-200").as_deref(),
+            Some("Airbus A330-200")
+        );
+        assert_eq!(painted_type("A321-200").as_deref(), Some("Airbus A321-200"));
+        assert_eq!(painted_type("A350-900").as_deref(), Some("Airbus A350-900"));
+        assert_eq!(
+            painted_type("A330-200F").as_deref(),
+            Some("Airbus A330-200F")
+        );
+        assert_eq!(painted_type("A123-456"), None);
+        assert_eq!(painted_type("BA330-2"), None);
+        assert_eq!(painted_type("XYA330-200"), None);
     }
 
     #[test]

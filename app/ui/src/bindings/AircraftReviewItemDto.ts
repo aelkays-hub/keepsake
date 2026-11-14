@@ -45,6 +45,7 @@ fromLookup: Array<string>,
  */
 lookups: Array<AircraftLookupDto>, 
 /**
- * Photos taken by the same camera within 10 seconds.
+ * Photos taken by the same camera and lens within the same-shot
+ * window; `None`: not looked for (the photo is not on screen).
  */
-neighbours: Array<AircraftNeighbourDto>, };
+neighbours: Array<AircraftNeighbourDto> | null, };

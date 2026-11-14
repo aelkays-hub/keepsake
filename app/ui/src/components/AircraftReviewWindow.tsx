@@ -25,6 +25,7 @@ import {
   parts,
   progressLine,
   secondsLabel,
+  shownIds,
   sourceOf,
   ticked,
   tickedNeighbours,
@@ -81,7 +82,7 @@ function Photo({
   const also = alsoRead(item);
   const done = item.review !== "waiting";
   const looked = lookupLine(item);
-  const near = tickedNeighbours(item, toggledNear);
+  const near = tickedNeighbours(item, toggledNear) ?? [];
   return (
     <li className={`ar-photo ${item.review}`} data-testid="ar-photo">
       {thumb ? (
@@ -135,7 +136,7 @@ function Photo({
             Also read, below your confidence: {also.map((a) => `${a.label} ${a.pct}%`).join(", ")}
           </p>
         )}
-        {!done && item.neighbours.length > 0 && (
+        {!done && item.neighbours && item.neighbours.length > 0 && (
           <div className="ar-near" data-testid="ar-near">
             <span className="muted">
               Taken within ±{sameShotS} s by the same camera and lens (ticked ones get the same
@@ -208,6 +209,8 @@ export function AircraftReviewWindow() {
   const [stopped, setStopped] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const first = useRef(true);
   const box = useRef<HTMLDivElement>(null);
   const close = useCallback(() => dispatch({ t: "aircraftReview", job: null }), [dispatch]);
 
@@ -221,6 +224,7 @@ export function AircraftReviewWindow() {
     setStopped(false);
     setShown(PAGE);
     setProblem(null);
+    first.current = true;
     if (!job) return;
     box.current?.focus();
     let live = true;
@@ -232,29 +236,38 @@ export function AircraftReviewWindow() {
     };
   }, [job]);
 
-  // What has been read, at the window's confidence; again while reading.
+  // What has been read, at the window's confidence, with thumbnails and
+  // neighbours for the photos on screen: asked when the sliders move or
+  // more are shown, and every POLL_MS while reading goes on (`tick`).
+  const onScreen = shownIds(review, all, shown);
+  const onScreenKey = onScreen.join(",");
   useEffect(() => {
     if (!ids) return;
     let live = true;
-    const t = window.setTimeout(
-      () => {
-        api
-          .aircraftReview(ids, conf)
-          .then((r) => {
-            if (!live) return;
-            setReview(r);
-            if (!conf) setConf(r.confidence);
-          })
-          .catch((e) => live && setProblem(String(e)));
-      },
-      review ? (review.pending > 0 && !stopped ? POLL_MS : 150) : 0,
-    );
+    const wait = first.current ? 0 : 150;
+    first.current = false;
+    const t = window.setTimeout(() => {
+      api
+        .aircraftReview(ids, conf, onScreenKey ? onScreenKey.split(",") : [])
+        .then((r) => {
+          if (!live) return;
+          setReview(r);
+          if (!conf) setConf(r.confidence);
+        })
+        .catch((e) => live && setProblem(String(e)));
+    }, wait);
     return () => {
       live = false;
       window.clearTimeout(t);
     };
-    // `review` restarts the poll after each answer.
-  }, [ids, conf, review, stopped]);
+  }, [ids, conf, onScreenKey, tick]);
+  const reading = Boolean(review && review.pending > 0 && !stopped);
+  useEffect(() => {
+    if (!reading) return;
+    const t = window.setTimeout(() => setTick((n) => n + 1), POLL_MS);
+    return () => window.clearTimeout(t);
+    // `review` restarts the wait after each answer.
+  }, [reading, review]);
 
   // Remember the sliders (a moment after they stop moving).
   const saved = useRef<string | null>(null);
@@ -300,7 +313,7 @@ export function AircraftReviewWindow() {
     const reg = keep.find((k) => parts(k)[0] === "Registration");
     if (reg && keep.some((k) => ["Airline", "Type"].includes(parts(k)[0]))) {
       const photos = (await api.aircraftSamePlane(item.id, keep)).filter(
-        (p) => !near.includes(p.id),
+        (p) => !(near ?? []).includes(p.id),
       );
       if (photos.length)
         setSame((s) => [

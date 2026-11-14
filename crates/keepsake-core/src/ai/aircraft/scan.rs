@@ -450,12 +450,43 @@ pub fn offer(
     }
     if let Some(t) = &looked_type {
         for painted in &marks.types {
-            if painted != t {
+            if !same_type(painted, t) {
                 out.unticked.push(path("Type", painted)?);
             }
         }
     }
     Ok(out)
+}
+
+/// A painted type agrees with the looked-up one when it is the same, or
+/// the same maker and model said less exactly: "Boeing 787 Dreamliner" is
+/// a "Boeing 787-9" (A7202202.ARW, C-FVLU), "Airbus A320neo" an "Airbus
+/// A320-251N"; "Boeing 777-300ER" is not a "Boeing 777-200LR".
+fn same_type(painted: &str, looked: &str) -> bool {
+    if painted.eq_ignore_ascii_case(looked) {
+        return true;
+    }
+    // The maker, then the model's family ("787", "A320") and whether a
+    // variant follows it ("-9", "-300ER").
+    fn split(s: &str) -> Option<(String, String, bool)> {
+        let mut words = s.split_whitespace();
+        let maker = words.next()?.to_ascii_lowercase();
+        let model = words.next()?.to_ascii_lowercase();
+        let digits_end = model
+            .char_indices()
+            .skip_while(|(_, c)| c.is_ascii_alphabetic())
+            .find(|(_, c)| !c.is_ascii_digit())
+            .map_or(model.len(), |(i, _)| i);
+        let (family, after) = model.split_at(digits_end);
+        if !family.chars().any(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        Some((maker, family.to_owned(), after.starts_with('-')))
+    }
+    match (split(painted), split(looked)) {
+        (Some((pm, pf, p_variant)), Some((lm, lf, _))) => pm == lm && pf == lf && !p_variant,
+        _ => false,
+    }
 }
 
 /// What lookups said about the registrations a read offers at `conf`
@@ -802,6 +833,18 @@ mod tests {
         assert_eq!(Review::parse("accepted"), Review::Accepted);
         assert_eq!(Review::parse(Review::Dismissed.as_str()), Review::Dismissed);
         assert_eq!(Review::parse("?"), Review::Waiting);
+    }
+
+    #[test]
+    fn a_painted_type_said_less_exactly_agrees_with_the_registry() {
+        assert!(same_type("Boeing 787 Dreamliner", "Boeing 787-9"));
+        assert!(same_type("Boeing 787", "Boeing 787-9"));
+        assert!(same_type("Airbus A320neo", "Airbus A320-251N"));
+        assert!(same_type("Boeing 777-300ER", "boeing 777-300er"));
+        assert!(!same_type("Boeing 777-300ER", "Boeing 777-200LR"));
+        assert!(!same_type("Boeing 787 Dreamliner", "Boeing 777-300ER"));
+        assert!(!same_type("Airbus A330", "Boeing 787-9"));
+        assert!(!same_type("Airbus A321", "Airbus A320-251N"));
     }
 
     #[test]

@@ -71,7 +71,8 @@
 - **Found:** the tail's registration was read (88 %) as `0O-SFO`; the wing's (small, slanted) is not found by the text detector.
 - **Built:** misread digits in a registration read as letters (`marks::registration`); `ai.same_shot_s` and its slider in the review window; neighbours by camera **and lens** within the window; `cloud::tag_asset` gives its tags to the alike photos of the same shot.
 - **Tests, run here (Windows):** `ai::aircraft` (+1: `0O-SFO`, `OO-SF0`, real prefixes with digits kept, no `OO-OOO` from zeros), `aircraft_tests` (8, +1: Tag with AI to the same shot, not another lens, not outside the window; the wider window and the lens rule for neighbours), app lib tests; Vitest (74), mocked Playwright `aircraft` (8); fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
-- **Not run:** in the app; CI. On branch `fix/aircraft-reading-2` (from main at 0.5.2), not pushed.
+- **Then, in the app** (same day): the RAW of A7202143 still missed OO-SFO (read `00-SFO`): fixed. A7202202.ARW (C-FVLU) was read right (C-FVLU, Air Canada, Boeing 787 Dreamliner), but the painted "787 Dreamliner" was unticked against adsbdb's "787-9": now it agrees. The review window was stuck on "Reading…" with 1,150 photos waiting: it rebuilt every photo's neighbours and thumbnails on each refresh (over 20 s) and, once reading had finished, refreshed without end. Now only the photos on screen get them, and it refreshes only while reading or when something changes. A7202769.jpg (Aer Lingus): the title is not read (curly letters), but `El-EWR` is now EI-EWR and `CA330-200` an Airbus A330-200; adsbdb names the airline. Tests: `ai::aircraft` (+4), `aircraft_tests` (8), app lib tests (108), Vitest (+1), mocked Playwright `aircraft` (8), fmt and clippy on Rust 1.100, ESLint, Prettier, tsc.
+- **Not run:** CI. On branch `fix/aircraft-reading-2` (from main at 0.5.2), PR 40.
 
 ## Version 0.5.2 (2026-11-13)
 

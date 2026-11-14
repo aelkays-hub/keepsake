@@ -1108,8 +1108,9 @@ dto! {
         pub from_lookup: Vec<String>,
         /// What the lookup said about its registrations.
         pub lookups: Vec<AircraftLookupDto>,
-        /// Photos taken by the same camera within 10 seconds.
-        pub neighbours: Vec<AircraftNeighbourDto>,
+        /// Photos taken by the same camera and lens within the same-shot
+        /// window; `None`: not looked for (the photo is not on screen).
+        pub neighbours: Option<Vec<AircraftNeighbourDto>>,
     }
 
     /// What the online lookup (adsbdb.com) said about a registration.
