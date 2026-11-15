@@ -65,6 +65,11 @@
 
 ---
 
+## A month with fewer than 31 days gave an error (2026-11-15, fixed)
+
+- Product owner: "when reading aircraft at a folder level and if it is a month with less than 31 days I get an error". Right-clicking a month in the calendar asked for its dates up to the 31st (`2019-09-31`), which is not a date, and the search refused it ("not a date (YYYY-MM-DD)"). Read aircraft, Tag photos and Find duplicates on a month all went through it. Now a month ends on its own last day (30, 28 or 29 in a leap year). `calRange` in `app/ui/src/ai.ts`.
+- Tests: Vitest `ai` (short months, February in and out of a leap year), mocked Playwright `ai` and `aircraft` (20), ESLint, Prettier, tsc. **Not run:** CI. Branch `fix/month-last-day` (from `feat/aircraft-report`).
+
 ## Aircraft report in Tools → Report (2026-11-14)
 
 - Tools → **Report** now has **Library** and **Aircraft** (ADR-043). Aircraft: photos tagged Airplane or with a keyword under Aircraft; distinct shots (copies in other folders once); how many name an airline, type or registration; airlines, types and registrations counted; reads waiting for review; photos by year; one table each for airlines, types and registrations with photos, registrations, main airlines and types, first and last day seen, and Find. A row opens its photos; **Export to CSV…** writes it all.
