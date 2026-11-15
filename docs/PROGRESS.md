@@ -68,7 +68,7 @@
 ## Version 0.5.3 (2026-11-15)
 
 - **Asked:** "merge and push all to main in GitHub v 0.5.3".
-- **Done:** version 0.5.3 everywhere it is set; release notes lead with the Aircraft report, the closer read of distant aircraft, misread registrations, the same-shot slider, and the month and review-window fixes (no catalog change). The mocked test that opens an aircraft row now waits for the library's request (it failed on the slower macOS runner). Goes to `main` with pull requests 40, 41 and 42.
+- **Done:** version 0.5.3 everywhere it is set; release notes lead with the Aircraft report, the closer read of distant aircraft, misread registrations, the same-shot slider, and the month and review-window fixes (no catalog change). The mocked test that opens an aircraft row now waits for the library's request (it failed on the slower macOS runner). Goes to `main` with pull requests 40, 41 and 42. On macOS the mocked test that stops a viewer read failed: the mock counted a photo as read on the window's second request, which comes about 150 ms after the first, so Stop was gone before it could be clicked. The mock now takes about a second to read a photo (`READ_MS`).
 
 ## A month with fewer than 31 days gave an error (2026-11-15, fixed)
 
