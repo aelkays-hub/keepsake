@@ -95,7 +95,8 @@ export interface MockState {
   /** Read aircraft's review window: each photo's read (`left`: reviews
    * until it is read; −1: stopped before) and review state, and the
    * sliders. */
-  aircraftReads: Map<number, { left: number; review: string }>;
+  /** `left` reads to go (−1: stopped); `next`: when the next one is done. */
+  aircraftReads: Map<number, { left: number; review: string; next?: number }>;
   aircraftConf: {
     registrationPct: number;
     airlinePct: number;
@@ -256,6 +257,9 @@ const day = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 
 /** Tools → Report over the mock items: a RAW item is a RAW+JPEG pair (one
  * photo, two files, the JPEG 6 MB). Same ordering rules as the backend. */
+/** How long the mock takes to read a photo's aircraft. */
+const READ_MS = 1000;
+
 /** Report → Aircraft: a small fixed fleet. */
 function mockAircraftReport(): AircraftReport {
   const row = (
@@ -1665,9 +1669,19 @@ export function installMock(): void {
             const r = st.aircraftReads.get(i);
             if (!r || r.left < 0) continue;
             if (r.left > 0) {
-              r.left -= 1;
-              pending += 1;
-              continue;
+              // A read takes a moment (about a second from when the window
+              // first asks), not a number of requests: the window asks
+              // again at once when its sliders and photos on screen settle.
+              const now = Date.now();
+              r.next ??= now + READ_MS;
+              if (now >= r.next) {
+                r.left -= 1;
+                r.next = now + READ_MS;
+              }
+              if (r.left > 0) {
+                pending += 1;
+                continue;
+              }
             }
             const registrations = [{ name: "C-FJZS", pct: 96 }];
             const airlines = [{ name: "Air Canada", pct: 82 + (i % 3) * 5 }];
