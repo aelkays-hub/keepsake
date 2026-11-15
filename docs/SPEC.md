@@ -62,6 +62,12 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 - Each row's name opens its items in the library grid, with no other filters, so the grid holds the row's item count: a year, month or day; the undated items; one camera or lens (exact name) or the items without one; the items with a file of that type; the items on a drive. The heading reads **Report › Year 2024**, and **Report** goes back to the same table.
 - **Export to CSV…** writes every breakdown to one file (UTF-8 for Excel; raw bytes and a readable size). `keepsake report` prints the same and `--csv` writes the file.
 
+### Aircraft report
+- Tools → **Report** → **Aircraft** (ADR-043): photos tagged Airplane or with a keyword under Aircraft, and the airlines, types and registrations named on them (keywords typed, or found by Read aircraft and accepted; reads waiting for review are counted apart).
+- Totals: aircraft photos and distinct shots (copies of one picture in other folders once); photos naming an airline, a type, a registration; how many airlines, types and registrations; reads waiting.
+- Photos by year (all, and naming something). One table at a time, **Airlines**, **Types** or **Registrations**, most photos first, with Find: photos, different registrations, up to three airlines and types, first and last day seen. A row's name opens its photos; **Report** goes back to the same table.
+- **Export to CSV…** writes the totals and all three tables.
+
 ### Interop
 - Open the item in another application (Ctrl+O): the system default, or an application set per file type in Settings.
 

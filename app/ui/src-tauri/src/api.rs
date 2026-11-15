@@ -903,6 +903,73 @@ dto! {
         pub drives: Vec<ReportDrive>,
     }
 
+    /// Tools → Report → Aircraft: the totals.
+    pub struct AircraftReportTotals {
+        /// Items with the Airplane tag or an aircraft keyword.
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// The same, copies of one picture in several folders counted once.
+        #[ts(type = "number")]
+        pub shots: u64,
+        /// Items with an airline, type or registration keyword.
+        #[ts(type = "number")]
+        pub with_marks: u64,
+        #[ts(type = "number")]
+        pub with_airline: u64,
+        #[ts(type = "number")]
+        pub with_type: u64,
+        #[ts(type = "number")]
+        pub with_registration: u64,
+        #[ts(type = "number")]
+        pub airlines: u64,
+        #[ts(type = "number")]
+        pub types: u64,
+        #[ts(type = "number")]
+        pub registrations: u64,
+        /// Read aircraft results not yet accepted or dismissed.
+        #[ts(type = "number")]
+        pub waiting_review: u64,
+    }
+
+    /// One airline, type or registration of the aircraft report.
+    pub struct AircraftReportRow {
+        pub name: String,
+        /// The keyword path that shows its photos (`Aircraft|Airline|KLM`).
+        pub path: String,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// Different registrations on these photos (0 for a registration).
+        #[ts(type = "number")]
+        pub registrations: u64,
+        /// Most photos first, at most three; empty for the row's own kind.
+        pub airlines: Vec<String>,
+        pub types: Vec<String>,
+        /// First and last capture day, `YYYY-MM-DD`.
+        pub first: Option<String>,
+        pub last: Option<String>,
+    }
+
+    /// One year of the aircraft report.
+    pub struct AircraftReportYear {
+        /// Null for undated items.
+        pub year: Option<String>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        #[ts(type = "number")]
+        pub with_marks: u64,
+    }
+
+    /// Tools → Report → Aircraft.
+    pub struct AircraftReport {
+        pub totals: AircraftReportTotals,
+        /// Most photos first.
+        pub airlines: Vec<AircraftReportRow>,
+        pub types: Vec<AircraftReportRow>,
+        pub registrations: Vec<AircraftReportRow>,
+        /// Oldest first, undated last.
+        pub years: Vec<AircraftReportYear>,
+    }
+
     /// `maint://progress`: a backup, verify or folder scan is running.
     pub struct MaintProgress {
         /// `backup`, `verify` or `folder`.

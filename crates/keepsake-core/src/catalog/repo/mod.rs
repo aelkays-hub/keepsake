@@ -2,6 +2,7 @@
 //! methods only on repositories from a [`super::WriteTx`].
 
 mod ai;
+mod aircraft_report;
 mod assets;
 mod browse;
 mod events;
@@ -21,6 +22,9 @@ mod tags;
 mod volumes;
 
 pub use ai::{Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, RangeItem};
+pub use aircraft_report::{
+    AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
+};
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,

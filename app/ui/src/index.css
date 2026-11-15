@@ -1226,6 +1226,76 @@ textarea {
 .report-stat strong {
   font-size: 20px;
 }
+.report-stat .small,
+.screen p.small {
+  font-size: 12px;
+}
+
+/* Report → Aircraft */
+.aircraft-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.aircraft-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+.aircraft-swatch.all,
+.aircraft-bar.all {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.aircraft-swatch.named,
+.aircraft-bar.named {
+  background: var(--accent);
+}
+.aircraft-years .aircraft-bar-cell {
+  width: 60%;
+}
+.aircraft-bar {
+  display: block;
+  height: 12px;
+  border-radius: 2px;
+  min-width: 1px;
+}
+.aircraft-bar.named {
+  height: 100%;
+}
+.aircraft-bar.thin {
+  height: 3px;
+  margin-top: 3px;
+  margin-left: auto;
+}
+.aircraft-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.aircraft-tools input[type="search"] {
+  margin-left: auto;
+  min-width: 0;
+  width: 200px;
+}
+.aircraft-table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+}
+.aircraft-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+.aircraft-seen {
+  white-space: nowrap;
+}
 
 /* ── Screens (Backup, Settings) ────────────────────────────────────── */
 .screen-main {
@@ -1845,4 +1915,12 @@ button.danger {
 }
 .aircraft-review .ar-same p {
   margin: 0 0 6px;
+}
+.aircraft-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

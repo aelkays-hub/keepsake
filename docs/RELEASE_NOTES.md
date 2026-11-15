@@ -1,8 +1,29 @@
-# Keepsake 0.5.2
+# Keepsake 0.5.3
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.2 lets Read aircraft look a registration up online, and carry what it finds to the same plane's other photos and to the rest of a burst. It also fixes the filters, Show in Explorer and Open in for network drives.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.3 adds an Aircraft report, and Read aircraft reads more registrations: distant aircraft, and letters misread as digits.
 
-## New in 0.5.2
+## New in 0.5.3
+
+**Aircraft report** (Tools → Report → Aircraft)
+- How many aircraft photos you have (and how many distinct shots, with copies in other folders counted once), how many airlines, types and registrations are named on them, and how many reads are waiting for review.
+- Aircraft photos by year.
+- One table each for **airlines**, **types** and **registrations**, most photos first, with Find: photos, registrations, main airlines and types, and the first and last day seen. Click a name to see its photos.
+- **Export to CSV…** for Excel.
+
+**Read aircraft reads more**
+- **Distant aircraft:** when an airline's name is read but no registration, the fuselage around the name is read again at full size (a registration 15 pixels high is now found).
+- **Letters misread as digits** in a registration are put right (`00-SFO` → OO-SFO), and a capital I misread as a small l (`El-EWR` → EI-EWR).
+- **An Airbus model written alone** (`A330-200`) is its type.
+- A painted type said less exactly ("Boeing 787 Dreamliner") agrees with the registry's ("Boeing 787-9") and stays ticked.
+- **A same-shot slider** (default 10 seconds) sets how close in time photos must be to get the same keywords; **Tag with AI** gives its tags to identical photos within it (same camera and lens).
+
+**Fixes**
+- Right-click a month with fewer than 31 days → Read aircraft, Tag photos or Find duplicates no longer gives a "not a date" error.
+- The Read aircraft window no longer stays on "Reading…" with hundreds of photos: only the photos on screen get thumbnails and neighbours.
+
+Photos read before 0.5.3 keep their saved reads; to apply the new reading to them, right-click → Read aircraft on those photos (reading a whole folder skips photos already read).
+
+## New in 0.5.2 (included)
 
 **Read aircraft**
 - **Look registrations up online** (Settings → Read aircraft; off until you turn it on): each registration read is looked up once at the free adsbdb.com. Only the registration's text is sent, never a photo. The type and airline it knows are offered in the review window, marked "(adsbdb)"; a painted type it disagrees with is offered unticked. Aircraft no longer flying may be unknown there.
@@ -15,7 +36,7 @@ Keepsake is a local-first replacement for Sony PlayMemories Home. It imports cam
 - Photos that cannot be rendered are no longer tried again every time they are on screen.
 - **Show in Explorer** works for photos on a network drive, and **Open in** hands them over by drive letter (`Z:\…`), so Topaz Photo opens them. If Topaz Photo is already open, Keepsake says so: close it and choose Open in again.
 
-**Upgrading from 0.5.1:** the first time 0.5.2 opens your library it updates the catalog (schema 17). Older versions cannot open it after that, so install 0.5.2 on every computer that opens the library.
+**Upgrading from 0.5.1:** the first time 0.5.2 or later opens your library it updates the catalog (schema 17). Older versions cannot open it after that, so install the same version on every computer that opens the library.
 
 ## New in 0.5.1 (included)
 
@@ -42,8 +63,8 @@ Download the installer for your PC:
 
 | PC | File |
 |---|---|
-| Most PCs (Intel or AMD) | `Keepsake_0.5.2_x64_en-US.msi` or `Keepsake_0.5.2_x64-setup.exe` |
-| ARM PCs (Snapdragon) | `Keepsake_0.5.2_arm64_en-US.msi` or `Keepsake_0.5.2_arm64-setup.exe` |
+| Most PCs (Intel or AMD) | `Keepsake_0.5.3_x64_en-US.msi` or `Keepsake_0.5.3_x64-setup.exe` |
+| ARM PCs (Snapdragon) | `Keepsake_0.5.3_arm64_en-US.msi` or `Keepsake_0.5.3_arm64-setup.exe` |
 
 The installers are **not code-signed yet**, so Windows SmartScreen may warn you. Click **More info → Run anyway**.
 

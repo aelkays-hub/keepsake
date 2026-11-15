@@ -57,6 +57,7 @@ import type { ImportPrefs } from "./bindings/ImportPrefs";
 import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
 import type { ImportResult } from "./bindings/ImportResult";
+import type { AircraftReport } from "./bindings/AircraftReport";
 import type { LibraryReport } from "./bindings/LibraryReport";
 import type { MaintDone } from "./bindings/MaintDone";
 import type { MaintProgress } from "./bindings/MaintProgress";
@@ -131,6 +132,7 @@ export type {
   ImportRequest,
   ImportResult,
   LibraryReport,
+  AircraftReport,
   MaintDone,
   MaintProgress,
   MemberDto,
@@ -261,6 +263,8 @@ export const api = {
   backupOverview: () => invoke<BackupOverview>("backup_overview"),
   libraryReport: () => invoke<LibraryReport>("library_report"),
   libraryReportCsv: (path: string) => invoke<string>("library_report_csv", { path }),
+  aircraftReport: () => invoke<AircraftReport>("aircraft_report"),
+  aircraftReportCsv: (path: string) => invoke<string>("aircraft_report_csv", { path }),
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),

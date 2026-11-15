@@ -128,3 +128,59 @@ test("a row opens its items without the filters set before", async ({ page }) =>
   await expect(page.getByTestId("search")).toHaveValue("");
   await expect(page.getByTestId("type")).toHaveValue("");
 });
+
+test("the aircraft report: totals, years, tables, find and export", async ({ page }) => {
+  const screen = await open(page, 200);
+  await screen.getByTestId("report-kind-aircraft").click();
+  await expect(screen.getByTestId("aircraft-total-photos")).toHaveText("120");
+  await expect(screen.getByTestId("aircraft-total-shots")).toHaveText("110 distinct shots");
+  await expect(screen.getByTestId("aircraft-total-airlines")).toHaveText("3");
+  await expect(screen.getByTestId("aircraft-total-registrations")).toHaveText("4");
+  await expect(screen.getByTestId("aircraft-total-waiting")).toHaveText("7");
+  await expect(screen.getByTestId("aircraft-named")).toContainText(
+    "40 of 120 aircraft photos (33%) name an airline, type or registration.",
+  );
+  // Years oldest first, undated last.
+  const years = screen.getByTestId("aircraft-years").locator("tbody th");
+  await expect(years).toHaveText(["2018", "2019", "2024", "Undated"]);
+  await expect(screen.getByTestId("aircraft-years").locator("thead th")).toHaveText([
+    "Year",
+    "Bar",
+    "Photos",
+    "Named",
+  ]);
+
+  const table = screen.getByTestId("aircraft-table");
+  await expect(table.locator("thead th").first()).toHaveText("Airline");
+  await expect(table.locator("tbody tr").first().locator("th")).toHaveText("Air Canada");
+  await screen.getByTestId("aircraft-by-registrations").click();
+  await expect(table.locator("thead th").first()).toHaveText("Registration");
+  await expect(table.locator("tbody tr")).toHaveCount(4);
+  // Find looks in the name, airline and type.
+  await screen.getByTestId("aircraft-find").fill("interjet");
+  await expect(table.locator("tbody th")).toHaveText(["XA-MBA"]);
+  await screen.getByTestId("aircraft-find").fill("concorde");
+  await expect(screen.getByTestId("aircraft-none")).toHaveText("Nothing matches “concorde”.");
+
+  await screen.getByTestId("aircraft-export").click();
+  await expect(screen.getByTestId("aircraft-saved")).toBeVisible();
+  expect(await calls(page, "aircraft_report_csv")).toHaveLength(1);
+});
+
+test("an aircraft row opens its photos by keyword, and back shows the same table", async ({
+  page,
+}) => {
+  const screen = await open(page, 200);
+  await screen.getByTestId("report-kind-aircraft").click();
+  await screen.getByTestId("aircraft-by-types").click();
+  await screen.getByTestId("aircraft-table").getByRole("button", { name: "Boeing 747" }).click();
+  await expect(page.getByTestId("heading")).toContainText("Type Boeing 747");
+  // The library asks for the keyword's photos (wait: a slow runner can
+  // show the heading before the request is made).
+  await expect
+    .poll(async () => JSON.stringify(await calls(page, "view_open")))
+    .toContain("Aircraft|Type|Boeing 747");
+  await page.getByTestId("heading").getByRole("button", { name: "Report" }).click();
+  await expect(screen.getByTestId("report-kind-aircraft")).toHaveAttribute("aria-pressed", "true");
+  await expect(screen.getByTestId("aircraft-by-types")).toHaveAttribute("aria-pressed", "true");
+});

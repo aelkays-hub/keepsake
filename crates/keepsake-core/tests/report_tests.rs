@@ -521,3 +521,197 @@ fn every_report_row_opens_exactly_its_items() {
     };
     assert_eq!(found(&cat, &q), 1);
 }
+
+// ---- The aircraft report (ADR-043) ----
+
+use keepsake_core::catalog::{AircraftReport, AircraftRow, AssetTag, TagPath, TagSource};
+
+fn tag(cat: &mut Catalog, a: &Asset, source: TagSource, paths: &[&str]) {
+    let tags: Vec<AssetTag> = paths
+        .iter()
+        .map(|p| AssetTag {
+            path: TagPath::new(p.split('|')).unwrap(),
+            source,
+            confidence: (source == TagSource::Ai).then_some(0.9),
+        })
+        .collect();
+    cat.write(|tx| tx.tags().set_for_asset(a.id, source, &tags))
+        .unwrap();
+}
+
+fn aircraft(cat: &Catalog) -> AircraftReport {
+    cat.read(|tx| tx.aircraft_report().aircraft()).unwrap()
+}
+
+fn row<'a>(rows: &'a [AircraftRow], name: &str) -> &'a AircraftRow {
+    rows.iter()
+        .find(|r| r.name == name)
+        .unwrap_or_else(|| panic!("no {name} in {rows:?}"))
+}
+
+/// Four aircraft photos: a KLM 747 seen twice (once kept in two folders), a
+/// KLM 777, a photo tagged Airplane by AI with nothing named, and a
+/// landscape that is not counted.
+fn fleet() -> (Catalog, Vec<Asset>) {
+    let v = volume("Photos", true);
+    let mut cat = setup(&[&v]);
+    let mk = |day: &str| asset(MediaKind::Photo, Some(day), Some("ILCE-7M4"), None);
+    let a = mk("2019-01-06");
+    let a_copy = Asset {
+        id: AssetId::new_random(),
+        ..a.clone()
+    };
+    let b = mk("2019-03-01");
+    let c = mk("2021-05-05");
+    let d = mk("2018-12-31");
+    let land = mk("2020-01-01");
+    add(
+        &mut cat,
+        &a,
+        &[file(&v, "2019/January/A1.ARW", FileRole::Original, 5, "a")],
+    );
+    add(
+        &mut cat,
+        &a_copy,
+        &[file(&v, "Edited/A1.jpg", FileRole::Original, 5, "a2")],
+    );
+    add(
+        &mut cat,
+        &b,
+        &[file(&v, "2019/B1.ARW", FileRole::Original, 5, "b")],
+    );
+    add(
+        &mut cat,
+        &c,
+        &[file(&v, "2021/C1.ARW", FileRole::Original, 5, "c")],
+    );
+    add(
+        &mut cat,
+        &d,
+        &[file(&v, "2018/D1.ARW", FileRole::Original, 5, "d")],
+    );
+    add(
+        &mut cat,
+        &land,
+        &[file(&v, "2020/L1.ARW", FileRole::Original, 5, "l")],
+    );
+    let klm747 = [
+        "Airplane",
+        "Aircraft|Airline|KLM",
+        "Aircraft|Type|Boeing 747",
+        "Aircraft|Registration|PH-BFA",
+    ];
+    tag(&mut cat, &a, TagSource::User, &klm747);
+    tag(&mut cat, &a_copy, TagSource::User, &klm747);
+    // Read aircraft's keywords without the Airplane tag still count.
+    tag(
+        &mut cat,
+        &b,
+        TagSource::User,
+        &[
+            "Aircraft|Airline|KLM",
+            "Aircraft|Type|Boeing 777-300ER",
+            "Aircraft|Registration|PH-BVA",
+        ],
+    );
+    tag(&mut cat, &c, TagSource::Ai, &["Airplane"]);
+    tag(
+        &mut cat,
+        &d,
+        TagSource::User,
+        &["Aircraft|Airline|KLM", "Aircraft|Registration|PH-BFA"],
+    );
+    tag(&mut cat, &land, TagSource::Ai, &["Landscape"]);
+    (cat, vec![a, a_copy, b, c, d, land])
+}
+
+#[test]
+fn the_aircraft_report_counts_photos_and_what_is_named_on_them() {
+    let (cat, _) = fleet();
+    let r = aircraft(&cat);
+    let t = &r.totals;
+    assert_eq!(
+        (t.photos, t.shots),
+        (5, 4),
+        "the copy in Edited is the same shot"
+    );
+    assert_eq!(t.with_marks, 4);
+    assert_eq!(
+        (t.with_airline, t.with_type, t.with_registration),
+        (4, 3, 4)
+    );
+    assert_eq!((t.airlines, t.types, t.registrations), (1, 2, 2));
+    assert_eq!(t.waiting_review, 0);
+
+    let klm = row(&r.airlines, "KLM");
+    assert_eq!(klm.path, "Aircraft|Airline|KLM");
+    assert_eq!((klm.photos, klm.registrations), (4, 2));
+    assert_eq!(klm.types, ["Boeing 747", "Boeing 777-300ER"]);
+    assert!(klm.airlines.is_empty());
+    assert_eq!(klm.first.as_deref(), Some("2018-12-31"));
+    assert_eq!(klm.last.as_deref(), Some("2019-03-01"));
+
+    // Most photos first.
+    assert_eq!(r.types[0].name, "Boeing 747");
+    assert_eq!(r.types[0].airlines, ["KLM"]);
+    let bfa = row(&r.registrations, "PH-BFA");
+    assert_eq!((bfa.photos, bfa.registrations), (3, 0));
+    assert_eq!(
+        (bfa.airlines.as_slice(), bfa.types.as_slice()),
+        (&["KLM".to_owned()][..], &["Boeing 747".to_owned()][..])
+    );
+
+    let years: Vec<_> = r
+        .years
+        .iter()
+        .map(|y| (y.year.as_deref(), y.photos, y.with_marks))
+        .collect();
+    assert_eq!(
+        years,
+        [
+            (Some("2018"), 1, 1),
+            (Some("2019"), 3, 3),
+            (Some("2021"), 1, 0)
+        ]
+    );
+}
+
+#[test]
+fn every_aircraft_row_opens_exactly_its_photos() {
+    let (cat, _) = fleet();
+    let r = aircraft(&cat);
+    for row in r.airlines.iter().chain(&r.types).chain(&r.registrations) {
+        let q = SearchQuery {
+            tag: Some(row.path.clone()),
+            ..Default::default()
+        };
+        assert_eq!(found(&cat, &q), row.photos, "{}", row.path);
+    }
+}
+
+#[test]
+fn reads_waiting_for_review_are_counted_apart() {
+    let (mut cat, items) = fleet();
+    cat.write(|tx| tx.ai().put_aircraft_read(items[3].id, "{}", None, true, 1))
+        .unwrap();
+    let r = aircraft(&cat);
+    assert_eq!(r.totals.waiting_review, 1);
+    assert_eq!(r.totals.with_marks, 4);
+}
+
+#[test]
+fn an_empty_library_has_an_empty_aircraft_report() {
+    let cat = setup(&[]);
+    assert_eq!(aircraft(&cat), AircraftReport::default());
+}
+
+#[test]
+fn the_aircraft_csv_has_the_totals_and_every_table() {
+    let (cat, _) = fleet();
+    let csv = report::aircraft_to_csv(&aircraft(&cat));
+    let lines: Vec<&str> = csv.split("\r\n").collect();
+    assert_eq!(lines[0], report::AIRCRAFT_CSV_HEADER);
+    assert!(lines.contains(&"Total,Aircraft photos,5,,,,,"));
+    assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01"));
+    assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06"));
+}
