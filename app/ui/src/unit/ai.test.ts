@@ -46,6 +46,13 @@ describe("date ranges", () => {
       to: "2026-07-31",
       title: "July 2026",
     });
+    // Short months end on their own last day (a 31st that does not exist
+    // is refused as a date).
+    expect(calRange(2026, 9, null)?.to).toBe("2026-09-30");
+    expect(calRange(2026, 2, null)?.to).toBe("2026-02-28");
+    expect(calRange(2024, 2, null)?.to).toBe("2024-02-29");
+    expect(calRange(2026, 4, null)?.to).toBe("2026-04-30");
+    expect(calRange(2026, 12, null)?.to).toBe("2026-12-31");
     expect(calRange(2026, 7, 4)).toEqual({
       from: "2026-07-04",
       to: "2026-07-04",

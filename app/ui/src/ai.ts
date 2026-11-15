@@ -40,8 +40,11 @@ export function calRange(
   if (year === null) return null;
   if (month === null) return { from: `${year}-01-01`, to: `${year}-12-31`, title: String(year) };
   const ym = `${year}-${two(month)}`;
-  if (day === null)
-    return { from: `${ym}-01`, to: `${ym}-31`, title: `${fmt.monthName(month)} ${year}` };
+  if (day === null) {
+    // The month's own last day: `2026-02-31` is not a date and is refused.
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return { from: `${ym}-01`, to: `${ym}-${two(last)}`, title: `${fmt.monthName(month)} ${year}` };
+  }
   const d = `${ym}-${two(day)}`;
   return { from: d, to: d, title: dayTitle(d) };
 }
