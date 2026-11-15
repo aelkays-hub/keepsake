@@ -62,7 +62,8 @@ describe("report table sort", () => {
 
   it("keeps pinned rows (Unknown) at the end", () => {
     const pinned = (r: Row) => r.name === null;
-    expect(names(sortRows(rows, { col: "n", desc: true }, value, pinned)).at(-1)).toBeNull();
-    expect(names(sortRows(rows, { col: "n", desc: false }, value, pinned)).at(-1)).toBeNull();
+    const last = (rs: Row[]) => rs[rs.length - 1].name;
+    expect(last(sortRows(rows, { col: "n", desc: true }, value, pinned))).toBeNull();
+    expect(last(sortRows(rows, { col: "n", desc: false }, value, pinned))).toBeNull();
   });
 });
