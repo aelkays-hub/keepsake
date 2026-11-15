@@ -184,3 +184,56 @@ test("an aircraft row opens its photos by keyword, and back shows the same table
   await expect(screen.getByTestId("report-kind-aircraft")).toHaveAttribute("aria-pressed", "true");
   await expect(screen.getByTestId("aircraft-by-types")).toHaveAttribute("aria-pressed", "true");
 });
+
+test("report columns sort when their heading is clicked, Unknown last", async ({ page }) => {
+  const screen = await open(page, 1000);
+  const table = screen.getByTestId("report-table");
+  const col = async (i: number) =>
+    (
+      await table
+        .locator("tbody tr")
+        .locator(i === 0 ? "th" : `td:nth-of-type(${i})`)
+        .allTextContents()
+    ).map((t) => t.trim());
+  const nums = async (i: number) => (await col(i)).map((t) => num(t));
+
+  // Photos: most first, then fewest first; Unknown stays last.
+  await screen.getByTestId("report-sort-photos").click();
+  await expect(table.locator("thead th").nth(1)).toHaveAttribute("aria-sort", "descending");
+  let rows = await col(0);
+  expect(rows.at(-1)).toBe("Unknown");
+  let photos = (await nums(1)).slice(0, -1);
+  expect(photos).toEqual([...photos].sort((a, b) => b - a));
+  await screen.getByTestId("report-sort-photos").click();
+  await expect(table.locator("thead th").nth(1)).toHaveAttribute("aria-sort", "ascending");
+  photos = (await nums(1)).slice(0, -1);
+  expect(photos).toEqual([...photos].sort((a, b) => a - b));
+  expect((await col(0)).at(-1)).toBe("Unknown");
+
+  // Year: oldest first on the first click.
+  await screen.getByTestId("report-sort-group").click();
+  rows = (await col(0)).slice(0, -1);
+  expect(rows).toEqual([...rows].sort());
+
+  // The sort is kept on another breakdown.
+  await screen.getByTestId("report-by-camera").click();
+  await expect(table.locator("thead th").first()).toHaveAttribute("aria-sort", "ascending");
+
+  // Aircraft: by registrations, then by name Z–A.
+  await screen.getByTestId("report-kind-aircraft").click();
+  const air = screen.getByTestId("aircraft-table");
+  await screen.getByTestId("aircraft-sort-registrations").click();
+  // Ties keep their order (KLM and Interjet have one each).
+  await expect(air.locator("tbody th")).toHaveText(["Air Canada", "KLM", "Interjet"]);
+  await screen.getByTestId("aircraft-sort-name").click();
+  await screen.getByTestId("aircraft-sort-name").click();
+  await expect(air.locator("tbody th")).toHaveText(["KLM", "Interjet", "Air Canada"]);
+  // Years: most photos first; Undated stays last.
+  await screen.getByTestId("aircraft-years-sort-photos").click();
+  await expect(screen.getByTestId("aircraft-years").locator("tbody th")).toHaveText([
+    "2019",
+    "2018",
+    "2024",
+    "Undated",
+  ]);
+});
