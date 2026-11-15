@@ -125,7 +125,7 @@ impl<M> Ai<'_, M> {
             .optional()?)
     }
 
-    /// The other items taken by the same camera (make and model) within
+    /// The other items taken by the same camera (make and model) and lens within
     /// `window_ms` of `asset`, as `(id, milliseconds after it)`; nearest
     /// first. None when `asset` has no capture time.
     pub fn taken_near(
@@ -139,6 +139,7 @@ impl<M> Ai<'_, M> {
                                                     AND a.capture_ts_ms + ?2
                 AND o.id <> a.id
                 AND o.camera_make IS a.camera_make AND o.camera_model IS a.camera_model
+                AND o.lens_model IS a.lens_model
               WHERE a.id = ?1 AND a.capture_ts_ms IS NOT NULL
               ORDER BY abs(o.capture_ts_ms - a.capture_ts_ms), o.capture_ts_ms",
         )?;

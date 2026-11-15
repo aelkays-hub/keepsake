@@ -635,7 +635,7 @@ fn photos_moments_apart_from_the_same_camera_are_neighbours_when_alike() {
             })
             .unwrap();
     }
-    let n = scan::neighbours(&w.cat, a).unwrap();
+    let n = scan::neighbours(&w.cat, a, scan::NEIGHBOUR_MS).unwrap();
     let ids: Vec<AssetId> = n.iter().map(|x| x.asset).collect();
     assert_eq!(
         ids,
@@ -646,8 +646,20 @@ fn photos_moments_apart_from_the_same_camera_are_neighbours_when_alike() {
     assert_eq!(n[1].ms, -6_000);
     assert!(n[0].alike && n[0].similarity.unwrap() > 0.99);
     assert!(!n[1].alike, "{:?}", n[1].similarity);
+    // A wider window reaches d (30 s after); another lens is not the same shot.
+    let wide = scan::neighbours(&w.cat, a, 40_000).unwrap();
+    assert!(wide.iter().any(|x| x.asset == d));
+    rusqlite::Connection::open(w.lib.catalog_path())
+        .unwrap()
+        .execute(
+            "UPDATE assets SET lens_model = 'FE 100-400mm' WHERE id = ?1",
+            [b],
+        )
+        .unwrap();
+    let other_lens = scan::neighbours(&w.cat, a, scan::NEIGHBOUR_MS).unwrap();
+    assert!(other_lens.iter().all(|x| x.asset != b));
     // A photo with no capture time has none.
-    assert!(scan::neighbours(&w.cat, d)
+    assert!(scan::neighbours(&w.cat, d, scan::NEIGHBOUR_MS)
         .unwrap()
         .iter()
         .all(|x| x.asset != e));
@@ -688,4 +700,87 @@ fn other_photos_of_the_same_registration_get_what_they_lack() {
         .contains(&"Aircraft|Type|Boeing 777-300ER".to_owned()));
     // Only aircraft keywords.
     assert!(scan::add_to(&mut w.cat, &w.lib, &[b], &[p("People|Someone")]).is_err());
+}
+
+/// Stands in for Claude: every photo is a beach.
+struct BeachTagger;
+
+impl keepsake_core::ai::cloud::Tagger for BeachTagger {
+    fn tag(
+        &self,
+        _: keepsake_core::ai::Provider,
+        _: &[u8],
+        _: &[String],
+    ) -> Result<keepsake_core::ai::cloud::CloudTags, AiError> {
+        Ok(keepsake_core::ai::cloud::CloudTags {
+            tags: vec!["Beach".into()],
+            new_tags: vec!["Sand Castle".into()],
+            model: "stand-in".into(),
+        })
+    }
+}
+
+#[test]
+fn tag_with_ai_gives_its_tags_to_the_same_shot() {
+    use keepsake_core::ai::Embedding;
+    use keepsake_core::catalog::AiAnalysis;
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg", "d.jpg"]);
+    let [a, b, c, d] = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].map(|n| w.asset(n));
+    w.thumb(a);
+    // b: 4 s later, alike, same camera and lens. c: 3 s later, alike, but
+    // another lens. d: 25 s later, alike.
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, t, lens) in [
+        (a, 1_000_000i64, "FE 24-70mm"),
+        (b, 1_004_000, "FE 24-70mm"),
+        (c, 1_003_000, "FE 100-400mm"),
+        (d, 1_025_000, "FE 24-70mm"),
+    ] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2, camera_make = 'SONY', camera_model = 'ILCE-7M3', lens_model = ?3 WHERE id = ?1",
+            rusqlite::params![id, t, lens],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let v = Embedding::new((0..64).map(|i| ((i as f32) * 0.3).sin()).collect()).unwrap();
+    for id in [a, b, c, d] {
+        let (q, scale) = v.quantize();
+        w.cat
+            .write(|tx| {
+                tx.ai().put_analysis(&AiAnalysis {
+                    asset_id: id,
+                    model: keepsake_core::ai::MODEL_ID.to_owned(),
+                    embedding: q.clone(),
+                    emb_scale: scale,
+                    dhash: 0,
+                    made_ms: 0,
+                    tag_list: 0,
+                })
+            })
+            .unwrap();
+    }
+    let added = keepsake_core::ai::cloud::tag_asset(
+        &mut w.cat,
+        &w.lib,
+        &w.cache,
+        &BeachTagger,
+        keepsake_core::ai::Provider::Claude,
+        a,
+        10_000,
+    )
+    .unwrap();
+    assert_eq!(added, ["Beach", "AI|Sand Castle"]);
+    assert_eq!(w.keywords(b), ["AI|Sand Castle", "Beach"]);
+    assert!(w.keywords(c).is_empty(), "another lens");
+    assert!(w.keywords(d).is_empty(), "outside the window");
+    // Recorded as given by Claude.
+    let by: Vec<String> = w
+        .cat
+        .read(|tx| tx.ai().tag_sources(b))
+        .unwrap()
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    assert!(by.iter().all(|p| p == "claude") && !by.is_empty());
 }

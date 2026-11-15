@@ -9,6 +9,7 @@ import {
   pctOf,
   progressLine,
   secondsLabel,
+  shownIds,
   sourceOf,
   ticked,
   tickedNeighbours,
@@ -35,7 +36,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
 
 const review = (p: Partial<AircraftReviewDto> = {}): AircraftReviewDto => ({
   items: [item(), item({ id: "a2", review: "accepted" })],
-  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70 },
+  confidence: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
   total: 5,
   read: 2,
   pending: 3,
@@ -132,5 +133,16 @@ describe("Read aircraft review", () => {
     );
     expect(secondsLabel(2.4)).toBe("+2 s");
     expect(secondsLabel(-5)).toBe("−5 s");
+  });
+
+  it("asks for neighbours only for the photos on screen", () => {
+    const r = review({
+      items: [item({ id: "a" }), item({ id: "b", review: "accepted" }), item({ id: "c" })],
+    });
+    expect(shownIds(r, false, 100)).toEqual(["a", "c"]);
+    expect(shownIds(r, true, 2)).toEqual(["a", "b"]);
+    expect(shownIds(null, false, 100)).toEqual([]);
+    // Not looked for: the app gives the keywords to the alike ones.
+    expect(tickedNeighbours(item({ neighbours: null }), undefined)).toBeNull();
   });
 });

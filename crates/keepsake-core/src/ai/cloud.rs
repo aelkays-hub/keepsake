@@ -589,8 +589,10 @@ pub fn keyword_paths(t: &CloudTags) -> Result<Vec<TagPath>, AiError> {
 
 /// One cloud job: send the asset's thumbnail to `provider` through `tagger`
 /// and add what it gives to the asset's keywords (those it has stay),
-/// recording that `provider` gave them (ADR-039). Returns the keywords
-/// added, as `A|B`.
+/// recording that `provider` gave them (ADR-039), and to the photos of the
+/// same shot (same camera and lens within `same_shot_ms`, alike by
+/// On-device AI's comparison). Returns the keywords added to the asset, as
+/// `A|B`.
 pub fn tag_asset(
     cat: &mut Catalog,
     lib: &Library,
@@ -598,6 +600,7 @@ pub fn tag_asset(
     tagger: &dyn Tagger,
     provider: Provider,
     asset: AssetId,
+    same_shot_ms: i64,
 ) -> Result<Vec<String>, AiError> {
     let img = analyze::thumbnail(cat, cache, asset)?;
     let jpeg = crate::render::still::encode_jpeg(&img)?;
@@ -611,7 +614,18 @@ pub fn tag_asset(
         .iter()
         .map(TagPath::to_lightroom)
         .collect();
-    tracing::info!(asset = %asset, provider = provider.id(), model = %got.model, "tagged: {added:?}");
+    // The same shot (same camera and lens, moments apart, alike) gets the
+    // same tags, recorded as given by the same AI.
+    let mut same = 0;
+    for n in crate::ai::aircraft::scan::neighbours(cat, asset, same_shot_ms)? {
+        if n.alike {
+            MetadataService::new(lib, cat)
+                .add_ai_keywords(n.asset, provider.id(), &paths)
+                .map_err(lib_err)?;
+            same += 1;
+        }
+    }
+    tracing::info!(asset = %asset, provider = provider.id(), model = %got.model, same_shot = same, "tagged: {added:?}");
     Ok(added)
 }
 

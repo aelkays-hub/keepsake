@@ -67,7 +67,7 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         accel: get(&st.accel).flatten().filter(|_| on),
         problem: get(&st.problem).flatten().filter(|_| on),
         installing: get(&st.install).flatten().map(|(_, done)| done),
-        confidence: confidence_dto(settings.ai.aircraft_confidence()),
+        confidence: confidence_dto(settings.ai.aircraft_confidence(), settings.ai.same_shot_s),
         lookup: settings.ai.aircraft_lookup,
     })
 }
@@ -275,12 +275,13 @@ pub fn aircraft_read_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdRe
     Ok(())
 }
 
-fn confidence_dto(c: Confidence) -> AircraftConfidenceDto {
+fn confidence_dto(c: Confidence, same_shot_s: u8) -> AircraftConfidenceDto {
     let p = |v: f32| (v * 100.0).round().clamp(0.0, 100.0) as u8;
     AircraftConfidenceDto {
         registration_pct: p(c.registration),
         airline_pct: p(c.airline),
         type_pct: p(c.aircraft_type),
+        same_shot_s: same_shot_s.clamp(1, 60),
     }
 }
 
@@ -335,29 +336,47 @@ pub fn aircraft_target_ids(
 
 /// The review window: what was read in `ids` so far, offered at
 /// `confidence` (the saved one when `None`), and how reading is getting on.
+/// Thumbnails and neighbours only for the photos in `shown` (those on
+/// screen; `None`: all): a batch can hold thousands, and looking for each
+/// one's neighbours takes long.
 #[tauri::command(async)]
 pub fn aircraft_review(
     state: State<'_, AppState>,
     ids: Vec<String>,
     confidence: Option<AircraftConfidenceDto>,
+    shown: Option<Vec<String>>,
 ) -> CmdResult<AircraftReviewDto> {
+    let shown: Option<std::collections::HashSet<AssetId>> = match shown {
+        Some(s) => Some(convert::ids(&s)?.into_iter().collect()),
+        None => None,
+    };
+    let saved = Settings::load().map_err(err)?;
     let conf = match &confidence {
         Some(c) => confidence_of(c),
-        None => Settings::load().map_err(err)?.ai.aircraft_confidence(),
+        None => saved.ai.aircraft_confidence(),
     };
+    let same_shot_s = confidence
+        .as_ref()
+        .map_or(saved.ai.same_shot_s, |c| c.same_shot_s)
+        .clamp(1, 60);
     let ids = unique(convert::ids(&ids)?);
     let open = state.open()?;
     let cat = open.cat()?;
     let (st, problem) = scan::status(&cat, &ids).map_err(err)?;
     let mut items = Vec::new();
     for it in scan::review_items(&cat, &ids).map_err(err)? {
-        let (name, thumb) = photo_of(&cat, &open.cache, it.asset)?;
+        let on_screen = shown.as_ref().is_none_or(|s| s.contains(&it.asset));
+        let (name, thumb) = if on_screen {
+            photo_of(&cat, &open.cache, it.asset)?
+        } else {
+            (name_of(&cat, it.asset)?, None)
+        };
         let found = scan::found_for(&cat, &it, &conf).map_err(err)?;
         let offer = scan::offer(&it, &conf, &found).map_err(err)?;
         let names = |v: &[TagPath]| v.iter().map(TagPath::to_lightroom).collect::<Vec<_>>();
         let mut neighbours = Vec::new();
-        if it.review == scan::Review::Waiting {
-            for n in scan::neighbours(&cat, it.asset).map_err(err)? {
+        if on_screen && it.review == scan::Review::Waiting {
+            for n in scan::neighbours(&cat, it.asset, i64::from(same_shot_s) * 1000).map_err(err)? {
                 let (name, thumb) = photo_of(&cat, &open.cache, n.asset)?;
                 neighbours.push(AircraftNeighbourDto {
                     id: n.asset.to_string(),
@@ -395,7 +414,7 @@ pub fn aircraft_review(
                     country: f.country,
                 })
                 .collect(),
-            neighbours,
+            neighbours: on_screen.then_some(neighbours),
         });
     }
     let read = items.len() as u64;
@@ -407,7 +426,7 @@ pub fn aircraft_review(
     }
     Ok(AircraftReviewDto {
         items,
-        confidence: confidence_dto(conf),
+        confidence: confidence_dto(conf, same_shot_s),
         total: st.items,
         read,
         pending: st.pending,
@@ -423,8 +442,9 @@ pub fn aircraft_set_confidence(
 ) -> CmdResult<AircraftConfidenceDto> {
     let mut s = Settings::load().map_err(err)?;
     s.ai.set_aircraft_confidence(confidence_of(&confidence));
+    s.ai.same_shot_s = confidence.same_shot_s.clamp(1, 60);
     s.save().map_err(err)?;
-    Ok(confidence_dto(s.ai.aircraft_confidence()))
+    Ok(confidence_dto(s.ai.aircraft_confidence(), s.ai.same_shot_s))
 }
 
 fn paths_of(keywords: &[String]) -> CmdResult<Vec<TagPath>> {
@@ -440,11 +460,7 @@ fn photo_of(
     cache: &keepsake_core::render::Cache,
     asset: AssetId,
 ) -> CmdResult<(Option<String>, Option<String>)> {
-    let name = cat
-        .read(|tx| tx.files().originals(asset))
-        .map_err(err)?
-        .first()
-        .map(|f| f.rel_path.file_name().to_owned());
+    let name = name_of(cat, asset)?;
     let thumb = keepsake_core::render::source::source_hash(cat, asset)
         .ok()
         .flatten()
@@ -453,6 +469,14 @@ fn photo_of(
                 .or_else(|| convert::cached(cache, Some(&h), Variant::Thumb1024))
         });
     Ok((name, thumb))
+}
+
+fn name_of(cat: &keepsake_core::catalog::Catalog, asset: AssetId) -> CmdResult<Option<String>> {
+    Ok(cat
+        .read(|tx| tx.files().originals(asset))
+        .map_err(err)?
+        .first()
+        .map(|f| f.rel_path.file_name().to_owned()))
 }
 
 /// The lookup the render service uses (adsbdb.com).
@@ -492,7 +516,22 @@ pub fn aircraft_accept(
     let open = state.open()?;
     let mut cat = open.writer()?;
     let added = scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)?;
-    let others = convert::ids(&neighbours.unwrap_or_default())?;
+    // `None`: its neighbours were not shown (Accept all, off screen): the
+    // alike ones, as they would have been ticked.
+    let others = match neighbours {
+        Some(n) => convert::ids(&n)?,
+        None if paths.is_empty() => Vec::new(),
+        None => {
+            let window =
+                i64::from(Settings::load().map_err(err)?.ai.same_shot_s.clamp(1, 60)) * 1000;
+            scan::neighbours(&cat, asset, window)
+                .map_err(err)?
+                .into_iter()
+                .filter(|n| n.alike)
+                .map(|n| n.asset)
+                .collect()
+        }
+    };
     if !paths.is_empty() && !others.is_empty() {
         scan::add_to(&mut cat, &open.lib, &others, &paths).map_err(err)?;
     }

@@ -4,4 +4,8 @@
  * Read aircraft's review window (ADR-041): how sure, in percent, a
  * line must be for each kind of mark to be offered.
  */
-export type AircraftConfidenceDto = { registrationPct: number, airlinePct: number, typePct: number, };
+export type AircraftConfidenceDto = { registrationPct: number, airlinePct: number, typePct: number, 
+/**
+ * The same-shot window, seconds either side (1–60).
+ */
+sameShotS: number, };

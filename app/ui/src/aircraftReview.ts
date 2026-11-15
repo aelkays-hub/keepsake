@@ -57,12 +57,23 @@ export function ticked(item: AircraftReviewItemDto, toggled: Set<string> | undef
   return item.offered.filter((k) => isTicked(item, k, toggled));
 }
 
-/** The neighbours left ticked: alike ones at first; clicks turn over. */
+/** The neighbours left ticked: alike ones at first; clicks turn over.
+ * `null` when they were not looked for (the photo was not on screen): the
+ * app then gives the keywords to the alike ones. */
 export function tickedNeighbours(
   item: AircraftReviewItemDto,
   toggled: Set<string> | undefined,
-): string[] {
+): string[] | null {
+  if (!item.neighbours) return null;
   return item.neighbours.filter((n) => n.alike !== Boolean(toggled?.has(n.id))).map((n) => n.id);
+}
+
+/** The photos on screen: the first `shown` of those listed. */
+export function shownIds(review: AircraftReviewDto | null, all: boolean, shown: number): string[] {
+  return (review?.items ?? [])
+    .filter((i) => all || i.review === "waiting")
+    .slice(0, shown)
+    .map((i) => i.id);
 }
 
 /** What the lookup said, in a line ("" when it said nothing). */

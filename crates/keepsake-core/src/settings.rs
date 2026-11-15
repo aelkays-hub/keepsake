@@ -217,6 +217,10 @@ pub struct AiSettings {
     /// Look registrations up online (adsbdb.com) and offer what it knows
     /// in the review window (ADR-041). Off until the user turns it on.
     pub aircraft_lookup: bool,
+    /// Photos taken this many seconds either side, by the same camera and
+    /// lens, that look alike count as the same shot: Read aircraft offers
+    /// them its keywords, Tag with AI gives them its tags. 1–60.
+    pub same_shot_s: u8,
     /// Tag with AI (ADR-036, ADR-038): each provider's model, as its API
     /// id. The API keys are in the OS's credential store, never here.
     pub claude_model: String,
@@ -251,6 +255,11 @@ impl AiSettings {
         self.aircraft_registration_pct = p(c.registration);
         self.aircraft_airline_pct = p(c.airline);
         self.aircraft_type_pct = p(c.aircraft_type);
+    }
+
+    /// The same-shot window in milliseconds (1–60 seconds).
+    pub fn same_shot_ms(&self) -> i64 {
+        i64::from(self.same_shot_s.clamp(1, 60)) * 1000
     }
 
     /// The face cut-off as a cosine, kept in range.
@@ -302,6 +311,7 @@ impl Default for AiSettings {
             aircraft_airline_pct: 85,
             aircraft_type_pct: 70,
             aircraft_lookup: false,
+            same_shot_s: 10,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),
             gemini_model: Provider::Gemini.default_model().id().to_owned(),
