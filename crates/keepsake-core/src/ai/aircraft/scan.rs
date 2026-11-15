@@ -666,6 +666,36 @@ pub fn same_registration(
     Ok(out)
 }
 
+/// The photos taken beside an accepted one (its same shot, ticked in the
+/// review window): `paths` are added to each, and each waiting for review
+/// (or not read yet) counts as accepted, so the window does not ask about
+/// it again (also when it is read later); one already accepted or
+/// dismissed keeps its review. With no `paths` (the photo was dismissed)
+/// nothing happens. Returns the photos accepted by this.
+pub fn accept_neighbours(
+    cat: &mut Catalog,
+    lib: &Library,
+    ids: &[AssetId],
+    paths: &[TagPath],
+) -> Result<Vec<AssetId>, AiError> {
+    if paths.is_empty() || ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    add_to(cat, lib, ids, paths)?;
+    let empty = serde_json::to_string(&Candidates::default())
+        .map_err(|e| AiError::Image(format!("the read could not be kept: {e}")))?;
+    let now = crate::jobs::now_ms();
+    Ok(cat.write(|tx| {
+        let mut out = Vec::new();
+        for id in ids {
+            if tx.ai().accept_aircraft_unread(*id, &empty, now)? {
+                out.push(*id);
+            }
+        }
+        Ok::<_, crate::catalog::CatalogError>(out)
+    })?)
+}
+
 /// Add aircraft keywords to photos (the same aircraft's other photos, or a
 /// read photo's neighbours), recorded as given by the aircraft reader.
 /// Returns how many photos got something new.

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { AircraftReviewDto, AircraftReviewItemDto } from "../api";
 import {
   alsoRead,
+  confidenceOf,
   isTicked,
   lookupLine,
+  ordered,
   parts,
   pctOf,
   progressLine,
@@ -46,6 +48,35 @@ const review = (p: Partial<AircraftReviewDto> = {}): AircraftReviewDto => ({
 });
 
 describe("Read aircraft review", () => {
+  it("lists more marks and surer ones first, accepted next, dismissed last", () => {
+    const reg = "Aircraft|Registration|VT-JEX";
+    const airline = "Aircraft|Airline|Jet Airways";
+    const type = "Aircraft|Type|Boeing 777-300ER";
+    // Registration 100, airline 82, type 81.
+    expect(confidenceOf(item({ offered: [reg, type] }))).toBe(90.5);
+    expect(confidenceOf(item({ offered: [] }))).toBe(0);
+    const list = [
+      item({ id: "dismissed", review: "dismissed", offered: [reg, airline, type] }),
+      item({ id: "one", offered: [type] }),
+      item({ id: "accepted", review: "accepted", offered: [reg, airline, type] }),
+      item({ id: "two-less-sure", offered: [airline, type] }),
+      item({ id: "three", offered: [reg, airline, type] }),
+      item({ id: "two-surer", offered: [reg, type] }),
+      item({ id: "none", offered: [] }),
+      item({ id: "one-later", offered: [type] }),
+    ];
+    expect(ordered(list).map((i) => i.id)).toEqual([
+      "three",
+      "two-surer",
+      "two-less-sure",
+      "one",
+      "one-later",
+      "none",
+      "accepted",
+      "dismissed",
+    ]);
+  });
+
   it("splits a keyword and finds how surely its mark was read", () => {
     expect(parts("Aircraft|Type|Boeing 777-300ER")).toEqual(["Type", "Boeing 777-300ER"]);
     expect(pctOf(item(), "Aircraft|Registration|VT-JEX")).toBe(100);
@@ -72,6 +103,9 @@ describe("Read aircraft review", () => {
   it("says how reading is getting on", () => {
     expect(progressLine(review(), false)).toBe("Reading… 2 of 5 read.");
     expect(progressLine(review(), true)).toBe("Stopped: 2 of 5 read.");
+    // After Stop nothing is pending, but the photos not read still say so.
+    expect(progressLine(review({ pending: 0 }), true)).toBe("Stopped: 2 of 5 read.");
+    expect(progressLine(review({ pending: 0, read: 5 }), true)).toBe("5 of 5 photos read.");
     expect(progressLine(review({ pending: 0, read: 5 }), false)).toBe("5 of 5 photos read.");
     expect(
       progressLine(review({ pending: 0, read: 4, failed: 1, problem: "no file" }), false),

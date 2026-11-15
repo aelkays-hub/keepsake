@@ -1798,9 +1798,18 @@ export function installMock(): void {
           if (keep.some((k) => !k.startsWith("Aircraft|")))
             throw "only aircraft keywords can be accepted";
           r.review = keep.length ? "accepted" : "dismissed";
-          for (const nid of (a.neighbours ?? []) as string[]) {
+          const near = keep.length ? ((a.neighbours ?? []) as string[]) : [];
+          const accepted: string[] = [];
+          for (const nid of near) {
             const j = Number(nid.slice(1));
             st.keywords.set(j, [...new Set([...(st.keywords.get(j) ?? []), ...keep])]);
+            // Accepted with it: not asked about again, also when read later.
+            // (One already accepted or dismissed keeps its review.)
+            const nr = st.aircraftReads.get(j);
+            if (!nr) st.aircraftReads.set(j, { left: 0, review: "accepted" });
+            else if (nr.review === "waiting") nr.review = "accepted";
+            else continue;
+            accepted.push(nid);
           }
           if (keep.length) {
             const cur = st.keywords.get(i) ?? [];
@@ -1809,7 +1818,7 @@ export function installMock(): void {
             by.set(AIRCRAFT.id, [...new Set([...(by.get(AIRCRAFT.id) ?? []), ...keep])].sort());
             st.aiSources.set(i, by);
           }
-          return cmd === "aircraft_accept" ? keep : null;
+          return cmd === "aircraft_accept" ? accepted : null;
         }
         case "faces_status": {
           const f = st.faces;

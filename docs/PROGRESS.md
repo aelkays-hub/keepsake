@@ -65,6 +65,12 @@
 
 ---
 
+## Read aircraft: neighbours accepted with a photo leave the list; the list by marks and confidence (2026-11-15)
+
+- Accepting a photo with its neighbours ticked now also marks those neighbours accepted (and keeps that when one not read yet is read later), so the window does not ask about them again; one already accepted or dismissed keeps its review. Accept all shown skips photos accepted as a neighbour. The list shows waiting photos with more marks and surer ones first, accepted next, dismissed last. After Stop the window keeps "Stopped" while photos are left unread.
+- Core: `scan::accept_neighbours`, `Ai::accept_aircraft_unread`; `put_aircraft_read` keeps an accepted-before-read photo accepted. App: `aircraft_accept` returns the neighbours accepted. UI: `ordered`, `confidenceOf` in `aircraftReview.ts`.
+- Tests: `aircraft_tests` (+1), Vitest `aircraftReview` (+1 and the Stopped wording), mocked Playwright `aircraft` (9, +1; the Stop test 8 of 8), fmt and clippy on Rust 1.100, ESLint, Prettier, tsc. **Not run:** CI; in the app. Branch `feat/accept-neighbours`.
+
 ## Version 0.5.3 (2026-11-15)
 
 - **Asked:** "merge and push all to main in GitHub v 0.5.3".

@@ -35,6 +35,31 @@ export function pctOf(item: AircraftReviewItemDto, keyword: string): number | nu
   return list.find((m) => m.name.replace(/[/|]/g, "-") === name)?.pct ?? null;
 }
 
+/** How surely a photo's offered marks were read: the mean of their
+ * percentages (marks from the look or the lookup alone have none). */
+export function confidenceOf(item: AircraftReviewItemDto): number {
+  const pcts = item.offered.map((k) => pctOf(item, k)).filter((p): p is number => p !== null);
+  return pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : 0;
+}
+
+const REVIEW_ORDER: Record<string, number> = { waiting: 0, accepted: 1, dismissed: 2 };
+
+/** The order the window lists photos in: waiting for review first, the
+ * ones offering more marks, then read more surely, first; then those
+ * accepted; dismissed ones last. Otherwise as read (newest first). */
+export function ordered(items: AircraftReviewItemDto[]): AircraftReviewItemDto[] {
+  return items
+    .map((item, i) => ({ item, i, conf: confidenceOf(item) }))
+    .sort(
+      (a, b) =>
+        (REVIEW_ORDER[a.item.review] ?? 1) - (REVIEW_ORDER[b.item.review] ?? 1) ||
+        b.item.offered.length - a.item.offered.length ||
+        b.conf - a.conf ||
+        a.i - b.i,
+    )
+    .map((x) => x.item);
+}
+
 /** Where an offered keyword comes from, for its label. */
 export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
   const pct = pctOf(item, keyword);
@@ -118,7 +143,9 @@ export function progressLine(r: AircraftReviewDto, stopped: boolean): string {
   const failed = r.failed
     ? ` ${fmt.plural(r.failed, "photo")} could not be read${r.problem ? `: ${r.problem}` : ""}.`
     : "";
-  return (stopped && r.pending > 0 ? `Stopped: ${of} read.` : `${of} photos read.`) + failed;
+  // Stopped with photos left unread (once stopped, none is pending).
+  const unread = r.pending > 0 || r.read + r.failed < r.total;
+  return (stopped && unread ? `Stopped: ${of} read.` : `${of} photos read.`) + failed;
 }
 
 /** How many are waiting for review. */

@@ -503,7 +503,8 @@ pub fn aircraft_set_lookup(app: AppHandle, enabled: bool) -> CmdResult<()> {
 
 /// Accept a photo's read: `keywords` (`Aircraft|…|…`, those left ticked)
 /// become its keywords, and the `neighbours` ticked (photos of the same
-/// burst) get them too. None: the read is dismissed. Returns those added.
+/// burst) get them too and count as accepted, so they are not asked about
+/// again. None: the read is dismissed. Returns the neighbours accepted.
 #[tauri::command(async)]
 pub fn aircraft_accept(
     state: State<'_, AppState>,
@@ -515,7 +516,7 @@ pub fn aircraft_accept(
     let paths = paths_of(&keywords)?;
     let open = state.open()?;
     let mut cat = open.writer()?;
-    let added = scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)?;
+    scan::accept(&mut cat, &open.lib, asset, &paths).map_err(err)?;
     // `None`: its neighbours were not shown (Accept all, off screen): the
     // alike ones, as they would have been ticked.
     let others = match neighbours {
@@ -532,10 +533,9 @@ pub fn aircraft_accept(
                 .collect()
         }
     };
-    if !paths.is_empty() && !others.is_empty() {
-        scan::add_to(&mut cat, &open.lib, &others, &paths).map_err(err)?;
-    }
-    Ok(added)
+    // They get the keywords and count as accepted: not asked about again.
+    let accepted = scan::accept_neighbours(&mut cat, &open.lib, &others, &paths).map_err(err)?;
+    Ok(accepted.iter().map(ToString::to_string).collect())
 }
 
 /// After accepting `keywords` for a photo: the other photos of its
