@@ -175,8 +175,11 @@ test("an aircraft row opens its photos by keyword, and back shows the same table
   await screen.getByTestId("aircraft-by-types").click();
   await screen.getByTestId("aircraft-table").getByRole("button", { name: "Boeing 747" }).click();
   await expect(page.getByTestId("heading")).toContainText("Type Boeing 747");
-  const views = await calls(page, "view_open");
-  expect(JSON.stringify(views.at(-1))).toContain("Aircraft|Type|Boeing 747");
+  // The library asks for the keyword's photos (wait: a slow runner can
+  // show the heading before the request is made).
+  await expect
+    .poll(async () => JSON.stringify(await calls(page, "view_open")))
+    .toContain("Aircraft|Type|Boeing 747");
   await page.getByTestId("heading").getByRole("button", { name: "Report" }).click();
   await expect(screen.getByTestId("report-kind-aircraft")).toHaveAttribute("aria-pressed", "true");
   await expect(screen.getByTestId("aircraft-by-types")).toHaveAttribute("aria-pressed", "true");
