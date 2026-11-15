@@ -702,6 +702,65 @@ fn other_photos_of_the_same_registration_get_what_they_lack() {
     assert!(scan::add_to(&mut w.cat, &w.lib, &[b], &[p("People|Someone")]).is_err());
 }
 
+#[test]
+fn neighbours_accepted_with_a_photo_are_not_asked_about_again() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg", "d.jpg"]);
+    let [a, b, c, d] = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].map(|n| w.asset(n));
+    let read = |w: &mut World, id: AssetId, made: i64| {
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, "{}", None, true, made))
+            .unwrap();
+    };
+    // a and b are read and wait for review; c, beside a, is not read yet.
+    read(&mut w, a, 10);
+    read(&mut w, b, 10);
+    read(&mut w, d, 10);
+    let review = |w: &World, id: AssetId| {
+        w.cat
+            .read(|tx| tx.ai().aircraft_read(id))
+            .unwrap()
+            .map(|r| r.review)
+    };
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let keep = [p("Aircraft|Registration|C-FJZS")];
+    scan::accept(&mut w.cat, &w.lib, a, &keep).unwrap();
+    assert_eq!(
+        scan::accept_neighbours(&mut w.cat, &w.lib, &[b, c], &keep).unwrap(),
+        [b, c]
+    );
+    for id in [a, b, c] {
+        assert_eq!(review(&w, id).as_deref(), Some("accepted"));
+    }
+    assert!(w
+        .keywords(c)
+        .contains(&"Aircraft|Registration|C-FJZS".to_owned()));
+    // d was not ticked: it still waits.
+    assert_eq!(review(&w, d).as_deref(), Some("waiting"));
+    // c is read later (its job was queued): it stays accepted.
+    read(&mut w, c, 20);
+    assert_eq!(review(&w, c).as_deref(), Some("accepted"));
+    // Reading again a photo read before asks for its review again.
+    read(&mut w, b, 30);
+    assert_eq!(review(&w, b).as_deref(), Some("waiting"));
+    read(&mut w, c, 40);
+    assert_eq!(review(&w, c).as_deref(), Some("waiting"));
+    // A neighbour already dismissed keeps that (it still gets the keywords).
+    scan::dismiss(&mut w.cat, d).unwrap();
+    assert!(scan::accept_neighbours(&mut w.cat, &w.lib, &[d], &keep)
+        .unwrap()
+        .is_empty());
+    assert_eq!(review(&w, d).as_deref(), Some("dismissed"));
+    assert!(w
+        .keywords(d)
+        .contains(&"Aircraft|Registration|C-FJZS".to_owned()));
+    read(&mut w, d, 50);
+    // A dismissed photo gives its neighbours nothing.
+    assert!(scan::accept_neighbours(&mut w.cat, &w.lib, &[d], &[])
+        .unwrap()
+        .is_empty());
+    assert_eq!(review(&w, d).as_deref(), Some("waiting"));
+}
+
 /// Stands in for Claude: every photo is a beach.
 struct BeachTagger;
 

@@ -416,7 +416,9 @@ impl Ai<'_, Rw> {
     }
 
     /// Keep what Read aircraft found in `asset`, waiting for review (a
-    /// read before is replaced).
+    /// read before is replaced). A photo accepted with the photo it was
+    /// taken beside before it was read itself ([`Self::accept_aircraft_unread`])
+    /// stays accepted.
     pub fn put_aircraft_read(
         &self,
         asset: AssetId,
@@ -430,10 +432,34 @@ impl Ai<'_, Rw> {
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(asset_id) DO UPDATE SET candidates = excluded.candidates,
                looks_like = excluded.looks_like, full_size = excluded.full_size,
-               made_ms = excluded.made_ms, review = 'waiting', reviewed_ms = NULL",
+               made_ms = excluded.made_ms,
+               review = CASE WHEN aircraft_reads.made_ms = 0 THEN aircraft_reads.review
+                             ELSE 'waiting' END,
+               reviewed_ms = CASE WHEN aircraft_reads.made_ms = 0 THEN aircraft_reads.reviewed_ms
+                                  END",
             params![asset, candidates, looks_like, i64::from(full_size), made_ms],
         )?;
         Ok(())
+    }
+
+    /// Mark `asset`'s read accepted when it waits for review, or, when it
+    /// has not been read yet, keep that it is accepted (an empty read made
+    /// at 0) so that reading it later does not ask for its review again. A
+    /// read already accepted or dismissed is left as it is. Returns whether
+    /// it is now accepted by this.
+    pub fn accept_aircraft_unread(
+        &self,
+        asset: AssetId,
+        empty: &str,
+        at_ms: i64,
+    ) -> Result<bool, CatalogError> {
+        Ok(self.conn.execute(
+            "INSERT INTO aircraft_reads (asset_id, candidates, full_size, made_ms, review, reviewed_ms)
+             VALUES (?1, ?2, 0, 0, 'accepted', ?3)
+             ON CONFLICT(asset_id) DO UPDATE SET review = 'accepted', reviewed_ms = ?3
+             WHERE aircraft_reads.review = 'waiting'",
+            params![asset, empty, at_ms],
+        )? > 0)
     }
 
     /// Mark a read accepted or dismissed. Returns whether there was one.

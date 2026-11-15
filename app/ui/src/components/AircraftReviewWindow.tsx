@@ -27,6 +27,7 @@ import {
   secondsLabel,
   shownIds,
   sourceOf,
+  ordered,
   ticked,
   tickedNeighbours,
   waitingCount,
@@ -84,7 +85,7 @@ function Photo({
   const looked = lookupLine(item);
   const near = tickedNeighbours(item, toggledNear) ?? [];
   return (
-    <li className={`ar-photo ${item.review}`} data-testid="ar-photo">
+    <li className={`ar-photo ${item.review}`} data-testid="ar-photo" data-id={item.id}>
       {thumb ? (
         <img src={thumb} alt="" className="ar-thumb" loading="lazy" />
       ) : (
@@ -251,7 +252,8 @@ export function AircraftReviewWindow() {
         .aircraftReview(ids, conf, onScreenKey ? onScreenKey.split(",") : [])
         .then((r) => {
           if (!live) return;
-          setReview(r);
+          // More marks and surer ones first, dismissed last.
+          setReview({ ...r, items: ordered(r.items) });
           if (!conf) setConf(r.confidence);
         })
         .catch((e) => live && setProblem(String(e)));
@@ -307,13 +309,16 @@ export function AircraftReviewWindow() {
   const accept = async (item: AircraftReviewItemDto) => {
     const keep = ticked(item, toggled.get(item.id));
     const near = keep.length ? tickedNeighbours(item, toggledNear.get(item.id)) : [];
-    await api.aircraftAccept(item.id, keep, near);
+    const alsoAccepted = await api.aircraftAccept(item.id, keep, near);
     setState(item.id, keep.length ? "accepted" : "dismissed");
+    // Its neighbours got the same keywords: accepted too, so they leave the
+    // list instead of being asked about again.
+    for (const id of alsoAccepted) setState(id, "accepted");
     // The same aircraft's other photos that lack its airline or type.
     const reg = keep.find((k) => parts(k)[0] === "Registration");
     if (reg && keep.some((k) => ["Airline", "Type"].includes(parts(k)[0]))) {
       const photos = (await api.aircraftSamePlane(item.id, keep)).filter(
-        (p) => !(near ?? []).includes(p.id),
+        (p) => !(near ?? []).includes(p.id) && !alsoAccepted.includes(p.id),
       );
       if (photos.length)
         setSame((s) => [
@@ -321,6 +326,7 @@ export function AircraftReviewWindow() {
           { registration: parts(reg)[1], photos },
         ]);
     }
+    return alsoAccepted;
   };
   const run = (f: () => Promise<void>) => {
     setBusy(true);
@@ -332,7 +338,12 @@ export function AircraftReviewWindow() {
   };
   const acceptAll = () =>
     run(async () => {
-      for (const item of items) if (item.review === "waiting") await accept(item);
+      // A photo accepted as an earlier one's neighbour is skipped.
+      const done = new Set<string>();
+      for (const item of items) {
+        if (item.review !== "waiting" || done.has(item.id)) continue;
+        for (const id of await accept(item)) done.add(id);
+      }
     });
   const waiting = review ? waitingCount(review) : 0;
 
@@ -477,7 +488,7 @@ export function AircraftReviewWindow() {
               toggledNear={toggledNear.get(item.id)}
               onToggle={(k) => toggle(item.id, k)}
               onToggleNear={(n) => toggleNear(item.id, n)}
-              onAccept={() => run(() => accept(item))}
+              onAccept={() => run(() => accept(item).then(() => undefined))}
               onDismiss={() =>
                 run(() => api.aircraftDismiss(item.id).then(() => setState(item.id, "dismissed")))
               }

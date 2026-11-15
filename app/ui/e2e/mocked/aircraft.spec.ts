@@ -86,8 +86,14 @@ test("right-click photos: the review window reads them; only what is accepted is
     .toEqual({ confidence: { registrationPct: 80, airlinePct: 85, typePct: 60, sameShotS: 10 } });
   expect(await calls(page, "aircraft_read")).toHaveLength(1);
 
-  // Untick the type and accept: the type does not become a keyword.
+  // Untick the type and accept: the type does not become a keyword. (Its
+  // neighbour is unticked too, so the next photo stays to be reviewed.)
   await first.getByTestId("ar-mark").last().uncheck();
+  await first
+    .getByTestId("ar-near")
+    .locator("label", { hasText: "96% alike" })
+    .getByTestId("ar-near-photo")
+    .uncheck();
   await first.getByTestId("ar-accept").click();
   await expect(photos).toHaveCount(2);
   const accepted = (await calls(page, "aircraft_accept"))[0] as { keywords: string[] };
@@ -101,7 +107,8 @@ test("right-click photos: the review window reads them; only what is accepted is
   await expect(win.getByTestId("ar-none-waiting")).toBeVisible();
   await win.getByTestId("ar-all").check();
   await expect(photos).toHaveCount(3);
-  await expect(win.getByTestId("ar-state")).toHaveText(["Accepted", "Dismissed", "Accepted"]);
+  // Accepted before dismissed.
+  await expect(win.getByTestId("ar-state")).toHaveText(["Accepted", "Accepted", "Dismissed"]);
 
   // What was accepted are keywords now, and the inspector says who gave them.
   await win.getByTestId("ar-close").click();
@@ -261,4 +268,43 @@ test("with the online lookup: the registry's type and airline, neighbours and th
   await expect(box).toBeChecked();
   await box.uncheck();
   expect(await calls(page, "aircraft_set_lookup")).toEqual([{ enabled: false }]);
+});
+
+test("photos accepted as a photo's neighbours leave the list and are not asked about again", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on");
+  const tiles = page.getByTestId("tile");
+  await tiles.nth(0).click();
+  await tiles.nth(2).click({ modifiers: ["Shift"] });
+  await tiles.nth(1).click({ button: "right" });
+  await page.getByTestId("item-menu").getByTestId("tile-menu-aircraft").click();
+  const win = page.getByTestId("aircraft-review");
+  await expect(win.getByTestId("ar-progress")).toHaveText("3 of 3 photos read.");
+  const photos = win.getByTestId("ar-photo");
+  await expect(photos).toHaveCount(3);
+  // A photo whose next one (2 s later, alike, ticked) is in the list too.
+  const ids = await photos.evaluateAll((els) => els.map((e) => e.getAttribute("data-id") ?? ""));
+  const id = ids.find((x) => ids.includes(`a${Number(x.slice(1)) + 1}`)) ?? "";
+  expect(id).not.toBe("");
+  const next = `a${Number(id.slice(1)) + 1}`;
+  const photo = win.locator(`[data-id="${id}"]`);
+  await expect(
+    photo
+      .getByTestId("ar-near")
+      .locator("label", { hasText: "96% alike" })
+      .getByTestId("ar-near-photo"),
+  ).toBeChecked();
+
+  await photo.getByTestId("ar-accept").click();
+  // Both leave the list at once: the neighbour is not asked about again.
+  await expect(win.locator(`[data-id="${id}"]`)).toHaveCount(0);
+  await expect(win.locator(`[data-id="${next}"]`)).toHaveCount(0);
+  await expect(photos).toHaveCount(1);
+  await expect(win.getByTestId("ar-waiting")).toHaveText("1 photo waiting for review");
+  // Shown with the others, it is accepted, and stays so after a refresh.
+  await win.getByTestId("ar-all").check();
+  await expect(win.locator(`[data-id="${next}"]`).getByTestId("ar-state")).toHaveText("Accepted");
+  await win.getByTestId("ar-typePct").fill("60");
+  await expect(win.locator(`[data-id="${next}"]`).getByTestId("ar-state")).toHaveText("Accepted");
 });
