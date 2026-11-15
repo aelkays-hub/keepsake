@@ -65,6 +65,12 @@
 
 ---
 
+## Report tables sort by any column (2026-11-15)
+
+- Product owner: "I want to add sortable columns to the reports". In Tools → Report, clicking a column's heading sorts the table by it (numbers most first, text A–Z), and clicking again turns it over; the sorted heading has an arrow. Library: the breakdown, Photos, Videos, Items, Files, Size (dates sort by date; the sort is kept from one breakdown to the next). Aircraft: the name, Photos, Registrations, Airline, Type, Seen (by the last day), and the year table's Year, Photos, Named. Unknown and Undated stay last; rows that tie keep the report's order. Remembered while the app is open.
+- UI: `tableSort.ts` (`sortRows`, `nextSort`, `ariaSort`), `SortHeader`; used in `ReportScreen` and `AircraftReportView`.
+- Tests: Vitest `tableSort` (3), mocked Playwright `report` (+1) and `a11y`, ESLint, Prettier, tsc. **Not run:** CI; in the app. Branch `feat/report-sort`.
+
 ## Read aircraft: neighbours accepted with a photo leave the list; the list by marks and confidence (2026-11-15)
 
 - Accepting a photo with its neighbours ticked now also marks those neighbours accepted (and keeps that when one not read yet is read later), so the window does not ask about them again; one already accepted or dismissed keeps its review. Accept all shown skips photos accepted as a neighbour. The list shows waiting photos with more marks and surer ones first, accepted next, dismissed last. After Stop the window keeps "Stopped" while photos are left unread.

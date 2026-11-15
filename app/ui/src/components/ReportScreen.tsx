@@ -20,6 +20,8 @@ import {
   type ReportLine,
 } from "../report";
 import { useUi } from "../state";
+import { sortRows, type SortValue, type TableSort } from "../tableSort";
+import { SortHeader } from "./SortHeader";
 import { AircraftReportView } from "./AircraftReportView";
 
 type Kind = "library" | "aircraft";
@@ -59,11 +61,38 @@ export function ReportScreen() {
 /** The breakdown shown last, so that coming back from a row's items shows
  * the same table. */
 let lastBy: Breakdown = "year";
+/** The column sorted last (kept from one breakdown to the next). */
+let lastSort: TableSort = null;
+
+/** A line's value in a column, for sorting. Dates sort by their date. */
+function lineValue(l: ReportLine, col: string): SortValue {
+  switch (col) {
+    case "group":
+      return l.group ?? null;
+    case "photos":
+      return l.photos;
+    case "videos":
+      return l.videos;
+    case "items":
+      return l.items;
+    case "files":
+      return l.files;
+    case "bytes":
+      return l.bytes;
+    default:
+      return null;
+  }
+}
 
 function LibraryReportView() {
   const [r, setR] = useState<LibraryReport | null>(null);
   const { dispatch } = useUi();
   const [by, setByState] = useState<Breakdown>(lastBy);
+  const [sort, setSortState] = useState<TableSort>(lastSort);
+  const setSort = (t: TableSort) => {
+    lastSort = t;
+    setSortState(t);
+  };
   const setBy = (b: Breakdown) => {
     lastBy = b;
     setByState(b);
@@ -89,7 +118,8 @@ function LibraryReportView() {
       .catch((e) => setProblem(String(e)));
   };
   const all = r ? totals(r) : null;
-  const rows = r ? lines(r, by) : [];
+  // Unknown stays last however it is sorted.
+  const rows = sortRows(r ? lines(r, by) : [], sort, lineValue, (l) => l.group === null);
   const meta = BREAKDOWNS.find((b) => b.key === by) ?? BREAKDOWNS[0];
   return (
     <>
@@ -159,22 +189,26 @@ function LibraryReportView() {
           <table className="history report" data-testid="report-table">
             <thead>
               <tr>
-                <th scope="col">{meta.column}</th>
-                <th scope="col" className="num">
-                  Photos
-                </th>
-                <th scope="col" className="num">
-                  Videos
-                </th>
-                <th scope="col" className="num">
-                  Items
-                </th>
-                <th scope="col" className="num">
-                  Files
-                </th>
-                <th scope="col" className="num">
-                  Size
-                </th>
+                {(
+                  [
+                    [meta.column, "group", false],
+                    ["Photos", "photos", true],
+                    ["Videos", "videos", true],
+                    ["Items", "items", true],
+                    ["Files", "files", true],
+                    ["Size", "bytes", true],
+                  ] as const
+                ).map(([label, col, numeric]) => (
+                  <SortHeader
+                    key={col}
+                    label={label}
+                    col={col}
+                    numeric={numeric}
+                    sort={sort}
+                    onSort={setSort}
+                    testId={`report-sort-${col}`}
+                  />
+                ))}
               </tr>
             </thead>
             <tbody>
