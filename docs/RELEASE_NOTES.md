@@ -1,8 +1,20 @@
-# Keepsake 0.5.3
+# Keepsake 0.5.4
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.3 adds an Aircraft report, and Read aircraft reads more registrations: distant aircraft, and letters misread as digits.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.4 makes Read aircraft read only the text on the aircraft, show what every picked photo read, and read again on request; it also fixes a slowdown.
 
-## New in 0.5.3
+## New in 0.5.4
+
+**Read aircraft**
+- **Only the text on the aircraft is read:** an aircraft finder (YOLOX-s) finds the aircraft first, so signs, buildings and a signature are no longer read.
+- **A photo you pick always shows what was read.** A photo that got its keywords earlier as another photo's neighbour was read but not listed; now it waits for review like any other. Its keywords stay.
+- **"No registration, airline or type was found on this photo"** is said when a read finds nothing.
+- **Read again** on each photo in the window, and **Read all again** for all of them (it asks first above 20 photos). A new read replaces the one kept and waits for review.
+- The window lists only photos with something to accept.
+
+**Fixes**
+- **The app was slow** when raw files without a built-in preview had faces, tags or aircraft asked for them: their thumbnails were tried again every 15 seconds without end. They are now tried once.
+
+## New in 0.5.3 (included)
 
 **Aircraft report** (Tools → Report → Aircraft)
 - How many aircraft photos you have (and how many distinct shots, with copies in other folders counted once), how many airlines, types and registrations are named on them, and how many reads are waiting for review.
