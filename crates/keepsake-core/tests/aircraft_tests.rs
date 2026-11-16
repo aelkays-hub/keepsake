@@ -388,6 +388,54 @@ fn a_picture_with_nothing_to_read_gets_no_keywords_and_missing_models_are_said()
     assert!(w.offered(a).is_empty());
     assert!(w.keywords(a).is_empty());
     assert!(w.cat.read(|tx| tx.ai().tag_sources(a)).unwrap().is_empty());
+    // Nothing found: nothing to review, so it is set aside.
+    let read = w.cat.read(|tx| tx.ai().aircraft_read(a)).unwrap().unwrap();
+    assert_eq!(read.review, "dismissed");
+}
+
+#[test]
+fn reads_that_found_nothing_are_set_aside_and_not_counted_as_waiting() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg", "d.jpg"]);
+    let [a, b, c, d] = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].map(|n| w.asset(n));
+    let empty = r#"{"registrations":[],"airlines":[],"types":[]}"#;
+    let airline = r#"{"registrations":[],"airlines":[["Interjet",0.9]],"types":[]}"#;
+    w.cat
+        .write(|tx| {
+            // Read before reads that found nothing were set aside.
+            tx.ai().put_aircraft_read(a, empty, None, true, 10)?;
+            tx.ai().put_aircraft_read(b, airline, None, true, 10)?;
+            // Only the type it looks like: there is something to offer.
+            tx.ai()
+                .put_aircraft_read(c, empty, Some("Boeing 777"), true, 10)?;
+            tx.ai().put_aircraft_read(d, empty, None, true, 10)?;
+            tx.ai().set_aircraft_review(d, "accepted", 11)?;
+            Ok::<_, keepsake_core::catalog::CatalogError>(())
+        })
+        .unwrap();
+    let waiting = |w: &World| {
+        w.cat
+            .read(|tx| tx.aircraft_report().aircraft())
+            .unwrap()
+            .totals
+            .waiting_review
+    };
+    // The report leaves a read that found nothing out already.
+    assert_eq!(waiting(&w), 2);
+    assert_eq!(scan::dismiss_empty(&mut w.cat, &[a, b, c, d]).unwrap(), 1);
+    let review = |w: &World, id: AssetId| {
+        w.cat
+            .read(|tx| tx.ai().aircraft_read(id))
+            .unwrap()
+            .unwrap()
+            .review
+    };
+    assert_eq!(review(&w, a), "dismissed");
+    assert_eq!(review(&w, b), "waiting");
+    assert_eq!(review(&w, c), "waiting");
+    // One already reviewed keeps its review.
+    assert_eq!(review(&w, d), "accepted");
+    assert_eq!(waiting(&w), 2);
+    assert_eq!(scan::dismiss_empty(&mut w.cat, &[a, b, c, d]).unwrap(), 0);
 }
 
 #[test]

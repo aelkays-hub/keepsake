@@ -65,6 +65,12 @@
 
 ---
 
+## Read aircraft lists only what can be accepted (2026-11-16)
+
+- 3,158 of the owner's waiting reads had found nothing at all (10 had something). A read that finds nothing is now set aside (dismissed) when read; older ones are set aside when the review window first opens on them; the Aircraft report no longer counts them as waiting. The window lists only photos with something to accept at its levels, and says how many more have marks below them.
+- Core: `Ai::dismiss_empty_aircraft_reads` (`EMPTY_READ`), `scan::dismiss_empty`; `read_asset` sets aside a read that found nothing; the report's waiting count. App: `aircraft_review` sets aside empty reads on the window's first ask. UI: `toReview`, `belowLevels`.
+- Tests: `aircraft_tests` (+1, and the nothing-found read is dismissed), `report_tests`, Vitest `aircraftReview`, mocked Playwright `aircraft` (9), `safety_audit_tests`, fmt and clippy on Rust 1.100, ESLint, Prettier, tsc, the production build. **Not run:** CI; in the app. Branch `fix/review-only-actionable`.
+
 ## Report tables sort by any column (2026-11-15)
 
 - Product owner: "I want to add sortable columns to the reports". In Tools → Report, clicking a column's heading sorts the table by it (numbers most first, text A–Z), and clicking again turns it over; the sorted heading has an arrow. Library: the breakdown, Photos, Videos, Items, Files, Size (dates sort by date; the sort is kept from one breakdown to the next). Aircraft: the name, Photos, Registrations, Airline, Type, Seen (by the last day), and the year table's Year, Photos, Named. Unknown and Undated stay last; rows that tie keep the report's order. Remembered while the app is open.

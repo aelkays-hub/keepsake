@@ -96,7 +96,7 @@ export function tickedNeighbours(
 /** The photos on screen: the first `shown` of those listed. */
 export function shownIds(review: AircraftReviewDto | null, all: boolean, shown: number): string[] {
   return (review?.items ?? [])
-    .filter((i) => all || i.review === "waiting")
+    .filter((i) => all || toReview(i))
     .slice(0, shown)
     .map((i) => i.id);
 }
@@ -148,7 +148,19 @@ export function progressLine(r: AircraftReviewDto, stopped: boolean): string {
   return (stopped && unread ? `Stopped: ${of} read.` : `${of} photos read.`) + failed;
 }
 
-/** How many are waiting for review. */
+/** Waiting for review with something to accept at the window's levels:
+ * the photos the window lists. */
+export function toReview(i: AircraftReviewItemDto): boolean {
+  return i.review === "waiting" && i.offered.length > 0;
+}
+
+/** How many are waiting for review with something to accept. */
 export function waitingCount(r: AircraftReviewDto): number {
-  return r.items.filter((i) => i.review === "waiting").length;
+  return r.items.filter(toReview).length;
+}
+
+/** How many wait with nothing at the window's levels (shown when a level
+ * is lowered enough). */
+export function belowLevels(r: AircraftReviewDto): number {
+  return r.items.filter((i) => i.review === "waiting" && i.offered.length === 0).length;
 }

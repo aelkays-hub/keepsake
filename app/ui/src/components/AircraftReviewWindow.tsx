@@ -30,7 +30,9 @@ import {
   ordered,
   ticked,
   tickedNeighbours,
+  toReview,
   waitingCount,
+  belowLevels,
 } from "../aircraftReview";
 import * as fmt from "../format";
 import { useUi } from "../state";
@@ -290,7 +292,8 @@ export function AircraftReviewWindow() {
 
   if (!job) return null;
 
-  const items = (review?.items ?? []).filter((i) => all || i.review === "waiting");
+  // Only what can be accepted at these levels (unless all are asked for).
+  const items = (review?.items ?? []).filter((i) => all || toReview(i));
   const setState = (id: string, state: string) =>
     setReview((r) =>
       r ? { ...r, items: r.items.map((i) => (i.id === id ? { ...i, review: state } : i)) } : r,
@@ -346,6 +349,7 @@ export function AircraftReviewWindow() {
       }
     });
   const waiting = review ? waitingCount(review) : 0;
+  const below = review ? belowLevels(review) : 0;
 
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
@@ -442,8 +446,17 @@ export function AircraftReviewWindow() {
               Show accepted and dismissed too
             </label>
             <span className="muted" data-testid="ar-waiting">
-              {fmt.plural(waiting, "photo")} waiting for review
+              {fmt.plural(waiting, "photo")} to review
             </span>
+            {below > 0 && (
+              <span
+                className="muted"
+                data-testid="ar-below"
+                title="Lower a slider to see what was read less surely"
+              >
+                {fmt.plural(below, "more photo")} with marks below these levels
+              </span>
+            )}
           </div>
         )}
 
@@ -504,7 +517,9 @@ export function AircraftReviewWindow() {
         )}
         {review && items.length === 0 && review.read > 0 && (
           <p className="muted" data-testid="ar-none-waiting">
-            Every photo read so far has been reviewed.
+            {below > 0
+              ? "Nothing more to accept at these levels."
+              : "Every photo read so far has been reviewed."}
           </p>
         )}
 
