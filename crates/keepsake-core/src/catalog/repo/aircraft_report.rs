@@ -235,7 +235,10 @@ impl<M> AircraftReportRepo<'_, M> {
         drop(q);
 
         let waiting: i64 = self.conn.query_row(
-            "SELECT count(*) FROM aircraft_reads WHERE review = 'waiting'",
+            &format!(
+                "SELECT count(*) FROM aircraft_reads WHERE review = 'waiting' AND NOT ({})",
+                super::ai::EMPTY_READ
+            ),
             [],
             |r| r.get(0),
         )?;

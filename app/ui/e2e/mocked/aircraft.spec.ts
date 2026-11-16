@@ -66,7 +66,7 @@ test("right-click photos: the review window reads them; only what is accepted is
   await expect(win.getByTestId("ar-progress")).toHaveText("3 of 3 photos read.");
   const photos = win.getByTestId("ar-photo");
   await expect(photos).toHaveCount(3);
-  await expect(win.getByTestId("ar-waiting")).toHaveText("3 photos waiting for review");
+  await expect(win.getByTestId("ar-waiting")).toHaveText("3 photos to review");
 
   // The saved levels: 80, 85, 70. Each photo offers the registration (96 %)
   // and, with no painted type sure enough (66 %), the type from its look.
@@ -301,7 +301,7 @@ test("photos accepted as a photo's neighbours leave the list and are not asked a
   await expect(win.locator(`[data-id="${id}"]`)).toHaveCount(0);
   await expect(win.locator(`[data-id="${next}"]`)).toHaveCount(0);
   await expect(photos).toHaveCount(1);
-  await expect(win.getByTestId("ar-waiting")).toHaveText("1 photo waiting for review");
+  await expect(win.getByTestId("ar-waiting")).toHaveText("1 photo to review");
   // Shown with the others, it is accepted, and stays so after a refresh.
   await win.getByTestId("ar-all").check();
   await expect(win.locator(`[data-id="${next}"]`).getByTestId("ar-state")).toHaveText("Accepted");

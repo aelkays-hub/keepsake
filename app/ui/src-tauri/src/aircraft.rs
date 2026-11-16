@@ -361,6 +361,12 @@ pub fn aircraft_review(
         .clamp(1, 60);
     let ids = unique(convert::ids(&ids)?);
     let open = state.open()?;
+    // The window's first ask: reads that found nothing at all (made before
+    // they were set aside when read) have nothing to accept.
+    if confidence.is_none() {
+        let mut w = open.writer()?;
+        scan::dismiss_empty(&mut w, &ids).map_err(err)?;
+    }
     let cat = open.cat()?;
     let (st, problem) = scan::status(&cat, &ids).map_err(err)?;
     let mut items = Vec::new();

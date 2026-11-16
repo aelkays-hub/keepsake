@@ -16,6 +16,8 @@ import {
   ticked,
   tickedNeighbours,
   waitingCount,
+  toReview,
+  belowLevels,
 } from "../aircraftReview";
 
 const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => ({
@@ -112,6 +114,13 @@ describe("Read aircraft review", () => {
     ).toBe("4 of 5 photos read. 1 photo could not be read: no file.");
     expect(progressLine(review({ total: 0, read: 0, pending: 0 }), false)).toBe("Nothing to read.");
     expect(waitingCount(review())).toBe(1);
+    // Waiting with nothing at these levels: not to review, counted apart.
+    const below = review({ items: [item(), item({ id: "a3", offered: [] })] });
+    expect(toReview(below.items[1])).toBe(false);
+    expect(toReview(below.items[0])).toBe(true);
+    expect(toReview(item({ review: "dismissed" }))).toBe(false);
+    expect(waitingCount(below)).toBe(1);
+    expect(belowLevels(below)).toBe(1);
   });
 
   it("starts a disagreeing painted type unticked; a click turns any over", () => {
@@ -176,6 +185,10 @@ describe("Read aircraft review", () => {
     expect(shownIds(r, false, 100)).toEqual(["a", "c"]);
     expect(shownIds(r, true, 2)).toEqual(["a", "b"]);
     expect(shownIds(null, false, 100)).toEqual([]);
+    // A photo offering nothing at these levels is not listed (unless all).
+    const empty = review({ items: [item({ id: "x", offered: [] }), item({ id: "y" })] });
+    expect(shownIds(empty, false, 100)).toEqual(["y"]);
+    expect(shownIds(empty, true, 100)).toEqual(["x", "y"]);
     // Not looked for: the app gives the keywords to the alike ones.
     expect(tickedNeighbours(item({ neighbours: null }), undefined)).toBeNull();
   });

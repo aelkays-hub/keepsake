@@ -4,6 +4,13 @@ use super::define_repo;
 use crate::catalog::error::CatalogError;
 use crate::catalog::{AiAnalysis, AssetId, DuplicateChoice, MediaKind, Rw, SequenceId, TagPath};
 
+/// SQL: an aircraft read that found nothing at all (its `candidates`
+/// lists no registration, airline or type, and it looks like no type).
+pub(crate) const EMPTY_READ: &str = "looks_like IS NULL
+    AND ifnull(json_array_length(candidates, '$.registrations'), 0) = 0
+    AND ifnull(json_array_length(candidates, '$.airlines'), 0) = 0
+    AND ifnull(json_array_length(candidates, '$.types'), 0) = 0";
+
 define_repo!(
     /// On-device AI results and the user's decisions about them (ADR-035).
     Ai
@@ -460,6 +467,25 @@ impl Ai<'_, Rw> {
              WHERE aircraft_reads.review = 'waiting'",
             params![asset, empty, at_ms],
         )? > 0)
+    }
+
+    /// Set aside the reads of `ids` that wait for review but found nothing
+    /// at all (no registration, airline or type, and no look): there is
+    /// nothing to accept, so they are dismissed. Returns how many.
+    pub fn dismiss_empty_aircraft_reads(
+        &self,
+        ids: &[AssetId],
+        at_ms: i64,
+    ) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        let mut st = self.conn.prepare_cached(&format!(
+            "UPDATE aircraft_reads SET review = 'dismissed', reviewed_ms = ?2
+              WHERE asset_id = ?1 AND review = 'waiting' AND {EMPTY_READ}"
+        ))?;
+        for id in ids {
+            n += st.execute(params![id, at_ms])? as u64;
+        }
+        Ok(n)
     }
 
     /// Mark a read accepted or dismissed. Returns whether there was one.

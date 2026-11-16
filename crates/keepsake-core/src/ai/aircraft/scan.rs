@@ -351,7 +351,9 @@ pub fn read_asset(
     let now = crate::jobs::now_ms();
     cat.write(|tx| {
         tx.ai()
-            .put_aircraft_read(asset, &json, looks_like.as_deref(), full_size, now)
+            .put_aircraft_read(asset, &json, looks_like.as_deref(), full_size, now)?;
+        // Nothing found: nothing to review.
+        tx.ai().dismiss_empty_aircraft_reads(&[asset], now)
     })?;
     let out = Outcome {
         marks: candidates.at(&Confidence::default()),
@@ -721,6 +723,14 @@ pub fn add_to(
         }
     }
     Ok(n)
+}
+
+/// Set aside the reads of `ids` waiting for review that found nothing at
+/// all (read before this was done at read time): the review window opens
+/// on what can be accepted. Returns how many.
+pub fn dismiss_empty(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
+    let now = crate::jobs::now_ms();
+    Ok(cat.write(|tx| tx.ai().dismiss_empty_aircraft_reads(ids, now))?)
 }
 
 /// Dismiss a read: nothing becomes a keyword.

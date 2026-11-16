@@ -692,8 +692,16 @@ fn every_aircraft_row_opens_exactly_its_photos() {
 #[test]
 fn reads_waiting_for_review_are_counted_apart() {
     let (mut cat, items) = fleet();
-    cat.write(|tx| tx.ai().put_aircraft_read(items[3].id, "{}", None, true, 1))
-        .unwrap();
+    cat.write(|tx| {
+        tx.ai().put_aircraft_read(
+            items[3].id,
+            r#"{"registrations":[],"airlines":[["KLM",0.9]],"types":[]}"#,
+            None,
+            true,
+            1,
+        )
+    })
+    .unwrap();
     let r = aircraft(&cat);
     assert_eq!(r.totals.waiting_review, 1);
     assert_eq!(r.totals.with_marks, 4);
