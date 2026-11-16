@@ -1,10 +1,13 @@
 // Report → Aircraft: the photos of aircraft and the airlines, types and
 // registrations named on them (keywords under Aircraft, typed or accepted
-// from Read aircraft). A row's name opens its photos in the library.
+// from Read aircraft). It opens on the drill-down (airline › type ›
+// registration, each with its photos); the three tables are beside it. A
+// row's name opens its photos in the library.
 
 import { useCallback, useEffect, useState } from "react";
 
 import { api, pickSaveCsv, type AircraftReport } from "../api";
+import type { AircraftReportGroup } from "../bindings/AircraftReportGroup";
 import type { AircraftReportRow } from "../bindings/AircraftReportRow";
 import type { AircraftReportYear } from "../bindings/AircraftReportYear";
 import {
@@ -12,9 +15,12 @@ import {
   aircraftCsvName,
   aircraftRows,
   aircraftRowTitle,
+  drillKeys,
+  drillRows,
   seen,
   share,
   type AircraftTable,
+  type AircraftView,
 } from "../aircraftReport";
 import * as fmt from "../format";
 import { useUi } from "../state";
@@ -22,7 +28,8 @@ import { sortRows, type SortValue, type TableSort } from "../tableSort";
 import { SortHeader } from "./SortHeader";
 
 /** The table shown last, so that coming back from a row's photos shows it. */
-let lastTable: AircraftTable = "airlines";
+let lastTable: AircraftView = "drill";
+let lastOpen: ReadonlySet<string> = new Set();
 let lastFind = "";
 let lastSort: TableSort = null;
 let lastYearSort: TableSort = null;
@@ -30,11 +37,13 @@ let lastYearSort: TableSort = null;
 export function AircraftReportView() {
   const [r, setR] = useState<AircraftReport | null>(null);
   const { dispatch } = useUi();
-  const [table, setTableState] = useState<AircraftTable>(lastTable);
+  const [view, setViewState] = useState<AircraftView>(lastTable);
+  // The table whose rows are shown (behind the drill-down: the airlines).
+  const table: AircraftTable = view === "drill" ? "airlines" : view;
   const [find, setFindState] = useState(lastFind);
-  const setTable = (t: AircraftTable) => {
+  const setTable = (t: AircraftView) => {
     lastTable = t;
-    setTableState(t);
+    setViewState(t);
   };
   const setFind = (f: string) => {
     lastFind = f;
@@ -80,6 +89,8 @@ export function AircraftReportView() {
   const yearMax = r ? Math.max(1, ...r.years.map((y) => y.photos)) : 1;
   const open = (path: string, title: string) =>
     dispatch({ t: "open", section: { kind: "report", title, query: { tag: path } } });
+  const openAll = (tags: string[], title: string) =>
+    dispatch({ t: "open", section: { kind: "report", title, query: { tags } } });
 
   return (
     <>
@@ -235,10 +246,18 @@ export function AircraftReportView() {
           <div className="card">
             <div className="aircraft-tools">
               <div className="segmented" role="group" aria-label="Show">
+                <button
+                  aria-pressed={view === "drill"}
+                  onClick={() => setTable("drill")}
+                  title="Each airline, its types, and their registrations, with the photos of each"
+                  data-testid="aircraft-by-drill"
+                >
+                  Airline › Type › Registration
+                </button>
                 {AIRCRAFT_TABLES.map((x) => (
                   <button
                     key={x.key}
-                    aria-pressed={table === x.key}
+                    aria-pressed={view === x.key}
                     onClick={() => setTable(x.key)}
                     data-testid={`aircraft-by-${x.key}`}
                   >
@@ -256,7 +275,10 @@ export function AircraftReportView() {
                 data-testid="aircraft-find"
               />
             </div>
-            <div className="aircraft-table-wrap">
+            {view === "drill" && r && (
+              <DrillDown groups={r.byAirline} find={find} onOpen={openAll} />
+            )}
+            <div className="aircraft-table-wrap" hidden={view === "drill"}>
               <table className="history report" data-testid="aircraft-table">
                 <thead>
                   <tr>
@@ -323,13 +345,118 @@ export function AircraftReportView() {
                 </tbody>
               </table>
             </div>
-            <p className="muted small">
-              Airline and type list up to three, most photos first. A photo can name several, so the
-              rows add up to more than the totals.
-            </p>
+            {view !== "drill" && (
+              <p className="muted small">
+                Airline and type list up to three, most photos first. A photo can name several, so
+                the rows add up to more than the totals.
+              </p>
+            )}
           </div>
         </>
       )}
+    </>
+  );
+}
+
+/** The drill-down: the airlines; open one for its types, and a type for
+ * its registrations. Each line has its photos; a name opens them. */
+function DrillDown({
+  groups,
+  find,
+  onOpen,
+}: {
+  groups: AircraftReportGroup[];
+  find: string;
+  onOpen: (tags: string[], title: string) => void;
+}) {
+  const [openKeys, setOpenState] = useState<ReadonlySet<string>>(lastOpen);
+  const setOpen = (s: ReadonlySet<string>) => {
+    lastOpen = s;
+    setOpenState(s);
+  };
+  const rows = drillRows(groups, openKeys, find);
+  const most = Math.max(1, ...groups.map((g) => g.photos));
+  const toggle = (key: string) => {
+    const n = new Set(openKeys);
+    if (n.has(key)) n.delete(key);
+    else n.add(key);
+    setOpen(n);
+  };
+  return (
+    <>
+      <div className="actions aircraft-drill-actions">
+        <button onClick={() => setOpen(new Set(drillKeys(groups)))} data-testid="aircraft-expand">
+          Expand all
+        </button>
+        <button onClick={() => setOpen(new Set())} data-testid="aircraft-collapse">
+          Collapse all
+        </button>
+      </div>
+      <div className="aircraft-table-wrap">
+        <table className="history report aircraft-drill" data-testid="aircraft-drill">
+          <thead>
+            <tr>
+              <th scope="col">Airline › Type › Registration</th>
+              <th scope="col" className="num">
+                Photos
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key} data-depth={row.depth} data-testid="aircraft-drill-row">
+                <th scope="row" style={{ paddingLeft: `${8 + row.depth * 22}px` }}>
+                  {row.children > 0 ? (
+                    <button
+                      className="link aircraft-twist"
+                      aria-expanded={row.open}
+                      aria-label={`${row.open ? "Hide" : "Show"} the ${row.under} of ${row.label}`}
+                      onClick={() => toggle(row.key)}
+                      data-testid="aircraft-drill-toggle"
+                    >
+                      {row.open ? "▾" : "▸"}
+                    </button>
+                  ) : (
+                    <span className="aircraft-twist" aria-hidden={true} />
+                  )}
+                  {row.tags ? (
+                    <button
+                      className="link"
+                      onClick={() => onOpen(row.tags ?? [], row.title)}
+                      title={`Show these ${fmt.count(row.photos)} photos`}
+                    >
+                      {row.label}
+                    </button>
+                  ) : (
+                    <span className={row.named ? undefined : "muted"}>{row.label}</span>
+                  )}
+                  {row.under && <span className="muted small"> · {row.under}</span>}
+                </th>
+                <td className="num">
+                  {fmt.count(row.photos)}
+                  {row.depth === 0 && (
+                    <span
+                      className="aircraft-bar all thin"
+                      style={{ width: `${share(row.photos, most)}%` }}
+                    />
+                  )}
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={2} className="muted" data-testid="aircraft-none">
+                  {find.trim() ? `Nothing matches “${find.trim()}”.` : "None yet."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        Photos that name an airline, type or registration. A photo naming two airlines (or two
+        registrations) is under each, so the lines can add up to more than the line above.
+      </p>
     </>
   );
 }

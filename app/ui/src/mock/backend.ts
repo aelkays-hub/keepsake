@@ -343,6 +343,46 @@ function mockAircraftReport(): AircraftReport {
       { year: "2024", photos: 25, withMarks: 5 },
       { year: null, photos: 5, withMarks: 0 },
     ],
+    byAirline: [
+      {
+        name: "Air Canada",
+        photos: 20,
+        children: [
+          {
+            name: "Boeing 787-9",
+            photos: 14,
+            children: [
+              { name: "C-FVLU", photos: 10, children: [] },
+              { name: null, photos: 4, children: [] },
+            ],
+          },
+          {
+            name: "Boeing 777-300ER",
+            photos: 4,
+            children: [{ name: "C-FITU", photos: 4, children: [] }],
+          },
+          { name: null, photos: 2, children: [{ name: null, photos: 2, children: [] }] },
+        ],
+      },
+      {
+        name: "KLM",
+        photos: 12,
+        children: [
+          {
+            name: "Boeing 747",
+            photos: 12,
+            children: [{ name: "PH-BFA", photos: 12, children: [] }],
+          },
+        ],
+      },
+      {
+        name: "Interjet",
+        photos: 6,
+        children: [
+          { name: null, photos: 6, children: [{ name: "XA-MBA", photos: 6, children: [] }] },
+        ],
+      },
+    ],
   };
 }
 

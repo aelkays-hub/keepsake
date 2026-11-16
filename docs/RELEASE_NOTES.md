@@ -11,6 +11,9 @@ Keepsake is a local-first replacement for Sony PlayMemories Home. It imports cam
 - **Read again** on each photo in the window, and **Read all again** for all of them (it asks first above 20 photos). A new read replaces the one kept and waits for review.
 - The window lists only photos with something to accept.
 
+**Aircraft report**
+- It opens on a drill-down, **Airline › Type › Registration**: each airline with its photos; open it for its types, and a type for its registrations, each with its count. Expand all, Collapse all and Find. A line opens exactly its photos. The CSV has the same lines.
+
 **Fixes**
 - **The app was slow** when raw files without a built-in preview had faces, tags or aircraft asked for them: their thumbnails were tried again every 15 seconds without end. They are now tried once.
 

@@ -1296,6 +1296,20 @@ textarea {
 .aircraft-seen {
   white-space: nowrap;
 }
+.aircraft-drill-actions {
+  margin-bottom: 8px;
+}
+.aircraft-drill th[scope="row"] {
+  font-weight: normal;
+}
+.aircraft-drill tr[data-depth="0"] th[scope="row"] {
+  font-weight: 600;
+}
+.aircraft-twist {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
 
 /* ── Screens (Backup, Settings) ────────────────────────────────────── */
 .screen-main {

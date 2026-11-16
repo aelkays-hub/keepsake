@@ -101,6 +101,20 @@ pub struct AircraftYear {
     pub with_marks: u64,
 }
 
+/// One step of the drill-down: an airline, a type under it or a
+/// registration under that, with its photos.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AircraftGroup {
+    /// `None`: the photos that name none at this step (no airline, no
+    /// type, no registration).
+    pub name: Option<String>,
+    /// Photos here; one naming two registrations counts once in their
+    /// type, and once under each of them.
+    pub photos: u64,
+    /// The next step down, most photos first (empty for a registration).
+    pub children: Vec<AircraftGroup>,
+}
+
 /// The whole aircraft report.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AircraftReport {
@@ -111,6 +125,36 @@ pub struct AircraftReport {
     pub registrations: Vec<AircraftRow>,
     /// Oldest first; undated last.
     pub years: Vec<AircraftYear>,
+    /// The drill-down, for the photos that name an airline, type or
+    /// registration: airline › type › registration. Most photos first,
+    /// then by name; the unnamed last.
+    pub by_airline: Vec<AircraftGroup>,
+}
+
+/// A step of the drill-down while it is counted.
+#[derive(Default)]
+struct Node {
+    photos: HashSet<AssetId>,
+    children: HashMap<Option<String>, Node>,
+}
+
+fn groups(map: HashMap<Option<String>, Node>) -> Vec<AircraftGroup> {
+    let mut out: Vec<AircraftGroup> = map
+        .into_iter()
+        .map(|(name, n)| AircraftGroup {
+            name,
+            photos: n.photos.len() as u64,
+            children: groups(n.children),
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        a.name
+            .is_none()
+            .cmp(&b.name.is_none())
+            .then_with(|| b.photos.cmp(&a.photos))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    out
 }
 
 #[derive(Default)]
@@ -280,6 +324,37 @@ impl<M> AircraftReportRepo<'_, M> {
             }
         }
 
+        // The drill-down: a photo is under each airline it names, there
+        // under each of its types, there under each of its registrations.
+        let mut tree: HashMap<Option<String>, Node> = HashMap::new();
+        for (id, ms) in &marks {
+            let named = |k: Kind| -> Vec<Option<String>> {
+                let v: Vec<Option<String>> = ms
+                    .iter()
+                    .filter(|(kind, _, _)| *kind == k)
+                    .map(|(_, name, _)| Some(name.clone()))
+                    .collect();
+                if v.is_empty() {
+                    vec![None]
+                } else {
+                    v
+                }
+            };
+            let (types, regs) = (named(Kind::Type), named(Kind::Registration));
+            for airline in named(Kind::Airline) {
+                let a = tree.entry(airline).or_default();
+                a.photos.insert(*id);
+                for ty in &types {
+                    let t = a.children.entry(ty.clone()).or_default();
+                    t.photos.insert(*id);
+                    for reg in &regs {
+                        let r = t.children.entry(reg.clone()).or_default();
+                        r.photos.insert(*id);
+                    }
+                }
+            }
+        }
+
         let mut years: BTreeMap<Option<String>, (u64, u64)> = BTreeMap::new();
         for (id, it) in &items {
             let y = it
@@ -327,6 +402,7 @@ impl<M> AircraftReportRepo<'_, M> {
             types,
             registrations,
             years,
+            by_airline: groups(tree),
         })
     }
 }

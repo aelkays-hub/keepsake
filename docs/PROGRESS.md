@@ -65,6 +65,16 @@
 
 ---
 
+## Aircraft report: drill down from airline to type to registration (2026-11-16)
+
+- **Asked:** "I want the report to be a drill down report, Airline, Type, registration then count".
+- **Built** (ADR-043, addition): Tools → Report → Aircraft opens on **Airline › Type › Registration**: the airlines with their photos, most first; open one for its types, and a type for its registrations, each with its count. Expand all, Collapse all, and Find (opens down to what it finds). A line named at every step opens exactly its photos (all its keywords together). Photos naming no airline, type or registration at a step are kept apart, last ("No type named"). The three tables are beside it as before.
+  - Core: `AircraftGroup`, `AircraftReport::by_airline` (counted from the keywords already read for the tables; no new query); the CSV has a line per airline, type and registration together.
+  - App: `AircraftReportGroup`, `byAirline`. UI: `drillRows`, `drillKeys`, `DrillDown`.
+- **Counting:** a photo naming two airlines (or two registrations) is under each, so lines can add up to more than the line above.
+- **Tests, run here (Windows):** `report_tests` (+1: the tree, the unnamed step, exact photos by keywords, the CSV), app lib tests (bindings); Vitest (85, +1); mocked Playwright `report` (9, +1) and `a11y`; fmt, clippy, ESLint, tsc, Prettier on the files changed.
+- **Not run:** in the installed app; CI. Branch `feat/aircraft-drilldown` (from `fix/aircraft-single-read`), not pushed.
+
 ## Read aircraft: a picked photo shows what was read; Read again (2026-11-16)
 
 - **Asked:** "the read aircraft is not working also" (picked photos: no keywords, never finishes), "a single picture does not read", then "add a re-read option also".

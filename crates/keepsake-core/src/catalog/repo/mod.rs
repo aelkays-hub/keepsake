@@ -23,7 +23,7 @@ mod volumes;
 
 pub use ai::{Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, RangeItem};
 pub use aircraft_report::{
-    AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
+    AircraftGroup, AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
 };
 pub use assets::{Assets, DayCount};
 pub use browse::{

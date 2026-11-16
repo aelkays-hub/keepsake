@@ -117,7 +117,7 @@ fn aircraft_line(out: &mut String, table: &str, r: &AircraftRow) {
 }
 
 /// The aircraft report: the totals as name–value lines, then airlines,
-/// types and registrations (CRLF line ends).
+/// types and registrations, then the drill-down (CRLF line ends).
 pub fn aircraft_to_csv(r: &AircraftReport) -> String {
     let t = &r.totals;
     let mut out = String::new();
@@ -144,6 +144,21 @@ pub fn aircraft_to_csv(r: &AircraftReport) -> String {
     ] {
         for row in rows {
             aircraft_line(&mut out, table, row);
+        }
+    }
+    // The drill-down, one line per airline, type and registration together
+    // (a blank where none is named).
+    for a in &r.by_airline {
+        for t in &a.children {
+            for reg in &t.children {
+                out.push_str(&format!(
+                    "Airline > Type > Registration,{},{},,{},{},,\r\n",
+                    field(reg.name.as_deref().unwrap_or_default()),
+                    reg.photos,
+                    field(a.name.as_deref().unwrap_or_default()),
+                    field(t.name.as_deref().unwrap_or_default()),
+                ));
+            }
         }
     }
     out

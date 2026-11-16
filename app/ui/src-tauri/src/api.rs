@@ -965,6 +965,17 @@ dto! {
         pub with_marks: u64,
     }
 
+    /// One step of the aircraft report's drill-down: an airline, a type
+    /// under it, or a registration under that.
+    pub struct AircraftReportGroup {
+        /// Null: the photos that name none at this step.
+        pub name: Option<String>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// The next step down, most photos first (none for a registration).
+        pub children: Vec<AircraftReportGroup>,
+    }
+
     /// Tools → Report → Aircraft.
     pub struct AircraftReport {
         pub totals: AircraftReportTotals,
@@ -974,6 +985,8 @@ dto! {
         pub registrations: Vec<AircraftReportRow>,
         /// Oldest first, undated last.
         pub years: Vec<AircraftReportYear>,
+        /// Airline › type › registration, most photos first, unnamed last.
+        pub by_airline: Vec<AircraftReportGroup>,
     }
 
     /// `maint://progress`: a backup, verify or folder scan is running.

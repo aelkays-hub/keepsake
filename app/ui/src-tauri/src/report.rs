@@ -7,14 +7,15 @@
 use std::path::PathBuf;
 
 use keepsake_core::catalog::{
-    AircraftReport as CoreAircraft, AircraftRow, LibraryReport as CoreReport, ReportRow,
+    AircraftGroup, AircraftReport as CoreAircraft, AircraftRow, LibraryReport as CoreReport,
+    ReportRow,
 };
 use keepsake_core::report;
 use tauri::State;
 
 use crate::api::{
-    AircraftReport, AircraftReportRow, AircraftReportTotals, AircraftReportYear, LibraryReport,
-    ReportDrive, ReportGroup,
+    AircraftReport, AircraftReportGroup, AircraftReportRow, AircraftReportTotals,
+    AircraftReportYear, LibraryReport, ReportDrive, ReportGroup,
 };
 use crate::state::{err, AppState, CmdResult};
 
@@ -95,6 +96,14 @@ fn aircraft_row(r: &AircraftRow) -> AircraftReportRow {
     }
 }
 
+fn aircraft_group(g: &AircraftGroup) -> AircraftReportGroup {
+    AircraftReportGroup {
+        name: g.name.clone(),
+        photos: g.photos,
+        children: g.children.iter().map(aircraft_group).collect(),
+    }
+}
+
 fn aircraft_dto(r: &CoreAircraft) -> AircraftReport {
     let t = &r.totals;
     let rows = |v: &[AircraftRow]| v.iter().map(aircraft_row).collect();
@@ -123,6 +132,7 @@ fn aircraft_dto(r: &CoreAircraft) -> AircraftReport {
                 with_marks: y.with_marks,
             })
             .collect(),
+        by_airline: r.by_airline.iter().map(aircraft_group).collect(),
     }
 }
 
