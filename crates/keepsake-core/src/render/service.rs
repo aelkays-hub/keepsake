@@ -1040,14 +1040,32 @@ impl RenderService {
         }
     }
 
+    /// An AI job found no thumbnail: have it made (as urgently) and wait.
+    /// When making it has already failed for good (a raw file without a
+    /// built-in preview), the AI job fails for good too. Queueing the
+    /// thumbnail again would only fail the same way, every few seconds.
+    fn wait_for_thumb(cat: &mut Catalog, job: &Job) -> Result<RenderError, RenderError> {
+        let stills = cat.read(|t| t.jobs().find(JOB_STILLS, job.asset_id))?;
+        if let Some(Job {
+            state: JobState::Failed,
+            error,
+            ..
+        }) = stills
+        {
+            return Ok(RenderError::Refused(format!(
+                "no thumbnail can be made: {}",
+                error.unwrap_or_default()
+            )));
+        }
+        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
+        Ok(RenderError::Waiting("no thumbnail yet".into()))
+    }
+
     /// An AI job's error as a render error. Without a thumbnail, it is made
     /// first (as urgently) and the job waits.
     fn ai_error(cat: &mut Catalog, job: &Job, e: AiError) -> Result<RenderError, RenderError> {
         Ok(match e {
-            AiError::NoThumbnail => {
-                super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
-                RenderError::Waiting("no thumbnail yet".into())
-            }
+            AiError::NoThumbnail => Self::wait_for_thumb(cat, job)?,
             AiError::Render(e) => e,
             AiError::Catalog(e) => RenderError::Catalog(e),
             AiError::Image(m) => RenderError::Image(m),
@@ -1154,11 +1172,8 @@ impl RenderService {
                 let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
                 match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id, purpose) {
                     Ok(out) => Ok((out.tags.into_iter().map(|(t, _)| t).collect(), None)),
-                    Err(AiError::NoThumbnail) => {
-                        // Make the thumbnail first (as urgently), then again.
-                        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
-                        Err(RenderError::Waiting("no thumbnail yet".into()))
-                    }
+                    // Make the thumbnail first (as urgently), then again.
+                    Err(AiError::NoThumbnail) => Err(Self::wait_for_thumb(cat, job)?),
                     Err(AiError::Render(e)) => Err(e),
                     Err(AiError::Catalog(e)) => Err(RenderError::Catalog(e)),
                     Err(AiError::Image(m)) => Err(RenderError::Image(m)),

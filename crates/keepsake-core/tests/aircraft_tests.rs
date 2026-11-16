@@ -364,6 +364,49 @@ fn a_photo_whose_file_is_away_is_read_from_its_thumbnail_or_waits() {
 }
 
 #[test]
+fn a_photo_whose_thumbnail_cannot_be_made_fails_once_and_is_not_tried_again() {
+    use keepsake_core::catalog::Priority;
+    use keepsake_core::render::JOB_STILLS;
+    let mut w = World::new(&["a.jpg"]);
+    let a = w.asset("a.jpg");
+    // Its thumbnail failed for good (a raw file without a built-in preview).
+    keepsake_core::render::enqueue(&mut w.cat, &[a], Priority::Recent, false).unwrap();
+    w.cat
+        .write(|tx| {
+            let job = tx.jobs().find(JOB_STILLS, a)?.unwrap();
+            tx.jobs()
+                .fail(job.id, "cannot render a.dng (no embedded preview)", None, 0)
+        })
+        .unwrap();
+    let stills = |w: &World| {
+        w.cat
+            .read(|tx| tx.jobs().find(JOB_STILLS, a))
+            .unwrap()
+            .unwrap()
+    };
+    let before = stills(&w);
+    assert_eq!(before.state, JobState::Failed);
+    // The drive is away, so the reader wants the thumbnail.
+    std::fs::remove_file(w.media.join("a.jpg")).unwrap();
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut events = Vec::new();
+    w.service(fake(&["KLM"], &seen))
+        .run(&AtomicBool::new(false), &mut |e| events.push(e.clone()))
+        .unwrap();
+    // The read fails, saying why; the thumbnail job is left as it was
+    // (queued again, it would fail the same way every few seconds).
+    assert_eq!(w.job_state(a), JobState::Failed);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        RenderEvent::Failed { error, retry: false, .. }
+            if error.contains("no thumbnail can be made") && error.contains("no embedded preview")
+    )));
+    assert_eq!(stills(&w), before);
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[test]
 fn a_picture_with_nothing_to_read_gets_no_keywords_and_missing_models_are_said() {
     let mut w = World::new(&["a.jpg"]);
     let a = w.asset("a.jpg");
