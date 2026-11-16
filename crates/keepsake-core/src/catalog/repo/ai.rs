@@ -469,6 +469,20 @@ impl Ai<'_, Rw> {
         )? > 0)
     }
 
+    /// Forget that `ids` were accepted before they were read
+    /// ([`Self::accept_aircraft_unread`]): read next, they wait for review
+    /// like any other. Their keywords stay. Returns how many.
+    pub fn forget_aircraft_accepted_unread(&self, ids: &[AssetId]) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        let mut st = self
+            .conn
+            .prepare_cached("DELETE FROM aircraft_reads WHERE asset_id = ?1 AND made_ms = 0")?;
+        for id in ids {
+            n += st.execute(params![id])? as u64;
+        }
+        Ok(n)
+    }
+
     /// Set aside the reads of `ids` that wait for review but found nothing
     /// at all (no registration, airline or type, and no look): there is
     /// nothing to accept, so they are dismissed. Returns how many.

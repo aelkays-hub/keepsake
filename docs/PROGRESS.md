@@ -65,6 +65,26 @@
 
 ---
 
+## Read aircraft: a picked photo shows what was read; Read again (2026-11-16)
+
+- **Asked:** "the read aircraft is not working also" (picked photos: no keywords, never finishes), "a single picture does not read", then "add a re-read option also".
+- **Found** in the owner's catalog: reads work (a picked photo starts in 1 s and takes 2–5 s), but the window then listed nothing for it and said "Every photo read so far has been reviewed":
+  - 2,479 photos were accepted beside another photo before being read themselves; read later they stayed accepted, so the window hid the read (two of the four photos picked that day);
+  - a read that finds nothing is set aside at once, with no word that nothing was found (one of the four).
+- **Built:**
+  - Core: `scan::enqueue` (the photos picked) forgets an acceptance made before the photo was read (`Ai::forget_aircraft_accepted_unread`), so its read waits for review. Its keywords stay. Folders and dates are as before.
+  - UI: the window says "No registration, airline or type was found on this photo." (`noneWaitingLine`, `nothingFound`); **Read again** on each photo and **Read all again** in the window (asks first above 20 photos). A new read replaces the one kept and waits for review.
+- **Tests, run here (Windows):** `aircraft_tests` (+1), `ai_tests`, `render_tests`, `face_tests`, `report_tests`; Vitest (84, +1); mocked Playwright `aircraft` (11, +1) and `a11y`; fmt, clippy, ESLint, tsc; Prettier on the files changed.
+- **Not run:** in the installed app; CI. Branch `fix/aircraft-single-read` (from `feat/aircraft-finder`), not pushed.
+
+## The app was slow: thumbnails that cannot be made were tried without end (2026-11-16)
+
+- **Asked:** "application seem too slow" (the installed app: everything, Settings, starting up).
+- **Found** in the installed app's logs: raw files on the network drive with no built-in preview (45 failed thumbnail jobs) each had an AI job (faces, tags or aircraft) waiting for that thumbnail. Every 15 s the AI job queued the failed thumbnail job again (`render::enqueue(…, again = true)` also wakes failed jobs), it failed again, and so on: about 9,000 failed renders an hour (42,000 in one session), each an ExifTool read over the network and several catalog writes, with 10 MB logs.
+- **Fixed:** `RenderService::wait_for_thumb` (core). An AI job whose thumbnail job has failed for good fails once too ("no thumbnail can be made: …") and leaves the thumbnail job alone. A thumbnail only evicted, or not made yet, is queued as before.
+- **Tests, run here (Windows):** `aircraft_tests` (+1; it fails on the old code), with the suites above.
+- **Not explained yet:** one start-up of 66 s, and grid pages of 0.5–1.2 s. The catalog's write-ahead log (`catalog.db-wal`) was 888 MB beside a 574 MB catalog, which slows every read and the start; why it is not folded back in is still to be looked at.
+
 ## Read aircraft reads only the text on the aircraft (2026-11-16)
 
 - An aircraft finder (YOLOX-s, Apache-2.0, 35.9 MB; the owner chose it over rules) finds the aircraft before the text is read; only the text on them counts. Big aircraft are read in the whole picture keeping the text inside them; smaller ones are cut out and read at full size. None found: the whole picture, as before. Settings → Read aircraft offers the finder alone to those who have the text models.

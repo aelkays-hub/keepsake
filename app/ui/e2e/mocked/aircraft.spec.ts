@@ -324,3 +324,33 @@ test("photos accepted as a photo's neighbours leave the list and are not asked a
   await win.getByTestId("ar-typePct").fill("60");
   await expect(win.locator(`[data-id="${next}"]`).getByTestId("ar-state")).toHaveText("Accepted");
 });
+
+test("Read again: a photo, or all of them, is read again and waits for review again", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on");
+  const tiles = page.getByTestId("tile");
+  await tiles.nth(0).click();
+  await tiles.nth(0).click({ button: "right" });
+  await page.getByTestId("item-menu").getByTestId("tile-menu-aircraft").click();
+  const win = page.getByTestId("aircraft-review");
+  const photos = win.getByTestId("ar-photo");
+  await expect(photos).toHaveCount(1);
+  // Dismissed, it leaves the list; shown again, it can be read again.
+  await photos.first().getByTestId("ar-dismiss").click();
+  await expect(photos).toHaveCount(0);
+  await win.getByTestId("ar-all").check();
+  await expect(win.getByTestId("ar-state")).toHaveText(["Dismissed"]);
+  await photos.first().getByTestId("ar-reread").click();
+  await win.getByTestId("ar-all").uncheck();
+  await expect(photos).toHaveCount(1);
+  await expect(win.getByTestId("ar-waiting")).toHaveText("1 photo to review");
+  expect(await calls(page, "aircraft_read")).toHaveLength(2);
+  // Only that photo is asked for.
+  const again = (await calls(page, "aircraft_read"))[1] as { selection: { ids: string[] } };
+  expect(again.selection.ids).toHaveLength(1);
+  // All of the window's photos at once.
+  await win.getByTestId("ar-reread-all").click();
+  await expect.poll(async () => (await calls(page, "aircraft_read")).length).toBe(3);
+  await expect(photos).toHaveCount(1);
+});

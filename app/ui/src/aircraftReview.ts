@@ -159,6 +159,24 @@ export function waitingCount(r: AircraftReviewDto): number {
   return r.items.filter(toReview).length;
 }
 
+/** Read, with no registration, airline or type found at any confidence. */
+export function nothingFound(i: AircraftReviewItemDto): boolean {
+  return i.registrations.length + i.airlines.length + i.types.length + i.offered.length === 0;
+}
+
+/** The window's line when it lists no photo although some were read: why. */
+export function noneWaitingLine(r: AircraftReviewDto): string {
+  if (belowLevels(r) > 0) return "Nothing more to accept at these levels.";
+  const empty = r.items.filter(nothingFound).length;
+  const reviewed = r.items.length - empty;
+  const none = `No registration, airline or type was found on ${
+    empty === 1 && r.items.length === 1 ? "this photo" : fmt.plural(empty, "photo")
+  }.`;
+  if (empty === 0) return "Every photo read so far has been reviewed.";
+  if (reviewed === 0) return none;
+  return `${none} The ${reviewed === 1 ? "other has" : "others have"} been reviewed (tick "Show accepted and dismissed too" to see them).`;
+}
+
 /** How many wait with nothing at the window's levels (shown when a level
  * is lowered enough). */
 export function belowLevels(r: AircraftReviewDto): number {

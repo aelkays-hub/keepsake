@@ -852,6 +852,38 @@ fn neighbours_accepted_with_a_photo_are_not_asked_about_again() {
     assert_eq!(review(&w, d).as_deref(), Some("waiting"));
 }
 
+#[test]
+fn a_picked_photo_accepted_beside_another_is_shown_for_review_when_read() {
+    let mut w = World::new(&["a.jpg", "b.jpg"]);
+    let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));
+    let review = |w: &World, id: AssetId| {
+        w.cat
+            .read(|tx| tx.ai().aircraft_read(id))
+            .unwrap()
+            .map(|r| r.review)
+    };
+    // b got a's keywords as its neighbour, before being read itself.
+    let keep = [TagPath::parse_lightroom("Aircraft|Airline|KLM").unwrap()];
+    assert_eq!(
+        scan::accept_neighbours(&mut w.cat, &w.lib, &[b], &keep).unwrap(),
+        [b]
+    );
+    assert_eq!(review(&w, b).as_deref(), Some("accepted"));
+    // The user picks b and a to be read: what is read waits for review, so
+    // the window shows it (it showed nothing, as if b had not been read).
+    scan::enqueue(&mut w.cat, &[a, b]).unwrap();
+    assert_eq!(review(&w, b), None, "not read yet");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&["KLM", "PH-BQB"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    for id in [a, b] {
+        assert_eq!(review(&w, id).as_deref(), Some("waiting"));
+    }
+    // The keywords b was given stay.
+    assert_eq!(w.keywords(b), ["Aircraft|Airline|KLM"]);
+}
+
 /// Stands in for Claude: every photo is a beach.
 struct BeachTagger;
 

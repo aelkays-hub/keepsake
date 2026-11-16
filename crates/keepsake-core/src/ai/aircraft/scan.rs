@@ -838,9 +838,14 @@ pub fn dismiss(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
     Ok(())
 }
 
-/// Queue `ids` to be read (again, if they were before), ahead of the
-/// backlog.
+/// Queue `ids`, the photos the user picked, to be read (again, if they
+/// were before), ahead of the backlog. Each read then waits for review,
+/// also that of a photo accepted beside another before it was read: the
+/// user asked for these, so the window shows what was read.
 pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
+    for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
+        cat.write(|tx| tx.ai().forget_aircraft_accepted_unread(chunk))?;
+    }
     enqueue_ids(cat, ids, true)
 }
 

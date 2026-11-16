@@ -1,8 +1,36 @@
-# Manual Test Steps — Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft: a picked photo shows what was read; Read again
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test aircraft_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftReview.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on:
+1. Pick one photo of an aircraft whose registration or airline can be read → right-click → **Read aircraft**. **Expected:** within a few seconds the window lists the photo with what was read, ticked, with Accept, Dismiss and Read again. This also holds for a photo that got its keywords earlier as another photo's neighbour.
+2. Pick one photo with no aircraft (or nothing painted that can be read) → Read aircraft. **Expected:** "1 of 1 photos read." and "No registration, airline or type was found on this photo."
+3. In the window, **Read again** on a photo. **Expected:** "Reading…", then the photo is listed again waiting for review with the new read. Tick "Show accepted and dismissed too": accepted and dismissed photos have Read again too. Keywords accepted before stay.
+4. **Read all again** with a few photos. **Expected:** all are read again and wait for review. With more than 20 photos it asks first.
+5. A folder or dates → Read aircraft. **Expected:** as before: photos accepted as neighbours are not asked about again.
+
+---
+
+## The app is slow: thumbnails that cannot be made are not tried again
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests --test ai_tests --test render_tests`
+
+Manual (both OSes), with a library that has raw files without a built-in preview and faces, tags or Read aircraft asked for them:
+1. Start the app and leave it five minutes. Settings → **Open log folder**, newest log. **Expected:** each such file has at most a few "render failed: cannot render … (no embedded preview)" lines and one "no thumbnail can be made: …"; the same file does not come back every 15 seconds.
+2. Use the app meanwhile. **Expected:** it answers at once; few or no "slow view_rows" lines.
 
 ---
 

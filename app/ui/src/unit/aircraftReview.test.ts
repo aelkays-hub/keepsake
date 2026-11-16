@@ -18,6 +18,8 @@ import {
   waitingCount,
   toReview,
   belowLevels,
+  nothingFound,
+  noneWaitingLine,
 } from "../aircraftReview";
 
 const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => ({
@@ -121,6 +123,29 @@ describe("Read aircraft review", () => {
     expect(toReview(item({ review: "dismissed" }))).toBe(false);
     expect(waitingCount(below)).toBe(1);
     expect(belowLevels(below)).toBe(1);
+  });
+
+  it("says why no photo is listed", () => {
+    const empty = { registrations: [], airlines: [], types: [], offered: [] };
+    const none = item({ ...empty, review: "dismissed" });
+    expect(nothingFound(none)).toBe(true);
+    expect(nothingFound(item({ offered: [] }))).toBe(false);
+    // The one photo picked had nothing painted that could be read.
+    expect(noneWaitingLine(review({ items: [none] }))).toBe(
+      "No registration, airline or type was found on this photo.",
+    );
+    expect(noneWaitingLine(review({ items: [none, { ...none, id: "a2" }] }))).toBe(
+      "No registration, airline or type was found on 2 photos.",
+    );
+    expect(noneWaitingLine(review({ items: [none, item({ review: "accepted" })] }))).toContain(
+      "The other has been reviewed",
+    );
+    expect(noneWaitingLine(review({ items: [item({ review: "accepted" })] }))).toBe(
+      "Every photo read so far has been reviewed.",
+    );
+    expect(noneWaitingLine(review({ items: [item({ offered: [] })] }))).toBe(
+      "Nothing more to accept at these levels.",
+    );
   });
 
   it("starts a disagreeing painted type unticked; a click turns any over", () => {
