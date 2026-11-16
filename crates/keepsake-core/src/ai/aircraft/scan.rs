@@ -42,6 +42,7 @@ use image::DynamicImage;
 
 use super::marks::{self, Airlines, Candidates, Confidence, Marks};
 use super::ocr::{TextLine, TextReader};
+use super::planes::{Plane, PlaneFinder};
 use super::types::TypeList;
 use super::{install, MODEL_ID};
 use crate::ai::analyze::{RangeStatus, Target};
@@ -75,6 +76,11 @@ pub const DETECT_SIDE: u32 = 2560;
 /// app; a stand-in in tests.
 pub trait Reader {
     fn read(&mut self, img: &DynamicImage) -> Result<Vec<TextLine>, AiError>;
+    /// Where the aircraft are in `img` (none when the aircraft finder is
+    /// not installed: the whole picture is then read).
+    fn planes(&mut self, _img: &DynamicImage) -> Result<Vec<Plane>, AiError> {
+        Ok(Vec::new())
+    }
     /// `None` when the image encoder is not installed.
     fn embed(&mut self, img: &DynamicImage) -> Result<Option<Embedding>, AiError>;
     /// Where the text detector runs.
@@ -85,6 +91,8 @@ pub trait Reader {
 /// picture's look is first asked for (if it is installed).
 pub struct InstalledReader {
     text: TextReader,
+    finder: Option<PlaneFinder>,
+    finder_tried: bool,
     image: Option<ImageModel>,
     image_tried: bool,
     gpu: bool,
@@ -101,6 +109,8 @@ impl InstalledReader {
         )?;
         Ok(Self {
             text,
+            finder: None,
+            finder_tried: false,
             image: None,
             image_tried: false,
             gpu,
@@ -111,6 +121,24 @@ impl InstalledReader {
 impl Reader for InstalledReader {
     fn read(&mut self, img: &DynamicImage) -> Result<Vec<TextLine>, AiError> {
         self.text.read(img)
+    }
+
+    fn planes(&mut self, img: &DynamicImage) -> Result<Vec<Plane>, AiError> {
+        if !self.finder_tried {
+            self.finder_tried = true;
+            match install::PLANES
+                .find()
+                .ok_or_else(|| AiError::ModelMissing(install::PLANES.file.into()))
+                .and_then(|m| PlaneFinder::load(&m, &installed_runtime()?, self.gpu))
+            {
+                Ok(f) => self.finder = Some(f),
+                Err(e) => tracing::info!("aircraft: the whole picture is read: {e}"),
+            }
+        }
+        match self.finder.as_mut() {
+            Some(f) => f.find(img),
+            None => Ok(Vec::new()),
+        }
     }
 
     fn embed(&mut self, img: &DynamicImage) -> Result<Option<Embedding>, AiError> {
@@ -269,10 +297,78 @@ pub fn closer_look(lines: &[TextLine], airlines: &Airlines, w: u32, h: u32) -> O
     (small && cw >= 32 && ch >= 32).then_some([x0, y0, cw, ch])
 }
 
+/// Around an aircraft found, how much more is read: this share of its
+/// size on every side (a registration at the very end of the tail).
+pub const PLANE_MARGIN: f32 = 0.08;
+/// At most this many aircraft are read in one picture, surest first.
+pub const MAX_PLANES: usize = 4;
+/// An aircraft taking at least this share of the picture's long side is
+/// read in the whole picture (only the text inside it kept): cutting it
+/// out gains no detail, and the text reader reads a picture cut at another
+/// size a little differently (SAUDIA beside its Arabic, DSC03440).
+pub const BIG_PLANE: f32 = 0.6;
+
+/// The text in `img`. With aircraft found in it (`planes`, from
+/// [`Reader::planes`]), only the text on them, so that a sign, a jet
+/// bridge, a vehicle or a signature beside it is not read: a big one in the
+/// whole picture, keeping the text inside it; a smaller one cut out with a
+/// small margin and read at full size. With none (the finder is not
+/// installed, or a close-up of a tail is not seen as an aircraft), the
+/// whole picture. Either way, when an airline is read but no registration,
+/// closer around the airline ([`closer_look`]). In the picture's
+/// coordinates, biggest letters first.
+pub fn read_lines(
+    read: &mut dyn FnMut(&DynamicImage) -> Result<Vec<TextLine>, AiError>,
+    planes: &[Plane],
+    airlines: &Airlines,
+    img: &DynamicImage,
+) -> Result<Vec<TextLine>, AiError> {
+    if planes.is_empty() {
+        return read_part(read, airlines, img);
+    }
+    let (iw, ih) = (img.width(), img.height());
+    let long = iw.max(ih) as f32;
+    let regions: Vec<[u32; 4]> = planes
+        .iter()
+        .take(MAX_PLANES)
+        .map(|p| p.grown(PLANE_MARGIN, iw, ih))
+        .filter(|[_, _, w, h]| *w >= 16 && *h >= 16)
+        .collect();
+    let (big, small): (Vec<[u32; 4]>, Vec<[u32; 4]>) = regions
+        .into_iter()
+        .partition(|[_, _, w, h]| (*w).max(*h) as f32 >= long * BIG_PLANE);
+    let mut lines = Vec::new();
+    if !big.is_empty() {
+        let inside = |l: &TextLine| {
+            let [cx, cy] = l.center();
+            big.iter().any(|&[x, y, w, h]| {
+                cx >= x as f32 && cx <= (x + w) as f32 && cy >= y as f32 && cy <= (y + h) as f32
+            })
+        };
+        lines.extend(read_part(read, airlines, img)?.into_iter().filter(inside));
+    }
+    for [x, y, w, h] in small {
+        let part = img.crop_imm(x, y, w, h);
+        for mut l in read_part(read, airlines, &part)? {
+            shift(&mut l, x, y);
+            lines.push(l);
+        }
+    }
+    lines.sort_by(|a, b| b.height().total_cmp(&a.height()));
+    Ok(lines)
+}
+
+fn shift(l: &mut TextLine, x: u32, y: u32) {
+    for p in &mut l.quad {
+        p[0] += x as f32;
+        p[1] += y as f32;
+    }
+}
+
 /// Every line of text in `img` ([`Reader::read`]), and then, when an
 /// airline is read but no registration, the lines read closer around it
-/// ([`closer_look`]), in the picture's coordinates.
-pub fn read_lines(
+/// ([`closer_look`]), in `img`'s coordinates.
+fn read_part(
     read: &mut dyn FnMut(&DynamicImage) -> Result<Vec<TextLine>, AiError>,
     airlines: &Airlines,
     img: &DynamicImage,
@@ -290,10 +386,7 @@ pub fn read_lines(
             closer.iter().map(|l| &l.text).collect::<Vec<_>>()
         );
         for mut l in closer {
-            for p in &mut l.quad {
-                p[0] += x as f32;
-                p[1] += y as f32;
-            }
+            shift(&mut l, x, y);
             lines.push(l);
         }
         lines.sort_by(|a, b| b.height().total_cmp(&a.height()));
@@ -311,7 +404,9 @@ pub fn examine(
     img: &DynamicImage,
     stored: Option<Embedding>,
 ) -> Result<(Candidates, Option<String>), AiError> {
-    let lines = read_lines(&mut |i| reader.read(i), &lists.airlines, img)?;
+    let planes = reader.planes(img)?;
+    tracing::debug!("aircraft: {} aircraft found", planes.len());
+    let lines = read_lines(&mut |i| reader.read(i), &planes, &lists.airlines, img)?;
     let found = marks::candidates(&lines, &lists.airlines);
     let emb = match stored {
         Some(e) => Some(e),
@@ -995,7 +1090,7 @@ mod tests {
                 vec![at("XA-MBA", 10.0, 20.0, 80.0, 17.0)]
             })
         };
-        let lines = read_lines(&mut read, &airlines, &img).unwrap();
+        let lines = read_lines(&mut read, &[], &airlines, &img).unwrap();
         assert_eq!(calls, 2);
         let reg = lines.iter().find(|l| l.text == "XA-MBA").unwrap();
         let [x, y, ..] = closer_look(&lines[..1], &airlines, 4519, 2468).unwrap();
@@ -1004,6 +1099,71 @@ mod tests {
             marks::candidates(&lines, &airlines).registrations[0].0,
             "XA-MBA"
         );
+    }
+
+    #[test]
+    fn only_the_text_on_the_aircraft_found_is_read() {
+        // A KLM 747 at (1000, 800), 2000×600, beside a terminal sign saying
+        // "Air Canada" and the photographer's signature.
+        let airlines = Airlines::builtin();
+        let img = DynamicImage::new_rgb8(4000, 3000);
+        let plane = Plane {
+            x: 1000.0,
+            y: 800.0,
+            w: 2000.0,
+            h: 600.0,
+            score: 0.9,
+        };
+        let seen = std::cell::RefCell::new(Vec::new());
+        let mut read = |i: &DynamicImage| {
+            seen.borrow_mut().push((i.width(), i.height()));
+            Ok(if i.width() == 4000 {
+                vec![
+                    at("Air Canada", 100.0, 100.0, 400.0, 60.0),
+                    at("KLM", 1500.0, 1000.0, 200.0, 60.0),
+                    at("ahmad el-kays", 3500.0, 2900.0, 400.0, 60.0),
+                ]
+            } else {
+                // The crop: the plane with its margin, at full size.
+                vec![
+                    at("KLM", 340.0, 248.0, 200.0, 60.0),
+                    at("PH-BFA", 1500.0, 300.0, 120.0, 30.0),
+                ]
+            })
+        };
+        let lines = read_lines(&mut read, &[plane], &airlines, &img).unwrap();
+        let [x, y, w, h] = plane.grown(PLANE_MARGIN, 4000, 3000);
+        assert_eq!((x, y, w, h), (840, 752, 2320, 696));
+        assert_eq!(*seen.borrow(), [(w, h)], "only the aircraft is read");
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["KLM", "PH-BFA"]);
+        // In the picture's coordinates.
+        assert_eq!(lines[0].quad[0], [340.0 + x as f32, 248.0 + y as f32]);
+        let found = marks::candidates(&lines, &airlines);
+        assert_eq!(found.airlines.len(), 1);
+        assert_eq!(found.airlines[0].0, "KLM");
+
+        // A big one (most of the picture): the whole picture is read, and
+        // only the text inside it kept.
+        seen.borrow_mut().clear();
+        let big = Plane {
+            x: 300.0,
+            y: 700.0,
+            w: 3000.0,
+            h: 900.0,
+            score: 0.9,
+        };
+        let lines = read_lines(&mut read, &[big], &airlines, &img).unwrap();
+        // (Then closer around KLM, as no registration was read.)
+        assert_eq!(seen.borrow()[0], (4000, 3000));
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["KLM"], "not the sign nor the signature");
+
+        // No aircraft found: the whole picture, as before.
+        seen.borrow_mut().clear();
+        let lines = read_lines(&mut read, &[], &airlines, &img).unwrap();
+        assert_eq!(seen.borrow()[0], (4000, 3000));
+        assert!(lines.iter().any(|l| l.text == "Air Canada"));
     }
 
     #[test]

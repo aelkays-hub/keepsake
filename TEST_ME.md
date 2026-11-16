@@ -1,8 +1,21 @@
-# Manual Test Steps — Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Read aircraft reads only the text on the aircraft
+
+1. Settings → Read aircraft (already on, from an earlier version). **Expected:** "The aircraft finder is not downloaded…" with **Download it (35.9 MB)**. Click it. **Expected:** a download bar, then the line goes away.
+2. Read aircraft on a photo with signs, a terminal or vehicles beside the plane (DSC03242.ARW, the KLM 747 by a restaurant). **Expected:** KLM and PH-BFA; nothing from the signs.
+3. A photo with your signature in a corner. **Expected:** the signature is not read.
+4. A distant aircraft (A7202535.ARW, Interjet). **Expected:** XA-MBA and Interjet.
+5. A big aircraft filling most of the photo (DSC03440.ARW, Saudia). **Expected:** Saudia.
+6. A close-up of a tail or a fuselage. **Expected:** read as before (no aircraft found means the whole photo is read).
+7. On a new computer, turning Read aircraft on downloads the text models and the finder together (131.7 MB).
+8. On macOS: the same. Originals: unchanged.
 
 ---
 

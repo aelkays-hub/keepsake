@@ -62,6 +62,8 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         enabled: on,
         models_installed: install::installed(),
         models_bytes: install::TOTAL_BYTES,
+        finder_installed: install::PLANES.find().is_some(),
+        finder_bytes: install::PLANES.bytes,
         runtime_found: ai_install::find_runtime().is_some(),
         looks: ai_install::find_model().is_some(),
         accel: get(&st.accel).flatten().filter(|_| on),
@@ -86,8 +88,9 @@ fn save_and_restart(app: &AppHandle, enabled: bool) -> CmdResult<()> {
     Ok(())
 }
 
-/// Turn Read aircraft on or off. On: downloads the two text models first
-/// if needed (progress on `aircraft://install`).
+/// Turn Read aircraft on or off. On: downloads the two text models and the
+/// aircraft finder first if needed (progress on `aircraft://install`);
+/// already on, the same downloads the aircraft finder alone.
 #[tauri::command(async)]
 pub fn aircraft_enable(app: AppHandle, enabled: bool) -> CmdResult<()> {
     if !enabled || install::installed() {

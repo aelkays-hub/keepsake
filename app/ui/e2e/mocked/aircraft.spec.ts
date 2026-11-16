@@ -24,7 +24,9 @@ test("Settings: turning it on downloads the text models, and off again", async (
   const card = page.getByTestId("aircraft-settings");
   await expect(card.getByRole("heading")).toHaveText("Read aircraft");
   await expect(card.getByTestId("aircraft-progress")).toHaveText("Off.");
-  await expect(card).toContainText("downloads two text models once (95.9 MB)");
+  await expect(card).toContainText(
+    "downloads two text models and an aircraft finder once (131.7 MB)",
+  );
   await card.getByTestId("aircraft-enabled").check();
   expect(await calls(page, "aircraft_enable")).toEqual([{ enabled: true }]);
   await expect(card.getByTestId("aircraft-progress")).toContainText(
@@ -37,7 +39,21 @@ test("Settings: turning it on downloads the text models, and off again", async (
   await expect(card.getByTestId("aircraft-progress")).toHaveText("Off.");
   await card.getByTestId("aircraft-remove").click();
   expect(await calls(page, "aircraft_remove_models")).toHaveLength(1);
-  await expect(card).toContainText("downloads two text models once");
+  await expect(card).toContainText("downloads two text models and an aircraft finder once");
+});
+
+test("Settings: with the text models but not the aircraft finder, it can be downloaded alone", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&finder=off");
+  await settings(page);
+  const card = page.getByTestId("aircraft-settings");
+  const finder = card.getByTestId("aircraft-finder");
+  await expect(finder).toContainText("The aircraft finder is not downloaded");
+  await expect(finder.getByTestId("aircraft-finder-get")).toHaveText("Download it (35.9 MB)");
+  await finder.getByTestId("aircraft-finder-get").click();
+  expect(await calls(page, "aircraft_enable")).toEqual([{ enabled: true }]);
+  await expect(card.getByTestId("aircraft-finder")).toHaveCount(0);
 });
 
 test("without On-device AI the type is only read when painted on", async ({ page }) => {

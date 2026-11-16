@@ -101,7 +101,7 @@ impl TextLine {
     }
 }
 
-fn resize(rgb: &RgbImage, w: u32, h: u32) -> Result<RgbImage, AiError> {
+pub(crate) fn resize(rgb: &RgbImage, w: u32, h: u32) -> Result<RgbImage, AiError> {
     if rgb.dimensions() == (w, h) {
         return Ok(rgb.clone());
     }

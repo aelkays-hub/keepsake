@@ -91,7 +91,7 @@ export interface MockState {
   faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
   /** Read aircraft (`?aircraft=on`: on, models installed), and the photos
    * asked for: status polls left. */
-  aircraft: { enabled: boolean; installed: boolean; asked: Map<string, number> };
+  aircraft: { enabled: boolean; installed: boolean; finder: boolean; asked: Map<string, number> };
   /** Read aircraft's review window: each photo's read (`left`: reviews
    * until it is read; −1: stopped before) and review state, and the
    * sliders. */
@@ -170,7 +170,7 @@ const AIRCRAFT_TAGS = [
   "Aircraft|Airline|Air Canada",
   "Aircraft|Type|Boeing 777-300ER",
 ];
-const AIRCRAFT_BYTES = 95861692;
+const AIRCRAFT_BYTES = 88030804 + 7830888 + 35858002;
 /** The mock's aircraft photos (those "tagged Airplane"): every fifth item
  * that is not a video. */
 const isAircraft = (it: { i: number; kind: string }) => it.i % 5 === 0 && it.kind !== "video";
@@ -452,6 +452,7 @@ export function installMock(): void {
     aircraft: {
       enabled: params.get("aircraft") === "on",
       installed: params.get("aircraft") === "on",
+      finder: params.get("finder") !== "off",
       asked: new Map(),
     },
     aircraftReads: new Map(),
@@ -1569,6 +1570,8 @@ export function installMock(): void {
           return {
             enabled: st.aircraft.enabled,
             modelsInstalled: st.aircraft.installed,
+            finderInstalled: st.aircraft.installed && st.aircraft.finder,
+            finderBytes: 35858002,
             modelsBytes: AIRCRAFT_BYTES,
             runtimeFound: true,
             looks: st.ai.modelInstalled,
@@ -1580,8 +1583,9 @@ export function installMock(): void {
           };
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
-          if (st.aircraft.enabled && !st.aircraft.installed) {
+          if (st.aircraft.enabled && (!st.aircraft.installed || !st.aircraft.finder)) {
             st.aircraft.installed = true;
+            st.aircraft.finder = true;
             void emit("aircraft://install", {
               done: AIRCRAFT_BYTES,
               total: AIRCRAFT_BYTES,

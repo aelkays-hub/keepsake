@@ -110,10 +110,16 @@ dto! {
     pub struct AircraftStatus {
         /// Turned on in the settings.
         pub enabled: bool,
-        /// Both text models are on this computer.
+        /// The two text models and the aircraft finder are on this computer.
         pub models_installed: bool,
         #[ts(type = "number")]
         pub models_bytes: u64,
+        /// The aircraft finder is on this computer: only the text on the
+        /// aircraft is read (else the whole picture).
+        pub finder_installed: bool,
+        /// Its size, to download.
+        #[ts(type = "number")]
+        pub finder_bytes: u64,
         /// ONNX Runtime is present.
         pub runtime_found: bool,
         /// On-device AI's model is installed, so the type can be guessed

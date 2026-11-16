@@ -10,9 +10,18 @@ export type AircraftStatus = {
  */
 enabled: boolean, 
 /**
- * Both text models are on this computer.
+ * The two text models and the aircraft finder are on this computer.
  */
 modelsInstalled: boolean, modelsBytes: number, 
+/**
+ * The aircraft finder is on this computer: only the text on the
+ * aircraft is read (else the whole picture).
+ */
+finderInstalled: boolean, 
+/**
+ * Its size, to download.
+ */
+finderBytes: number, 
 /**
  * ONNX Runtime is present.
  */

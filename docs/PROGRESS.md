@@ -65,6 +65,13 @@
 
 ---
 
+## Read aircraft reads only the text on the aircraft (2026-11-16)
+
+- An aircraft finder (YOLOX-s, Apache-2.0, 35.9 MB; the owner chose it over rules) finds the aircraft before the text is read; only the text on them counts. Big aircraft are read in the whole picture keeping the text inside them; smaller ones are cut out and read at full size. None found: the whole picture, as before. Settings → Read aircraft offers the finder alone to those who have the text models.
+- Sample (30 photos): aircraft found in all; nothing lost, C-GSWJ gained; signs, buildings and the signature no longer read; 66 s against 72 s.
+- Core: `ai::aircraft::planes` (`PlaneFinder`, `decode`, `fit`, `input`), `install::PLANES`, `Reader::planes`, `scan::read_lines` with planes. App: `finder_installed`, `finder_bytes`. CLI: `keepsake ai aircraft read` uses the finder (`--whole` to read the whole picture). UI: Settings' finder line and button.
+- Tests: `ai::aircraft` (+5), `aircraft_tests`, `safety_audit_tests`, Vitest `aircraft`, mocked Playwright `aircraft` (+1), fmt and clippy on Rust 1.100, ESLint, Prettier, tsc. **Not run:** CI; in the app. Branch `feat/aircraft-finder`.
+
 ## Read aircraft lists only what can be accepted (2026-11-16)
 
 - 3,158 of the owner's waiting reads had found nothing at all (10 had something). A read that finds nothing is now set aside (dismissed) when read; older ones are set aside when the review window first opens on them; the Aircraft report no longer counts them as waiting. The window lists only photos with something to accept at its levels, and says how many more have marks below them.

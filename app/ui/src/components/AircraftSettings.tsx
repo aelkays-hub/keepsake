@@ -67,16 +67,28 @@ export function AircraftSettings() {
       </label>
       {!st.modelsInstalled && !st.enabled && download === null && (
         <p className="muted">
-          Turning it on downloads two text models once ({fmt.bytes(st.modelsBytes)}).
+          Turning it on downloads two text models and an aircraft finder once (
+          {fmt.bytes(st.modelsBytes)}).
         </p>
       )}
       {download && (
         <div className="row" role="status" data-testid="aircraft-download">
           <progress max={download.total} value={download.done} />
           <span>
-            Downloading the text models: {fmt.bytes(download.done)} of {fmt.bytes(download.total)}
+            Downloading the models: {fmt.bytes(download.done)} of {fmt.bytes(download.total)}
           </span>
           <button onClick={() => run(api.aircraftInstallCancel())}>Cancel</button>
+        </div>
+      )}
+      {st.enabled && !st.finderInstalled && download === null && (
+        <div className="row" data-testid="aircraft-finder">
+          <span className="muted">
+            The aircraft finder is not downloaded: every text in a photo is read, signs and
+            signatures too.
+          </span>
+          <button onClick={() => run(api.aircraftEnable(true))} data-testid="aircraft-finder-get">
+            Download it ({fmt.bytes(st.finderBytes)})
+          </button>
         </div>
       )}
       <p role="status" data-testid="aircraft-progress">
@@ -104,7 +116,7 @@ export function AircraftSettings() {
       </p>
       {st.modelsInstalled && !st.enabled && (
         <button onClick={() => run(api.aircraftRemoveModels())} data-testid="aircraft-remove">
-          Delete the downloaded text models
+          Delete the downloaded models
         </button>
       )}
       {problem && (

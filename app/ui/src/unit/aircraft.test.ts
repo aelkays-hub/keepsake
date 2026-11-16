@@ -6,7 +6,9 @@ import type { AircraftStatus } from "../api";
 const status = (p: Partial<AircraftStatus>): AircraftStatus => ({
   enabled: true,
   modelsInstalled: true,
-  modelsBytes: 95861692,
+  modelsBytes: 131719694,
+  finderInstalled: true,
+  finderBytes: 35858002,
   runtimeFound: true,
   looks: true,
   accel: "graphics card (DirectML)",
@@ -21,7 +23,7 @@ describe("Read aircraft status", () => {
   it("says whether it is on, downloading or not running", () => {
     expect(aircraftProgress(status({ enabled: false }))).toBe("Off.");
     expect(aircraftProgress(status({ enabled: false, installing: 1000 }))).toBe(
-      "Downloading the text models…",
+      "Downloading the models…",
     );
     expect(aircraftProgress(status({ problem: "det.onnx is missing" }))).toBe(
       "Not running: det.onnx is missing",
