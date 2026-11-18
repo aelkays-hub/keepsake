@@ -41,6 +41,7 @@
 | — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
 | — | The aircraft's age: build year from OpenSky's database or typed, age worked out when shown (ADR-044, part 1) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Add route: the flight a photo shows, from OpenSky's flight history (from, to, countries, flight number; ADR-044, part 2) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -65,6 +66,18 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## Add route (ADR-044, part 2) (2026-11-18)
+
+- **Asked:** right-click → Add route: departure and arrival (IATA codes and countries) from the registration and the photo's time; then "maybe we should include the flight number as a tag".
+- **Checked first** with the owner's OpenSky client: flights found for every photo from September 2023 on (6 of 6), none for August 2022 or 2018. The owner chose to build it (and the `aircraft_flights` table, schema v19).
+- **Built:**
+  - Core: `ai::aircraft::route` (OpenSky client with its 30-minute token, `pick`, `Airports` from `airports.tsv`, `flight_number` from `airline-codes.tsv`, `run_job` with the per-day cache, `review`, `enqueue`/`status`/`stop`); the render service's route worker (`with_flights`); `is_aircraft_keyword` takes the route kinds; `ai.aircraft_route`; `secrets::{opensky, set_opensky}`; `scripts/make-airports.py`.
+  - App: `aircraft_route_status`, `aircraft_set_route`, `opensky_set_credentials`, `opensky_test`, `aircraft_route`, `aircraft_route_stop`, `aircraft_route_review`, `aircraft_route_accept`.
+  - UI: **Add route…** in the photo menu, the Add route window (`RouteWindow`, `aircraftRoute.ts`), Settings → Find the route online (OpenSky) and the OpenSky API client (Save, Test, Remove); the mock backend.
+- **Tests, run here (Windows):** `ai::aircraft::route` (10: departure and arrival, nearest within 3 h, two as near, nothing near, nothing known, GPS breaking a tie, ICAO → IATA and country, a code not listed, flight numbers, the token kept and renewed, 401/403/429), `aircraft_tests` (19, +3: the same aircraft and day asked once and reused beside it, two days near midnight, the worker end to end and accepting only aircraft keywords with originals unchanged), core lib (232), `catalog_tests`, `safety_audit_tests`, `report_tests`, `keepsake-platform` secrets, app lib tests (118, bindings); Vitest (96, +4 `aircraftRoute`); mocked Playwright (71 across aircraft, report, viewer, library, a11y, multi-select, cloud; +3 Add route); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; the app against live OpenSky (the endpoints and answers were checked by hand with the owner's client, by script).
+- Branch `claude/aircraft-age-route-378472`, not pushed.
 
 ## The aircraft's age (ADR-044, part 1) (2026-11-18)
 

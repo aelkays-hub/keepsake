@@ -1,8 +1,32 @@
-# Manual Test Steps — The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Add route (the flight a photo shows, from OpenSky)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft::route
+cargo test -p keepsake-core --test aircraft_tests --test catalog_tests --test safety_audit_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftRoute.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts -g "Add route"
+```
+
+Manual (both OSes). You need a free OpenSky account with an API client (opensky-network.org → your account → API client), and Read aircraft and Look registrations up online on.
+1. Right-click a photo. **Expected:** **Add route…** is greyed out; hovering says to turn on Find the route online (OpenSky).
+2. Settings → Read aircraft → tick **Find the route online (OpenSky)**. **Expected:** the text says what is sent ("…This tells OpenSky when you photographed that aircraft. No photo is sent."), and an **OpenSky API client** block with Client ID and Client secret. Fill both and **Save**. **Expected:** "Saved." and the secret is not shown again. Windows: Credential Manager → Windows Credentials has `opensky-client-id` and `opensky-client-secret` under Keepsake; macOS: Keychain Access has them. `config.toml` and the log do not contain them.
+3. **Test**. **Expected:** "OpenSky accepted the client ID and secret." With a wrong secret (Remove, save a wrong one, Test): "OpenSky refused the client ID and secret…".
+4. Pick a recent (2023 or later) airport photo with an accepted registration, for example C-GBIJ on 31 May 2026 at 12:31 UTC. Right-click → **Add route…**. **Expected:** "Asking OpenSky…", then "YYZ (Canada) → Not known · Flight RV2000 (callsign ROU2000)" and "Taken in the air, soon after take-off (12:16 UTC)", with ticked keywords From YYZ, From country Canada, Flight RV2000. An aircraft landing from Frankfurt (D-ABVZ, 5 May 2024) gives "FRA (Germany) → YYZ (Canada) · Flight LH470".
+5. Untick one keyword and **Accept**. **Expected:** "Added: …"; the inspector shows the keywords ticked, under Aircraft; the photo's `.xmp` sidecar has them; the original's modified time is unchanged.
+6. Add route on a 2018–2022 photo. **Expected:** "OpenSky knows no flights of this aircraft that day. Its history goes back to about 2023…". On a photo whose time is far from any flight: "No flight near this time… Shift time".
+7. Add route on a photo without a registration. **Expected:** "No registration: read the aircraft first…", and nothing is sent.
+8. Add route again on the same photos. **Expected:** the answer is immediate (kept; nothing is asked again).
+9. Wi-Fi off, Add route on a new day. **Expected:** "Asking OpenSky…" stays, the photo is tried again later; no keyword is written. Wi-Fi on: it is found.
+10. Settings → **Remove**, untick the setting. **Expected:** Add route… is greyed out again.
 
 ---
 
