@@ -280,6 +280,9 @@ pub struct RenderService {
     aircraft: Option<ReaderLoader>,
     /// Looks read registrations up online (ADR-041), when set.
     lookup: Option<Arc<dyn crate::ai::aircraft::lookup::Lookup>>,
+    /// Finds the flights of Add route (ADR-044), when set: a route worker
+    /// then takes `ai.route` jobs.
+    flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
     same_shot_ms: i64,
@@ -322,6 +325,7 @@ impl RenderService {
             faces: None,
             aircraft: None,
             lookup: None,
+            flights: None,
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
     }
@@ -335,6 +339,12 @@ impl RenderService {
     /// The same-shot window, in seconds (1–60).
     pub fn with_same_shot(mut self, seconds: u8) -> Self {
         self.same_shot_ms = i64::from(seconds.clamp(1, 60)) * 1000;
+        self
+    }
+
+    /// Find the flights of Add route with this (ADR-044).
+    pub fn with_flights(mut self, flights: Arc<dyn crate::ai::aircraft::route::Flights>) -> Self {
+        self.flights = Some(flights);
         self
     }
 
@@ -419,6 +429,11 @@ impl RenderService {
                 .chain(self.opts.ai.then_some(JOB_AI))
                 .chain(self.opts.faces.then_some(JOB_AI_FACES))
                 .chain(self.opts.aircraft.then_some(JOB_AI_AIRCRAFT))
+                .chain(
+                    self.flights
+                        .is_some()
+                        .then_some(crate::ai::aircraft::route::JOB_AI_ROUTE),
+                )
                 // One worker sends the photos of every provider.
                 .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
@@ -532,6 +547,9 @@ impl RenderService {
         }
         if kind == JOB_AI_AIRCRAFT {
             return self.aircraft_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::ai::aircraft::route::JOB_AI_ROUTE {
+            return self.route_worker(&mut cat, cancel, tx, shared);
         }
         // The cloud worker sends the photos of every provider: tagging and
         // edit suggestions.
@@ -1029,6 +1047,70 @@ impl RenderService {
                 Err(e) => {
                     let e = Self::ai_error(cat, &job, e)?;
                     self.settle_err(cat, cancel, tx, shared, JOB_AI_AIRCRAFT, &job, e)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The route worker (ADR-044): one `ai.route` job at a time, waiting
+    /// [`crate::ai::aircraft::lookup::MIN_GAP`] after each request. Needs
+    /// no model, so it runs whether or not Read aircraft's are loaded. At
+    /// OpenSky's daily limit the job is tried again later (its error says
+    /// so), as for any failure that may pass.
+    fn route_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::ai::aircraft::{lookup as lk, route};
+        let Some(flights) = self.flights.as_deref() else {
+            return Ok(());
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed = match cat.write(|t| t.jobs().claim(&[route::JOB_AI_ROUTE], now_ms())) {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match route::run_job(cat, flights, self.lookup.as_deref(), job.asset_id) {
+                Ok(asked) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                    if asked.requests > 0 {
+                        Self::sleep(cancel, lk::MIN_GAP);
+                    }
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(cat, cancel, tx, shared, route::JOB_AI_ROUTE, &job, e)?;
+                    Self::sleep(cancel, lk::MIN_GAP);
                 }
             }
         }

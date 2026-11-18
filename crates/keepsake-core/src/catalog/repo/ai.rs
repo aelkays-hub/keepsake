@@ -145,6 +145,23 @@ impl<M> Ai<'_, M> {
             .optional()?)
     }
 
+    /// What OpenSky said `icao24` flew on `day` (`YYYY-MM-DD`, UTC; JSON),
+    /// if asked (ADR-044).
+    pub fn aircraft_flights(
+        &self,
+        icao24: &str,
+        day: &str,
+    ) -> Result<Option<String>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT flights FROM aircraft_flights WHERE icao24 = ?1 AND day = ?2",
+                [icao24, day],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// Every registration's build date, as `(registration, built)`.
     pub fn aircraft_built_all(&self) -> Result<Vec<(String, String)>, CatalogError> {
         let mut st = self
@@ -455,6 +472,23 @@ impl Ai<'_, Rw> {
                source = excluded.source, set_ms = excluded.set_ms
              WHERE aircraft_built.source <> 'typed' OR excluded.source = 'typed'",
             params![registration, built, source, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Keep what OpenSky said `icao24` flew on `day`.
+    pub fn put_aircraft_flights(
+        &self,
+        icao24: &str,
+        day: &str,
+        flights: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_flights (icao24, day, flights, asked_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(icao24, day) DO UPDATE SET flights = excluded.flights,
+               asked_ms = excluded.asked_ms",
+            params![icao24, day, flights, at_ms],
         )?;
         Ok(())
     }

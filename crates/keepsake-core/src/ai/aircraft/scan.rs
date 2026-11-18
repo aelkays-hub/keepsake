@@ -532,8 +532,12 @@ pub fn offered(item: &ReviewItem, conf: &Confidence) -> Result<Vec<TagPath>, AiE
 }
 
 /// Is `path` a keyword the aircraft reader can give
-/// (`Aircraft|Registration|…`, `…|Airline|…`, `…|Type|…`, `…|Built|…`)?
+/// (`Aircraft|Registration|…`, `…|Airline|…`, `…|Type|…`, `…|Built|…`, and
+/// a route's `…|From|…`, `…|To|…`, their countries and `…|Flight|…`)?
 pub fn is_aircraft_keyword(path: &TagPath) -> bool {
+    if super::route::is_route_keyword(path) {
+        return true;
+    }
     let parts = path.segments();
     parts.len() == 3
         && parts[0] == TAG_PARENT

@@ -1188,3 +1188,196 @@ fn the_downloaded_database_gives_lookups_already_kept_their_build_year() {
     // Again: nothing new.
     assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 0);
 }
+
+// ---- Add route (ADR-044, part 2) ----
+
+use keepsake_core::ai::aircraft::route::{self, Airports, Flight, Pick};
+
+/// OpenSky as the tests see it: C-GBIJ's day (2026-05-31), counting what
+/// it is asked.
+struct FakeSky {
+    asked: Mutex<Vec<(String, i64, i64)>>,
+}
+
+impl route::Flights for FakeSky {
+    fn flights(&self, icao24: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((icao24.to_owned(), begin, end));
+        let fl = |first: i64, last: i64, dep: Option<&str>, arr: Option<&str>, cs: &str| Flight {
+            first_seen: first,
+            last_seen: last,
+            departure: dep.map(str::to_owned),
+            arrival: arr.map(str::to_owned),
+            callsign: Some(cs.to_owned()),
+        };
+        // ROU2000 left Toronto at 12:16 UTC; ROU1917 landed there at 10:43.
+        Ok(vec![
+            fl(1_780_229_760, 1_780_235_100, Some("CYYZ"), None, "ROU2000"),
+            fl(
+                1_780_215_000,
+                1_780_224_180,
+                Some("CYQY"),
+                Some("CYYZ"),
+                "ROU1917",
+            ),
+        ])
+    }
+}
+
+/// `w`'s photos given a registration keyword, a capture time and the
+/// lookup's transponder code.
+fn route_world(names: &[&str], times_s: &[i64]) -> (World, Vec<AssetId>) {
+    let mut w = World::new(names);
+    let ids: Vec<AssetId> = names.iter().map(|n| w.asset(n)).collect();
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, t) in ids.iter().zip(times_s) {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2 WHERE id = ?1",
+            rusqlite::params![id, t * 1000],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let reg = TagPath::parse_lightroom("Aircraft|Registration|C-GBIJ").unwrap();
+    for id in &ids {
+        MetadataService::new(&w.lib, &mut w.cat)
+            .set_user_tags(*id, std::slice::from_ref(&reg))
+            .unwrap();
+    }
+    let found = lookup::Found {
+        registration: "C-GBIJ".into(),
+        known: true,
+        mode_s: Some("C04826".into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GBIJ", &json, 1))
+        .unwrap();
+    (w, ids)
+}
+
+/// 2026-05-31 12:31:11 UTC.
+const PHOTO_S: i64 = 1_780_230_671;
+
+#[test]
+fn the_same_aircraft_and_day_is_asked_once_and_photos_beside_it_reuse_it() {
+    let (mut w, ids) = route_world(&["a.jpg", "b.jpg"], &[PHOTO_S, PHOTO_S + 4]);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    let asked = route::run_job(&mut w.cat, &sky, None, ids[0]).unwrap();
+    assert_eq!(asked.requests, 1);
+    {
+        let a = sky.asked.lock().unwrap();
+        // The whole UTC day, under 24 hours.
+        assert_eq!(a[0].0, "c04826");
+        assert_eq!(a[0].2 - a[0].1, 86_399);
+        assert_eq!(a[0].1 % 86_400, 0);
+    }
+    // The photo taken beside it: nothing is asked.
+    assert_eq!(
+        route::run_job(&mut w.cat, &sky, None, ids[1])
+            .unwrap()
+            .requests,
+        0
+    );
+    assert_eq!(sky.asked.lock().unwrap().len(), 1);
+
+    let airports = Airports::builtin();
+    let it = route::review(&w.cat, &airports, ids[0]).unwrap();
+    match it.state {
+        route::State::Found(Pick::One(c)) => {
+            assert_eq!(c.flight.callsign.as_deref(), Some("ROU2000"));
+            assert_eq!(c.at, route::At::Departure);
+            let k: Vec<String> = route::keywords(&c.flight, &airports)
+                .unwrap()
+                .iter()
+                .map(TagPath::to_lightroom)
+                .collect();
+            assert_eq!(
+                k,
+                [
+                    "Aircraft|From|YYZ",
+                    "Aircraft|From country|Canada",
+                    "Aircraft|Flight|RV2000"
+                ]
+            );
+        }
+        s => panic!("{s:?}"),
+    }
+}
+
+#[test]
+fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_not_asked() {
+    // 01:00 UTC on 2026-05-31: the day before too.
+    let night = PHOTO_S - (PHOTO_S % 86_400) + 3_600;
+    let (mut w, ids) = route_world(&["a.jpg"], &[night]);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    assert_eq!(
+        route::run_job(&mut w.cat, &sky, None, ids[0])
+            .unwrap()
+            .requests,
+        2
+    );
+
+    let mut w2 = World::new(&["c.jpg"]);
+    let c = w2.asset("c.jpg");
+    assert!(matches!(
+        route::run_job(&mut w2.cat, &sky, None, c),
+        Err(AiError::Cloud { retry: false, .. })
+    ));
+    let airports = Airports::builtin();
+    assert_eq!(
+        route::review(&w2.cat, &airports, c).unwrap().state,
+        route::State::NoRegistration
+    );
+}
+
+#[test]
+fn the_route_worker_asks_in_the_background_and_accepting_writes_only_aircraft_keywords() {
+    let (mut w, ids) = route_world(&["a.jpg", "b.jpg"], &[PHOTO_S, PHOTO_S + 4]);
+    let before = hashes(&w.media);
+    assert_eq!(route::enqueue(&mut w.cat, &ids).unwrap(), 2);
+    let sky = Arc::new(FakeSky {
+        asked: Mutex::new(Vec::new()),
+    });
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut opts_service = w.service(fake(&AIR_CANADA, &seen));
+    opts_service = opts_service.with_flights(sky.clone());
+    opts_service
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    // One day, asked once for both photos.
+    assert_eq!(sky.asked.lock().unwrap().len(), 1);
+    let (st, _) = route::status(&w.cat, &ids).unwrap();
+    assert_eq!((st.done, st.pending, st.failed), (2, 0, 0));
+
+    // Accepting adds the route keywords, in the catalog and the sidecar.
+    let keep: Vec<TagPath> = ["Aircraft|From|YYZ", "Aircraft|Flight|RV2000"]
+        .iter()
+        .map(|k| TagPath::parse_lightroom(k).unwrap())
+        .collect();
+    assert_eq!(
+        scan::add_to(&mut w.cat, &w.lib, &ids[..1], &keep).unwrap(),
+        1
+    );
+    let kw = w.keywords(ids[0]);
+    assert!(kw.contains(&"Aircraft|From|YYZ".to_owned()), "{kw:?}");
+    assert!(kw.contains(&"Aircraft|Flight|RV2000".to_owned()), "{kw:?}");
+    assert!(sidecars(&w).contains("Aircraft|Flight|RV2000"));
+    // What is not an aircraft keyword is refused.
+    let other = [TagPath::parse_lightroom("Places|Toronto").unwrap()];
+    assert!(scan::add_to(&mut w.cat, &w.lib, &ids[..1], &other).is_err());
+    let airports = Airports::builtin();
+    assert_eq!(
+        route::review(&w.cat, &airports, ids[0]).unwrap().has.len(),
+        2
+    );
+    assert_eq!(hashes(&w.media), before, "originals unchanged");
+}

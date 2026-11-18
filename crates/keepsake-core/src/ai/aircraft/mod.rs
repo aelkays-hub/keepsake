@@ -13,6 +13,8 @@
 //!   downloading them.
 //! - [`built`]: when an aircraft was built (OpenSky's database, or typed),
 //!   for its age.
+//! - [`route`]: the flight a photo shows (OpenSky's flight history), for
+//!   Add route.
 //! - [`scan`]: the `ai.aircraft` job: one item's picture in, its
 //!   `Aircraft|…` keywords out. Originals are only read.
 
@@ -22,6 +24,7 @@ pub mod lookup;
 pub mod marks;
 pub mod ocr;
 pub mod planes;
+pub mod route;
 pub mod scan;
 pub mod types;
 
