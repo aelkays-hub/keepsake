@@ -15,6 +15,7 @@ mod prefs;
 mod render;
 mod report;
 mod reveal;
+mod route;
 mod shutdown;
 mod state;
 mod suggest;
@@ -196,6 +197,14 @@ pub fn run() {
             aircraft::aircraft_built_install,
             aircraft::aircraft_built_cancel,
             aircraft::aircraft_built_remove,
+            route::aircraft_route_status,
+            route::aircraft_set_route,
+            route::opensky_set_credentials,
+            route::opensky_test,
+            route::aircraft_route,
+            route::aircraft_route_stop,
+            route::aircraft_route_review,
+            route::aircraft_route_accept,
             suggest::edit_suggestions,
             suggest::edit_suggestions_ask,
             suggest::edit_suggestions_stop,

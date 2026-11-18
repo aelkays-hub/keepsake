@@ -453,3 +453,118 @@ test("the review window offers the build year from OpenSky", async ({ page }) =>
   const sent = (await calls(page, "aircraft_accept"))[0] as { keywords: string[] };
   expect(sent.keywords).toContain("Aircraft|Built|2008");
 });
+
+// ---- Add route (ADR-044, part 2) ----
+
+/** Pick the first `n` tiles and open Add route on them. */
+async function addRoute(page: Page, n: number) {
+  const tiles = page.getByTestId("tile");
+  await tiles.nth(0).click();
+  await tiles.nth(n - 1).click({ modifiers: ["Shift"] });
+  await tiles.nth(0).click({ button: "right" });
+  await page.getByTestId("tile-menu-route").click();
+  return page.getByTestId("route-window");
+}
+
+test("Add route is off until turned on with an OpenSky client", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on");
+  await page.getByTestId("tile").nth(0).click({ button: "right" });
+  const item = page.getByTestId("tile-menu-route");
+  await expect(item).toBeDisabled();
+  await expect(item).toHaveAttribute("title", /Turn on Find the route online/);
+  await page.keyboard.press("Escape");
+
+  await settings(page);
+  const box = page.getByTestId("aircraft-route");
+  await expect(page.getByTestId("aircraft-settings")).toContainText(
+    "This tells OpenSky when you photographed that aircraft. No photo is sent.",
+  );
+  await box.check();
+  expect(await calls(page, "aircraft_set_route")).toEqual([{ enabled: true }]);
+  const client = page.getByTestId("opensky-client");
+  await expect(client.getByTestId("opensky-save")).toBeDisabled();
+  await client.getByTestId("opensky-id").fill("me-api-client");
+  await client.getByTestId("opensky-secret").fill("s3cret");
+  await client.getByTestId("opensky-save").click();
+  expect(await calls(page, "opensky_set_credentials")).toEqual([
+    { clientId: "me-api-client", secret: "s3cret" },
+  ]);
+  await expect(client.getByTestId("opensky-saved")).toHaveText("Saved.");
+  // The secret is never shown again.
+  await expect(client.getByTestId("opensky-secret")).toHaveCount(0);
+  await client.getByTestId("opensky-test").click();
+  await expect(client.getByTestId("opensky-tested")).toHaveText(
+    "OpenSky accepted the client ID and secret.",
+  );
+
+  // Now the menu item can be used.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  await page.getByTestId("tile").nth(0).click({ button: "right" });
+  await expect(page.getByTestId("tile-menu-route")).toBeEnabled();
+});
+
+test("Add route: the flight found, two as near, none near, nothing known; only what is accepted is kept", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved");
+  const win = await addRoute(page, 20);
+  await expect(win.getByRole("heading")).toHaveText(/^Add route: /);
+  expect(await calls(page, "aircraft_route")).toHaveLength(1);
+  // Asked, then answered.
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  const photos = win.getByTestId("rt-photo");
+  await expect(photos).toHaveCount(20);
+
+  // Not of an aircraft: no registration.
+  await expect(
+    win.getByTestId("rt-state").filter({ hasText: "No registration" }).first(),
+  ).toBeVisible();
+  // No flight near the time: Shift time is suggested.
+  await expect(win.getByTestId("rt-state").filter({ hasText: "Shift time" })).toHaveCount(1);
+  // Nothing known: OpenSky's history and coverage are said.
+  await expect(win.getByTestId("rt-state").filter({ hasText: "back to about 2023" })).toHaveCount(
+    1,
+  );
+
+  // Two flights as near: the user chooses; nothing is offered before.
+  const several = photos.filter({ has: page.getByTestId("rt-several") });
+  await expect(several.getByTestId("rt-accept")).toHaveCount(0);
+  await several.getByTestId("rt-choice").nth(0).check();
+  await expect(several.getByTestId("rt-route")).toHaveText(
+    "Not known → YYZ (Canada) · Flight AC443 (callsign ACA443)",
+  );
+
+  // Found: YYZ → LHR, flight AC856; untick a keyword and accept.
+  const found = photos.filter({ hasText: "YYZ (Canada) → LHR (United Kingdom)" });
+  await expect(found.getByTestId("rt-route")).toHaveText(
+    "YYZ (Canada) → LHR (United Kingdom) · Flight AC856 (callsign ACA856)",
+  );
+  await expect(found.getByTestId("rt-when")).toHaveText("Taken 15 min before take-off (12:16 UTC)");
+  await found
+    .locator("label", { hasText: "To country United Kingdom" })
+    .getByTestId("rt-keyword")
+    .uncheck();
+  await found.getByTestId("rt-accept").click();
+  const sent = (await calls(page, "aircraft_route_accept"))[0] as { keywords: string[] };
+  expect(sent.keywords).toEqual([
+    "Aircraft|From|YYZ",
+    "Aircraft|From country|Canada",
+    "Aircraft|To|LHR",
+    "Aircraft|Flight|AC856",
+  ]);
+  await expect(found.getByTestId("rt-added")).toContainText("Flight AC856");
+
+  // Accepted for that photo only.
+  await win.getByTestId("rt-close").click();
+  await expect(win).toHaveCount(0);
+  const id = (sent as unknown as { id: string }).id;
+  expect(id).toMatch(/^a\d+$/);
+});
+
+test("Add route: turned on but without the setting the window says so", async ({ page }) => {
+  // Saved client, setting off: the menu item is disabled; the command
+  // refuses too (checked through the mock).
+  await open(page, "&aircraft=on&lookup=on&opensky=saved");
+  await page.getByTestId("tile").nth(0).click({ button: "right" });
+  await expect(page.getByTestId("tile-menu-route")).toBeDisabled();
+});

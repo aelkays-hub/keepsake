@@ -7,15 +7,25 @@ import { useCallback, useEffect, useState } from "react";
 
 import { aircraftProgress } from "../aircraft";
 import { api, events, type AircraftStatus } from "../api";
+import type { RouteStatusDto } from "../bindings/RouteStatusDto";
 import * as fmt from "../format";
 
 export function AircraftSettings() {
   const [st, setSt] = useState<AircraftStatus | null>(null);
   const [download, setDownload] = useState<{ done: number; total: number } | null>(null);
+  // Add route (ADR-044): its setting and the OpenSky API client.
+  const [route, setRoute] = useState<RouteStatusDto | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [tested, setTested] = useState<string | null>(null);
   // Downloading OpenSky's aircraft database (build years, ADR-044).
   const [dbDownload, setDbDownload] = useState<{ done: number; total: number } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const refresh = useCallback(() => {
+    api
+      .aircraftRouteStatus()
+      .then(setRoute)
+      .catch(() => setRoute(null));
     api
       .aircraftStatus()
       .then((x) => {
@@ -158,6 +168,96 @@ export function AircraftSettings() {
             >
               Download it ({fmt.bytes(st.builtBytes)})
             </button>
+          )}
+        </div>
+      )}
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={route?.enabled ?? false}
+          disabled={!st.enabled}
+          onChange={(e) => run(api.aircraftSetRoute(e.target.checked))}
+          data-testid="aircraft-route"
+        />
+        Find the route online (OpenSky)
+      </label>
+      <p className="muted">
+        Sends the aircraft's transponder code and the day and time the photo was taken (within 12
+        hours) to opensky-network.org to find the flight. This tells OpenSky when you photographed
+        that aircraft. No photo is sent. Right-click photos and choose Add route. OpenSky's history
+        goes back to about 2023; a free account allows about 1,000 photos a day.
+      </p>
+      {route?.enabled && (
+        <div className="block" data-testid="opensky-client">
+          <strong>OpenSky API client</strong>
+          <p className="muted">
+            Make a free account at opensky-network.org and create an API client on your account
+            page. The client ID and secret are kept in{" "}
+            {navigator.userAgent.includes("Mac") ? "the Keychain" : "Windows Credential Manager"},
+            never in a file.
+          </p>
+          {route.credentials ? (
+            <div className="row">
+              <span className="muted" data-testid="opensky-saved">
+                Saved.
+              </span>
+              <button
+                onClick={() => {
+                  setTested(null);
+                  api
+                    .openskyTest()
+                    .then(setTested)
+                    .catch((e) => setProblem(String(e)));
+                }}
+                data-testid="opensky-test"
+              >
+                Test
+              </button>
+              <button
+                onClick={() => run(api.openskySetCredentials("", ""))}
+                data-testid="opensky-remove"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="row">
+              <input
+                value={clientId}
+                placeholder="Client ID"
+                autoComplete="off"
+                onChange={(e) => setClientId(e.target.value)}
+                data-testid="opensky-id"
+              />
+              <input
+                type="password"
+                value={secret}
+                placeholder="Client secret"
+                autoComplete="off"
+                onChange={(e) => setSecret(e.target.value)}
+                data-testid="opensky-secret"
+              />
+              <button
+                disabled={!clientId.trim() || !secret.trim()}
+                onClick={() => {
+                  run(api.openskySetCredentials(clientId, secret));
+                  setSecret("");
+                }}
+                data-testid="opensky-save"
+              >
+                Save
+              </button>
+            </div>
+          )}
+          {tested && (
+            <p role="status" data-testid="opensky-tested">
+              {tested}
+            </p>
+          )}
+          {!route.lookup && (
+            <p className="muted" data-testid="opensky-needs-lookup">
+              Add route needs Look registrations up online too: the transponder code comes from it.
+            </p>
           )}
         </div>
       )}

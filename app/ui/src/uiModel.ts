@@ -62,6 +62,15 @@ export interface UiState {
   editAdvice: { photo: string; title: string } | null;
   /** Read aircraft's review window (ADR-041): what is read. */
   aircraftReview: AircraftJob | null;
+  /** Add route's window (ADR-044): the photos picked. */
+  route: RouteJob | null;
+}
+
+/** What Add route is asked for: the photos picked. */
+export interface RouteJob {
+  selection: Selection;
+  count: number;
+  title: string;
 }
 
 /** What Read aircraft reads: the photos picked, a folder (and those in
@@ -133,7 +142,8 @@ export type Msg =
       } | null;
     }
   | { t: "editAdvice"; photo: { photo: string; title: string } | null }
-  | { t: "aircraftReview"; job: AircraftJob | null };
+  | { t: "aircraftReview"; job: AircraftJob | null }
+  | { t: "route"; job: RouteJob | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -153,6 +163,7 @@ export const initial: UiState = {
   nameFind: null,
   editAdvice: null,
   aircraftReview: null,
+  route: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -214,6 +225,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, editAdvice: m.photo };
     case "aircraftReview":
       return { ...s, aircraftReview: m.job };
+    case "route":
+      return { ...s, route: m.job };
   }
 }
 

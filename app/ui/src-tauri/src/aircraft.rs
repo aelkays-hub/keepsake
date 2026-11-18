@@ -470,7 +470,7 @@ fn paths_of(keywords: &[String]) -> CmdResult<Vec<TagPath>> {
 }
 
 /// A photo's file name and thumbnail, for the window.
-fn photo_of(
+pub(crate) fn photo_of(
     cat: &keepsake_core::catalog::Catalog,
     cache: &keepsake_core::render::Cache,
     asset: AssetId,

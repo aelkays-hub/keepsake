@@ -109,6 +109,9 @@ export interface MockState {
   aircraftBuiltDb: boolean;
   /** When each registration was built, as kept (ADR-044). */
   aircraftBuilt: Map<string, { built: string; source: string }>;
+  /** Add route (ADR-044): on (`?route=on`), the OpenSky client saved
+   * (`?opensky=saved`), and how often each photo was asked about. */
+  route: { enabled: boolean; saved: boolean; asked: Map<string, number> };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -517,6 +520,11 @@ export function installMock(): void {
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
     aircraftLookup: params.get("lookup") === "on",
     aircraftBuiltDb: params.get("builtdb") === "on",
+    route: {
+      enabled: params.get("route") === "on",
+      saved: params.get("opensky") === "saved",
+      asked: new Map(),
+    },
     aircraftBuilt: new Map(
       params.get("builtdb") === "on" ? [["C-FJZS", { built: "2008", source: "opensky" }]] : [],
     ),
@@ -1659,6 +1667,143 @@ export function installMock(): void {
           return null;
         case "aircraft_built_cancel":
           return null;
+        case "aircraft_route_status":
+          return {
+            enabled: st.route.enabled,
+            credentials: st.route.saved,
+            lookup: st.aircraftLookup,
+          };
+        case "aircraft_set_route":
+          st.route.enabled = Boolean(a.enabled);
+          void emit("aircraft://status", null);
+          return null;
+        case "opensky_set_credentials": {
+          const id = String(a.clientId ?? "").trim();
+          const secret = String(a.secret ?? "").trim();
+          if (Boolean(id) !== Boolean(secret)) throw "Fill in both the client ID and the secret.";
+          st.route.saved = Boolean(id);
+          void emit("aircraft://status", null);
+          return null;
+        }
+        case "opensky_test":
+          if (!st.route.saved)
+            throw "No OpenSky client ID and secret: add them in Settings → Read aircraft";
+          return "OpenSky accepted the client ID and secret.";
+        case "aircraft_route": {
+          if (!st.route.enabled)
+            throw "Turn on Find the route online (OpenSky) in Settings → Read aircraft first.";
+          const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+          for (const id of ids) st.route.asked.set(id, 0);
+          return {
+            provider: "OpenSky",
+            ids,
+            status: {
+              items: ids.length,
+              analysed: 0,
+              pending: ids.length,
+              failed: 0,
+              problem: null,
+            },
+          };
+        }
+        case "aircraft_route_stop":
+          for (const id of (a.ids ?? []) as string[]) st.route.asked.set(id, -1);
+          return null;
+        case "aircraft_route_review": {
+          // Each photo is "asked about" on the first look and answered on
+          // the next. By the item's number: a departure (YYZ → LHR), two
+          // flights as near, no flight near, nothing known; videos and
+          // photos not of aircraft have no registration.
+          const choice = (
+            from: [string, string, string] | null,
+            to: [string, string, string] | null,
+            callsign: string,
+            flight: string,
+            at: string,
+            gapMin: number,
+          ) => ({
+            callsign,
+            flight,
+            from: from?.[0] ?? null,
+            fromIcao: from?.[1] ?? null,
+            fromCountry: from?.[2] ?? null,
+            to: to?.[0] ?? null,
+            toIcao: to?.[1] ?? null,
+            toCountry: to?.[2] ?? null,
+            departed: "2026-05-31T12:16:00Z",
+            arrived: "2026-05-31T19:25:00Z",
+            at,
+            gapMin,
+            keywords: [
+              ...(from ? [`Aircraft|From|${from[0]}`, `Aircraft|From country|${from[2]}`] : []),
+              ...(to ? [`Aircraft|To|${to[0]}`, `Aircraft|To country|${to[2]}`] : []),
+              `Aircraft|Flight|${flight}`,
+            ],
+          });
+          const YYZ: [string, string, string] = ["YYZ", "CYYZ", "Canada"];
+          const LHR: [string, string, string] = ["LHR", "EGLL", "United Kingdom"];
+          const YUL: [string, string, string] = ["YUL", "CYUL", "Canada"];
+          let pending = 0;
+          const items = ((a.ids ?? []) as string[]).map((id) => {
+            const i = Number(id.slice(1));
+            const it = all[i];
+            const kws = st.keywords.get(i) ?? [];
+            const reg =
+              kws.find((k) => k.startsWith("Aircraft|Registration|"))?.slice(22) ??
+              (it && isAircraft(it) ? "C-FJZS" : null);
+            const n = st.route.asked.get(id) ?? 1;
+            if (n >= 0) st.route.asked.set(id, n + 1);
+            const base = {
+              id,
+              name: it?.name ?? null,
+              thumb: null,
+              registration: reg,
+              taken: "2026-05-31T12:31:11Z",
+              error: null,
+              choices: [] as ReturnType<typeof choice>[],
+              has: kws.filter((k) =>
+                /^Aircraft\|(From|To|From country|To country|Flight)\|/.test(k),
+              ),
+            };
+            if (!reg) return { ...base, state: "no-registration" };
+            if (n === 0) {
+              pending += 1;
+              return { ...base, state: "waiting" };
+            }
+            switch ((i / 5) % 4) {
+              case 0:
+                return {
+                  ...base,
+                  state: "found",
+                  choices: [choice(YYZ, LHR, "ACA856", "AC856", "departure", 15)],
+                };
+              case 1:
+                return {
+                  ...base,
+                  state: "several",
+                  choices: [
+                    choice(null, YYZ, "ACA443", "AC443", "arrival", 30),
+                    choice(YYZ, YUL, "ACA412", "AC412", "departure", 30),
+                  ],
+                };
+              case 2:
+                return { ...base, state: "none-near" };
+              default:
+                return { ...base, state: "nothing" };
+            }
+          });
+          return { items, pending, failed: 0 };
+        }
+        case "aircraft_route_accept": {
+          const keep = (a.keywords ?? []) as string[];
+          if (keep.some((k) => !/^Aircraft\|(From|To|From country|To country|Flight)\|/.test(k)))
+            throw `${keep.find((k) => !k.startsWith("Aircraft|From"))} is not a route keyword`;
+          const i = Number(String(a.id).slice(1));
+          const cur = st.keywords.get(i) ?? [];
+          const next = [...new Set([...cur, ...keep])];
+          st.keywords.set(i, next);
+          return next.length > cur.length ? 1 : 0;
+        }
         case "aircraft_built_remove": {
           const had = st.aircraftBuiltDb;
           st.aircraftBuiltDb = false;

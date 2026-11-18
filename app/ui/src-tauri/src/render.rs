@@ -102,6 +102,12 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     } else {
         svc
     };
+    // Add route (ADR-044): only with the setting on.
+    let svc = if open.settings.ai.aircraft_route {
+        svc.with_flights(crate::route::opensky())
+    } else {
+        svc
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     *state
         .render

@@ -147,6 +147,67 @@ dto! {
         pub built_installing: Option<u64>,
     }
 
+    /// Add route at a glance (Settings → Read aircraft; ADR-044).
+    pub struct RouteStatusDto {
+        /// Find the route online (OpenSky) is on.
+        pub enabled: bool,
+        /// An OpenSky client ID and secret are saved.
+        pub credentials: bool,
+        /// Look registrations up online is on (the transponder code comes
+        /// from it).
+        pub lookup: bool,
+    }
+
+    /// A flight offered for a photo (Add route).
+    pub struct RouteChoiceDto {
+        pub callsign: Option<String>,
+        /// The flight number it is sold as (`AC856`), else the callsign.
+        pub flight: Option<String>,
+        /// The code shown (IATA, else ICAO), the ICAO code and the country.
+        pub from: Option<String>,
+        pub from_icao: Option<String>,
+        pub from_country: Option<String>,
+        pub to: Option<String>,
+        pub to_icao: Option<String>,
+        pub to_country: Option<String>,
+        /// When OpenSky first and last saw it (UTC, ISO 8601).
+        pub departed: String,
+        pub arrived: String,
+        /// `departure` or `arrival`: which end the photo is near.
+        pub at: String,
+        /// Minutes between the photo and that end (0: in the air).
+        pub gap_min: u32,
+        /// `Aircraft|From|YYZ`, …: what accepting it adds.
+        pub keywords: Vec<String>,
+    }
+
+    /// A photo of the Add route window.
+    pub struct RouteItemDto {
+        pub id: String,
+        pub name: Option<String>,
+        pub thumb: Option<String>,
+        pub registration: Option<String>,
+        /// Capture time, UTC, ISO 8601.
+        pub taken: Option<String>,
+        /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
+        /// `failed`, `nothing`, `none-near`, `found` or `several`.
+        pub state: String,
+        /// Why asking failed (or will be tried again).
+        pub error: Option<String>,
+        pub choices: Vec<RouteChoiceDto>,
+        /// The route keywords the photo has already.
+        pub has: Vec<String>,
+    }
+
+    /// The Add route window: its photos and how far asking has got.
+    pub struct RouteReviewDto {
+        pub items: Vec<RouteItemDto>,
+        #[ts(type = "number")]
+        pub pending: u64,
+        #[ts(type = "number")]
+        pub failed: u64,
+    }
+
     /// When an aircraft was built (ADR-044), as kept for its registration.
     pub struct AircraftBuiltDto {
         pub registration: String,

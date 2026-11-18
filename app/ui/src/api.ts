@@ -19,6 +19,8 @@ import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AiAdviceDto } from "./bindings/AiAdviceDto";
 import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
 import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
+import type { RouteReviewDto } from "./bindings/RouteReviewDto";
+import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
 import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
 import type { SamePlaneDto } from "./bindings/SamePlaneDto";
@@ -348,6 +350,18 @@ export const api = {
   aircraftBuiltInstall: () => invoke<void>("aircraft_built_install"),
   aircraftBuiltCancel: () => invoke<void>("aircraft_built_cancel"),
   aircraftBuiltRemove: () => invoke<boolean>("aircraft_built_remove"),
+  /** Add route (ADR-044): the setting, the OpenSky API client (kept in the
+   * OS's credential store), and finding the photos' flights. */
+  aircraftRouteStatus: () => invoke<RouteStatusDto>("aircraft_route_status"),
+  aircraftSetRoute: (enabled: boolean) => invoke<void>("aircraft_set_route", { enabled }),
+  openskySetCredentials: (clientId: string, secret: string) =>
+    invoke<void>("opensky_set_credentials", { clientId, secret }),
+  openskyTest: () => invoke<string>("opensky_test"),
+  aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
+  aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
+  aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
+  aircraftRouteAccept: (id: string, keywords: string[]) =>
+    invoke<number>("aircraft_route_accept", { id, keywords }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
