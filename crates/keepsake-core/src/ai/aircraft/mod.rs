@@ -11,9 +11,12 @@
 //!   only the text on them is read.
 //! - [`install`]: where the text models and the aircraft finder are, and
 //!   downloading them.
+//! - [`built`]: when an aircraft was built (OpenSky's database, or typed),
+//!   for its age.
 //! - [`scan`]: the `ai.aircraft` job: one item's picture in, its
 //!   `Aircraft|…` keywords out. Originals are only read.
 
+pub mod built;
 pub mod install;
 pub mod lookup;
 pub mod marks;

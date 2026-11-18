@@ -8,6 +8,9 @@
 //! aircraft found and the user accepted. Reads still waiting for review are
 //! counted apart, not as marks.
 //!
+//! A registration's row says when the aircraft was built (ADR-044), from
+//! `aircraft_built` or its photos' `Aircraft|Built|…` keywords.
+//!
 //! Read-only: two scans of `asset_tags` and one of the items found; no
 //! media file is read.
 
@@ -29,6 +32,8 @@ define_repo!(
 pub const AIRPLANE_TAG: &str = "Airplane";
 /// The parent of the aircraft keywords.
 pub const AIRCRAFT_KEYWORDS: &str = "Aircraft";
+/// The keyword kind that says when an aircraft was built (`Aircraft|Built|2014`).
+pub const BUILT: &str = "Built";
 /// How many airlines or types a row lists.
 pub const TOP: usize = 3;
 
@@ -90,6 +95,12 @@ pub struct AircraftRow {
     /// The first and last capture day (`YYYY-MM-DD`, local), when dated.
     pub first: Option<String>,
     pub last: Option<String>,
+    /// When the aircraft was built (`2014` or `2014-03-05`; registrations
+    /// only, ADR-044): as kept for the registration, else the year its
+    /// photos' `Aircraft|Built|…` keywords say. Its age is worked out where
+    /// it is shown.
+    #[serde(default)]
+    pub built: Option<String>,
 }
 
 /// One year.
@@ -198,6 +209,7 @@ fn rows(map: HashMap<String, Acc>, kind: Kind) -> Vec<AircraftRow> {
             },
             first: a.first,
             last: a.last,
+            built: None,
         })
         .collect();
     out.sort_by(|a, b| b.photos.cmp(&a.photos).then_with(|| a.name.cmp(&b.name)));
@@ -221,6 +233,8 @@ impl<M> AircraftReportRepo<'_, M> {
               WHERE tp.path LIKE '{AIRCRAFT_KEYWORDS}|%|%'"
         ))?;
         let mut marks: HashMap<AssetId, Vec<(Kind, String, String)>> = HashMap::new();
+        // `Aircraft|Built|<year>` on an item (ADR-044).
+        let mut built_kw: HashMap<AssetId, String> = HashMap::new();
         let mut q = st.query([])?;
         while let Some(r) = q.next()? {
             let id: AssetId = r.get(0)?;
@@ -229,6 +243,10 @@ impl<M> AircraftReportRepo<'_, M> {
             let (_, Some(kind), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
                 continue;
             };
+            if kind == BUILT {
+                built_kw.insert(id, name.to_owned());
+                continue;
+            }
             let Some(kind) = Kind::parse(kind) else {
                 continue;
             };
@@ -380,10 +398,38 @@ impl<M> AircraftReportRepo<'_, M> {
             years.rotate_left(1);
         }
 
+        // When each registration was built: as kept, else the year most of
+        // its photos' keywords say.
+        let kept: HashMap<String, String> = {
+            let mut st = self
+                .conn
+                .prepare("SELECT registration, built FROM aircraft_built")?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut said: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        for (id, year) in &built_kw {
+            for (kind, name, _) in marks.get(id).into_iter().flatten() {
+                if *kind == Kind::Registration {
+                    *said
+                        .entry(name.clone())
+                        .or_default()
+                        .entry(year.clone())
+                        .or_default() += 1;
+                }
+            }
+        }
+
         let mut take = |k: Kind| rows(by.remove(&k).unwrap_or_default(), k);
         let airlines = take(Kind::Airline);
         let types = take(Kind::Type);
-        let registrations = take(Kind::Registration);
+        let mut registrations = take(Kind::Registration);
+        for r in &mut registrations {
+            r.built = kept
+                .get(&r.name)
+                .cloned()
+                .or_else(|| said.remove(&r.name).and_then(|c| top(c).into_iter().next()));
+        }
         let shots: HashSet<_> = items.values().map(|i| &i.shot).collect();
         Ok(AircraftReport {
             totals: AircraftTotals {

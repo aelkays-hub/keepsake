@@ -120,6 +120,40 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// Every registration looked up and what was said (JSON), the longest
+    /// ago first.
+    pub fn aircraft_lookups(&self) -> Result<Vec<(String, String)>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT registration, found FROM aircraft_lookups ORDER BY looked_ms, registration",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// When `registration` was built, and where that came from (ADR-044).
+    pub fn aircraft_built(
+        &self,
+        registration: &str,
+    ) -> Result<Option<(String, String)>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT built, source FROM aircraft_built WHERE registration = ?1",
+                [registration],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// Every registration's build date, as `(registration, built)`.
+    pub fn aircraft_built_all(&self) -> Result<Vec<(String, String)>, CatalogError> {
+        let mut st = self
+            .conn
+            .prepare_cached("SELECT registration, built FROM aircraft_built")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// What an online lookup said about `registration` (JSON), if asked.
     pub fn aircraft_lookup(&self, registration: &str) -> Result<Option<String>, CatalogError> {
         Ok(self
@@ -406,6 +440,34 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Keep when `registration` was built. One the user typed is kept over
+    /// one from OpenSky (`source` = `opensky` does not replace it).
+    pub fn put_aircraft_built(
+        &self,
+        registration: &str,
+        built: &str,
+        source: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_built (registration, built, source, set_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(registration) DO UPDATE SET built = excluded.built,
+               source = excluded.source, set_ms = excluded.set_ms
+             WHERE aircraft_built.source <> 'typed' OR excluded.source = 'typed'",
+            params![registration, built, source, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Forget when `registration` was built.
+    pub fn forget_aircraft_built(&self, registration: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_built WHERE registration = ?1",
+            [registration],
+        )?;
+        Ok(())
+    }
+
     /// Keep what an online lookup said about `registration`.
     pub fn put_aircraft_lookup(
         &self,

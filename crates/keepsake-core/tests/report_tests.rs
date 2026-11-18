@@ -737,8 +737,8 @@ fn the_drill_down_goes_from_airline_to_type_to_registration() {
     }
     let csv = report::aircraft_to_csv(&r);
     let lines: Vec<&str> = csv.split("\r\n").collect();
-    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,2,,KLM,Boeing 747,,"));
-    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,1,,KLM,,,"));
+    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,2,,KLM,Boeing 747,,,"));
+    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,1,,KLM,,,,"));
 }
 
 #[test]
@@ -771,7 +771,7 @@ fn the_aircraft_csv_has_the_totals_and_every_table() {
     let csv = report::aircraft_to_csv(&aircraft(&cat));
     let lines: Vec<&str> = csv.split("\r\n").collect();
     assert_eq!(lines[0], report::AIRCRAFT_CSV_HEADER);
-    assert!(lines.contains(&"Total,Aircraft photos,5,,,,,"));
-    assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01"));
-    assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06"));
+    assert!(lines.contains(&"Total,Aircraft photos,5,,,,,,"));
+    assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01,"));
+    assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06,"));
 }

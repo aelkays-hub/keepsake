@@ -416,7 +416,7 @@ pub fn examine(
     Ok((found, looks_like))
 }
 
-fn lib_err(e: LibraryError) -> AiError {
+pub(crate) fn lib_err(e: LibraryError) -> AiError {
     match e {
         LibraryError::Catalog(e) => AiError::Catalog(e),
         e => AiError::Image(e.to_string()),
@@ -532,12 +532,15 @@ pub fn offered(item: &ReviewItem, conf: &Confidence) -> Result<Vec<TagPath>, AiE
 }
 
 /// Is `path` a keyword the aircraft reader can give
-/// (`Aircraft|Registration|…`, `…|Airline|…`, `…|Type|…`)?
+/// (`Aircraft|Registration|…`, `…|Airline|…`, `…|Type|…`, `…|Built|…`)?
 pub fn is_aircraft_keyword(path: &TagPath) -> bool {
     let parts = path.segments();
     parts.len() == 3
         && parts[0] == TAG_PARENT
-        && matches!(parts[1].as_str(), "Registration" | "Airline" | "Type")
+        && matches!(
+            parts[1].as_str(),
+            "Registration" | "Airline" | "Type" | super::built::KIND
+        )
 }
 
 /// Accept a read: `paths` (those the user kept ticked) become the item's
@@ -587,8 +590,8 @@ pub struct Offer {
 }
 
 /// The keywords to offer for a read at `conf`, with what lookups of its
-/// registrations said (`found`, those known): a looked-up type and airline
-/// are offered beside what was read; a painted type that disagrees is
+/// registrations said (`found`, those known): a looked-up type, airline and
+/// build year are offered beside what was read; a painted type that disagrees is
 /// offered unticked; the type from the look only when neither gives one.
 pub fn offer(
     item: &ReviewItem,
@@ -614,7 +617,13 @@ pub fn offer(
         TagPath::new([TAG_PARENT, kind, name.replace(['/', '|'], "-").as_str()])
     };
     for f in &known {
-        for (kind, name) in [("Airline", &f.airline), ("Type", &f.aircraft_type)] {
+        // The build year from OpenSky's database (ADR-044).
+        let built = f.built.as_deref().map(|b| super::built::year(b).to_owned());
+        for (kind, name) in [
+            ("Airline", &f.airline),
+            ("Type", &f.aircraft_type),
+            (super::built::KIND, &built),
+        ] {
             if let Some(name) = name {
                 let p = path(kind, name)?;
                 if !out.keywords.contains(&p) {

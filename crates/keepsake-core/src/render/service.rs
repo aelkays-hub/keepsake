@@ -64,6 +64,11 @@ use crate::settings::RenderSettings;
 const OFFLINE_RETRY_MS: i64 = 10 * 60 * 1000;
 /// How soon a job is tried again after the catalog was busy.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
+/// With no old lookup left to ask again, the aircraft worker looks again
+/// after this long (one may have come from another catalog's copy).
+const REFRESH_IDLE: Duration = Duration::from_secs(600);
+/// After asking again failed (offline, the service busy), it waits this long.
+const REFRESH_BACKOFF: Duration = Duration::from_secs(600);
 /// How long the fingerprint worker waits before looking again while
 /// thumbnail jobs are ready.
 const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
@@ -943,6 +948,8 @@ impl RenderService {
                 return Ok(());
             }
         };
+        // When to look for an old lookup to ask again (`None`: now).
+        let mut refresh_after: Option<Instant> = None;
         while !cancel.load(Ordering::SeqCst) {
             let pause = pause_reason(cat, &self.on_battery, self.opts.pause_on_battery);
             self.note_pause(shared, pause, tx);
@@ -963,6 +970,25 @@ impl RenderService {
                 if self.opts.until_empty && !Self::stills_wait(cat, shared) {
                     break;
                 }
+                // Nothing to read: ask again about one registration looked
+                // up before the build date was kept (ADR-044), at the
+                // lookup's pace; after a failure, not for a while.
+                if let Some(lookup) = self.lookup.as_deref() {
+                    if refresh_after.is_none_or(|t| Instant::now() >= t) {
+                        match crate::ai::aircraft::lookup::refresh_one(cat, lookup) {
+                            Ok(Some(reg)) => {
+                                tracing::info!(registration = %reg, "aircraft lookup asked again");
+                                Self::sleep(cancel, crate::ai::aircraft::lookup::MIN_GAP);
+                                continue;
+                            }
+                            Ok(None) => refresh_after = Some(Instant::now() + REFRESH_IDLE),
+                            Err(e) => {
+                                tracing::warn!("aircraft lookup asked again: {e}");
+                                refresh_after = Some(Instant::now() + REFRESH_BACKOFF);
+                            }
+                        }
+                    }
+                }
                 Self::sleep(cancel, Duration::from_secs(1));
                 continue;
             };
@@ -971,6 +997,8 @@ impl RenderService {
                 kind: job.kind.clone(),
                 asset: job.asset_id,
             });
+            // A lookup made while reading may leave others to ask again.
+            refresh_after = None;
             let t0 = Instant::now();
             let read = aircraft_scan::read_asset(
                 cat,
@@ -1023,8 +1051,8 @@ impl RenderService {
                 continue;
             }
             match lk::kept(cat, reg) {
-                Ok(Some(_)) => continue,
-                Ok(None) => {}
+                Ok(Some(f)) if !f.stale() => continue,
+                Ok(_) => {}
                 Err(e) => {
                     tracing::debug!("aircraft lookup: {e}");
                     continue;

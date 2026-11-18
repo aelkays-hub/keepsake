@@ -966,3 +966,225 @@ fn tag_with_ai_gives_its_tags_to_the_same_shot() {
         .collect();
     assert!(by.iter().all(|p| p == "claude") && !by.is_empty());
 }
+
+// ---- When the aircraft was built (ADR-044) ----
+
+use keepsake_core::ai::aircraft::built::{self, BuiltDb};
+
+/// adsbdb's answer for C-FJZS, with its transponder code, through the real
+/// client over a stand-in for the network; counts what it is asked.
+struct Adsbdb {
+    asked: Mutex<Vec<String>>,
+}
+
+impl keepsake_core::ai::cloud::Http for Adsbdb {
+    fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<(u16, String), String> {
+        Err("no posts".into())
+    }
+    fn get(&self, url: &str, _: &[(&str, &str)]) -> Result<(u16, String), String> {
+        self.asked.lock().unwrap().push(url.to_owned());
+        Ok((
+            200,
+            r#"{"response":{"aircraft":{"type":"777 333ER","icao_type":"B77W","manufacturer":"Boeing","mode_s":"C0174F","registered_owner":"Air Canada","registered_owner_country_name":"Canada"}}}"#.to_owned(),
+        ))
+    }
+}
+
+/// The client, with OpenSky's build year of C0174F (2008).
+fn adsbdb() -> (Arc<Adsbdb>, Arc<lookup::AdsbDb>) {
+    let http = Arc::new(Adsbdb {
+        asked: Mutex::new(Vec::new()),
+    });
+    let db = BuiltDb::from_tsv("c0174f\tC-FJZS\t2008\n");
+    let client = lookup::AdsbDb::new(http.clone()).with_built(Some(Arc::new(db)));
+    (http, Arc::new(client))
+}
+
+#[test]
+fn lookups_kept_before_the_build_year_are_asked_again_once() {
+    let mut w = World::new(&["a.jpg"]);
+    // Kept by 0.5: no transponder code, no build year, no version.
+    let old = r#"{"registration":"C-FJZS","known":true,"aircraft_type":"Boeing 777-300ER","airline":"Air Canada","manufacturer":"Boeing","owner":"Air Canada","icao_type":"B77W","country":"Canada"}"#;
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-FJZS", old, 1))
+        .unwrap();
+    assert!(lookup::kept(&w.cat, "C-FJZS").unwrap().unwrap().stale());
+    let (http, client) = adsbdb();
+
+    assert_eq!(
+        lookup::refresh_one(&mut w.cat, client.as_ref())
+            .unwrap()
+            .as_deref(),
+        Some("C-FJZS")
+    );
+    let f = lookup::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert!(!f.stale());
+    assert_eq!(f.mode_s.as_deref(), Some("C0174F"));
+    assert_eq!(f.built.as_deref(), Some("2008"));
+    let k = built::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert_eq!(
+        (k.built.as_str(), k.source.as_str()),
+        ("2008", built::FROM_OPENSKY)
+    );
+
+    // Once: nothing is left to ask again, and a cached lookup is not asked.
+    assert_eq!(
+        lookup::refresh_one(&mut w.cat, client.as_ref()).unwrap(),
+        None
+    );
+    lookup::lookup_cached(&mut w.cat, Some(client.as_ref()), "C-FJZS").unwrap();
+    assert_eq!(http.asked.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn the_build_year_is_offered_from_opensky_and_accepted_as_a_keyword() {
+    let mut w = World::new(&["a.jpg"]);
+    let before = hashes(&w.media);
+    let a = w.asset("a.jpg");
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    let (http, client) = adsbdb();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&AIR_CANADA, &seen))
+        .with_lookup(client)
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(http.asked.lock().unwrap().len(), 1);
+
+    let item = &scan::review_items(&w.cat, &[a]).unwrap()[0];
+    let conf = Confidence::default();
+    let found = scan::found_for(&w.cat, item, &conf).unwrap();
+    let offer = scan::offer(item, &conf, &found).unwrap();
+    let built_kw = TagPath::parse_lightroom("Aircraft|Built|2008").unwrap();
+    assert!(offer.keywords.contains(&built_kw));
+    assert!(offer.from_lookup.contains(&built_kw));
+    assert!(scan::is_aircraft_keyword(&built_kw));
+
+    scan::accept(&mut w.cat, &w.lib, a, &offer.keywords).unwrap();
+    assert!(w.keywords(a).contains(&"Aircraft|Built|2008".to_owned()));
+    // The report's registration row says when it was built.
+    let r = w.cat.read(|tx| tx.aircraft_report().aircraft()).unwrap();
+    let row = r.registrations.iter().find(|r| r.name == "C-FJZS").unwrap();
+    assert_eq!(row.built.as_deref(), Some("2008"));
+    // A Built keyword is not an airline, type or registration of its own.
+    assert!(r.types.iter().all(|t| t.name != "2008"));
+    assert_eq!(hashes(&w.media), before, "originals unchanged");
+}
+
+/// Every sidecar's text, joined.
+fn sidecars(w: &World) -> String {
+    let mut out = String::new();
+    let mut stack = vec![w.lib.sidecars_dir()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "xmp") {
+                out.push_str(&std::fs::read_to_string(&p).unwrap());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_typed_build_date_wins_and_goes_on_every_photo_of_the_registration() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg"]);
+    let before = hashes(&w.media);
+    let [a, b, c] = ["a.jpg", "b.jpg", "c.jpg"].map(|n| w.asset(n));
+    let reg = TagPath::parse_lightroom("Aircraft|Registration|C-FJZS").unwrap();
+    let old = TagPath::parse_lightroom("Aircraft|Built|2007").unwrap();
+    {
+        let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+        svc.set_user_tags(a, &[reg.clone(), old]).unwrap();
+        svc.set_user_tags(b, std::slice::from_ref(&reg)).unwrap();
+    }
+    // OpenSky said 2008 (kept with the lookup).
+    let found = lookup::Found {
+        registration: "C-FJZS".into(),
+        known: true,
+        built: Some("2008".into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-FJZS", &json, 1))
+        .unwrap();
+    built::note_found(&mut w.cat, &found).unwrap();
+
+    assert_eq!(
+        built::set_typed(&mut w.cat, &w.lib, "C-FJZS", Some("2010-06-15")).unwrap(),
+        2
+    );
+    let k = built::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert_eq!(
+        (k.built.as_str(), k.source.as_str()),
+        ("2010-06-15", built::FROM_TYPED)
+    );
+    for id in [a, b] {
+        let kw = w.keywords(id);
+        assert!(kw.contains(&"Aircraft|Built|2010".to_owned()), "{kw:?}");
+        assert!(!kw.contains(&"Aircraft|Built|2007".to_owned()), "{kw:?}");
+    }
+    assert!(w.keywords(c).is_empty());
+    assert!(sidecars(&w).contains("Aircraft|Built|2010"));
+    // OpenSky does not replace what was typed.
+    built::note_found(&mut w.cat, &found).unwrap();
+    assert_eq!(
+        built::kept(&w.cat, "C-FJZS").unwrap().unwrap().source,
+        built::FROM_TYPED
+    );
+    let r = w.cat.read(|tx| tx.aircraft_report().aircraft()).unwrap();
+    assert_eq!(r.registrations[0].built.as_deref(), Some("2010-06-15"));
+
+    // Not a year: refused, nothing changes.
+    assert!(built::set_typed(&mut w.cat, &w.lib, "C-FJZS", Some("soon")).is_err());
+    // Forgotten: the typed year goes, and OpenSky's comes back.
+    assert_eq!(
+        built::set_typed(&mut w.cat, &w.lib, "C-FJZS", None).unwrap(),
+        2
+    );
+    let k = built::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert_eq!(
+        (k.built.as_str(), k.source.as_str()),
+        ("2008", built::FROM_OPENSKY)
+    );
+    assert!(!w
+        .keywords(a)
+        .iter()
+        .any(|k| k.starts_with("Aircraft|Built|")));
+    assert_eq!(hashes(&w.media), before, "originals unchanged");
+}
+
+#[test]
+fn the_downloaded_database_gives_lookups_already_kept_their_build_year() {
+    let mut w = World::new(&["a.jpg"]);
+    let found = lookup::Found {
+        registration: "C-FJZS".into(),
+        known: true,
+        mode_s: Some("C0174F".into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-FJZS", &json, 1))
+        .unwrap();
+    let db = BuiltDb::from_tsv("c0174f\tC-FJZS\t2008-04-11\n");
+    assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 1);
+    assert_eq!(
+        lookup::kept(&w.cat, "C-FJZS")
+            .unwrap()
+            .unwrap()
+            .built
+            .as_deref(),
+        Some("2008-04-11")
+    );
+    assert_eq!(
+        built::kept(&w.cat, "C-FJZS").unwrap().unwrap().built,
+        "2008-04-11"
+    );
+    // Again: nothing new.
+    assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 0);
+}
