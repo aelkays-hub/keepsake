@@ -63,6 +63,8 @@ export function ordered(items: AircraftReviewItemDto[]): AircraftReviewItemDto[]
 /** Where an offered keyword comes from, for its label. */
 export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
   const pct = pctOf(item, keyword);
+  // The build year comes from OpenSky's database on this computer (ADR-044).
+  if (item.fromLookup.includes(keyword) && parts(keyword)[0] === "Built") return "(OpenSky)";
   if (item.fromLookup.includes(keyword)) return pct === null ? "(adsbdb)" : `${pct}%, adsbdb`;
   return pct === null ? "(its look)" : `${pct}%`;
 }
@@ -106,7 +108,12 @@ export function lookupLine(item: AircraftReviewItemDto): string {
   return item.lookups
     .map((l) =>
       l.known
-        ? `${l.registration}: ${[l.aircraftType, l.airline ?? l.owner, l.country]
+        ? `${l.registration}: ${[
+            l.aircraftType,
+            l.airline ?? l.owner,
+            l.country,
+            l.built && `built ${l.built.slice(0, 4)}`,
+          ]
             .filter(Boolean)
             .join(", ")}`
         : `adsbdb does not know ${l.registration}`,

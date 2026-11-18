@@ -19,4 +19,9 @@ airlines: Array<string>, types: Array<string>,
 /**
  * First and last capture day, `YYYY-MM-DD`.
  */
-first: string | null, last: string | null, };
+first: string | null, last: string | null, 
+/**
+ * When the aircraft was built (`2014` or `2014-03-05`;
+ * registrations only). Its age is worked out where shown.
+ */
+built: string | null, };

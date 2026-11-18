@@ -7,6 +7,7 @@
 import type { Details, FileMetadata, MemberDto } from "../api";
 import * as fmt from "../format";
 import { useFileMetadata } from "../fileMetadata";
+import { ageLines, usePhotoBuilt } from "../photoBuilt";
 import { MetadataTags } from "./AllMetadata";
 
 /** The first of `names` found in any group, as ExifTool printed it. */
@@ -49,6 +50,8 @@ export function ViewerInfo({
 }) {
   const shown: MemberDto = hasPair ? member : "primary";
   const { data, problem } = useFileMetadata(d.id, shown, true, d.online);
+  // The aircraft's age, worked out now (ADR-044).
+  const built = usePhotoBuilt(d);
   const file =
     shown === "raw"
       ? d.files.find((f) => f.role === "raw_pair")
@@ -69,6 +72,7 @@ export function ViewerInfo({
     ["Dimensions", dimensions(data)],
     ["File size", file ? fmt.bytes(file.size) : tag(data, "FileSize")],
     ["Location", gps],
+    ...ageLines(d, built),
   ];
   return (
     <aside className="viewer-info" aria-label="Information" data-testid="viewer-info">

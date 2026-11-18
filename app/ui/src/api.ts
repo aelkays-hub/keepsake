@@ -18,6 +18,7 @@ import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
 import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AiAdviceDto } from "./bindings/AiAdviceDto";
 import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
+import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
 import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
 import type { SamePlaneDto } from "./bindings/SamePlaneDto";
@@ -99,6 +100,7 @@ export type {
   SuggestDto,
   AiAdviceDto,
   AircraftConfidenceDto,
+  AircraftBuiltDto,
   AircraftLookupDto,
   AircraftNeighbourDto,
   SamePlaneDto,
@@ -335,6 +337,17 @@ export const api = {
   /** Look registrations up online (adsbdb.com). */
   aircraftSetLookup: (enabled: boolean) => invoke<void>("aircraft_set_lookup", { enabled }),
   aircraftDismiss: (id: string) => invoke<void>("aircraft_dismiss", { id }),
+  /** When the aircraft of these registrations were built (ADR-044). */
+  aircraftBuilt: (registrations: string[]) =>
+    invoke<AircraftBuiltDto[]>("aircraft_built", { registrations }),
+  /** Type when a registration's aircraft was built (null: forget it);
+   * how many photos changed. */
+  aircraftSetBuilt: (registration: string, built: string | null) =>
+    invoke<number>("aircraft_set_built", { registration, built }),
+  /** Download OpenSky's aircraft database (build years), once. */
+  aircraftBuiltInstall: () => invoke<void>("aircraft_built_install"),
+  aircraftBuiltCancel: () => invoke<void>("aircraft_built_cancel"),
+  aircraftBuiltRemove: () => invoke<boolean>("aircraft_built_remove"),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
@@ -454,6 +467,8 @@ export const events = {
   aircraftInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("aircraft://install", (e) => f(e.payload)),
   aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
+  aircraftBuiltInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("aircraft://built-install", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

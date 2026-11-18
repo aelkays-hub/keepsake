@@ -8,13 +8,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, pickSaveCsv, type AircraftReport } from "../api";
 import type { AircraftReportGroup } from "../bindings/AircraftReportGroup";
-import type { AircraftReportRow } from "../bindings/AircraftReportRow";
 import type { AircraftReportYear } from "../bindings/AircraftReportYear";
 import {
   AIRCRAFT_TABLES,
   aircraftCsvName,
   aircraftRows,
   aircraftRowTitle,
+  aircraftValue,
   drillKeys,
   drillRows,
   seen,
@@ -22,6 +22,7 @@ import {
   type AircraftTable,
   type AircraftView,
 } from "../aircraftReport";
+import { ageLabel, ageOn, builtLabel, today } from "../aircraftAge";
 import * as fmt from "../format";
 import { useUi } from "../state";
 import { sortRows, type SortValue, type TableSort } from "../tableSort";
@@ -82,7 +83,11 @@ export function AircraftReportView() {
     lastYearSort = t;
     setYearSortState(t);
   };
-  const rows = sortRows(r ? aircraftRows(r, table, find) : [], sort, aircraftValue);
+  // The age is worked out from today, when the report opens (ADR-044).
+  const [now] = useState(today);
+  const rows = sortRows(r ? aircraftRows(r, table, find) : [], sort, (row, col) =>
+    aircraftValue(row, col, now),
+  );
   // Undated stays last.
   const years = sortRows(r?.years ?? [], yearSort, yearValue, (y) => y.year === null);
   const most = r ? Math.max(1, ...r[table].map((x) => x.photos)) : 1;
@@ -290,6 +295,8 @@ export function AircraftReportView() {
                         ["Airline", "airline", false, table !== "airlines"],
                         ["Type", "type", false, table !== "types"],
                         ["Seen", "seen", false, true],
+                        ["Built", "built", true, table === "registrations"],
+                        ["Age", "age", true, table === "registrations"],
                       ] as const
                     )
                       .filter(([, , , shown]) => shown)
@@ -333,11 +340,21 @@ export function AircraftReportView() {
                         <td className="muted">{row.types.join(", ") || "—"}</td>
                       )}
                       <td className="muted aircraft-seen">{seen(row)}</td>
+                      {table === "registrations" && (
+                        <>
+                          <td className="num" data-testid="aircraft-built">
+                            {row.built ? builtLabel(row.built) : "—"}
+                          </td>
+                          <td className="num" data-testid="aircraft-age">
+                            {ageCell(row.built, now)}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                   {r && rows.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="muted" data-testid="aircraft-none">
+                      <td colSpan={6} className="muted" data-testid="aircraft-none">
                         {find.trim() ? `Nothing matches “${find.trim()}”.` : "None yet."}
                       </td>
                     </tr>
@@ -349,6 +366,8 @@ export function AircraftReportView() {
               <p className="muted small">
                 Airline and type list up to three, most photos first. A photo can name several, so
                 the rows add up to more than the totals.
+                {table === "registrations" &&
+                  " Age is counted to today from when the aircraft was built (“about” when only the year is known)."}
               </p>
             )}
           </div>
@@ -463,25 +482,6 @@ function DrillDown({
 
 /** An aircraft row's value in a column, for sorting; Seen sorts by the
  * last day seen. */
-function aircraftValue(row: AircraftReportRow, col: string): SortValue {
-  switch (col) {
-    case "name":
-      return row.name;
-    case "photos":
-      return row.photos;
-    case "registrations":
-      return row.registrations;
-    case "airline":
-      return row.airlines[0] ?? null;
-    case "type":
-      return row.types[0] ?? null;
-    case "seen":
-      return row.last ?? null;
-    default:
-      return null;
-  }
-}
-
 function yearValue(y: AircraftReportYear, col: string): SortValue {
   if (col === "year") return y.year;
   if (col === "photos") return y.photos;
@@ -497,4 +497,10 @@ function Stat(p: { label: string; value: string; sub?: string; id: string }) {
       {p.sub && <div className="muted small">{p.sub}</div>}
     </div>
   );
+}
+
+/** The age cell: worked out from today. */
+function ageCell(built: string | null, now: string): string {
+  const a = ageOn(built, now);
+  return a ? ageLabel(a) : "—";
 }

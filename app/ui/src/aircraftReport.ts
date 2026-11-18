@@ -4,7 +4,9 @@
 import type { AircraftReport } from "./bindings/AircraftReport";
 import type { AircraftReportGroup } from "./bindings/AircraftReportGroup";
 import type { AircraftReportRow } from "./bindings/AircraftReportRow";
+import { ageOn } from "./aircraftAge";
 import { dateLabel } from "./report";
+import type { SortValue } from "./tableSort";
 
 export type AircraftTable = "airlines" | "types" | "registrations";
 
@@ -52,6 +54,31 @@ export function seen(row: AircraftReportRow): string {
 export function aircraftRowTitle(table: AircraftTable, row: AircraftReportRow): string {
   const t = AIRCRAFT_TABLES.find((x) => x.key === table);
   return `${t?.title ?? ""} ${row.name}`.trim();
+}
+
+/** A table cell's value for sorting. `age` is worked out from `now`
+ * (`YYYY-MM-DD`, when the report opened), from when it was built. */
+export function aircraftValue(row: AircraftReportRow, col: string, now: string): SortValue {
+  switch (col) {
+    case "name":
+      return row.name;
+    case "photos":
+      return row.photos;
+    case "registrations":
+      return row.registrations;
+    case "airline":
+      return row.airlines[0] ?? null;
+    case "type":
+      return row.types[0] ?? null;
+    case "seen":
+      return row.last ?? null;
+    case "built":
+      return row.built;
+    case "age":
+      return ageOn(row.built, now)?.years ?? null;
+    default:
+      return null;
+  }
 }
 
 /** The share of `n` in `of`, 0–100, for a bar. */

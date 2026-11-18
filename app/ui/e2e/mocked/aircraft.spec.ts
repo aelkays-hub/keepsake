@@ -354,3 +354,102 @@ test("Read again: a photo, or all of them, is read again and waits for review ag
   await expect.poll(async () => (await calls(page, "aircraft_read")).length).toBe(3);
   await expect(photos).toHaveCount(1);
 });
+
+// ---- The aircraft's age (ADR-044) ----
+
+/** Whole years from `y-m-d` to today (a birthday not yet reached not counted). */
+function yearsSince(y: number, m = 1, d = 1): number {
+  const now = new Date();
+  const before = now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d);
+  return now.getFullYear() - y - (before ? 1 : 0);
+}
+
+test("the aircraft's age: worked out in the inspector and the viewer, typed once per registration", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&builtdb=on");
+  await page.getByTestId("tile").nth(0).click();
+  const insp = page.getByTestId("inspector");
+  await insp.getByTestId("keyword-input").fill("Aircraft|Registration|C-FJZS");
+  await insp.getByTestId("keyword-input").press("Enter");
+  // OpenSky's database says 2008 (a year alone: "about").
+  const age = insp.getByTestId("aircraft-age");
+  await expect(age.getByTestId("aircraft-age-today")).toHaveText(
+    `about ${yearsSince(2008)} years (built 2008)`,
+  );
+  await expect(age.getByTestId("aircraft-age-photo")).toHaveText(
+    /^(about \d+ years|about 1 year|under a year) \(built 2008, photographed \d{4}\)$/,
+  );
+  await expect(age.getByTestId("aircraft-built-source")).toHaveText("C-FJZS: from OpenSky");
+
+  // Typed: the date wins, for every photo of C-FJZS, and the age is exact.
+  await age.getByTestId("aircraft-built-input").fill("2010-06-15");
+  await age.getByTestId("aircraft-built-save").click();
+  expect(await calls(page, "aircraft_set_built")).toEqual([
+    { registration: "C-FJZS", built: "2010-06-15" },
+  ]);
+  const n = yearsSince(2010, 6, 15);
+  await expect(age.getByTestId("aircraft-age-today")).toHaveText(`${n} years (built 15 June 2010)`);
+  await expect(age.getByTestId("aircraft-built-source")).toHaveText("C-FJZS: typed by you");
+  await expect(insp.getByRole("list", { name: "Keywords" })).toContainText("Aircraft|Built|2010");
+
+  // Not a year: said, nothing changes.
+  await age.getByTestId("aircraft-built-input").fill("soon");
+  await age.getByTestId("aircraft-built-save").click();
+  await expect(age.getByRole("alert")).toContainText("soon is not a year");
+
+  // The viewer's information panel says both ages too.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("tile").nth(0).click();
+  await page.keyboard.press("Enter");
+  await page.getByTestId("viewer-info-toggle").click();
+  const facts = page.getByTestId("viewer-facts");
+  await expect(facts).toContainText(`Aircraft age${n} years (built 15 June 2010)`);
+  await expect(facts).toContainText("Age in this photo");
+});
+
+test("the aircraft's age: not known until typed, or the OpenSky database is downloaded", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on");
+  await page.getByTestId("tile").nth(0).click();
+  const insp = page.getByTestId("inspector");
+  // No registration: nothing is said.
+  await expect(insp.getByTestId("aircraft-age")).toHaveCount(0);
+  await insp.getByTestId("keyword-input").fill("Aircraft|Registration|XA-MBA");
+  await insp.getByTestId("keyword-input").press("Enter");
+  await expect(insp.getByTestId("aircraft-age-unknown")).toContainText(
+    "When XA-MBA was built is not known",
+  );
+  await expect(insp.getByTestId("aircraft-age-today")).toHaveCount(0);
+
+  // Settings: the database is downloaded once, then it is there.
+  await settings(page);
+  const db = page.getByTestId("aircraft-built-db");
+  await expect(db).toContainText("free for non-commercial use");
+  await expect(db.getByTestId("aircraft-built-get")).toHaveText("Download it (94.5 MB)");
+  await db.getByTestId("aircraft-built-get").click();
+  expect(await calls(page, "aircraft_built_install")).toHaveLength(1);
+  await expect(db.getByTestId("aircraft-built-ready")).toHaveText("On this computer.");
+  await db.getByTestId("aircraft-built-remove").click();
+  expect(await calls(page, "aircraft_built_remove")).toHaveLength(1);
+  await expect(db.getByTestId("aircraft-built-get")).toBeVisible();
+
+  // With the lookup off, the database is not offered.
+  await page.getByTestId("aircraft-lookup").uncheck();
+  await expect(page.getByTestId("aircraft-built-db")).toHaveCount(0);
+});
+
+test("the review window offers the build year from OpenSky", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on&builtdb=on");
+  await page.getByTestId("tile").nth(10).click({ button: "right" });
+  await page.getByTestId("tile-menu-aircraft").click();
+  const photo = page.getByTestId("aircraft-review").getByTestId("ar-photo").first();
+  await expect(photo.getByTestId("ar-lookup")).toHaveText(
+    "Registry (adsbdb): C-FJZS: Boeing 777-200LR, Air Canada, Canada, built 2008",
+  );
+  await expect(photo).toContainText("Built 2008 (OpenSky)");
+  await photo.getByTestId("ar-accept").click();
+  const sent = (await calls(page, "aircraft_accept"))[0] as { keywords: string[] };
+  expect(sent.keywords).toContain("Aircraft|Built|2008");
+});

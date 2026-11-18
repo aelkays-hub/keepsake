@@ -93,6 +93,7 @@ fn aircraft_row(r: &AircraftRow) -> AircraftReportRow {
         types: r.types.clone(),
         first: r.first.clone(),
         last: r.last.clone(),
+        built: r.built.clone(),
     }
 }
 

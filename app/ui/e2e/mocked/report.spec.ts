@@ -289,3 +289,30 @@ test("report columns sort when their heading is clicked, Unknown last", async ({
     "Undated",
   ]);
 });
+
+test("the aircraft report's registrations say when built and how old, and sort by age", async ({
+  page,
+}) => {
+  const screen = await open(page, 200);
+  await screen.getByTestId("report-kind-aircraft").click();
+  await screen.getByTestId("aircraft-by-registrations").click();
+  const table = screen.getByTestId("aircraft-table");
+  await expect(table.locator("thead th")).toContainText(["Built", "Age"]);
+  const now = new Date().getFullYear();
+  await screen.getByTestId("aircraft-sort-age").click();
+  // Oldest first; not known last.
+  await expect(table.locator("tbody th")).toHaveText(["PH-BFA", "C-FITU", "C-FVLU", "XA-MBA"]);
+  await expect(table.getByTestId("aircraft-built")).toHaveText([
+    "1989",
+    "2008",
+    "10 March 2016",
+    "—",
+  ]);
+  await expect(table.getByTestId("aircraft-age").first()).toHaveText(`about ${now - 1989} years`);
+  await expect(table.getByTestId("aircraft-age").last()).toHaveText("—");
+  await screen.getByTestId("aircraft-sort-age").click();
+  await expect(table.locator("tbody th")).toHaveText(["C-FVLU", "C-FITU", "PH-BFA", "XA-MBA"]);
+  // Not on the airlines table.
+  await screen.getByTestId("aircraft-by-airlines").click();
+  await expect(table.locator("thead th")).not.toContainText(["Built"]);
+});

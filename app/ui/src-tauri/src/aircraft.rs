@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use keepsake_core::ai::aircraft::marks::Confidence;
-use keepsake_core::ai::aircraft::{install, scan};
+use keepsake_core::ai::aircraft::{built, install, scan};
 use keepsake_core::ai::install as ai_install;
 use keepsake_core::catalog::{AssetId, TagPath};
 use keepsake_core::render::Variant;
@@ -16,9 +16,9 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AircraftConfidenceDto, AircraftLookupDto, AircraftNeighbourDto,
-    AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted, CloudStatusDto,
-    SamePlaneDto, ScoredMarkDto, Selection,
+    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftLookupDto,
+    AircraftNeighbourDto, AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted,
+    CloudStatusDto, SamePlaneDto, ScoredMarkDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -32,6 +32,8 @@ pub struct AircraftState {
     problem: Mutex<Option<String>>,
     /// The running download: its stop flag and bytes so far.
     install: Mutex<Option<(Arc<AtomicBool>, u64)>>,
+    /// The running download of OpenSky's aircraft database (ADR-044).
+    built_install: Mutex<Option<(Arc<AtomicBool>, u64)>>,
 }
 
 fn set<T>(m: &Mutex<T>, v: T) {
@@ -71,6 +73,9 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         installing: get(&st.install).flatten().map(|(_, done)| done),
         confidence: confidence_dto(settings.ai.aircraft_confidence(), settings.ai.same_shot_s),
         lookup: settings.ai.aircraft_lookup,
+        built_installed: built::installed(),
+        built_bytes: built::DATABASE.bytes,
+        built_installing: get(&st.built_install).flatten().map(|(_, done)| done),
     })
 }
 
@@ -421,6 +426,7 @@ pub fn aircraft_review(
                     airline: f.airline,
                     owner: f.owner,
                     country: f.country,
+                    built: f.built,
                 })
                 .collect(),
             neighbours: on_screen.then_some(neighbours),
@@ -488,11 +494,150 @@ fn name_of(cat: &keepsake_core::catalog::Catalog, asset: AssetId) -> CmdResult<O
         .map(|f| f.rel_path.file_name().to_owned()))
 }
 
-/// The lookup the render service uses (adsbdb.com).
+/// The lookup the render service uses (adsbdb.com), with the build years of
+/// OpenSky's aircraft database when it is on this computer.
 pub fn lookup() -> Arc<dyn keepsake_core::ai::aircraft::lookup::Lookup> {
-    Arc::new(keepsake_core::ai::aircraft::lookup::AdsbDb::new(Arc::new(
-        keepsake_core::ai::cloud::UreqHttp::new(),
-    )))
+    Arc::new(
+        keepsake_core::ai::aircraft::lookup::AdsbDb::new(Arc::new(
+            keepsake_core::ai::cloud::UreqHttp::new(),
+        ))
+        .with_built(built::BuiltDb::installed().map(Arc::new)),
+    )
+}
+
+/// When the aircraft of these registrations were built, for those kept
+/// (ADR-044). The age is worked out by the UI, when shown.
+#[tauri::command(async)]
+pub fn aircraft_built(
+    state: State<'_, AppState>,
+    registrations: Vec<String>,
+) -> CmdResult<Vec<AircraftBuiltDto>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let mut out = Vec::new();
+    for r in registrations {
+        if let Some(k) = built::kept(&cat, &r).map_err(err)? {
+            out.push(AircraftBuiltDto {
+                registration: r,
+                built: k.built,
+                source: k.source,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The user typed when `registration`'s aircraft was built (`None` or
+/// blank: forget it). Its photos get `Aircraft|Built|<year>`. Returns how
+/// many photos changed.
+#[tauri::command(async)]
+pub fn aircraft_set_built(
+    state: State<'_, AppState>,
+    registration: String,
+    built: Option<String>,
+) -> CmdResult<u64> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    built::set_typed(&mut cat, &open.lib, &registration, built.as_deref()).map_err(err)
+}
+
+/// Download OpenSky's aircraft database (progress on
+/// `aircraft://built-install`), keep its build years, give them to the
+/// registrations already looked up, and restart the render service so new
+/// lookups use them.
+#[tauri::command(async)]
+pub fn aircraft_built_install(app: AppHandle) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let cancel = {
+        let mut slot = state
+            .aircraft
+            .built_install
+            .lock()
+            .map_err(|_| "aircraft state poisoned")?;
+        if slot.is_some() {
+            return Ok(()); // already downloading
+        }
+        let c = Arc::new(AtomicBool::new(false));
+        *slot = Some((Arc::clone(&c), 0));
+        c
+    };
+    let app2 = app.clone();
+    std::thread::Builder::new()
+        .name("aircraft-built-install".into())
+        .spawn(move || {
+            let st = app2.state::<AppState>();
+            let total = built::DATABASE.bytes;
+            let r = built::install(&cancel, &mut |done, total| {
+                if let Ok(mut s) = st.aircraft.built_install.lock() {
+                    if let Some(slot) = s.as_mut() {
+                        slot.1 = done;
+                    }
+                }
+                let _ = app2.emit(
+                    "aircraft://built-install",
+                    AiInstallProgress {
+                        done,
+                        total,
+                        finished: false,
+                        error: None,
+                    },
+                );
+            });
+            let error = match r {
+                Ok(_) => fill_and_restart(&app2).err(),
+                Err(keepsake_core::ai::AiError::Cancelled) => Some("cancelled".to_owned()),
+                Err(e) => Some(e.to_string()),
+            };
+            set(&st.aircraft.built_install, None);
+            let _ = app2.emit(
+                "aircraft://built-install",
+                AiInstallProgress {
+                    done: 0,
+                    total,
+                    finished: true,
+                    error,
+                },
+            );
+            let _ = app2.emit("aircraft://status", ());
+        })
+        .map_err(err)?;
+    Ok(())
+}
+
+/// The database is here: registrations already looked up get their build
+/// year from it, and the render service is restarted to use it.
+fn fill_and_restart(app: &AppHandle) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let Some(open) = state.try_open() else {
+        return Ok(());
+    };
+    if let Some(db) = built::BuiltDb::installed() {
+        let mut cat = open.writer()?;
+        let n = built::fill_from_db(&mut cat, &db).map_err(err)?;
+        tracing::info!(registrations = n, "aircraft build years from OpenSky");
+    }
+    drop(open);
+    crate::render::restart_service(app).map(|_| ())
+}
+
+#[tauri::command(async)]
+pub fn aircraft_built_cancel(state: State<'_, AppState>) -> CmdResult<()> {
+    if let Some((c, _)) = get(&state.aircraft.built_install).flatten() {
+        c.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+/// Delete OpenSky's aircraft database from this computer. Build years
+/// already kept, and keywords, stay.
+#[tauri::command(async)]
+pub fn aircraft_built_remove(app: AppHandle) -> CmdResult<bool> {
+    let removed = built::remove().map_err(err)?;
+    if app.state::<AppState>().try_open().is_some() {
+        crate::render::restart_service(&app)?;
+    }
+    let _ = app.emit("aircraft://status", ());
+    Ok(removed)
 }
 
 /// Turn the online registration lookup on or off.

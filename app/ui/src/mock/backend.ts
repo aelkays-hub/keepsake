@@ -105,6 +105,10 @@ export interface MockState {
   };
   /** Look registrations up online (`?lookup=on`). */
   aircraftLookup: boolean;
+  /** OpenSky's aircraft database is on this computer (`?builtdb=on`). */
+  aircraftBuiltDb: boolean;
+  /** When each registration was built, as kept (ADR-044). */
+  aircraftBuilt: Map<string, { built: string; source: string }>;
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -271,6 +275,7 @@ function mockAircraftReport(): AircraftReport {
     types: string[],
     first: string | null,
     last: string | null,
+    built: string | null = null,
   ) => ({
     name,
     path: `Aircraft|${kind}|${name}`,
@@ -280,6 +285,7 @@ function mockAircraftReport(): AircraftReport {
     types,
     first,
     last,
+    built,
   });
   return {
     totals: {
@@ -314,7 +320,17 @@ function mockAircraftReport(): AircraftReport {
       row("Type", "Boeing 777-300ER", 4, 1, ["Air Canada"], [], "2020-02-02", "2020-02-02"),
     ],
     registrations: [
-      row("Registration", "PH-BFA", 12, 0, ["KLM"], ["Boeing 747"], "2019-01-06", "2019-01-06"),
+      row(
+        "Registration",
+        "PH-BFA",
+        12,
+        0,
+        ["KLM"],
+        ["Boeing 747"],
+        "2019-01-06",
+        "2019-01-06",
+        "1989",
+      ),
       row(
         "Registration",
         "C-FVLU",
@@ -324,6 +340,7 @@ function mockAircraftReport(): AircraftReport {
         ["Boeing 787-9"],
         "2018-01-02",
         "2024-06-01",
+        "2016-03-10",
       ),
       row(
         "Registration",
@@ -334,6 +351,7 @@ function mockAircraftReport(): AircraftReport {
         ["Boeing 777-300ER"],
         "2020-02-02",
         "2020-02-02",
+        "2008",
       ),
       row("Registration", "XA-MBA", 6, 0, ["Interjet"], [], "2019-01-06", "2019-01-06"),
     ],
@@ -498,6 +516,10 @@ export function installMock(): void {
     aircraftReads: new Map(),
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
     aircraftLookup: params.get("lookup") === "on",
+    aircraftBuiltDb: params.get("builtdb") === "on",
+    aircraftBuilt: new Map(
+      params.get("builtdb") === "on" ? [["C-FJZS", { built: "2008", source: "opensky" }]] : [],
+    ),
     faceRows: new Map(),
     facesMatch: 55,
     facesAsked: new Set(),
@@ -1620,7 +1642,56 @@ export function installMock(): void {
             installing: null,
             confidence: st.aircraftConf,
             lookup: st.aircraftLookup,
+            builtInstalled: st.aircraftBuiltDb,
+            builtBytes: 94509542,
+            builtInstalling: null,
           };
+        case "aircraft_built_install":
+          st.aircraftBuiltDb = true;
+          if (!st.aircraftBuilt.has("C-FJZS"))
+            st.aircraftBuilt.set("C-FJZS", { built: "2008", source: "opensky" });
+          void emit("aircraft://built-install", {
+            done: 0,
+            total: 94509542,
+            finished: true,
+            error: null,
+          });
+          return null;
+        case "aircraft_built_cancel":
+          return null;
+        case "aircraft_built_remove": {
+          const had = st.aircraftBuiltDb;
+          st.aircraftBuiltDb = false;
+          return had;
+        }
+        case "aircraft_built":
+          return ((a.registrations ?? []) as string[]).flatMap((r) => {
+            const k = st.aircraftBuilt.get(r);
+            return k ? [{ registration: r, ...k }] : [];
+          });
+        case "aircraft_set_built": {
+          const reg = String(a.registration ?? "");
+          const typed = a.built == null ? null : String(a.built).trim();
+          if (typed && !/^\d{4}(-\d{2}-\d{2})?$/.test(typed))
+            throw `${typed} is not a year (2014) or a date (2014-03-05)`;
+          const before = st.aircraftBuilt.get(reg);
+          if (typed) st.aircraftBuilt.set(reg, { built: typed, source: "typed" });
+          else st.aircraftBuilt.delete(reg);
+          let changed = 0;
+          for (const [i, kws] of st.keywords) {
+            if (!kws.includes(`Aircraft|Registration|${reg}`)) continue;
+            const old = before ? `Aircraft|Built|${before.built.slice(0, 4)}` : null;
+            const next = kws.filter(
+              (k) => !(k.startsWith("Aircraft|Built|") && (typed !== null || k === old)),
+            );
+            if (typed) next.push(`Aircraft|Built|${typed.slice(0, 4)}`);
+            if (next.join() !== kws.join()) {
+              st.keywords.set(i, next);
+              changed += 1;
+            }
+          }
+          return changed;
+        }
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
           if (st.aircraft.enabled && (!st.aircraft.installed || !st.aircraft.finder)) {
@@ -1742,7 +1813,12 @@ export function installMock(): void {
             // With the lookup on, the registry says a 777-200LR of Air Canada.
             const looked = st.aircraftLookup && conf.registrationPct <= 96;
             const fromLookup = looked
-              ? ["Aircraft|Airline|Air Canada", "Aircraft|Type|Boeing 777-200LR"]
+              ? [
+                  "Aircraft|Airline|Air Canada",
+                  "Aircraft|Type|Boeing 777-200LR",
+                  // The build year, from OpenSky's database (ADR-044).
+                  ...(st.aircraftBuiltDb ? ["Aircraft|Built|2008"] : []),
+                ]
               : [];
             offered.push(
               ...(painted.length
@@ -1789,6 +1865,7 @@ export function installMock(): void {
                       airline: "Air Canada",
                       owner: "Air Canada",
                       country: "Canada",
+                      built: st.aircraftBuiltDb ? "2008" : null,
                     },
                   ]
                 : [],

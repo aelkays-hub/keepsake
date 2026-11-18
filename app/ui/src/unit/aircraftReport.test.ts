@@ -28,6 +28,7 @@ const row = (
   types,
   first,
   last,
+  built: null,
 });
 
 const report: AircraftReport = {

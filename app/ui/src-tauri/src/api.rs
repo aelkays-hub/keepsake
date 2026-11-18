@@ -136,6 +136,24 @@ dto! {
         pub confidence: AircraftConfidenceDto,
         /// Registrations are looked up online (adsbdb.com).
         pub lookup: bool,
+        /// OpenSky's aircraft database (build years, ADR-044) is on this
+        /// computer.
+        pub built_installed: bool,
+        /// Its size, to download.
+        #[ts(type = "number")]
+        pub built_bytes: u64,
+        /// Downloading it: bytes so far.
+        #[ts(type = "number | null")]
+        pub built_installing: Option<u64>,
+    }
+
+    /// When an aircraft was built (ADR-044), as kept for its registration.
+    pub struct AircraftBuiltDto {
+        pub registration: String,
+        /// `2014` or `2014-03-05`.
+        pub built: String,
+        /// `opensky` or `typed`.
+        pub source: String,
     }
 
     /// Recognise faces at a glance (Settings; ADR-040).
@@ -953,6 +971,9 @@ dto! {
         /// First and last capture day, `YYYY-MM-DD`.
         pub first: Option<String>,
         pub last: Option<String>,
+        /// When the aircraft was built (`2014` or `2014-03-05`;
+        /// registrations only). Its age is worked out where shown.
+        pub built: Option<String>,
     }
 
     /// One year of the aircraft report.
@@ -1208,6 +1229,9 @@ dto! {
         pub airline: Option<String>,
         pub owner: Option<String>,
         pub country: Option<String>,
+        /// When it was built (`2014` or `2014-03-05`), from OpenSky's
+        /// aircraft database on this computer.
+        pub built: Option<String>,
     }
 
     /// A photo taken just before or after a read one.

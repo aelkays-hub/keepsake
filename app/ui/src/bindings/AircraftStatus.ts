@@ -50,4 +50,17 @@ confidence: AircraftConfidenceDto,
 /**
  * Registrations are looked up online (adsbdb.com).
  */
-lookup: boolean, };
+lookup: boolean, 
+/**
+ * OpenSky's aircraft database (build years, ADR-044) is on this
+ * computer.
+ */
+builtInstalled: boolean, 
+/**
+ * Its size, to download.
+ */
+builtBytes: number, 
+/**
+ * Downloading it: bytes so far.
+ */
+builtInstalling: number | null, };

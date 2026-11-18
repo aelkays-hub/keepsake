@@ -166,6 +166,12 @@ describe("Read aircraft review", () => {
     expect(isTicked(it2, "Aircraft|Type|Boeing 777-300ER", clicks)).toBe(true);
     expect(isTicked(it2, "Aircraft|Type|Boeing 777-200LR", clicks)).toBe(false);
     expect(sourceOf(it2, "Aircraft|Type|Boeing 777-200LR")).toBe("(adsbdb)");
+    // The build year comes from OpenSky's database (ADR-044).
+    const built = item({
+      offered: ["Aircraft|Built|2008"],
+      fromLookup: ["Aircraft|Built|2008"],
+    });
+    expect(sourceOf(built, "Aircraft|Built|2008")).toBe("(OpenSky)");
     expect(sourceOf(it2, "Aircraft|Registration|C-FIUJ")).toBe("(its look)");
   });
 
@@ -183,6 +189,7 @@ describe("Read aircraft review", () => {
           airline: "Air Canada",
           owner: "Air Canada",
           country: "Canada",
+          built: "2008-03-05",
         },
         {
           registration: "VT-JEX",
@@ -191,13 +198,14 @@ describe("Read aircraft review", () => {
           airline: null,
           owner: null,
           country: null,
+          built: null,
         },
       ],
     });
     expect(tickedNeighbours(it3, undefined)).toEqual(["b"]);
     expect(tickedNeighbours(it3, new Set(["b", "c"]))).toEqual(["c"]);
     expect(lookupLine(it3)).toBe(
-      "C-FIUJ: Boeing 777-200LR, Air Canada, Canada; adsbdb does not know VT-JEX",
+      "C-FIUJ: Boeing 777-200LR, Air Canada, Canada, built 2008; adsbdb does not know VT-JEX",
     );
     expect(secondsLabel(2.4)).toBe("+2 s");
     expect(secondsLabel(-5)).toBe("−5 s");

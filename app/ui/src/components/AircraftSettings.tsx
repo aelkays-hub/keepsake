@@ -12,6 +12,8 @@ import * as fmt from "../format";
 export function AircraftSettings() {
   const [st, setSt] = useState<AircraftStatus | null>(null);
   const [download, setDownload] = useState<{ done: number; total: number } | null>(null);
+  // Downloading OpenSky's aircraft database (build years, ADR-044).
+  const [dbDownload, setDbDownload] = useState<{ done: number; total: number } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const refresh = useCallback(() => {
     api
@@ -20,6 +22,8 @@ export function AircraftSettings() {
         setSt(x);
         if (x.installing !== null)
           setDownload((d) => d ?? { done: x.installing ?? 0, total: x.modelsBytes });
+        if (x.builtInstalling !== null)
+          setDbDownload((d) => d ?? { done: x.builtInstalling ?? 0, total: x.builtBytes });
       })
       .catch((e) => setProblem(String(e)));
   }, []);
@@ -34,6 +38,13 @@ export function AircraftSettings() {
           if (p.error && p.error !== "cancelled") setProblem(`The download failed: ${p.error}`);
           refresh();
         } else setDownload({ done: p.done, total: p.total });
+      }),
+      events.aircraftBuiltInstall((p) => {
+        if (p.finished) {
+          setDbDownload(null);
+          if (p.error && p.error !== "cancelled") setProblem(`The download failed: ${p.error}`);
+          refresh();
+        } else setDbDownload({ done: p.done, total: p.total });
       }),
     ];
     return () => {
@@ -107,8 +118,49 @@ export function AircraftSettings() {
       <p className="muted">
         Sends only the registration read (for example C-FIUJ), never a photo, to the free
         adsbdb.com, and offers the type and airline it knows in the Read aircraft window. Each
-        registration is asked about once.
+        registration is asked about once. With OpenSky's aircraft database on this computer (below),
+        the year the aircraft was built is offered too: it is looked up here, and nothing more is
+        sent.
       </p>
+      {st.lookup && (
+        <div className="block" data-testid="aircraft-built-db">
+          <strong>Build years (OpenSky)</strong>
+          <p className="muted">
+            The aircraft's age is worked out from the year it was built. OpenSky's aircraft database
+            (a crowd-sourced list, April 2024, free for non-commercial use) is downloaded once from
+            opensky-network.org, and its build years are kept on this computer. About one airliner
+            in four has one; for the others, type it in the inspector (Aircraft built).
+          </p>
+          {dbDownload ? (
+            <div className="row" role="status" data-testid="aircraft-built-download">
+              <progress max={dbDownload.total} value={dbDownload.done} />
+              <span>
+                Downloading: {fmt.bytes(dbDownload.done)} of {fmt.bytes(dbDownload.total)}
+              </span>
+              <button onClick={() => run(api.aircraftBuiltCancel())}>Cancel</button>
+            </div>
+          ) : st.builtInstalled ? (
+            <div className="row">
+              <span className="muted" data-testid="aircraft-built-ready">
+                On this computer.
+              </span>
+              <button
+                onClick={() => run(api.aircraftBuiltRemove())}
+                data-testid="aircraft-built-remove"
+              >
+                Delete it
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => run(api.aircraftBuiltInstall())}
+              data-testid="aircraft-built-get"
+            >
+              Download it ({fmt.bytes(st.builtBytes)})
+            </button>
+          )}
+        </div>
+      )}
       <p className="muted" data-testid="aircraft-confidence">
         Offered from: registration {st.confidence.registrationPct}%, airline{" "}
         {st.confidence.airlinePct}%, type {st.confidence.typePct}% sure (set with the sliders in the
