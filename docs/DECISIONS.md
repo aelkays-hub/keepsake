@@ -1681,3 +1681,35 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 
 **Not done.** A chart of airlines over time; counting the type the picture looks like (it is only offered, never a keyword unless accepted).
 
+## ADR-044 — Aircraft age and route
+
+**Status**: Part 1 (age) accepted and built (2026-11-18). Part 2 (route) not started.
+
+**Context.** The product owner asked: "go through each aircraft registration and get information around age of aircraft that is dynamic, so today it is one year next year it will be 2 and so on … dynamically calculated when the picture is selected", and for the route: "use the time and date of the photo combined with the registration and figure out the point of departure and point of arrival … maybe we can add an add route right click". adsbdb.com (ADR-041, addition) gives no build date, so a second source was needed.
+
+### Part 1 — the aircraft's age
+
+**Sources checked** (2026-11-18, measured on the downloads):
+
+| Source | Field | Coverage | Terms | How | Size |
+|---|---|---|---|---|---|
+| OpenSky `/api/metadata/aircraft/icao/<icao24>` | — | gone (HTTP 410) | — | — | — |
+| OpenSky aircraft database, snapshot 2024-04 | `built` (97% `YYYY-01-01`, so a year); `firstflightdate` almost empty | 49% of all aircraft; 25% of airliner types; 3 of 10 sample registrations | OpenSky Terms of Use: limited, non-transferable, non-commercial; credit OpenSky. Bundling is not clearly allowed; downloading on the user's computer is | downloaded once, looked up here | 94.5 MB CSV → 4.8 MB kept |
+| OpenSky "complete" snapshot 2025-08 | `built` | 10% of airliner types | as above | — | 108 MB |
+| ADS-B Exchange `basic-ac-db.json.gz` | `year` | 22% of airliner types | no published licence; no redistribution; commercial use needs written permission | — | 16 MB |
+| hexdb.io, adsbdb | none | — | — | — | — |
+| Typed by the user | year or date | always | — | — | — |
+
+**Decision** (the owner: "go with your recommendations"):
+- **Typing it is always possible**: the inspector's **Aircraft built** field (a year, `2014`, or a date, `2014-03-05`), once per registration. **Forget** removes what was typed.
+- **OpenSky's database, optional**: with **Look registrations up online** on, Settings → Read aircraft → **Build years (OpenSky)** → **Download it (94.5 MB)**. It is downloaded from `https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase-2024-04.csv`, pinned by size and BLAKE3, cut down to `aircraft-built.tsv` (256,567 aircraft with a date; transponder code, registration, built) in the user's cache folder, and the CSV deleted. Its build years are looked up on this computer: **nothing more is sent**, and nothing about a photo. **Delete it** removes the file; years already kept stay. ADS-B Exchange was not used (no licence).
+- **Stored: the fact, never the age.** When a registration's aircraft was built is kept in the catalog (`aircraft_built`, **schema v18**: registration, `YYYY` or `YYYY-MM-DD`, source `opensky` or `typed`; typed wins over OpenSky), and as a keyword on photos: `Aircraft|Built|2014` (accepted in the review window, marked "(OpenSky)", like the registry's type; typed: put on every photo of that registration, in place of another year). A stored age would be wrong a year later, and keywords go into the XMP sidecars, so the age is not stored.
+- **Worked out when shown** (`aircraftAge.ts`): the inspector and the viewer's information panel show, for a photo with an `Aircraft|Registration|…` keyword, **Aircraft age** (to today: "about 12 years (built 2014)") and **Age in this photo** ("about 9 years (built 2014, photographed 2023)"; none for an undated photo or one dated before the aircraft was built). With a date: whole years, a birthday not yet reached not counted. With only a year (most of OpenSky's): the years between, said "about", as it may be one less. Tools → Report → Aircraft, Registrations: **Built** and **Age** columns, both sortable; Age counted to the day the report opened. The CSV has Built (not Age, which would date).
+- **Getting it**: `lookup::Found` keeps `mode_s` (adsbdb's transponder code, which stays with the airframe), `built`, and `version` (2). OpenSky's year is found by transponder code, else by registration. Answers kept before version 2 are asked again once, in the background: the aircraft worker, when it has nothing to read, asks about one (the longest ago first) every 1.1 s (`MIN_GAP`), and waits ten minutes after a failure or when none is left. Downloading the database gives the registrations already looked up their year at once (no network).
+- **Off until turned on**, under the existing lookup setting, whose explanation now names OpenSky and says nothing more is sent.
+
+**Failure behaviour.** No database and nothing typed: "When C-FJZS was built is not known", with the field to type it. A download that fails, is cancelled or does not match is deleted and said in Settings. An old lookup that cannot be asked again (offline) stays as it was and is tried again ten minutes later.
+
+**Dependencies.** No new crate. OpenSky's aircraft database is a new **data** dependency: crowd-sourced, provided "as is", OpenSky Network Terms of Use (non-commercial; credit "The OpenSky Network, https://opensky-network.org"). It is never bundled or committed: each user downloads it.
+
+**Not done (part 1).** An `age` search filter; a newer snapshot (the 2025-08 one has fewer build dates); the age in exported files.

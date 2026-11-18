@@ -40,6 +40,7 @@
 | — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
+| — | The aircraft's age: build year from OpenSky's database or typed, age worked out when shown (ADR-044, part 1) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -64,6 +65,19 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+## The aircraft's age (ADR-044, part 1) (2026-11-18)
+
+- **Asked:** the aircraft's age, "dynamically calculated when the picture is selected", so it goes up each year. Part 2 (Add route from OpenSky's flight history) is not started.
+- **Sources checked** (table in ADR-044): OpenSky's per-aircraft endpoint is gone (410); its aircraft database (April 2024) has a build year for 25% of airliners; ADS-B Exchange's has 22% and no licence; adsbdb and hexdb.io none. **The owner chose** (the recommendation): typing it always, plus OpenSky's database downloaded once on request; a new `aircraft_built` table (schema v18).
+- **Built:**
+  - Core: `ai::aircraft::built` (pinned download, CSV cut down to `aircraft-built.tsv`, `BuiltDb`, `kept`, `note_found`, `set_typed`, `fill_from_db`); `lookup::Found` keeps `mode_s`, `built`, `version`; `lookup::refresh_one` (old answers asked again once, when the aircraft worker is idle, one per 1.1 s); `scan::offer` offers `Aircraft|Built|<year>`; `is_aircraft_keyword` accepts Built; the report's registration rows and CSV have Built; schema v18 `aircraft_built`.
+  - App: `aircraft_built`, `aircraft_set_built`, `aircraft_built_install` (`aircraft://built-install`), `aircraft_built_cancel`, `aircraft_built_remove`; status and lookup DTOs carry the database and the year.
+  - UI: `aircraftAge.ts` (age to today and in the photo, "about" with a year alone), the inspector's **Aircraft age** block with **Aircraft built** (typed once per registration), the viewer's information panel, the report's **Built** and **Age** columns (sortable), Settings → Build years (OpenSky), the review window's "(OpenSky)".
+- **Checked against the real file:** the pinned CSV (94,509,542 bytes) gives 256,567 aircraft with a date (4.8 MB) in 1.4 s; EI-EFY 2009, G-STBA 2010.
+- **Tests, run here (Windows):** `ai::aircraft` lib tests (+5: dates and years, the cut-down, the pin, stale answers, the year from the database), `aircraft_tests` (16, +4: asked again once, offered and accepted, typed wins on every photo and its sidecars with originals unchanged, the download fills kept lookups), `report_tests` (15), `catalog_tests` (17), `safety_audit_tests`, core lib (222), app lib tests (bindings); Vitest (92, +7 `aircraftAge`); mocked Playwright `aircraft`, `report`, `viewer`, `library`, `a11y` (56, +4); `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; in the installed app; the real download from the app (the file was fetched and checked by hand).
+- Branch `claude/aircraft-age-route-378472` (from `feat/aircraft-drilldown`), not pushed.
 
 ## Aircraft report: drill down from airline to type to registration (2026-11-16)
 
