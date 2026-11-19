@@ -6,8 +6,11 @@
 //!   The age is never stored: it would be wrong a year later.
 //! - OpenSky's database is downloaded once to this computer when the user
 //!   asks (Settings → Read aircraft), pinned to one snapshot and kept only
-//!   if its BLAKE3 matches, then cut down to `aircraft-built.tsv` (the
-//!   aircraft with a build date). Looking a year up there sends nothing.
+//!   if its BLAKE3 matches, then cut down to `aircraft-built.tsv`: each
+//!   aircraft's transponder code and registration, and its build date when
+//!   it has one. Looking a year or a code up there sends nothing. A file
+//!   kept before the codes were (no [`HEADER`]) is offered again in
+//!   Settings.
 //! - Accepting `Aircraft|Built|<year>` in the review window puts it on a
 //!   photo; typing it puts it on every photo of that registration.
 
@@ -44,8 +47,11 @@ pub const DATABASE: ModelFile = ModelFile {
     env: "KEEPSAKE_OPENSKY_CSV",
 };
 
-/// What is kept of it: `icao24 \t registration \t built`.
+/// What is kept of it: `icao24 \t registration \t built` (`built` may be
+/// empty), after [`HEADER`].
 pub const TSV_FILE: &str = "aircraft-built.tsv";
+/// The kept file's first line since it keeps every aircraft's code.
+pub const HEADER: &str = "#keepsake-aircraft\t2";
 /// Overrides where the kept file is, for tests and developers.
 pub const TSV_ENV: &str = "KEEPSAKE_AIRCRAFT_BUILT";
 
@@ -95,12 +101,22 @@ fn reg_key(r: &str) -> String {
         .collect()
 }
 
+/// A transponder code (`C04826`), as a number.
+fn icao_number(icao: &str) -> Option<u32> {
+    let icao = icao.trim();
+    (icao.len() == 6)
+        .then(|| u32::from_str_radix(icao, 16).ok())
+        .flatten()
+}
+
 /// The build dates of OpenSky's database, by transponder code and by
-/// registration.
+/// registration, and the transponder code of each registration.
 #[derive(Debug, Default)]
 pub struct BuiltDb {
     by_icao: HashMap<String, String>,
     by_reg: HashMap<String, String>,
+    code_by_reg: HashMap<String, u32>,
+    codes: bool,
 }
 
 impl BuiltDb {
@@ -108,10 +124,18 @@ impl BuiltDb {
     pub fn from_tsv(text: &str) -> Self {
         let mut db = Self::default();
         for line in text.lines() {
+            if line.starts_with('#') {
+                db.codes |= line == HEADER;
+                continue;
+            }
             let mut f = line.split('\t');
             let (Some(icao), Some(reg), Some(built)) = (f.next(), f.next(), f.next()) else {
                 continue;
             };
+            let k = reg_key(reg);
+            if let (Some(n), false) = (icao_number(icao), k.is_empty()) {
+                db.code_by_reg.insert(k, n);
+            }
             let Some(built) = normalize(built, false) else {
                 continue;
             };
@@ -143,8 +167,22 @@ impl BuiltDb {
         }
     }
 
+    /// How many aircraft have a build date.
     pub fn len(&self) -> usize {
         self.by_icao.len().max(self.by_reg.len())
+    }
+
+    /// The file keeps every aircraft's transponder code ([`HEADER`]).
+    pub fn has_codes(&self) -> bool {
+        self.codes
+    }
+
+    /// The transponder code of `registration` (`C04826`), any case or
+    /// hyphen.
+    pub fn code(&self, registration: &str) -> Option<String> {
+        self.code_by_reg
+            .get(&reg_key(registration))
+            .map(|n| format!("{n:06X}"))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -174,8 +212,19 @@ pub fn installed() -> bool {
     tsv_path().is_some_and(|p| p.is_file())
 }
 
+/// The file on this computer keeps every aircraft's transponder code (its
+/// first line is [`HEADER`]); one kept before is to be downloaded again.
+pub fn installed_with_codes() -> bool {
+    let Some(f) = tsv_path().and_then(|p| std::fs::File::open(p).ok()) else {
+        return false;
+    };
+    let mut first = String::new();
+    BufReader::new(f).read_line(&mut first).is_ok() && first.trim_end() == HEADER
+}
+
 /// Download OpenSky's database (`progress`: bytes so far, total), keep its
-/// build dates, and delete the rest. Returns how many aircraft have one.
+/// codes, registrations and build dates, and delete the rest. Returns how
+/// many aircraft have a build date.
 pub fn install(cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64)) -> Result<u64, AiError> {
     let csv = DATABASE
         .user_path()
@@ -223,7 +272,9 @@ pub fn remove() -> Result<bool, AiError> {
 }
 
 /// The aircraft of OpenSky's CSV that have a build date (`built`, else
-/// `firstflightdate`), as `icao24 \t registration \t built` lines.
+/// `firstflightdate`) or both a transponder code and a registration, as
+/// `icao24 \t registration \t built` lines after [`HEADER`]. Returns how
+/// many have a build date.
 pub fn convert(input: impl BufRead, out: &mut impl Write) -> Result<u64, AiError> {
     let mut rows = CsvRows::new(input);
     let head = rows
@@ -241,20 +292,22 @@ pub fn convert(input: impl BufRead, out: &mut impl Write) -> Result<u64, AiError
         col("built").ok_or_else(bad)?,
     );
     let first = col("firstflightdate");
+    writeln!(out, "{HEADER}")?;
     let mut n = 0;
     for row in rows {
         let row = row?;
         let get = |i: usize| row.get(i).map(|s| s.trim()).unwrap_or("");
         let date =
             normalize(get(built), true).or_else(|| first.and_then(|f| normalize(get(f), true)));
-        let Some(date) = date else { continue };
         let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
         let (i, r) = (clean(get(icao)).to_ascii_lowercase(), clean(get(reg)));
-        if i.is_empty() && r.is_empty() {
-            continue;
+        match &date {
+            Some(_) if i.is_empty() && r.is_empty() => continue,
+            None if icao_number(&i).is_none() || reg_key(&r).is_empty() => continue,
+            _ => {}
         }
-        writeln!(out, "{i}\t{r}\t{date}")?;
-        n += 1;
+        writeln!(out, "{i}\t{r}\t{}", date.as_deref().unwrap_or(""))?;
+        n += u64::from(date.is_some());
     }
     Ok(n)
 }
@@ -417,25 +470,29 @@ pub fn set_typed(
 }
 
 /// After OpenSky's database is downloaded: the registrations already looked
-/// up get their build date from it (nothing is sent). Returns how many.
+/// up get their build date, and their transponder code when adsbdb gave
+/// none, from it (nothing is sent; when each was asked stays). Returns how
+/// many changed.
 pub fn fill_from_db(cat: &mut Catalog, db: &BuiltDb) -> Result<u64, AiError> {
     let rows = cat.read(|tx| tx.ai().aircraft_lookups())?;
     let mut n = 0;
-    for (reg, json) in rows {
+    for (reg, json, at) in rows {
         let Ok(mut f) = serde_json::from_str::<Found>(&json) else {
             continue;
         };
-        let Some(b) = db.find(f.mode_s.as_deref(), &reg) else {
-            continue;
-        };
-        if f.built.as_deref() == Some(b) {
+        let before = f.clone();
+        if f.mode_s.is_none() {
+            f.mode_s = db.code(&reg);
+        }
+        if let Some(b) = db.find(f.mode_s.as_deref(), &reg) {
+            f.built = Some(b.to_owned());
+        }
+        if f == before {
             continue;
         }
-        f.built = Some(b.to_owned());
         let json = serde_json::to_string(&f)
             .map_err(|e| AiError::Image(format!("the lookup could not be kept: {e}")))?;
-        let now = crate::jobs::now_ms();
-        cat.write(|tx| tx.ai().put_aircraft_lookup(&reg, &json, now))?;
+        cat.write(|tx| tx.ai().put_aircraft_lookup(&reg, &json, at))?;
         note_found(cat, &f)?;
         n += 1;
     }
@@ -478,20 +535,32 @@ mod tests {
 \"4ca7b4\",\"EI-EFY\",\"737-8AS\",\"2009-01-01\",\"\",\"\"\n\
 \"c0174f\",\"C-FIVM\",\"777\",\"\",\"2008-04-11\",\"a note, with a comma\nand a line break\"\n\
 \"aa9f6f\",\"N784AN\",\"777 \"\"ER\"\"\",\"2000-05-02\",\"\",\"\"\n\
-\"000001\",\"SP-FGR\",\"An-2\",\"\",\"\",\"\"\n";
+\"000001\",\"SP-FGR\",\"An-2\",\"\",\"\",\"\"\n\
+\"484f6e\",\"PH-BKO\",\"787-10\",\"\",\"\",\"\"\n\
+\"\",\"G-NONE\",\"A320\",\"\",\"\",\"\"\n";
 
     #[test]
-    fn the_database_is_cut_down_to_the_aircraft_with_a_date() {
+    fn the_database_is_cut_down_to_codes_registrations_and_dates() {
         let mut out = Vec::new();
         let n = convert(CSV.as_bytes(), &mut out).unwrap();
         assert_eq!(n, 3);
         let text = String::from_utf8(out).unwrap();
         assert_eq!(
             text,
-            "4ca7b4\tEI-EFY\t2009\nc0174f\tC-FIVM\t2008-04-11\naa9f6f\tN784AN\t2000-05-02\n"
+            "#keepsake-aircraft\t2\n4ca7b4\tEI-EFY\t2009\nc0174f\tC-FIVM\t2008-04-11\n\
+             aa9f6f\tN784AN\t2000-05-02\n000001\tSP-FGR\t\n484f6e\tPH-BKO\t\n"
         );
         let db = BuiltDb::from_tsv(&text);
         assert_eq!(db.len(), 3);
+        assert!(db.has_codes());
+        // The code of every aircraft, by registration; none without one.
+        assert_eq!(db.code("ph-bko").as_deref(), Some("484F6E"));
+        assert_eq!(db.code("SP-FGR").as_deref(), Some("000001"));
+        assert_eq!(db.code("G-NONE"), None);
+        // A file kept before the codes were: dates only, offered again.
+        let old = BuiltDb::from_tsv("4ca7b4\tEI-EFY\t2009\n");
+        assert!(!old.has_codes());
+        assert_eq!(old.code("EI-EFY").as_deref(), Some("4CA7B4"));
         // By transponder code first, else by registration (any case or hyphen).
         assert_eq!(db.find(Some("4CA7B4"), "X-XXXX"), Some("2009"));
         assert_eq!(db.find(None, "cfivm"), Some("2008-04-11"));

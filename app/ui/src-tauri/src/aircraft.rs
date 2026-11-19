@@ -74,6 +74,7 @@ pub fn aircraft_status(state: State<'_, AppState>) -> CmdResult<AircraftStatus> 
         confidence: confidence_dto(settings.ai.aircraft_confidence(), settings.ai.same_shot_s),
         lookup: settings.ai.aircraft_lookup,
         built_installed: built::installed(),
+        built_codes: built::installed_with_codes(),
         built_bytes: built::DATABASE.bytes,
         built_installing: get(&st.built_install).flatten().map(|(_, done)| done),
     })

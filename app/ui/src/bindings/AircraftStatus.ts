@@ -57,6 +57,11 @@ lookup: boolean,
  */
 builtInstalled: boolean, 
 /**
+ * The file on this computer keeps every aircraft's transponder
+ * code (for Add route); one kept before is offered again.
+ */
+builtCodes: boolean, 
+/**
  * Its size, to download.
  */
 builtBytes: number, 

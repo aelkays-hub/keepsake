@@ -67,6 +67,13 @@
 
 ---
 
+## Transponder codes from OpenSky's database; not-known lookups asked again (2026-11-18)
+
+- **Reported:** Add route found nothing for A7_05212.ARW (PH-BKO): adsbdb does not know PH-BKO, so it has no transponder code to search OpenSky's history with. Asked: "do both, keep OpenSky's codes and re-ask after 30 days".
+- **Built:** `built::convert` keeps every aircraft with a code and a registration (`#keepsake-aircraft\t2` header); `BuiltDb::code`, `has_codes`, `built::installed_with_codes`; `AdsbDb` fills `mode_s` from it when adsbdb gives none; `fill_from_db` fills codes of lookups kept before, keeping when each was asked; `Found::due` and `RETRY_UNKNOWN_MS` (30 days) for `lookup_cached` and `refresh_one`; repo `aircraft_lookup(s)` return `looked_ms`. App: `AircraftStatus.built_codes`; Settings → Build years offers **Download again** for a file kept before the codes.
+- **Tests, run here (Windows):** `built` unit tests (codes kept, an old file without them), `aircraft_tests` (22, +2: code from OpenSky when adsbdb does not know it and asked again after 30 days, not before; codes filled after download with the asked time kept), core lib, app lib (118); Vitest (96); mocked Playwright aircraft (18, +1 Download again); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; the real download and conversion (95 MB) in the app.
+
 ## A photo asked about goes to the front of the queue (2026-11-18)
 
 - **Reported:** reading a single picture took a very long time.

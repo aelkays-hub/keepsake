@@ -7,7 +7,9 @@
 //!   No key is needed. adsbdb publishes no rate limit, so the aircraft
 //!   worker asks at most one a second ([`MIN_GAP`]).
 //! - Every answer is kept in the catalog (`aircraft_lookups`), found or
-//!   not, so a registration is asked about once ([`lookup_cached`]).
+//!   not, so a registration is asked about once ([`lookup_cached`]). One
+//!   not known is asked again after [`RETRY_UNKNOWN_MS`] (30 days), in the
+//!   background ([`refresh_one`]): adsbdb learns of new aircraft.
 //! - The type comes from the ICAO type designator (`B77W` → `Boeing
 //!   777-300ER`, `icao-types.tsv`), named as a painted type would be;
 //!   otherwise its manufacturer and model (`Boeing 777`). The registered
@@ -15,7 +17,9 @@
 //!   owner can be a leasing company).
 //! - The answer keeps the transponder code (`mode_s`), and when the
 //!   aircraft was built from OpenSky's database on this computer, if it is
-//!   there ([`super::built`]; nothing more is sent). Answers kept before
+//!   there ([`super::built`]; nothing more is sent). When adsbdb gives no
+//!   transponder code, OpenSky's database gives it, by registration (for
+//!   Add route). Answers kept before
 //!   that ([`LOOKUP_VERSION`]) are asked again once, in the background, at
 //!   the same pace ([`refresh_one`]).
 //! - Off until the user turns it on (`ai.aircraft_lookup`).
@@ -45,6 +49,8 @@ pub const MAX_PER_PHOTO: usize = 3;
 /// What a kept answer holds: 2 added the transponder code and the build
 /// date. One kept before is asked again once.
 pub const LOOKUP_VERSION: u32 = 2;
+/// An aircraft adsbdb did not know is asked about again after this long.
+pub const RETRY_UNKNOWN_MS: i64 = 30 * 24 * 3600 * 1000;
 
 const ICAO_TSV: &str = include_str!("icao-types.tsv");
 
@@ -80,6 +86,12 @@ impl Found {
     /// Kept before the transponder code and build date were: ask again.
     pub fn stale(&self) -> bool {
         self.version < LOOKUP_VERSION
+    }
+
+    /// To be asked again now (`now_ms`), as kept at `looked_ms`: kept
+    /// before [`LOOKUP_VERSION`], or not known for [`RETRY_UNKNOWN_MS`].
+    pub fn due(&self, looked_ms: i64, now_ms: i64) -> bool {
+        self.stale() || (!self.known && now_ms.saturating_sub(looked_ms) >= RETRY_UNKNOWN_MS)
     }
 }
 
@@ -235,6 +247,9 @@ impl Lookup for AdsbDb {
             })?;
         let mut found = parse(registration, status, &body, &self.airlines)?;
         if let Some(db) = &self.built {
+            if found.mode_s.is_none() {
+                found.mode_s = db.code(registration);
+            }
             found.built = db
                 .find(found.mode_s.as_deref(), registration)
                 .map(str::to_owned);
@@ -250,11 +265,12 @@ pub fn lookup_cached(
     lookup: Option<&dyn Lookup>,
     registration: &str,
 ) -> Result<Option<Found>, AiError> {
-    let before = kept(cat, registration)?;
+    let before = kept_at(cat, registration)?;
     let Some(lookup) = lookup else {
-        return Ok(before);
+        return Ok(before.map(|(f, _)| f));
     };
-    if let Some(f) = before.filter(|f| !f.stale()) {
+    let now = crate::jobs::now_ms();
+    if let Some((f, _)) = before.filter(|(f, at)| !f.due(*at, now)) {
         return Ok(Some(f));
     }
     ask(cat, lookup, registration).map(Some)
@@ -272,18 +288,19 @@ fn ask(cat: &mut Catalog, lookup: &dyn Lookup, registration: &str) -> Result<Fou
     Ok(found)
 }
 
-/// Ask again about one registration whose answer was kept before
-/// [`LOOKUP_VERSION`] (the longest ago first). Returns it, or `None` when
-/// none is left. The aircraft worker calls this when it has nothing to
-/// read, at most one each [`MIN_GAP`].
+/// Ask again about one registration whose answer is due ([`Found::due`]:
+/// kept before [`LOOKUP_VERSION`], or not known for 30 days; the longest
+/// ago first). Returns it, or `None` when none is due. The aircraft worker
+/// calls this when it has nothing to read, at most one each [`MIN_GAP`].
 pub fn refresh_one(cat: &mut Catalog, lookup: &dyn Lookup) -> Result<Option<String>, AiError> {
     let rows = cat.read(|tx| tx.ai().aircraft_lookups())?;
-    let stale = rows.into_iter().find(|(_, json)| {
+    let now = crate::jobs::now_ms();
+    let stale = rows.into_iter().find(|(_, json, at)| {
         serde_json::from_str::<Found>(json)
-            .map(|f| f.stale())
+            .map(|f| f.due(*at, now))
             .unwrap_or(true)
     });
-    let Some((reg, _)) = stale else {
+    let Some((reg, _, _)) = stale else {
         return Ok(None);
     };
     ask(cat, lookup, &reg)?;
@@ -292,9 +309,14 @@ pub fn refresh_one(cat: &mut Catalog, lookup: &dyn Lookup) -> Result<Option<Stri
 
 /// What is kept about `registration`, without asking.
 pub fn kept(cat: &Catalog, registration: &str) -> Result<Option<Found>, AiError> {
+    Ok(kept_at(cat, registration)?.map(|(f, _)| f))
+}
+
+/// What is kept about `registration`, and when it was asked (Unix ms).
+pub fn kept_at(cat: &Catalog, registration: &str) -> Result<Option<(Found, i64)>, AiError> {
     Ok(cat
         .read(|tx| tx.ai().aircraft_lookup(registration))?
-        .and_then(|j| serde_json::from_str(&j).ok()))
+        .and_then(|(j, at)| serde_json::from_str(&j).ok().map(|f| (f, at))))
 }
 
 #[cfg(test)]

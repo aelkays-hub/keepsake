@@ -105,8 +105,10 @@ export interface MockState {
   };
   /** Look registrations up online (`?lookup=on`). */
   aircraftLookup: boolean;
-  /** OpenSky's aircraft database is on this computer (`?builtdb=on`). */
+  /** OpenSky's aircraft database is on this computer (`?builtdb=on`; one
+   * kept before the transponder codes were: `?builtdb=old`). */
   aircraftBuiltDb: boolean;
+  aircraftBuiltCodes: boolean;
   /** When each registration was built, as kept (ADR-044). */
   aircraftBuilt: Map<string, { built: string; source: string }>;
   /** Add route (ADR-044): on (`?route=on`), the OpenSky client saved
@@ -519,7 +521,8 @@ export function installMock(): void {
     aircraftReads: new Map(),
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
     aircraftLookup: params.get("lookup") === "on",
-    aircraftBuiltDb: params.get("builtdb") === "on",
+    aircraftBuiltDb: ["on", "old"].includes(params.get("builtdb") ?? ""),
+    aircraftBuiltCodes: params.get("builtdb") === "on",
     route: {
       enabled: params.get("route") === "on",
       saved: params.get("opensky") === "saved",
@@ -1651,11 +1654,13 @@ export function installMock(): void {
             confidence: st.aircraftConf,
             lookup: st.aircraftLookup,
             builtInstalled: st.aircraftBuiltDb,
+            builtCodes: st.aircraftBuiltCodes,
             builtBytes: 94509542,
             builtInstalling: null,
           };
         case "aircraft_built_install":
           st.aircraftBuiltDb = true;
+          st.aircraftBuiltCodes = true;
           if (!st.aircraftBuilt.has("C-FJZS"))
             st.aircraftBuilt.set("C-FJZS", { built: "2008", source: "opensky" });
           void emit("aircraft://built-install", {

@@ -122,11 +122,12 @@ const ANALYSIS_COLS: &str =
 impl<M> Ai<'_, M> {
     /// Every registration looked up and what was said (JSON), the longest
     /// ago first.
-    pub fn aircraft_lookups(&self) -> Result<Vec<(String, String)>, CatalogError> {
+    pub fn aircraft_lookups(&self) -> Result<Vec<(String, String, i64)>, CatalogError> {
         let mut st = self.conn.prepare_cached(
-            "SELECT registration, found FROM aircraft_lookups ORDER BY looked_ms, registration",
+            "SELECT registration, found, looked_ms FROM aircraft_lookups
+             ORDER BY looked_ms, registration",
         )?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
@@ -172,13 +173,16 @@ impl<M> Ai<'_, M> {
     }
 
     /// What an online lookup said about `registration` (JSON), if asked.
-    pub fn aircraft_lookup(&self, registration: &str) -> Result<Option<String>, CatalogError> {
+    pub fn aircraft_lookup(
+        &self,
+        registration: &str,
+    ) -> Result<Option<(String, i64)>, CatalogError> {
         Ok(self
             .conn
             .query_row(
-                "SELECT found FROM aircraft_lookups WHERE registration = ?1",
+                "SELECT found, looked_ms FROM aircraft_lookups WHERE registration = ?1",
                 [registration],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?)
     }

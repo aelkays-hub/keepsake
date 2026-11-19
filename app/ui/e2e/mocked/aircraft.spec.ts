@@ -568,3 +568,18 @@ test("Add route: turned on but without the setting the window says so", async ({
   await page.getByTestId("tile").nth(0).click({ button: "right" });
   await expect(page.getByTestId("tile-menu-route")).toBeDisabled();
 });
+
+test("Build years: a database kept before the transponder codes is offered again", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&builtdb=old");
+  await settings(page);
+  const db = page.getByTestId("aircraft-built-db");
+  await expect(db).toContainText("transponder code is kept too");
+  await expect(db.getByTestId("aircraft-built-old")).toContainText("without the transponder codes");
+  await expect(db.getByTestId("aircraft-built-again")).toHaveText("Download again (94.5 MB)");
+  await db.getByTestId("aircraft-built-again").click();
+  expect(await calls(page, "aircraft_built_install")).toHaveLength(1);
+  await expect(db.getByTestId("aircraft-built-ready")).toHaveText("On this computer.");
+  await expect(db.getByTestId("aircraft-built-again")).toHaveCount(0);
+});

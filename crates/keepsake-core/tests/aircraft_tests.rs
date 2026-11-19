@@ -1411,3 +1411,88 @@ fn a_photo_asked_about_now_is_read_before_a_backlog_even_one_already_queued() {
         .map(|j| j.asset_id);
     assert_eq!(r, Some(ids[1]));
 }
+
+/// adsbdb as the tests see it, not knowing any aircraft (404).
+struct Unknown {
+    asked: Mutex<Vec<String>>,
+}
+
+impl keepsake_core::ai::cloud::Http for Unknown {
+    fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<(u16, String), String> {
+        Err("no posts".into())
+    }
+    fn get(&self, url: &str, _: &[(&str, &str)]) -> Result<(u16, String), String> {
+        self.asked.lock().unwrap().push(url.to_owned());
+        Ok((404, r#"{"response":"unknown aircraft"}"#.to_owned()))
+    }
+}
+
+#[test]
+fn an_aircraft_adsbdb_does_not_know_gets_its_code_from_opensky_and_is_asked_again_after_30_days() {
+    let mut w = World::new(&["a.jpg"]);
+    let http = Arc::new(Unknown {
+        asked: Mutex::new(Vec::new()),
+    });
+    let db = BuiltDb::from_tsv("#keepsake-aircraft\t2\n484f6e\tPH-BKO\t\n");
+    let client = lookup::AdsbDb::new(http.clone()).with_built(Some(Arc::new(db)));
+
+    // adsbdb does not know it; OpenSky's database gives its code.
+    let f = lookup::lookup_cached(&mut w.cat, Some(&client), "PH-BKO")
+        .unwrap()
+        .unwrap();
+    assert!(!f.known);
+    assert_eq!(f.mode_s.as_deref(), Some("484F6E"));
+    assert_eq!(
+        route::icao24_of(&w.cat, "PH-BKO").unwrap().as_deref(),
+        Some("484f6e")
+    );
+    assert_eq!(http.asked.lock().unwrap().len(), 1);
+
+    // Not asked again soon: neither when wanted nor in the background.
+    lookup::lookup_cached(&mut w.cat, Some(&client), "PH-BKO").unwrap();
+    assert_eq!(lookup::refresh_one(&mut w.cat, &client).unwrap(), None);
+    assert_eq!(http.asked.lock().unwrap().len(), 1);
+
+    // Kept 31 days ago: asked again, in the background.
+    let json = serde_json::to_string(&f).unwrap();
+    let long_ago = keepsake_core::jobs::now_ms() - lookup::RETRY_UNKNOWN_MS - 86_400_000;
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("PH-BKO", &json, long_ago))
+        .unwrap();
+    assert_eq!(
+        lookup::refresh_one(&mut w.cat, &client).unwrap().as_deref(),
+        Some("PH-BKO")
+    );
+    assert_eq!(http.asked.lock().unwrap().len(), 2);
+    assert_eq!(lookup::refresh_one(&mut w.cat, &client).unwrap(), None);
+
+    // A known one is never asked again for its age.
+    let known = lookup::Found {
+        registration: "C-GBIJ".into(),
+        known: true,
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    assert!(!known.due(0, keepsake_core::jobs::now_ms()));
+}
+
+#[test]
+fn downloading_the_database_again_gives_codes_to_registrations_looked_up_before() {
+    let mut w = World::new(&["a.jpg"]);
+    let unknown = lookup::Found {
+        registration: "PH-BKO".into(),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&unknown).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("PH-BKO", &json, 5))
+        .unwrap();
+    let db = BuiltDb::from_tsv("#keepsake-aircraft\t2\n484f6e\tPH-BKO\t\n");
+    assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 1);
+    let (f, at) = lookup::kept_at(&w.cat, "PH-BKO").unwrap().unwrap();
+    assert_eq!(f.mode_s.as_deref(), Some("484F6E"));
+    // When it was asked stays, so the 30 days are not restarted.
+    assert_eq!(at, 5);
+    assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 0);
+}

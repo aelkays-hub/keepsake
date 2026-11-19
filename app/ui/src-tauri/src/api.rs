@@ -139,6 +139,9 @@ dto! {
         /// OpenSky's aircraft database (build years, ADR-044) is on this
         /// computer.
         pub built_installed: bool,
+        /// The file on this computer keeps every aircraft's transponder
+        /// code (for Add route); one kept before is offered again.
+        pub built_codes: bool,
         /// Its size, to download.
         #[ts(type = "number")]
         pub built_bytes: u64,

@@ -139,7 +139,9 @@ export function AircraftSettings() {
             The aircraft's age is worked out from the year it was built. OpenSky's aircraft database
             (a crowd-sourced list, April 2024, free for non-commercial use) is downloaded once from
             opensky-network.org, and its build years are kept on this computer. About one airliner
-            in four has one; for the others, type it in the inspector (Aircraft built).
+            in four has one; for the others, type it in the inspector (Aircraft built). Each
+            aircraft's transponder code is kept too, so Add route can find aircraft adsbdb does not
+            know.
           </p>
           {dbDownload ? (
             <div className="row" role="status" data-testid="aircraft-built-download">
@@ -148,6 +150,18 @@ export function AircraftSettings() {
                 Downloading: {fmt.bytes(dbDownload.done)} of {fmt.bytes(dbDownload.total)}
               </span>
               <button onClick={() => run(api.aircraftBuiltCancel())}>Cancel</button>
+            </div>
+          ) : st.builtInstalled && !st.builtCodes ? (
+            <div className="row">
+              <span className="muted" data-testid="aircraft-built-old">
+                On this computer, without the transponder codes. Download it again to keep them.
+              </span>
+              <button
+                onClick={() => run(api.aircraftBuiltInstall())}
+                data-testid="aircraft-built-again"
+              >
+                Download again ({fmt.bytes(st.builtBytes)})
+              </button>
             </div>
           ) : st.builtInstalled ? (
             <div className="row">
