@@ -1191,7 +1191,7 @@ fn the_downloaded_database_gives_lookups_already_kept_their_build_year() {
 
 // ---- Add route (ADR-044, part 2) ----
 
-use keepsake_core::ai::aircraft::route::{self, Airports, Flight, Pick};
+use keepsake_core::ai::aircraft::route::{self, Airports, Clock, Flight, Pick};
 
 /// OpenSky as the tests see it: C-GBIJ's day (2026-05-31), counting what
 /// it is asked.
@@ -1269,7 +1269,7 @@ fn the_same_aircraft_and_day_is_asked_once_and_photos_beside_it_reuse_it() {
     let sky = FakeSky {
         asked: Mutex::new(Vec::new()),
     };
-    let asked = route::run_job(&mut w.cat, &sky, None, ids[0]).unwrap();
+    let asked = route::run_job(&mut w.cat, &sky, None, ids[0], Clock::AsRecorded).unwrap();
     assert_eq!(asked.requests, 1);
     {
         let a = sky.asked.lock().unwrap();
@@ -1280,7 +1280,7 @@ fn the_same_aircraft_and_day_is_asked_once_and_photos_beside_it_reuse_it() {
     }
     // The photo taken beside it: nothing is asked.
     assert_eq!(
-        route::run_job(&mut w.cat, &sky, None, ids[1])
+        route::run_job(&mut w.cat, &sky, None, ids[1], Clock::AsRecorded)
             .unwrap()
             .requests,
         0
@@ -1288,7 +1288,7 @@ fn the_same_aircraft_and_day_is_asked_once_and_photos_beside_it_reuse_it() {
     assert_eq!(sky.asked.lock().unwrap().len(), 1);
 
     let airports = Airports::builtin();
-    let it = route::review(&w.cat, &airports, ids[0]).unwrap();
+    let it = route::review(&w.cat, &airports, ids[0], Clock::AsRecorded).unwrap();
     match it.state {
         route::State::Found(Pick::One(c)) => {
             assert_eq!(c.flight.callsign.as_deref(), Some("ROU2000"));
@@ -1320,7 +1320,7 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
         asked: Mutex::new(Vec::new()),
     };
     assert_eq!(
-        route::run_job(&mut w.cat, &sky, None, ids[0])
+        route::run_job(&mut w.cat, &sky, None, ids[0], Clock::AsRecorded)
             .unwrap()
             .requests,
         2
@@ -1329,12 +1329,14 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
     let mut w2 = World::new(&["c.jpg"]);
     let c = w2.asset("c.jpg");
     assert!(matches!(
-        route::run_job(&mut w2.cat, &sky, None, c),
+        route::run_job(&mut w2.cat, &sky, None, c, Clock::AsRecorded),
         Err(AiError::Cloud { retry: false, .. })
     ));
     let airports = Airports::builtin();
     assert_eq!(
-        route::review(&w2.cat, &airports, c).unwrap().state,
+        route::review(&w2.cat, &airports, c, Clock::AsRecorded)
+            .unwrap()
+            .state,
         route::State::NoRegistration
     );
 }
@@ -1376,7 +1378,10 @@ fn the_route_worker_asks_in_the_background_and_accepting_writes_only_aircraft_ke
     assert!(scan::add_to(&mut w.cat, &w.lib, &ids[..1], &other).is_err());
     let airports = Airports::builtin();
     assert_eq!(
-        route::review(&w.cat, &airports, ids[0]).unwrap().has.len(),
+        route::review(&w.cat, &airports, ids[0], Clock::AsRecorded)
+            .unwrap()
+            .has
+            .len(),
         2
     );
     assert_eq!(hashes(&w.media), before, "originals unchanged");
@@ -1495,4 +1500,75 @@ fn downloading_the_database_again_gives_codes_to_registrations_looked_up_before(
     // When it was asked stays, so the 30 days are not restarted.
     assert_eq!(at, 5);
     assert_eq!(built::fill_from_db(&mut w.cat, &db).unwrap(), 0);
+}
+
+#[test]
+fn ask_again_forgets_the_flights_kept_and_asks_opensky_once_more() {
+    let (mut w, ids) = route_world(&["a.jpg"], &[PHOTO_S]);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    let run = |w: &mut World, sky: &FakeSky| {
+        route::run_job(&mut w.cat, sky, None, ids[0], Clock::AsRecorded)
+            .unwrap()
+            .requests
+    };
+    assert_eq!(run(&mut w, &sky), 1);
+    // Queued again without Ask again: the answer kept is used.
+    route::enqueue(&mut w.cat, &ids).unwrap();
+    assert_eq!(run(&mut w, &sky), 0);
+    // Ask again: queued, and OpenSky is asked again.
+    assert_eq!(
+        route::again(&mut w.cat, &ids, Clock::AsRecorded).unwrap(),
+        1
+    );
+    assert!(route::kept_day(&w.cat, "c04826", "2026-05-31")
+        .unwrap()
+        .is_none());
+    assert_eq!(run(&mut w, &sky), 1);
+    assert_eq!(sky.asked.lock().unwrap().len(), 2);
+    // A registration adsbdb did not know is asked about again too; one it
+    // knew is kept.
+    assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().is_some());
+    let unknown = lookup::Found {
+        registration: "C-GBIJ".into(),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&unknown).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GBIJ", &json, 1))
+        .unwrap();
+    route::again(&mut w.cat, &ids, Clock::AsRecorded).unwrap();
+    assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().is_none());
+}
+
+#[test]
+fn an_eastern_camera_clock_is_read_with_daylight_saving_by_the_date() {
+    let (mut w, ids) = route_world(&["a.jpg"], &[PHOTO_S]);
+    // The camera said UTC−05:00 (on 31 May, daylight saving time).
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    db.execute(
+        "UPDATE assets SET capture_utc_offset_min = -300 WHERE id = ?1",
+        [ids[0]],
+    )
+    .unwrap();
+    drop(db);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    let airports = Airports::builtin();
+    route::run_job(&mut w.cat, &sky, None, ids[0], Clock::Eastern).unwrap();
+    let as_recorded = route::review(&w.cat, &airports, ids[0], Clock::AsRecorded).unwrap();
+    assert_eq!(as_recorded.taken_s, Some(PHOTO_S));
+    assert_eq!(as_recorded.offset_min, Some(-300));
+    // Read as Eastern daylight time: an hour earlier, between ROU1917's
+    // landing (48 min before) and ROU2000's take-off (45 min after).
+    let eastern = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    assert_eq!(eastern.taken_s, Some(PHOTO_S - 3600));
+    assert_eq!(eastern.offset_min, Some(-240));
+    match eastern.state {
+        route::State::Found(Pick::Several(v)) => assert_eq!(v.len(), 2),
+        s => panic!("{s:?}"),
+    }
 }

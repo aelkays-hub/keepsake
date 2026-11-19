@@ -6,6 +6,8 @@ import {
   placeLabel,
   routeLine,
   routeProgress,
+  takenLine,
+  offsetLabel,
   stateLine,
   tickedKeywords,
   whenLine,
@@ -36,6 +38,8 @@ const item = (state: string, p: Partial<RouteItemDto> = {}): RouteItemDto => ({
   thumb: null,
   registration: "C-GBIJ",
   taken: "2026-05-31T12:31:11Z",
+  local: "2026-05-31T08:31:11",
+  offsetMin: -240,
   state,
   error: null,
   choices: [],
@@ -69,10 +73,21 @@ describe("Add route", () => {
     expect(stateLine(item("no-transponder"))).toContain("C-GBIJ is not known");
     expect(stateLine(item("nothing"))).toContain("back to about 2023");
     expect(stateLine(item("none-near"))).toContain("Shift time");
+    expect(stateLine(item("none-near"))).toContain("Camera clock on Eastern time");
     expect(stateLine(item("failed", { error: "OpenSky's daily limit is reached" }))).toBe(
       "OpenSky's daily limit is reached",
     );
     expect(stateLine(item("found"))).toBeNull();
+  });
+
+  it("says when the photo was taken, in the camera's time and UTC", () => {
+    expect(offsetLabel(-240)).toBe("UTC−04:00");
+    expect(offsetLabel(330)).toBe("UTC+05:30");
+    expect(takenLine(item("found"))).toBe("Taken 2026-05-31 08:31 (UTC−04:00) · 12:31 UTC");
+    expect(takenLine(item("found", { local: null, offsetMin: null }))).toBe(
+      "Taken 2026-05-31 12:31, time zone not known (read as UTC)",
+    );
+    expect(takenLine(item("no-time", { taken: null }))).toBeNull();
   });
 
   it("offers the keywords left ticked", () => {

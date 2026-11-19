@@ -202,6 +202,25 @@ export function AircraftSettings() {
         goes back to about 2023; a free account allows about 1,000 photos a day.
       </p>
       {route?.enabled && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={route.eastern}
+            onChange={(e) => run(api.aircraftSetRouteEastern(e.target.checked))}
+            data-testid="aircraft-route-eastern"
+          />
+          Camera clock on Eastern time, changed for daylight saving
+        </label>
+      )}
+      {route?.enabled && (
+        <p className="muted">
+          For a camera that marks every photo UTC−05:00 though its clock is put forward in summer:
+          from the second Sunday of March to the first Sunday of November, Add route reads its
+          photos as UTC−04:00. Photos without a time zone are read as Eastern time too; other time
+          zones are kept. The photos themselves are not changed.
+        </p>
+      )}
+      {route?.enabled && (
         <div className="block" data-testid="opensky-client">
           <strong>OpenSky API client</strong>
           <p className="muted">

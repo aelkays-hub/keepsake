@@ -506,6 +506,24 @@ impl Ai<'_, Rw> {
         Ok(())
     }
 
+    /// Forget the flights kept of `icao24` on `day` (Add route → Ask again).
+    pub fn forget_aircraft_flights(&self, icao24: &str, day: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_flights WHERE icao24 = ?1 AND day = ?2",
+            [icao24, day],
+        )?;
+        Ok(())
+    }
+
+    /// Forget what the online lookup said about `registration`.
+    pub fn forget_aircraft_lookup(&self, registration: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_lookups WHERE registration = ?1",
+            [registration],
+        )?;
+        Ok(())
+    }
+
     /// Keep what an online lookup said about `registration`.
     pub fn put_aircraft_lookup(
         &self,

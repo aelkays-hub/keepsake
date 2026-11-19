@@ -10,6 +10,12 @@ export type RouteItemDto = { id: string, name: string | null, thumb: string | nu
  */
 taken: string | null, 
 /**
+ * The camera's time (local, `2025-04-01T15:56:18`) and its offset
+ * from UTC in minutes, as Add route read them; `None`: no time
+ * zone known.
+ */
+local: string | null, offsetMin: number | null, 
+/**
  * `no-registration`, `no-time`, `no-transponder`, `waiting`,
  * `failed`, `nothing`, `none-near`, `found` or `several`.
  */

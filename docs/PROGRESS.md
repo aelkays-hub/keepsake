@@ -67,6 +67,14 @@
 
 ---
 
+## Add route: Eastern clock with daylight saving, Ask again, a readable window (2026-11-19)
+
+- **Reported:** most photos are taken on Eastern time and the date's daylight saving should count; Add route could only be run once; the window's text was over the picture and unreadable.
+- **Found:** the A7 III marks every photo UTC−05:00, in summer too (the catalog: 72,144 photos at −05:00, none of its at −04:00). A photo's flights were kept for good, so running again asked nothing. The window used Read aircraft's grid (96 px) with a 160 px picture.
+- **Built:** `route::Clock` (`AsRecorded`, `Eastern`), `eastern_offset`, `read_clock`; `photo`, `run_job`, `review` take the clock; `RouteItem.offset_min`; `route::again`; repo `forget_aircraft_flights`, `forget_aircraft_lookup`; setting `ai.aircraft_route_eastern`; render service `with_route_clock`. App: commands `aircraft_set_route_eastern`, `aircraft_route_again`; `RouteStatusDto.eastern`; `RouteItemDto.local`, `offset_min`. UI: the window's own layout (picture left, text beside it, the flight in a box, keyword ticks in a row), the time taken in the camera's time and UTC, the clock checkbox, **Ask again** per photo and **Ask again for all**; the same checkbox in Settings → Read aircraft.
+- **Tests, run here (Windows):** route unit test (daylight-saving dates 2025 and 2006, `read_clock`), `aircraft_tests` (+2: Ask again asks once more and forgets a not-known lookup; an Eastern clock reads a −05:00 photo in May an hour earlier); Vitest (`takenLine`, `offsetLabel`); mocked Playwright aircraft (+1: Ask again, the clock, picture and text side by side); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against OpenSky (asked by hand with the installer).
+
 ## Transponder codes from OpenSky's database; not-known lookups asked again (2026-11-18)
 
 - **Reported:** Add route found nothing for A7_05212.ARW (PH-BKO): adsbdb does not know PH-BKO, so it has no transponder code to search OpenSky's history with. Asked: "do both, keep OpenSky's codes and re-ask after 30 days".

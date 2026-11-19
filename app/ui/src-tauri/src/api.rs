@@ -159,6 +159,9 @@ dto! {
         /// Look registrations up online is on (the transponder code comes
         /// from it).
         pub lookup: bool,
+        /// The camera's clock showed Eastern time, changed for daylight
+        /// saving, though its photos say UTC−05:00.
+        pub eastern: bool,
     }
 
     /// A flight offered for a photo (Add route).
@@ -192,6 +195,11 @@ dto! {
         pub registration: Option<String>,
         /// Capture time, UTC, ISO 8601.
         pub taken: Option<String>,
+        /// The camera's time (local, `2025-04-01T15:56:18`) and its offset
+        /// from UTC in minutes, as Add route read them; `None`: no time
+        /// zone known.
+        pub local: Option<String>,
+        pub offset_min: Option<i16>,
         /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
         /// `failed`, `nothing`, `none-near`, `found` or `several`.
         pub state: String,

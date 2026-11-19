@@ -61,7 +61,7 @@ export function stateLine(item: RouteItemDto): string | null {
     case "nothing":
       return `OpenSky knows no flights of this aircraft that day. Its history goes back to about ${HISTORY_FROM}, and only where its receivers are.`;
     case "none-near":
-      return "No flight near this time. If the camera's clock was off (another time zone), correct it with Shift time and try again.";
+      return "No flight within three hours of this time. If the camera's clock was on summer time but the photo says UTC−05:00, tick Camera clock on Eastern time above; if it was off otherwise, correct it with Shift time. Then Ask again.";
     default:
       return null;
   }
@@ -84,4 +84,24 @@ export function routeProgress(pending: number, total: number, stopped: boolean):
   if (stopped) return "Stopped. Flights already found stay.";
   if (pending > 0) return `Asking OpenSky about ${pending} of ${total} photos…`;
   return `${total} ${total === 1 ? "photo" : "photos"}.`;
+}
+
+/** `UTC−04:00` from minutes. */
+export function offsetLabel(min: number): string {
+  const a = Math.abs(min);
+  const hh = String(Math.floor(a / 60)).padStart(2, "0");
+  const mm = String(a % 60).padStart(2, "0");
+  return `UTC${min < 0 ? "−" : "+"}${hh}:${mm}`;
+}
+
+/** When the photo was taken, as Add route reads it: the camera's time
+ * with its offset, and UTC (OpenSky's times are UTC). */
+export function takenLine(item: RouteItemDto): string | null {
+  if (!item.taken) return null;
+  const utc = item.taken.slice(0, 16).replace("T", " ");
+  if (item.local == null || item.offsetMin == null) {
+    return `Taken ${utc}, time zone not known (read as UTC)`;
+  }
+  const local = item.local.slice(0, 16).replace("T", " ");
+  return `Taken ${local} (${offsetLabel(item.offsetMin)}) · ${utc.slice(11)} UTC`;
 }

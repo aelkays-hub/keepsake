@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use keepsake_core::ai::aircraft::route::{
-    self, Airports, At, Choice, OpenSky, Pick, State as RouteState,
+    self, Airports, At, Choice, Clock, OpenSky, Pick, State as RouteState,
 };
 use keepsake_core::ai::aircraft::scan;
 use keepsake_core::catalog::{AssetId, JobState, TagPath};
@@ -20,6 +20,15 @@ use crate::api::{
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
+
+/// How Add route reads the camera's clock (the setting).
+pub fn clock(s: &Settings) -> Clock {
+    if s.ai.aircraft_route_eastern {
+        Clock::Eastern
+    } else {
+        Clock::AsRecorded
+    }
+}
 
 /// The client the render service uses.
 pub fn opensky() -> Arc<dyn route::Flights> {
@@ -38,6 +47,7 @@ pub fn aircraft_route_status() -> CmdResult<RouteStatusDto> {
             .map_err(err)?
             .is_some(),
         lookup: s.ai.aircraft_lookup,
+        eastern: s.ai.aircraft_route_eastern,
     })
 }
 
@@ -56,6 +66,16 @@ fn restart(app: &AppHandle) -> CmdResult<()> {
 pub fn aircraft_set_route(app: AppHandle, enabled: bool) -> CmdResult<()> {
     let mut s = Settings::load().map_err(err)?;
     s.ai.aircraft_route = enabled;
+    s.save().map_err(err)?;
+    restart(&app)
+}
+
+/// The camera's clock showed Eastern time, changed for daylight saving
+/// (on), or read the time as the camera recorded it (off).
+#[tauri::command(async)]
+pub fn aircraft_set_route_eastern(app: AppHandle, eastern: bool) -> CmdResult<()> {
+    let mut s = Settings::load().map_err(err)?;
+    s.ai.aircraft_route_eastern = eastern;
     s.save().map_err(err)?;
     restart(&app)
 }
@@ -130,7 +150,11 @@ pub fn aircraft_route(
         // Only those with a registration are asked about.
         let mut ask = Vec::new();
         for id in &ids {
-            if route::photo(&cat, *id).map_err(err)?.registration.is_some() {
+            if route::photo(&cat, *id, clock(&s))
+                .map_err(err)?
+                .registration
+                .is_some()
+            {
                 ask.push(*id);
             }
         }
@@ -143,6 +167,25 @@ pub fn aircraft_route(
         ids: ids.iter().map(ToString::to_string).collect(),
         status: dto(route::status(&cat, &ids).map_err(err)?),
     })
+}
+
+/// Ask again: forget what OpenSky (and the lookup, when it did not know
+/// the aircraft) said about `ids`, and ask once more in the background.
+#[tauri::command(async)]
+pub fn aircraft_route_again(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> CmdResult<u64> {
+    let ids = convert::ids(&ids)?;
+    let s = Settings::load().map_err(err)?;
+    let open = state.open()?;
+    let n = {
+        let mut cat = open.writer()?;
+        route::again(&mut cat, &ids, clock(&s)).map_err(err)?
+    };
+    crate::render::start_service(&app)?;
+    Ok(n)
 }
 
 #[tauri::command(async)]
@@ -203,9 +246,10 @@ pub fn aircraft_route_review(
     let open = state.open()?;
     let cat = open.cat()?;
     let airports = Airports::builtin();
+    let clock = clock(&Settings::load().map_err(err)?);
     let mut items = Vec::new();
     for id in &ids {
-        let it = route::review(&cat, &airports, *id).map_err(err)?;
+        let it = route::review(&cat, &airports, *id, clock).map_err(err)?;
         let job = cat
             .read(|tx| tx.jobs().find(route::JOB_AI_ROUTE, *id))
             .map_err(err)?;
@@ -239,6 +283,11 @@ pub fn aircraft_route_review(
             thumb,
             registration: it.registration,
             taken: it.taken_s.map(iso),
+            local: it
+                .taken_s
+                .zip(it.offset_min)
+                .map(|(t, o)| iso(t + i64::from(o) * 60).trim_end_matches('Z').to_owned()),
+            offset_min: it.offset_min,
             state: state.to_owned(),
             error,
             choices,

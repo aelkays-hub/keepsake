@@ -199,6 +199,8 @@ pub fn run() {
             aircraft::aircraft_built_remove,
             route::aircraft_route_status,
             route::aircraft_set_route,
+            route::aircraft_set_route_eastern,
+            route::aircraft_route_again,
             route::opensky_set_credentials,
             route::opensky_test,
             route::aircraft_route,

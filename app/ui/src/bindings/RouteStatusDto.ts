@@ -16,4 +16,9 @@ credentials: boolean,
  * Look registrations up online is on (the transponder code comes
  * from it).
  */
-lookup: boolean, };
+lookup: boolean, 
+/**
+ * The camera's clock showed Eastern time, changed for daylight
+ * saving, though its photos say UTC−05:00.
+ */
+eastern: boolean, };

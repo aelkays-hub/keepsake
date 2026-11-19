@@ -354,6 +354,9 @@ export const api = {
    * OS's credential store), and finding the photos' flights. */
   aircraftRouteStatus: () => invoke<RouteStatusDto>("aircraft_route_status"),
   aircraftSetRoute: (enabled: boolean) => invoke<void>("aircraft_set_route", { enabled }),
+  aircraftSetRouteEastern: (eastern: boolean) =>
+    invoke<void>("aircraft_set_route_eastern", { eastern }),
+  aircraftRouteAgain: (ids: string[]) => invoke<number>("aircraft_route_again", { ids }),
   openskySetCredentials: (clientId: string, secret: string) =>
     invoke<void>("opensky_set_credentials", { clientId, secret }),
   openskyTest: () => invoke<string>("opensky_test"),

@@ -221,6 +221,9 @@ pub struct AiSettings {
     /// OpenSky's flight history. Off until the user turns it on; needs an
     /// OpenSky API client, kept in the OS's credential store.
     pub aircraft_route: bool,
+    /// Add route: the camera's clock showed Eastern time, changed for
+    /// daylight saving, though its photos say UTC−05:00 (or no time zone).
+    pub aircraft_route_eastern: bool,
     /// Photos taken this many seconds either side, by the same camera and
     /// lens, that look alike count as the same shot: Read aircraft offers
     /// them its keywords, Tag with AI gives them its tags. 1–60.
@@ -316,6 +319,7 @@ impl Default for AiSettings {
             aircraft_type_pct: 70,
             aircraft_lookup: false,
             aircraft_route: false,
+            aircraft_route_eastern: false,
             same_shot_s: 10,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),

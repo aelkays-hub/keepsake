@@ -524,18 +524,79 @@ pub fn days_for(photo_s: i64) -> Vec<(String, i64)> {
     out
 }
 
+/// How Add route reads the camera's clock (Settings → Read aircraft).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Clock {
+    /// The time and time zone as the camera recorded them.
+    #[default]
+    AsRecorded,
+    /// The camera's clock showed Eastern time, changed for daylight
+    /// saving, though it marked its photos UTC−05:00 (or with no time
+    /// zone): the offset is worked out from the date instead (−04:00 in
+    /// daylight saving, −05:00 otherwise). Other time zones are kept.
+    Eastern,
+}
+
+/// Eastern standard time, in minutes from UTC.
+const EST_MIN: i16 = -300;
+/// Eastern daylight time.
+const EDT_MIN: i16 = -240;
+
+/// Eastern time's offset from UTC (minutes) for a wall-clock reading
+/// (`wall_s`: local time as if it were UTC). Daylight saving as in Canada
+/// and the US: from 2007, the second Sunday of March to the first Sunday
+/// of November; 1987–2006, the first Sunday of April to the last Sunday
+/// of October (earlier: the last Sunday of April); 02:00 local each.
+pub fn eastern_offset(wall_s: i64) -> i16 {
+    use chrono::{Datelike, NaiveDate, Weekday};
+    let Some(wall) = chrono::DateTime::from_timestamp(wall_s, 0).map(|d| d.naive_utc()) else {
+        return EST_MIN;
+    };
+    let y = wall.year();
+    let nth = |m: u32, n: u8| NaiveDate::from_weekday_of_month_opt(y, m, Weekday::Sun, n);
+    let last = |m: u32| nth(m, 5).or_else(|| nth(m, 4));
+    let (start, end) = if y >= 2007 {
+        (nth(3, 2), nth(11, 1))
+    } else if y >= 1987 {
+        (nth(4, 1), last(10))
+    } else {
+        (last(4), last(10))
+    };
+    let at2 = |d: Option<NaiveDate>| d.and_then(|d| d.and_hms_opt(2, 0, 0));
+    match (at2(start), at2(end)) {
+        (Some(s), Some(e)) if wall >= s && wall < e => EDT_MIN,
+        _ => EST_MIN,
+    }
+}
+
+/// The capture instant (Unix seconds, UTC) and the offset it is read with
+/// (`None`: not known), under `clock`.
+pub fn read_clock(utc_ms: i64, offset_min: Option<i16>, clock: Clock) -> (i64, Option<i16>) {
+    let s = utc_ms.div_euclid(1000);
+    match (clock, offset_min) {
+        (Clock::Eastern, None | Some(EST_MIN)) => {
+            let wall = s + i64::from(offset_min.unwrap_or(0)) * 60;
+            let o = eastern_offset(wall);
+            (wall - i64::from(o) * 60, Some(o))
+        }
+        _ => (s, offset_min),
+    }
+}
+
 /// What a photo needs for its route: its registration, capture time and
 /// position.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
     pub registration: Option<String>,
-    /// Unix seconds, UTC.
+    /// Unix seconds, UTC, as read under the [`Clock`].
     pub taken_s: Option<i64>,
+    /// The offset from UTC it was read with (minutes), when known.
+    pub offset_min: Option<i16>,
     pub gps: Option<(f64, f64)>,
 }
 
 /// The photo's accepted registration, capture time and position.
-pub fn photo(cat: &Catalog, asset: AssetId) -> Result<Photo, AiError> {
+pub fn photo(cat: &Catalog, asset: AssetId, clock: Clock) -> Result<Photo, AiError> {
     let a = cat.read(|tx| tx.assets().get(asset))?;
     let registration = cat
         .read(|tx| tx.tags().for_asset(asset))?
@@ -545,12 +606,14 @@ pub fn photo(cat: &Catalog, asset: AssetId) -> Result<Photo, AiError> {
             let s = t.path.segments();
             (s.len() == 3 && s[0] == TAG_PARENT && s[1] == "Registration").then(|| s[2].clone())
         });
+    let read = a
+        .as_ref()
+        .and_then(|a| a.capture)
+        .map(|c| read_clock(c.utc_ms, c.utc_offset_min, clock));
     Ok(Photo {
         registration,
-        taken_s: a
-            .as_ref()
-            .and_then(|a| a.capture)
-            .map(|c| c.utc_ms.div_euclid(1000)),
+        taken_s: read.map(|r| r.0),
+        offset_min: read.and_then(|r| r.1),
         gps: a.and_then(|a| a.gps).map(|g| (g.lat, g.lon)),
     })
 }
@@ -586,9 +649,10 @@ pub fn run_job(
     flights: &dyn Flights,
     lookup: Option<&dyn Lookup>,
     asset: AssetId,
+    clock: Clock,
 ) -> Result<Asked, AiError> {
     let mut asked = Asked::default();
-    let p = photo(cat, asset)?;
+    let p = photo(cat, asset, clock)?;
     let Some(reg) = p.registration else {
         return Err(cloud(
             "the photo has no registration: Read aircraft first",
@@ -649,6 +713,8 @@ pub struct RouteItem {
     pub asset: AssetId,
     pub registration: Option<String>,
     pub taken_s: Option<i64>,
+    /// The offset from UTC the capture time was read with, when known.
+    pub offset_min: Option<i16>,
     pub state: State,
     /// The route keywords it has already.
     pub has: Vec<TagPath>,
@@ -656,8 +722,13 @@ pub struct RouteItem {
 
 /// Where `asset`'s route stands: worked out from what is kept (nothing is
 /// asked here).
-pub fn review(cat: &Catalog, airports: &Airports, asset: AssetId) -> Result<RouteItem, AiError> {
-    let p = photo(cat, asset)?;
+pub fn review(
+    cat: &Catalog,
+    airports: &Airports,
+    asset: AssetId,
+    clock: Clock,
+) -> Result<RouteItem, AiError> {
+    let p = photo(cat, asset, clock)?;
     let has = cat
         .read(|tx| tx.tags().for_asset(asset))?
         .into_iter()
@@ -668,6 +739,7 @@ pub fn review(cat: &Catalog, airports: &Airports, asset: AssetId) -> Result<Rout
         asset,
         registration: p.registration.clone(),
         taken_s: p.taken_s,
+        offset_min: p.offset_min,
         state,
         has,
     };
@@ -725,6 +797,31 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     }
     super::scan::to_front(cat, JOB_AI_ROUTE, ids)?;
     Ok(n)
+}
+
+/// Ask again (the window's button): forget what OpenSky said about each
+/// photo's aircraft on its days, and what the registration lookup said
+/// when it did not know the aircraft, then queue them. Returns how many
+/// photos are asked about (those with a registration).
+pub fn again(cat: &mut Catalog, ids: &[AssetId], clock: Clock) -> Result<u64, AiError> {
+    let mut ask = Vec::new();
+    for id in ids {
+        let p = photo(cat, *id, clock)?;
+        let Some(reg) = p.registration else {
+            continue;
+        };
+        if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known) {
+            cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
+        }
+        if let (Some(icao), Some(t)) = (icao24_of(cat, &reg)?, p.taken_s) {
+            for (day, _) in days_for(t) {
+                cat.write(|tx| tx.ai().forget_aircraft_flights(&icao, &day))?;
+            }
+        }
+        ask.push(*id);
+    }
+    enqueue(cat, &ask)?;
+    Ok(u64::try_from(ask.len()).unwrap_or(u64::MAX))
 }
 
 /// How far Add route has got for `ids`.
@@ -903,6 +1000,51 @@ mod tests {
             d.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
             ["2026-05-30", "2026-05-31"]
         );
+    }
+
+    #[test]
+    fn eastern_time_has_daylight_saving_by_the_date() {
+        let wall = |y, m, d, h, mi| {
+            chrono::NaiveDate::from_ymd_opt(y, m, d)
+                .unwrap()
+                .and_hms_opt(h, mi, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        };
+        assert_eq!(eastern_offset(wall(2025, 4, 1, 15, 56)), -240);
+        assert_eq!(eastern_offset(wall(2025, 1, 15, 12, 0)), -300);
+        // 2025: 9 March to 2 November, at 02:00.
+        assert_eq!(eastern_offset(wall(2025, 3, 9, 1, 59)), -300);
+        assert_eq!(eastern_offset(wall(2025, 3, 9, 2, 0)), -240);
+        assert_eq!(eastern_offset(wall(2025, 11, 2, 1, 59)), -240);
+        assert_eq!(eastern_offset(wall(2025, 11, 2, 2, 0)), -300);
+        // Before 2007: April to October.
+        assert_eq!(eastern_offset(wall(2006, 3, 20, 12, 0)), -300);
+        assert_eq!(eastern_offset(wall(2006, 4, 2, 3, 0)), -240);
+        assert_eq!(eastern_offset(wall(2006, 10, 29, 3, 0)), -300);
+
+        // A7_05212.ARW: 15:56 on 1 April 2025, marked UTC−05:00.
+        let utc_ms = 1_743_540_978_000;
+        assert_eq!(
+            read_clock(utc_ms, Some(-300), Clock::AsRecorded),
+            (1_743_540_978, Some(-300))
+        );
+        assert_eq!(
+            read_clock(utc_ms, Some(-300), Clock::Eastern),
+            (1_743_540_978 - 3600, Some(-240))
+        );
+        // Another time zone is kept; none at all is read as Eastern.
+        assert_eq!(
+            read_clock(utc_ms, Some(60), Clock::Eastern),
+            (1_743_540_978, Some(60))
+        );
+        let w = wall(2025, 4, 1, 15, 56);
+        assert_eq!(
+            read_clock(w * 1000, None, Clock::Eastern),
+            (w + 4 * 3600, Some(-240))
+        );
+        assert_eq!(read_clock(w * 1000, None, Clock::AsRecorded), (w, None));
     }
 
     #[test]

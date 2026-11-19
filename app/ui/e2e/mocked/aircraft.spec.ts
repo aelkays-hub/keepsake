@@ -530,14 +530,15 @@ test("Add route: the flight found, two as near, none near, nothing known; only w
   const several = photos.filter({ has: page.getByTestId("rt-several") });
   await expect(several.getByTestId("rt-accept")).toHaveCount(0);
   await several.getByTestId("rt-choice").nth(0).check();
-  await expect(several.getByTestId("rt-route")).toHaveText(
-    "Not known → YYZ (Canada) · Flight AC443 (callsign ACA443)",
-  );
+  await expect(several.getByTestId("rt-route")).toHaveText("Not known → YYZ (Canada)");
+  await expect(several.getByTestId("rt-number")).toHaveText("Flight AC443 (callsign ACA443)");
 
   // Found: YYZ → LHR, flight AC856; untick a keyword and accept.
   const found = photos.filter({ hasText: "YYZ (Canada) → LHR (United Kingdom)" });
-  await expect(found.getByTestId("rt-route")).toHaveText(
-    "YYZ (Canada) → LHR (United Kingdom) · Flight AC856 (callsign ACA856)",
+  await expect(found.getByTestId("rt-route")).toHaveText("YYZ (Canada) → LHR (United Kingdom)");
+  await expect(found.getByTestId("rt-number")).toHaveText("Flight AC856 (callsign ACA856)");
+  await expect(found.getByTestId("rt-taken")).toHaveText(
+    "Taken 2026-05-31 07:31 (UTC−05:00) · 12:31 UTC",
   );
   await expect(found.getByTestId("rt-when")).toHaveText("Taken 15 min before take-off (12:16 UTC)");
   await found
@@ -582,4 +583,40 @@ test("Build years: a database kept before the transponder codes is offered again
   expect(await calls(page, "aircraft_built_install")).toHaveLength(1);
   await expect(db.getByTestId("aircraft-built-ready")).toHaveText("On this computer.");
   await expect(db.getByTestId("aircraft-built-again")).toHaveCount(0);
+});
+
+test("Add route: ask again, and read an Eastern camera clock with daylight saving", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved");
+  const win = await addRoute(page, 20);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  const found = win
+    .getByTestId("rt-photo")
+    .filter({ hasText: "YYZ (Canada) → LHR (United Kingdom)" });
+  await expect(found).toHaveCount(1);
+  const name = (await found.locator(".rt-name").textContent()) ?? "";
+  const photo = win.getByTestId("rt-photo").filter({ hasText: name });
+  // The picture and the text side by side: the text starts right of it.
+  const img = await photo.locator(".rt-thumb").boundingBox();
+  const body = await photo.locator(".rt-body").boundingBox();
+  expect(img && body && body.x >= img.x + img.width).toBe(true);
+
+  // Ask again: asked once more, and answered.
+  await photo.getByTestId("rt-again").click();
+  expect(await calls(page, "aircraft_route_again")).toEqual([{ ids: [expect.any(String)] }]);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  await expect(photo.getByTestId("rt-route")).toHaveText("YYZ (Canada) → LHR (United Kingdom)");
+
+  // The camera's clock was on summer time: read an hour earlier.
+  await expect(photo.getByTestId("rt-taken")).toContainText("(UTC−05:00) · 12:31 UTC");
+  await win.getByTestId("rt-eastern").check();
+  expect(await calls(page, "aircraft_set_route_eastern")).toEqual([{ eastern: true }]);
+  await expect(photo.getByTestId("rt-taken")).toContainText("(UTC−04:00) · 11:31 UTC");
+  expect(await calls(page, "aircraft_route")).toHaveLength(2);
+
+  // The setting is in Settings too.
+  await win.getByTestId("rt-close").click();
+  await settings(page);
+  await expect(page.getByTestId("aircraft-route-eastern")).toBeChecked();
 });

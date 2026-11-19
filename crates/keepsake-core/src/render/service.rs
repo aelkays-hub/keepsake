@@ -283,6 +283,7 @@ pub struct RenderService {
     /// Finds the flights of Add route (ADR-044), when set: a route worker
     /// then takes `ai.route` jobs.
     flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
+    route_clock: crate::ai::aircraft::route::Clock,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
     same_shot_ms: i64,
@@ -326,6 +327,7 @@ impl RenderService {
             aircraft: None,
             lookup: None,
             flights: None,
+            route_clock: crate::ai::aircraft::route::Clock::default(),
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
     }
@@ -345,6 +347,12 @@ impl RenderService {
     /// Find the flights of Add route with this (ADR-044).
     pub fn with_flights(mut self, flights: Arc<dyn crate::ai::aircraft::route::Flights>) -> Self {
         self.flights = Some(flights);
+        self
+    }
+
+    /// Read the camera's clock this way for Add route (ADR-044).
+    pub fn with_route_clock(mut self, clock: crate::ai::aircraft::route::Clock) -> Self {
+        self.route_clock = clock;
         self
     }
 
@@ -1090,7 +1098,13 @@ impl RenderService {
                 asset: job.asset_id,
             });
             let t0 = Instant::now();
-            match route::run_job(cat, flights, self.lookup.as_deref(), job.asset_id) {
+            match route::run_job(
+                cat,
+                flights,
+                self.lookup.as_deref(),
+                job.asset_id,
+                self.route_clock,
+            ) {
                 Ok(asked) => {
                     let now = now_ms();
                     Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;

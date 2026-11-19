@@ -105,6 +105,7 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     // Add route (ADR-044): only with the setting on.
     let svc = if open.settings.ai.aircraft_route {
         svc.with_flights(crate::route::opensky())
+            .with_route_clock(crate::route::clock(&open.settings))
     } else {
         svc
     };

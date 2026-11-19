@@ -113,7 +113,7 @@ export interface MockState {
   aircraftBuilt: Map<string, { built: string; source: string }>;
   /** Add route (ADR-044): on (`?route=on`), the OpenSky client saved
    * (`?opensky=saved`), and how often each photo was asked about. */
-  route: { enabled: boolean; saved: boolean; asked: Map<string, number> };
+  route: { enabled: boolean; saved: boolean; eastern: boolean; asked: Map<string, number> };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -525,6 +525,7 @@ export function installMock(): void {
     aircraftBuiltCodes: params.get("builtdb") === "on",
     route: {
       enabled: params.get("route") === "on",
+      eastern: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
     },
@@ -1677,11 +1678,21 @@ export function installMock(): void {
             enabled: st.route.enabled,
             credentials: st.route.saved,
             lookup: st.aircraftLookup,
+            eastern: st.route.eastern,
           };
         case "aircraft_set_route":
           st.route.enabled = Boolean(a.enabled);
           void emit("aircraft://status", null);
           return null;
+        case "aircraft_set_route_eastern":
+          st.route.eastern = Boolean(a.eastern);
+          void emit("aircraft://status", null);
+          return null;
+        case "aircraft_route_again": {
+          const ids = (a.ids ?? []) as string[];
+          for (const id of ids) st.route.asked.set(id, 0);
+          return ids.length;
+        }
         case "opensky_set_credentials": {
           const id = String(a.clientId ?? "").trim();
           const secret = String(a.secret ?? "").trim();
@@ -1763,7 +1774,10 @@ export function installMock(): void {
               name: it?.name ?? null,
               thumb: null,
               registration: reg,
-              taken: "2026-05-31T12:31:11Z",
+              // Marked UTC−05:00; read as Eastern daylight time, an hour earlier.
+              taken: st.route.eastern ? "2026-05-31T11:31:11Z" : "2026-05-31T12:31:11Z",
+              local: "2026-05-31T07:31:11",
+              offsetMin: st.route.eastern ? -240 : -300,
               error: null,
               choices: [] as ReturnType<typeof choice>[],
               has: kws.filter((k) =>
