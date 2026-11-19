@@ -66,7 +66,7 @@ export function stateLine(item: RouteItemDto, source?: string): string | null {
       return item.error ?? `${name} could not be asked.`;
     case "nothing":
       return source === "flightradar"
-        ? `Flightradar24 knows no flights of ${item.registration ?? "this aircraft"} that day. Its flight summaries start in June 2022.`
+        ? `Flightradar24 knows no flights of ${item.registration ?? "this aircraft"} that day. How far back it looks depends on your API plan.`
         : `OpenSky knows no flights of this aircraft that day. Its history goes back to about ${HISTORY_FROM}, and only where its receivers are.`;
     case "none-near":
       return "No flight within three hours of this time. If the camera's clock was on summer time but the photo says UTC−05:00, tick Camera clock on Eastern time above; if it was off otherwise, correct it with Shift time. Then Ask again.";

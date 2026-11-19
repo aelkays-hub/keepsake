@@ -67,6 +67,12 @@
 
 ---
 
+## Flightradar24: Test fixed, the plan's limit said (2026-11-19)
+
+- **Reported:** Test said "Flightradar24 did not accept the question: Validation failed". Asked Flightradar24 with the owner's token (curl, token on stdin; no credits): the plan gives data from 2026-10-20 on (the last 30 days), and Test asked about January 2024 with a registration it rejects. A recent minute with `ZZ-ZZZ` answers `{"data":[]}`.
+- **Fixed:** `Flightradar::test` asks about a minute two hours ago with `ZZ-ZZZ`; errors show Flightradar24's `details`; a date before the plan says "your API plan gives flights from 2026-10-20 on; this photo is older". Settings no longer says June 2022 (it depends on the plan).
+- **Tests:** route unit test (+1, the plan's limit), clippy; Vitest (98); Playwright Flightradar24 test.
+
 ## Add route from Flightradar24 (2026-11-19)
 
 - **Asked:** use the Flightradar24 API (the owner has an API plan) for the flights of the registrations. FR24's terms allow keeping its data 30 days; the owner chose to keep answers 30 days and the keywords they accept; the new table was approved.

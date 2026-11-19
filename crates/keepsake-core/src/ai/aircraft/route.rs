@@ -384,14 +384,15 @@ fn fr24_parse_time(s: &str) -> Option<i64> {
 
 /// Read Flightradar24's answer.
 pub fn parse_fr24(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
+    // Its `details` say why (`message` is only "Validation failed").
     let said = || {
         serde_json::from_str::<Value>(body)
             .ok()
             .and_then(|v| {
-                v["message"]
+                v["details"]
                     .as_str()
+                    .or(v["message"].as_str())
                     .or(v["error"].as_str())
-                    .or(v["details"].as_str())
                     .map(str::to_owned)
             })
             .unwrap_or_default()
@@ -429,10 +430,26 @@ pub fn parse_fr24(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
             ))
         }
         400 => {
+            let why = said();
+            // "…earlier than your subscription plan allows. Your plan
+            // provides data from '2026-10-20 13:51:38' onward."
+            if why.contains("earlier than your subscription plan allows") {
+                let from = why
+                    .split("data from '")
+                    .nth(1)
+                    .and_then(|r| r.get(..10))
+                    .unwrap_or("a later date");
+                return Err(cloud(
+                    format!(
+                        "Flightradar24: your API plan gives flights from {from} on; this photo is older (a higher plan goes further back)"
+                    ),
+                    false,
+                ));
+            }
             return Err(cloud(
-                format!("Flightradar24 did not accept the question: {}", said()),
+                format!("Flightradar24 did not accept the question: {why}"),
                 false,
-            ))
+            ));
         }
         s => return Err(cloud(format!("{FR24_SERVICE} answered {s}"), s >= 500)),
     }
@@ -484,10 +501,12 @@ impl Flightradar {
         Self { http, token }
     }
 
-    /// Whether the token works: a question with no answer (no credits).
-    pub fn test(&self) -> Result<(), AiError> {
-        self.flights("KEEPSAKE-TEST", 1_704_067_200, 1_704_067_260)
-            .map(|_| ())
+    /// Whether the token works: a question with no answer (no credits):
+    /// a registration no aircraft has, for a minute two hours ago (every
+    /// plan covers the last days).
+    pub fn test(&self, now_s: i64) -> Result<(), AiError> {
+        let at = now_s - 2 * 3600;
+        self.flights("ZZ-ZZZ", at, at + 60).map(|_| ())
     }
 }
 
@@ -1442,6 +1461,7 @@ mod tests {
             (403, false, "Flight summary"),
             (429, true, "slow down"),
             (400, false, "bad date"),
+            (402, false, "credits"),
             (503, true, "503"),
         ] {
             match parse_fr24(status, r#"{"message":"bad date"}"#) {
@@ -1475,6 +1495,22 @@ mod tests {
                     .collect(),
             ));
             Ok((200, r#"{"data":[]}"#.into()))
+        }
+    }
+
+    #[test]
+    fn flightradar24_says_when_the_plan_does_not_go_back_far_enough() {
+        // As Flightradar24 answered the owner's Explorer plan.
+        let body = r#"{"message":"Validation failed","details":"The requested date '2025-04-01T00:00:00' is earlier than your subscription plan allows. Your plan provides data from '2026-10-20 13:51:39' onward."}"#;
+        match parse_fr24(400, body) {
+            Err(AiError::Cloud {
+                retry: false,
+                message,
+            }) => {
+                assert!(message.contains("from 2026-10-20 on"), "{message}");
+                assert!(message.contains("this photo is older"), "{message}");
+            }
+            x => panic!("{x:?}"),
         }
     }
 

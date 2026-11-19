@@ -138,7 +138,7 @@ pub fn flightradar_test() -> CmdResult<String> {
         Arc::new(keepsake_core::ai::cloud::UreqHttp::new()),
         Arc::new(fr24_token),
     );
-    fr.test().map_err(err)?;
+    fr.test(keepsake_core::jobs::now_ms() / 1000).map_err(err)?;
     Ok("Flightradar24 accepted the API token.".into())
 }
 

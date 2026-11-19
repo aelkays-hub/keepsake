@@ -242,7 +242,7 @@ export function AircraftSettings() {
               onChange={() => run(api.aircraftSetRouteSource("flightradar"))}
               data-testid="route-source-flightradar"
             />
-            Flightradar24 (your API subscription; by registration, from June 2022)
+            Flightradar24 (your API subscription; by registration; how far back depends on the plan)
           </label>
         </fieldset>
       )}

@@ -125,6 +125,6 @@ describe("Add route", () => {
       "Asking Flightradar24 about 2 of 5 photos…",
     );
     expect(stateLine(item("waiting"), "flightradar")).toBe("Asking Flightradar24…");
-    expect(stateLine(item("nothing"), "flightradar")).toContain("June 2022");
+    expect(stateLine(item("nothing"), "flightradar")).toContain("depends on your API plan");
   });
 });

@@ -14,7 +14,7 @@ Manual (both OSes; needs a Flightradar24 API plan):
 1. Settings → Read aircraft → Find the route online → **Flights from: Flightradar24**.
    - **Expected:** the OpenSky client box goes; a Flightradar24 API token box says what is sent, 3 credits per flight, and that answers are kept 30 days.
 2. Paste the token from Key management on fr24api.flightradar24.com and click **Save**, then **Test**.
-   - **Expected:** "Saved." and "Flightradar24 accepted the API token." (no credits used). A wrong token: "Flightradar24 refused the API token…".
+   - **Expected:** "Saved." and "Flightradar24 accepted the API token." (no credits used). A photo older than the plan covers says "your API plan gives flights from … on; this photo is older". A wrong token: "Flightradar24 refused the API token…".
 3. Right-click A7_05212.ARW (PH-BKO, 1 April 2025) → **Add route…**.
    - **Expected:** "Asking Flightradar24…", then the flight (for example YYZ → AMS, Flight KL692) without any transponder code. Tick the keywords to keep and **Accept**.
 4. Add route on it again.
