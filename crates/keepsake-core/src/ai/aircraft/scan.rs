@@ -859,7 +859,21 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
         cat.write(|tx| tx.ai().forget_aircraft_accepted_unread(chunk))?;
     }
-    enqueue_ids(cat, ids, true)
+    let n = enqueue_ids(cat, ids, true)?;
+    to_front(cat, JOB_AI_AIRCRAFT, ids)?;
+    Ok(n)
+}
+
+/// The photos picked go ahead of any backlog of `kind`, even those already
+/// queued: a photo asked about now is read next, not after hours of others.
+pub(crate) fn to_front(cat: &mut Catalog, kind: &str, ids: &[AssetId]) -> Result<(), AiError> {
+    let rank = cat.write(|tx| tx.jobs().front_rank(kind))?;
+    let size = crate::render::ENQUEUE_CHUNK;
+    for (c, chunk) in ids.chunks(size).enumerate() {
+        let first = i64::try_from(c * size).unwrap_or(i64::MAX);
+        cat.write(|tx| tx.jobs().place(kind, chunk, rank, first))?;
+    }
+    Ok(())
 }
 
 /// Queue `ids`; `again`: also those already read.

@@ -67,6 +67,14 @@
 
 ---
 
+## A photo asked about goes to the front of the queue (2026-11-18)
+
+- **Reported:** reading a single picture took a very long time.
+- **Found:** each photo still takes about 6 s (as before). But 2,290 Read aircraft jobs were queued: 1,976 left from a folder read on 2026-11-18 and 375 from 6-7 June. A photo picked again kept its old place, so it waited behind them.
+- **Fixed:** `Jobs::front_rank` and `Jobs::place`; Read aircraft and Add route on picked photos put them ahead of any backlog of their kind (`scan::to_front`), queued already or not. A folder or dates read keeps its order.
+- **Tests, run here (Windows):** `aircraft_tests` (20, +1), core lib (232), `catalog_tests`; fmt, clippy `-D warnings`.
+- **Not run:** CI; macOS.
+
 ## Add route (ADR-044, part 2) (2026-11-18)
 
 - **Asked:** right-click → Add route: departure and arrival (IATA codes and countries) from the registration and the photo's time; then "maybe we should include the flight number as a tag".

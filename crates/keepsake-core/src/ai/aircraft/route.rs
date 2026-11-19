@@ -723,6 +723,7 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
             tx.jobs().enqueue(&jobs, Priority::Recent, now, true)
         })?;
     }
+    super::scan::to_front(cat, JOB_AI_ROUTE, ids)?;
     Ok(n)
 }
 

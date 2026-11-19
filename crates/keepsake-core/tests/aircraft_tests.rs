@@ -1381,3 +1381,33 @@ fn the_route_worker_asks_in_the_background_and_accepting_writes_only_aircraft_ke
     );
     assert_eq!(hashes(&w.media), before, "originals unchanged");
 }
+
+#[test]
+fn a_photo_asked_about_now_is_read_before_a_backlog_even_one_already_queued() {
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let mut w = World::new(&names);
+    let ids: Vec<AssetId> = names.iter().map(|n| w.asset(n)).collect();
+    let next = |cat: &Catalog| {
+        cat.read(|tx| tx.jobs().next(&[JOB_AI_AIRCRAFT], i64::MAX))
+            .unwrap()
+            .map(|j| j.asset_id)
+    };
+    // A folder's worth queued first, in its order.
+    scan::enqueue(&mut w.cat, &ids[..3]).unwrap();
+    assert_eq!(next(&w.cat), Some(ids[0]));
+    // A photo not queued yet, then one queued at the back: each goes first.
+    scan::enqueue(&mut w.cat, &ids[3..]).unwrap();
+    assert_eq!(next(&w.cat), Some(ids[3]));
+    scan::enqueue(&mut w.cat, &ids[2..3]).unwrap();
+    assert_eq!(next(&w.cat), Some(ids[2]));
+    // Add route's queue does the same.
+    use keepsake_core::ai::aircraft::route::{enqueue, JOB_AI_ROUTE};
+    enqueue(&mut w.cat, &ids[..3]).unwrap();
+    enqueue(&mut w.cat, &ids[1..2]).unwrap();
+    let r = w
+        .cat
+        .read(|tx| tx.jobs().next(&[JOB_AI_ROUTE], i64::MAX))
+        .unwrap()
+        .map(|j| j.asset_id);
+    assert_eq!(r, Some(ids[1]));
+}
