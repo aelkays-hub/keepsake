@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { aircraftProgress } from "../aircraft";
 import { api, events, type AircraftStatus } from "../api";
+import type { Fr24AircraftStatusDto } from "../bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "../bindings/RouteStatusDto";
 import * as fmt from "../format";
 
@@ -246,14 +247,15 @@ export function AircraftSettings() {
           </label>
         </fieldset>
       )}
-      {route?.enabled && route.source === "flightradar" && (
+      {route && (
         <div className="block" data-testid="fr24-client">
           <strong>Flightradar24 API token</strong>
           <p className="muted">
-            Sends the registration and the photo's UTC day to fr24api.flightradar24.com. No photo is
-            sent. Each flight it returns costs 3 credits of your plan (a day with no flights costs
-            none). Its terms allow keeping its answers 30 days: they are deleted then; the keywords
-            you accept stay on your photos. Create the token in Key management on
+            For your Flightradar24 API subscription: Add route (when chosen above) and looking up
+            aircraft. Sends the registration and the photo's UTC day to fr24api.flightradar24.com.
+            No photo is sent. Each flight it returns costs 3 credits of your plan (a day with no
+            flights costs none). Its terms allow keeping its answers 30 days: they are deleted then;
+            the keywords you accept stay on your photos. Create the token in Key management on
             fr24api.flightradar24.com. It is kept in{" "}
             {navigator.userAgent.includes("Mac") ? "the Keychain" : "Windows Credential Manager"},
             never in a file.
@@ -307,6 +309,7 @@ export function AircraftSettings() {
               {tested}
             </p>
           )}
+          {route.flightradar && <Fr24Lookup />}
         </div>
       )}
       {route?.enabled && route.source !== "flightradar" && (
@@ -398,6 +401,88 @@ export function AircraftSettings() {
           {problem}
         </p>
       )}
+    </div>
+  );
+}
+
+/** Look up aircraft on Flightradar24: one batch job over every
+ * registration, in the background. */
+function Fr24Lookup() {
+  const [st, setSt] = useState<Fr24AircraftStatusDto | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api
+      .fr24AircraftStatus()
+      .then(setSt)
+      .catch((e) => setProblem(String(e)));
+  }, []);
+  useEffect(load, [load]);
+  // While it runs: every few seconds.
+  useEffect(() => {
+    if (!st?.running) return;
+    const t = window.setTimeout(load, 3000);
+    return () => window.clearTimeout(t);
+  }, [st, load]);
+  if (!st) return null;
+  const left = Math.max(0, st.registrations - st.asked);
+  return (
+    <div className="block" data-testid="fr24-lookup">
+      <strong>Look up aircraft on Flightradar24</strong>
+      <p className="muted">
+        Asks for each registration's latest flight in the last four weeks: its type, the airline
+        operating it and its transponder code (so OpenSky can find its older routes). Aircraft that
+        did not fly in that time are not found, and there is no build year. About 2 credits per
+        aircraft found, none for those not found; the job asks about 10 a minute. Kept 30 days (its
+        terms); the type and airline are offered in Read aircraft for you to accept.
+      </p>
+      <p role="status" data-testid="fr24-lookup-status">
+        {st.registrations === 0
+          ? "No registrations accepted on photos yet."
+          : `${st.asked} of ${st.registrations} registrations looked up, ${st.found} found${
+              st.running ? " (looking up…)" : ""
+            }.`}
+      </p>
+      {st.problem && (
+        <p className="error" role="alert" data-testid="fr24-lookup-problem">
+          {st.problem}
+        </p>
+      )}
+      {problem && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
+      )}
+      <div className="row">
+        {st.running ? (
+          <button
+            onClick={() =>
+              api
+                .fr24AircraftStop()
+                .then(load)
+                .catch((e) => setProblem(String(e)))
+            }
+            data-testid="fr24-lookup-stop"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            disabled={left === 0}
+            onClick={() => {
+              setProblem(null);
+              api
+                .fr24AircraftStart()
+                .then(load)
+                .catch((e) => setProblem(String(e)));
+            }}
+            data-testid="fr24-lookup-start"
+          >
+            {st.asked === 0
+              ? `Look up all ${st.registrations} registrations (at most ${st.registrations * 2} credits)`
+              : `Look up the ${left} left (at most ${left * 2} credits)`}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -603,10 +603,14 @@ pub fn offer(
     found: &[super::lookup::Found],
 ) -> Result<Offer, AiError> {
     let marks = item.candidates.at(conf);
-    let known: Vec<&super::lookup::Found> = found
+    // What the lookup knows, with Flightradar24's details filling gaps.
+    let now = crate::jobs::now_ms();
+    let merged: Vec<super::lookup::Found> = found
         .iter()
-        .filter(|f| f.known && marks.registrations.contains(&f.registration))
+        .filter(|f| marks.registrations.contains(&f.registration))
+        .filter_map(|f| super::fr24::with_fr24(f, now))
         .collect();
+    let known: Vec<&super::lookup::Found> = merged.iter().collect();
     let looked_type = known.iter().find_map(|f| f.aircraft_type.clone());
     let look = if marks.types.is_empty() && looked_type.is_none() {
         item.looks_like.as_deref()

@@ -111,6 +111,25 @@ impl<M> Tags<'_, M> {
             .collect()
     }
 
+    /// The names of the tags right below `parent` that are on at least one
+    /// asset as a keyword the user accepted, each with one such asset (the
+    /// lowest id), by name.
+    pub fn user_children(&self, parent: &TagPath) -> Result<Vec<(String, AssetId)>, CatalogError> {
+        let Some(tag) = find_path(self.conn, parent)? else {
+            return Ok(Vec::new());
+        };
+        let mut st = self.conn.prepare(
+            "SELECT t.name, min(at.asset_id) FROM tags t
+               JOIN asset_tags at ON at.tag_id = t.id AND at.source = 'user'
+              WHERE t.parent_id = ?1
+              GROUP BY t.id ORDER BY t.name",
+        )?;
+        let rows = st
+            .query_map([tag], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// Ids of assets carrying `path` (exactly, not descendants).
     pub fn assets_with(&self, path: &TagPath) -> Result<Vec<AssetId>, CatalogError> {
         let Some(tag) = find_path(self.conn, path)? else {

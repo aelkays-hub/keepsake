@@ -111,6 +111,11 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     } else {
         svc
     };
+    // Look up aircraft on Flightradar24: with a token saved.
+    let svc = match crate::route::fr24_aircraft() {
+        Some(c) => svc.with_fr24(c, keepsake_core::ai::aircraft::fr24::GAP),
+        None => svc,
+    };
     // Add route (ADR-044): only with the setting on.
     let svc = if open.settings.ai.aircraft_route {
         svc.with_flights(crate::route::client(&open.settings))

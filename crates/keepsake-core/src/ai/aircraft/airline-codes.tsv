@@ -2,85 +2,85 @@
 # starts with, and the IATA code its flight number is sold with, so that
 # callsign ACA856 is flight AC856. Hand-made from the airlines' own codes
 # (facts, no licence); an airline not here keeps its callsign.
-# ICAO<TAB>IATA
-AAL	AA
-AAR	OZ
-AAY	G4
-ACA	AC
-AEA	UX
-AEE	A3
-AFL	SU
-AFR	AF
-AIC	AI
-AMX	AM
-ANA	NH
-ANZ	NZ
-ARG	AR
-ASA	AS
-AUA	OS
-AVA	AV
-AZU	AD
-BAW	BA
-BEL	SN
-CAL	CI
-CCA	CA
-CES	MU
-CFG	DE
-CMP	CM
-CPA	CX
-CSN	CZ
-CYP	CY
-DAL	DL
-DLH	LH
-EIN	EI
-ELY	LY
-ETD	EY
-ETH	ET
-EVA	BR
-EWG	EW
-EZY	U2
-FFT	F9
-FIN	AY
-GFA	GF
-GLO	G3
-HAL	HA
-HVN	VN
-IBE	IB
-ICE	FI
-ITY	AZ
-JAL	JL
-JBU	B6
-KAC	KU
-KAL	KE
-KLM	KL
-KQA	KQ
-LAN	LA
-LOT	LO
-MEA	ME
-MSR	MS
-NKS	NK
-OMA	WY
-PIA	PK
-POE	PD
-QFA	QF
-QTR	QR
-RAM	AT
-RJA	RJ
-ROU	RV
-RYR	FR
-SAA	SA
-SAS	SK
-SIA	SQ
-SVA	SV
-SWA	WN
-SWG	WG
-SWR	LX
-TAP	TP
-THY	TK
-TSC	TS
-UAE	EK
-UAL	UA
-VIR	VS
-VLG	VY
-WJA	WS
-WZZ	W6
+# ICAO<TAB>IATA<TAB>Name (as in airlines.tsv; for Flightradar24's operator code)
+AAL	AA	American Airlines
+AAR	OZ	Asiana
+AAY	G4	Allegiant Air
+ACA	AC	Air Canada
+AEA	UX	Air Europa
+AEE	A3	Aegean
+AFL	SU	Aeroflot
+AFR	AF	Air France
+AIC	AI	Air India
+AMX	AM	Aeromexico
+ANA	NH	ANA
+ANZ	NZ	Air New Zealand
+ARG	AR	Aerolineas Argentinas
+ASA	AS	Alaska Airlines
+AUA	OS	Austrian
+AVA	AV	Avianca
+AZU	AD	Azul
+BAW	BA	British Airways
+BEL	SN	Brussels Airlines
+CAL	CI	China Airlines
+CCA	CA	Air China
+CES	MU	China Eastern
+CFG	DE	Condor
+CMP	CM	Copa Airlines
+CPA	CX	Cathay Pacific
+CSN	CZ	China Southern
+CYP	CY	Cyprus Airways
+DAL	DL	Delta Air Lines
+DLH	LH	Lufthansa
+EIN	EI	Aer Lingus
+ELY	LY	El Al
+ETD	EY	Etihad
+ETH	ET	Ethiopian
+EVA	BR	EVA Air
+EWG	EW	Eurowings
+EZY	U2	easyJet
+FFT	F9	Frontier Airlines
+FIN	AY	Finnair
+GFA	GF	Gulf Air
+GLO	G3	GOL
+HAL	HA	Hawaiian Airlines
+HVN	VN	Vietnam Airlines
+IBE	IB	Iberia
+ICE	FI	Icelandair
+ITY	AZ	ITA Airways
+JAL	JL	Japan Airlines
+JBU	B6	JetBlue
+KAC	KU	Kuwait Airways
+KAL	KE	Korean Air
+KLM	KL	KLM
+KQA	KQ	Kenya Airways
+LAN	LA	LATAM
+LOT	LO	LOT
+MEA	ME	Middle East Airlines
+MSR	MS	EgyptAir
+NKS	NK	Spirit Airlines
+OMA	WY	Oman Air
+PIA	PK	Pakistan International
+POE	PD	Porter Airlines
+QFA	QF	Qantas
+QTR	QR	Qatar Airways
+RAM	AT	Royal Air Maroc
+RJA	RJ	Royal Jordanian
+ROU	RV	Air Canada Rouge
+RYR	FR	Ryanair
+SAA	SA	South African
+SAS	SK	SAS
+SIA	SQ	Singapore Airlines
+SVA	SV	Saudia
+SWA	WN	Southwest Airlines
+SWG	WG	Sunwing Airlines
+SWR	LX	Swiss
+TAP	TP	TAP Air Portugal
+THY	TK	Turkish Airlines
+TSC	TS	Air Transat
+UAE	EK	Emirates
+UAL	UA	United Airlines
+VIR	VS	Virgin Atlantic
+VLG	VY	Vueling
+WJA	WS	WestJet
+WZZ	W6	Wizz Air

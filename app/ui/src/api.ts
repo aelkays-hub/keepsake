@@ -20,6 +20,7 @@ import type { AiAdviceDto } from "./bindings/AiAdviceDto";
 import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
 import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
 import type { RouteReviewDto } from "./bindings/RouteReviewDto";
+import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
 import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
@@ -367,6 +368,9 @@ export const api = {
   aircraftSetRouteSource: (source: string) => invoke<void>("aircraft_set_route_source", { source }),
   flightradarSetToken: (token: string) => invoke<void>("flightradar_set_token", { token }),
   flightradarTest: () => invoke<string>("flightradar_test"),
+  fr24AircraftStatus: () => invoke<Fr24AircraftStatusDto>("fr24_aircraft_status"),
+  fr24AircraftStart: () => invoke<boolean>("fr24_aircraft_start"),
+  fr24AircraftStop: () => invoke<void>("fr24_aircraft_stop"),
   aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),

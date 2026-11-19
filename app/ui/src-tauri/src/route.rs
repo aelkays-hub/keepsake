@@ -15,8 +15,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    CloudStarted, CloudStatusDto, RouteChoiceDto, RouteItemDto, RouteReviewDto, RouteStatusDto,
-    Selection,
+    CloudStarted, CloudStatusDto, Fr24AircraftStatusDto, RouteChoiceDto, RouteItemDto,
+    RouteReviewDto, RouteStatusDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -52,6 +52,62 @@ pub fn client(s: &Settings) -> Arc<dyn route::Flights> {
             Arc::new(|| keepsake_platform::secrets::opensky().ok().flatten()),
         )),
     }
+}
+
+/// The Flightradar24 client the render service looks aircraft up with,
+/// when a token is saved.
+pub fn fr24_aircraft() -> Option<Arc<dyn route::Fr24Aircrafts>> {
+    fr24_token()?;
+    Some(Arc::new(Flightradar::new(
+        Arc::new(keepsake_core::ai::cloud::UreqHttp::new()),
+        Arc::new(fr24_token),
+    )))
+}
+
+/// Where looking aircraft up on Flightradar24 stands.
+#[tauri::command(async)]
+pub fn fr24_aircraft_status(state: State<'_, AppState>) -> CmdResult<Fr24AircraftStatusDto> {
+    let token = keepsake_platform::secrets::api_key(FR24_KEY)
+        .map_err(err)?
+        .is_some();
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let st = keepsake_core::ai::aircraft::fr24::status(&cat).map_err(err)?;
+    Ok(Fr24AircraftStatusDto {
+        token,
+        registrations: st.registrations,
+        asked: st.asked,
+        found: st.found,
+        running: st.running,
+        problem: st.problem,
+    })
+}
+
+/// Look every registration up on Flightradar24 (one batch job, in the
+/// background).
+#[tauri::command(async)]
+pub fn fr24_aircraft_start(app: AppHandle, state: State<'_, AppState>) -> CmdResult<bool> {
+    if keepsake_platform::secrets::api_key(FR24_KEY)
+        .map_err(err)?
+        .is_none()
+    {
+        return Err("Add your Flightradar24 API token first.".into());
+    }
+    let open = state.open()?;
+    let queued = {
+        let mut cat = open.writer()?;
+        keepsake_core::ai::aircraft::fr24::enqueue(&mut cat).map_err(err)?
+    };
+    crate::render::start_service(&app)?;
+    Ok(queued)
+}
+
+/// Stop looking aircraft up (what was found stays, for its 30 days).
+#[tauri::command(async)]
+pub fn fr24_aircraft_stop(state: State<'_, AppState>) -> CmdResult<()> {
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    keepsake_core::ai::aircraft::fr24::stop(&mut cat).map_err(err)
 }
 
 /// The chosen source's client or token is saved.

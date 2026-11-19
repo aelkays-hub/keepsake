@@ -687,3 +687,25 @@ test("Add route from Flightradar24: chosen in Settings, its token saved and test
   ).toHaveCount(1);
   await expect(win).toContainText("kept 30 days");
 });
+
+test("Look up aircraft on Flightradar24: one batch job over every registration", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&fr24=saved");
+  await settings(page);
+  // The token box is there without Add route on.
+  const box = page.getByTestId("fr24-lookup");
+  await expect(box).toContainText("transponder code");
+  await expect(box.getByTestId("fr24-lookup-status")).toHaveText(
+    "0 of 40 registrations looked up, 0 found.",
+  );
+  await box.getByTestId("fr24-lookup-start").click();
+  expect(await calls(page, "fr24_aircraft_start")).toHaveLength(1);
+  await expect(box.getByTestId("fr24-lookup-stop")).toBeVisible();
+  // It goes on in the background, and ends.
+  await expect(box.getByTestId("fr24-lookup-status")).toHaveText(
+    "40 of 40 registrations looked up, 30 found.",
+    { timeout: 20_000 },
+  );
+  await expect(box.getByTestId("fr24-lookup-start")).toBeDisabled();
+});

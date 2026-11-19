@@ -1815,3 +1815,113 @@ fn flightradar24_finds_the_flight_by_registration_and_forgets_it_after_30_days()
         .unwrap()
         .is_none());
 }
+
+/// Flightradar24 as the tests see it: knows PH-BKO's latest flight (in the
+/// weeks before last), not C-GBIJ's.
+struct FakeFr24Aircraft {
+    asked: Mutex<Vec<(String, i64, i64)>>,
+}
+
+impl route::Fr24Aircrafts for FakeFr24Aircraft {
+    fn aircraft(
+        &self,
+        registration: &str,
+        begin: i64,
+        end: i64,
+    ) -> Result<Option<lookup::Fr24Aircraft>, AiError> {
+        let n = {
+            let mut a = self.asked.lock().unwrap();
+            a.push((registration.to_owned(), begin, end));
+            a.iter().filter(|x| x.0 == registration).count()
+        };
+        Ok(
+            (registration == "PH-BKO" && n == 2).then(|| lookup::Fr24Aircraft {
+                asked_ms: keepsake_core::jobs::now_ms(),
+                found: true,
+                icao_type: Some("B78X".into()),
+                operator: Some("KLM".into()),
+                painted_as: Some("KLM".into()),
+                hex: Some("485E31".into()),
+                seen: Some("2026-11-01".into()),
+            }),
+        )
+    }
+}
+
+#[test]
+fn looking_aircraft_up_on_flightradar24_keeps_type_airline_and_code_for_30_days() {
+    use keepsake_core::ai::aircraft::fr24;
+    use std::sync::atomic::AtomicBool;
+    let (mut w, ids) = route_world(&["a.jpg", "b.jpg"], &[PHOTO_S, PHOTO_S]);
+    let bko = TagPath::parse_lightroom("Aircraft|Registration|PH-BKO").unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(ids[1], std::slice::from_ref(&bko))
+        .unwrap();
+    let regs: Vec<String> = fr24::registrations(&w.cat)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.0)
+        .collect();
+    assert_eq!(regs, ["C-GBIJ", "PH-BKO"]);
+    assert_eq!(fr24::status(&w.cat).unwrap().registrations, 2);
+
+    // One batch job.
+    assert!(fr24::enqueue(&mut w.cat).unwrap());
+    assert!(fr24::status(&w.cat).unwrap().running);
+    fr24::stop(&mut w.cat).unwrap();
+    assert!(!fr24::status(&w.cat).unwrap().running);
+
+    let client = FakeFr24Aircraft {
+        asked: Mutex::new(Vec::new()),
+    };
+    let b = fr24::run_batch(
+        &mut w.cat,
+        &client,
+        &AtomicBool::new(false),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
+    // Each: the last two weeks, then the two before; PH-BKO found then.
+    assert_eq!((b.asked, b.found, b.left), (4, 1, 0));
+    {
+        let a = client.asked.lock().unwrap();
+        assert!(a.iter().all(|x| x.2 - x.1 < 14 * 86_400));
+        assert_eq!(a[0].2 - a[1].2, 14 * 86_400);
+    }
+    let st = fr24::status(&w.cat).unwrap();
+    assert_eq!((st.asked, st.found), (2, 1));
+    // Not asked again within the 30 days.
+    let b = fr24::run_batch(
+        &mut w.cat,
+        &client,
+        &AtomicBool::new(false),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
+    assert_eq!(b.asked, 0);
+
+    // Its code lets OpenSky find PH-BKO's routes; the type and airline are
+    // offered where adsbdb knows nothing.
+    assert_eq!(
+        route::icao24_of(&w.cat, "PH-BKO").unwrap().as_deref(),
+        Some("485e31")
+    );
+    let now = keepsake_core::jobs::now_ms();
+    let f = lookup::kept(&w.cat, "PH-BKO").unwrap().unwrap();
+    let merged = fr24::with_fr24(&f, now).unwrap();
+    assert_eq!(merged.airline.as_deref(), Some("KLM"));
+    assert_eq!(merged.aircraft_type.as_deref(), Some("Boeing 787-10"));
+    // C-GBIJ (adsbdb knows it): its own answer is kept.
+    assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().unwrap().known);
+
+    // 31 days on: deleted, and no longer used.
+    let later = now + route::FR24_KEEP_MS + 86_400_000;
+    assert!(fr24::with_fr24(&f, later).is_none());
+    assert_eq!(fr24::forget_expired(&mut w.cat, later).unwrap(), 2);
+    assert!(lookup::kept(&w.cat, "PH-BKO")
+        .unwrap()
+        .unwrap()
+        .fr24
+        .is_none());
+    assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+}

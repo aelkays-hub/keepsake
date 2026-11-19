@@ -170,6 +170,23 @@ dto! {
         pub eastern: bool,
     }
 
+    /// Look up aircraft on Flightradar24 (Settings → Read aircraft).
+    pub struct Fr24AircraftStatusDto {
+        /// A Flightradar24 API token is saved.
+        pub token: bool,
+        /// Registrations accepted on photos.
+        #[ts(type = "number")]
+        pub registrations: u64,
+        /// Asked about in the last 30 days, and of them found.
+        #[ts(type = "number")]
+        pub asked: u64,
+        #[ts(type = "number")]
+        pub found: u64,
+        /// The batch job is queued or running.
+        pub running: bool,
+        pub problem: Option<String>,
+    }
+
     /// A flight offered for a photo (Add route).
     pub struct RouteChoiceDto {
         pub callsign: Option<String>,

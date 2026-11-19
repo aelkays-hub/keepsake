@@ -84,6 +84,40 @@ pub struct Found {
     /// [`Found::mode_s`], and kept when the registration is asked again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_mode_s: Option<String>,
+    /// What Flightradar24 said about the aircraft (Settings → Look up
+    /// aircraft on Flightradar24); kept 30 days ([`super::fr24`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fr24: Option<Fr24Aircraft>,
+}
+
+/// An aircraft as one of its recent flights on Flightradar24 shows it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fr24Aircraft {
+    /// When Flightradar24 was asked (Unix ms): deleted 30 days on.
+    pub asked_ms: i64,
+    /// A flight was found in the weeks asked about.
+    pub found: bool,
+    /// The ICAO type designator (`B78X`).
+    #[serde(default)]
+    pub icao_type: Option<String>,
+    /// The ICAO code of the airline operating it (`KLM`), and of its livery.
+    #[serde(default)]
+    pub operator: Option<String>,
+    #[serde(default)]
+    pub painted_as: Option<String>,
+    /// The transponder code, hex (`485E31`).
+    #[serde(default)]
+    pub hex: Option<String>,
+    /// The day of the flight seen (`2026-11-17`).
+    #[serde(default)]
+    pub seen: Option<String>,
+}
+
+impl Fr24Aircraft {
+    /// Still within the 30 days Flightradar24's terms allow it to be kept.
+    pub fn fresh(&self, now_ms: i64) -> bool {
+        now_ms - self.asked_ms < super::route::FR24_KEEP_MS
+    }
 }
 
 impl Found {
@@ -202,6 +236,7 @@ pub fn parse(
         mode_s: text("mode_s").map(|m| m.to_ascii_uppercase()),
         built: None,
         typed_mode_s: None,
+        fr24: None,
         version: LOOKUP_VERSION,
     })
 }
@@ -285,8 +320,11 @@ pub fn lookup_cached(
 /// was built, [`built::note_found`]).
 fn ask(cat: &mut Catalog, lookup: &dyn Lookup, registration: &str) -> Result<Found, AiError> {
     let mut found = lookup.lookup(registration)?;
-    // A code the user typed stays.
-    found.typed_mode_s = kept(cat, registration)?.and_then(|f| f.typed_mode_s);
+    // A code the user typed, and Flightradar24's details, stay.
+    if let Some(before) = kept(cat, registration)? {
+        found.typed_mode_s = before.typed_mode_s;
+        found.fr24 = before.fr24;
+    }
     let json = serde_json::to_string(&found)
         .map_err(|e| AiError::Image(format!("the lookup could not be kept: {e}")))?;
     let now = crate::jobs::now_ms();

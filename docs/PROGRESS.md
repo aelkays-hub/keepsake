@@ -67,6 +67,13 @@
 
 ---
 
+## Look up aircraft on Flightradar24 (2026-11-19)
+
+- **Asked:** "use the flight radar api just to get some extra data about the aircrafts … just by passing the registration", "add this as an option in the settings menu", "build one batch job".
+- **Built:** `ai::aircraft::fr24` (job `ai.fr24.aircraft`: `registrations`, `due`, `ask_one`, `run_batch`, `put`, `with_fr24`, `forget_expired`, `enqueue`, `stop`, `status`); `lookup::Fr24Aircraft` in `Found.fr24`; `route::Fr24Aircrafts`, `parse_fr24_aircraft`, `airline_of_code` (airline-codes.tsv: a name column); `icao24_of` uses its code; `scan::offer` its type and airline; repo `tags().user_children`; render service `with_fr24` and its worker. App: `fr24_aircraft_status`, `fr24_aircraft_start`, `fr24_aircraft_stop`; the Flightradar24 token box shown without Add route on; Settings → Look up aircraft on Flightradar24 (what it finds, the credits, Look up all N registrations, progress, Stop).
+- **Tests, run here (Windows):** route unit test (+1: an aircraft read, airline names), `aircraft_tests` (+1: two registrations, two windows, found and not, not asked again, code and offers used, deleted after 30 days); Vitest (98); mocked Playwright aircraft (22, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against Flightradar24 (by hand with the installer).
+
 ## Flightradar24: Test fixed, the plan's limit said (2026-11-19)
 
 - **Reported:** Test said "Flightradar24 did not accept the question: Validation failed". Asked Flightradar24 with the owner's token (curl, token on stdin; no credits): the plan gives data from 2026-10-20 on (the last 30 days), and Test asked about January 2024 with a registration it rejects. A recent minute with `ZZ-ZZZ` answers `{"data":[]}`.

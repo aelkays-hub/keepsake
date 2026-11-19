@@ -283,6 +283,8 @@ pub struct RenderService {
     /// Finds the flights of Add route (ADR-044), when set: a route worker
     /// then takes `ai.route` jobs.
     flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
+    fr24: Option<Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>>,
+    fr24_gap: Duration,
     route_clock: crate::ai::aircraft::route::Clock,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
@@ -327,6 +329,8 @@ impl RenderService {
             aircraft: None,
             lookup: None,
             flights: None,
+            fr24: None,
+            fr24_gap: crate::ai::aircraft::fr24::GAP,
             route_clock: crate::ai::aircraft::route::Clock::default(),
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
@@ -347,6 +351,17 @@ impl RenderService {
     /// Find the flights of Add route with this (ADR-044).
     pub fn with_flights(mut self, flights: Arc<dyn crate::ai::aircraft::route::Flights>) -> Self {
         self.flights = Some(flights);
+        self
+    }
+
+    /// Look aircraft up on Flightradar24 with this (ADR-044), `gap` apart.
+    pub fn with_fr24(
+        mut self,
+        fr24: Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>,
+        gap: Duration,
+    ) -> Self {
+        self.fr24 = Some(fr24);
+        self.fr24_gap = gap;
         self
     }
 
@@ -441,6 +456,11 @@ impl RenderService {
                     self.flights
                         .is_some()
                         .then_some(crate::ai::aircraft::route::JOB_AI_ROUTE),
+                )
+                .chain(
+                    self.fr24
+                        .is_some()
+                        .then_some(crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT),
                 )
                 // One worker sends the photos of every provider.
                 .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
@@ -558,6 +578,9 @@ impl RenderService {
         }
         if kind == crate::ai::aircraft::route::JOB_AI_ROUTE {
             return self.route_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT {
+            return self.fr24_worker(&mut cat, cancel, tx, shared);
         }
         // The cloud worker sends the photos of every provider: tagging and
         // edit suggestions.
@@ -1066,6 +1089,77 @@ impl RenderService {
     /// no model, so it runs whether or not Read aircraft's are loaded. At
     /// OpenSky's daily limit the job is tried again later (its error says
     /// so), as for any failure that may pass.
+    /// Look aircraft up on Flightradar24: one batch per job, queued again
+    /// while registrations are left.
+    fn fr24_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::ai::aircraft::fr24;
+        let Some(client) = self.fr24.as_deref() else {
+            return Ok(());
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed = match cat.write(|t| t.jobs().claim(&[fr24::JOB_FR24_AIRCRAFT], now_ms()))
+            {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match fr24::run_batch(cat, client, cancel, self.fr24_gap) {
+                Ok(b) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                    tracing::info!(
+                        asked = b.asked,
+                        found = b.found,
+                        left = b.left,
+                        "Flightradar24 aircraft batch"
+                    );
+                    // More to ask about, and not stopped: the next batch.
+                    if b.left > 0 && !cancel.load(Ordering::SeqCst) {
+                        if let Err(e) = fr24::enqueue(cat) {
+                            tracing::warn!("Flightradar24 batch not queued again: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(cat, cancel, tx, shared, fr24::JOB_FR24_AIRCRAFT, &job, e)?;
+                    Self::sleep(cancel, Duration::from_secs(5));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn route_worker(
         &self,
         cat: &mut Catalog,

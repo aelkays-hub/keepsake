@@ -127,6 +127,9 @@ export interface MockState {
      * Flightradar24 token saved (`?fr24=saved`). */
     source: string;
     fr24: boolean;
+    /** Look up aircraft on Flightradar24: asked so far, running. */
+    lookedUp: number;
+    lookingUp: boolean;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -545,6 +548,8 @@ export function installMock(): void {
       noCode: params.get("nocode") === "on",
       source: params.get("routesource") ?? "opensky",
       fr24: params.get("fr24") === "saved",
+      lookedUp: 0,
+      lookingUp: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
     },
@@ -1713,6 +1718,28 @@ export function installMock(): void {
         case "flightradar_set_token":
           st.route.fr24 = Boolean(String(a.token ?? "").trim());
           void emit("aircraft://status", null);
+          return null;
+        case "fr24_aircraft_status": {
+          // 40 registrations; each look at the status while running asks 10.
+          if (st.route.lookingUp) {
+            st.route.lookedUp = Math.min(40, st.route.lookedUp + 10);
+            if (st.route.lookedUp >= 40) st.route.lookingUp = false;
+          }
+          return {
+            token: st.route.fr24,
+            registrations: 40,
+            asked: st.route.lookedUp,
+            found: Math.floor(st.route.lookedUp * 0.75),
+            running: st.route.lookingUp,
+            problem: null,
+          };
+        }
+        case "fr24_aircraft_start":
+          if (!st.route.fr24) throw "Add your Flightradar24 API token first.";
+          st.route.lookingUp = true;
+          return true;
+        case "fr24_aircraft_stop":
+          st.route.lookingUp = false;
           return null;
         case "flightradar_test":
           if (!st.route.fr24)
