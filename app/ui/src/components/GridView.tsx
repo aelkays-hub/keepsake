@@ -204,7 +204,7 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
             label: "Add route…",
             title: routeOn
               ? "Find the flight of the aircraft in these photos: from and to, and the flight number (asks OpenSky; needs a registration)"
-              : "Turn on Find the route online (OpenSky) in Settings → Read aircraft first",
+              : "Turn on Find the route online in Settings → Read aircraft, and add the OpenSky client or Flightradar24 token",
             testId: "tile-menu-route",
             disabled: !routeOn || rows.get(i)?.kind === "video",
             run: () =>

@@ -123,6 +123,10 @@ export interface MockState {
     zone: Map<string, number>;
     codes: Map<string, string>;
     noCode: boolean;
+    /** `opensky` or `flightradar` (`?routesource=flightradar`); the
+     * Flightradar24 token saved (`?fr24=saved`). */
+    source: string;
+    fr24: boolean;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -539,6 +543,8 @@ export function installMock(): void {
       zone: new Map(),
       codes: new Map(),
       noCode: params.get("nocode") === "on",
+      source: params.get("routesource") ?? "opensky",
+      fr24: params.get("fr24") === "saved",
       saved: params.get("opensky") === "saved",
       asked: new Map(),
     },
@@ -1689,7 +1695,10 @@ export function installMock(): void {
         case "aircraft_route_status":
           return {
             enabled: st.route.enabled,
-            credentials: st.route.saved,
+            credentials: st.route.source === "flightradar" ? st.route.fr24 : st.route.saved,
+            source: st.route.source,
+            opensky: st.route.saved,
+            flightradar: st.route.fr24,
             lookup: st.aircraftLookup,
             eastern: st.route.eastern,
           };
@@ -1697,6 +1706,18 @@ export function installMock(): void {
           st.route.enabled = Boolean(a.enabled);
           void emit("aircraft://status", null);
           return null;
+        case "aircraft_set_route_source":
+          st.route.source = String(a.source) === "flightradar" ? "flightradar" : "opensky";
+          void emit("aircraft://status", null);
+          return null;
+        case "flightradar_set_token":
+          st.route.fr24 = Boolean(String(a.token ?? "").trim());
+          void emit("aircraft://status", null);
+          return null;
+        case "flightradar_test":
+          if (!st.route.fr24)
+            throw "No Flightradar24 API token: add it in Settings → Read aircraft";
+          return "Flightradar24 accepted the API token.";
         case "aircraft_set_route_eastern":
           st.route.eastern = Boolean(a.eastern);
           void emit("aircraft://status", null);
@@ -1731,11 +1752,11 @@ export function installMock(): void {
           return "OpenSky accepted the client ID and secret.";
         case "aircraft_route": {
           if (!st.route.enabled)
-            throw "Turn on Find the route online (OpenSky) in Settings → Read aircraft first.";
+            throw "Turn on Find the route online in Settings → Read aircraft first.";
           const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
           for (const id of ids) st.route.asked.set(id, 0);
           return {
-            provider: "OpenSky",
+            provider: st.route.source === "flightradar" ? "Flightradar24" : "OpenSky",
             ids,
             status: {
               items: ids.length,
@@ -1817,7 +1838,8 @@ export function installMock(): void {
               ),
             };
             if (!reg) return { ...base, state: "no-registration" };
-            if (!code) return { ...base, state: "no-transponder" };
+            if (!code && st.route.source !== "flightradar")
+              return { ...base, state: "no-transponder" };
             if (n === 0) {
               pending += 1;
               return { ...base, state: "waiting" };

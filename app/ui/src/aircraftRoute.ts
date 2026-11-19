@@ -45,8 +45,14 @@ export function whenLine(c: RouteChoiceDto): string {
   return `Taken ${c.gapMin} min ${dep ? "before" : "after"} ${end} (${time} UTC)`;
 }
 
+/** The source's name for people (`opensky`, `flightradar`). */
+export function serviceName(source: string | undefined): string {
+  return source === "flightradar" ? "Flightradar24" : "OpenSky";
+}
+
 /** What the window says for a photo without a flight to offer. */
-export function stateLine(item: RouteItemDto): string | null {
+export function stateLine(item: RouteItemDto, source?: string): string | null {
+  const name = serviceName(source);
   switch (item.state) {
     case "no-registration":
       return "No registration: read the aircraft first (Read aircraft), or add the keyword Aircraft|Registration|….";
@@ -55,11 +61,13 @@ export function stateLine(item: RouteItemDto): string | null {
     case "no-transponder":
       return `The transponder code of ${item.registration ?? "this aircraft"} is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below: a flight-tracking site shows it as Mode S or ICAO 24-bit address (six digits and letters A–F).`;
     case "waiting":
-      return "Asking OpenSky…";
+      return `Asking ${name}…`;
     case "failed":
-      return item.error ?? "OpenSky could not be asked.";
+      return item.error ?? `${name} could not be asked.`;
     case "nothing":
-      return `OpenSky knows no flights of this aircraft that day. Its history goes back to about ${HISTORY_FROM}, and only where its receivers are.`;
+      return source === "flightradar"
+        ? `Flightradar24 knows no flights of ${item.registration ?? "this aircraft"} that day. Its flight summaries start in June 2022.`
+        : `OpenSky knows no flights of this aircraft that day. Its history goes back to about ${HISTORY_FROM}, and only where its receivers are.`;
     case "none-near":
       return "No flight within three hours of this time. If the camera's clock was on summer time but the photo says UTC−05:00, tick Camera clock on Eastern time above; if it was off otherwise, correct it with Shift time. Then Ask again.";
     default:
@@ -79,10 +87,15 @@ export function tickedKeywords(c: RouteChoiceDto, unticked: Set<string> | undefi
 }
 
 /** The progress line. */
-export function routeProgress(pending: number, total: number, stopped: boolean): string {
+export function routeProgress(
+  pending: number,
+  total: number,
+  stopped: boolean,
+  source?: string,
+): string {
   if (total === 0) return "No photos.";
   if (stopped) return "Stopped. Flights already found stay.";
-  if (pending > 0) return `Asking OpenSky about ${pending} of ${total} photos…`;
+  if (pending > 0) return `Asking ${serviceName(source)} about ${pending} of ${total} photos…`;
   return `${total} ${total === 1 ? "photo" : "photos"}.`;
 }
 

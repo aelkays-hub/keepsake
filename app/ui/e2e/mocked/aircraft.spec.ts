@@ -656,3 +656,34 @@ test("Add route: a time zone set for one photo, and a transponder code typed", a
   await expect(it.getByTestId("rt-taken")).toContainText("07:31 (UTC+01:00) · 06:31 UTC");
   await expect(it).toContainText("kept in the sidecar");
 });
+
+test("Add route from Flightradar24: chosen in Settings, its token saved and tested, asked by registration", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved&nocode=on");
+  await settings(page);
+  await page.getByTestId("route-source-flightradar").check();
+  expect(await calls(page, "aircraft_set_route_source")).toEqual([{ source: "flightradar" }]);
+  const fr = page.getByTestId("fr24-client");
+  await expect(fr).toContainText("3 credits");
+  await expect(fr).toContainText("30 days");
+  await expect(page.getByTestId("opensky-client")).toHaveCount(0);
+  await expect(fr.getByTestId("fr24-save")).toBeDisabled();
+  await fr.getByTestId("fr24-token").fill("my-token");
+  await fr.getByTestId("fr24-save").click();
+  expect(await calls(page, "flightradar_set_token")).toEqual([{ token: "my-token" }]);
+  await expect(fr.getByTestId("fr24-saved")).toHaveText("Saved.");
+  await expect(fr.getByTestId("fr24-token")).toHaveCount(0);
+  await fr.getByTestId("fr24-test").click();
+  await expect(fr.getByTestId("fr24-tested")).toHaveText("Flightradar24 accepted the API token.");
+
+  // No transponder code needed: the flight is found by registration.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  const win = await addRoute(page, 20);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  await expect(win.getByTestId("rt-code")).toHaveCount(0);
+  await expect(
+    win.getByTestId("rt-photo").filter({ hasText: "YYZ (Canada) → LHR (United Kingdom)" }),
+  ).toHaveCount(1);
+  await expect(win).toContainText("kept 30 days");
+});

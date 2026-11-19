@@ -18,6 +18,7 @@ export function AircraftSettings() {
   const [clientId, setClientId] = useState("");
   const [secret, setSecret] = useState("");
   const [tested, setTested] = useState<string | null>(null);
+  const [fr24Token, setFr24Token] = useState("");
   // Downloading OpenSky's aircraft database (build years, ADR-044).
   const [dbDownload, setDbDownload] = useState<{ done: number; total: number } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -193,7 +194,7 @@ export function AircraftSettings() {
           onChange={(e) => run(api.aircraftSetRoute(e.target.checked))}
           data-testid="aircraft-route"
         />
-        Find the route online (OpenSky)
+        Find the route online
       </label>
       <p className="muted">
         Sends the aircraft's transponder code and the day and time the photo was taken (within 12
@@ -221,6 +222,94 @@ export function AircraftSettings() {
         </p>
       )}
       {route?.enabled && (
+        <fieldset className="block" data-testid="route-source">
+          <legend>Flights from</legend>
+          <label className="check">
+            <input
+              type="radio"
+              name="route-source"
+              checked={route.source !== "flightradar"}
+              onChange={() => run(api.aircraftSetRouteSource("opensky"))}
+              data-testid="route-source-opensky"
+            />
+            OpenSky (free; by transponder code, from about 2023)
+          </label>
+          <label className="check">
+            <input
+              type="radio"
+              name="route-source"
+              checked={route.source === "flightradar"}
+              onChange={() => run(api.aircraftSetRouteSource("flightradar"))}
+              data-testid="route-source-flightradar"
+            />
+            Flightradar24 (your API subscription; by registration, from June 2022)
+          </label>
+        </fieldset>
+      )}
+      {route?.enabled && route.source === "flightradar" && (
+        <div className="block" data-testid="fr24-client">
+          <strong>Flightradar24 API token</strong>
+          <p className="muted">
+            Sends the registration and the photo's UTC day to fr24api.flightradar24.com. No photo is
+            sent. Each flight it returns costs 3 credits of your plan (a day with no flights costs
+            none). Its terms allow keeping its answers 30 days: they are deleted then; the keywords
+            you accept stay on your photos. Create the token in Key management on
+            fr24api.flightradar24.com. It is kept in{" "}
+            {navigator.userAgent.includes("Mac") ? "the Keychain" : "Windows Credential Manager"},
+            never in a file.
+          </p>
+          {route.flightradar ? (
+            <div className="row">
+              <span className="muted" data-testid="fr24-saved">
+                Saved.
+              </span>
+              <button
+                onClick={() => {
+                  setTested(null);
+                  api
+                    .flightradarTest()
+                    .then(setTested)
+                    .catch((e) => setProblem(String(e)));
+                }}
+                title="Asks Flightradar24 something with no answer: no credits are used"
+                data-testid="fr24-test"
+              >
+                Test
+              </button>
+              <button onClick={() => run(api.flightradarSetToken(""))} data-testid="fr24-remove">
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="row">
+              <input
+                type="password"
+                value={fr24Token}
+                placeholder="API token"
+                autoComplete="off"
+                onChange={(e) => setFr24Token(e.target.value)}
+                data-testid="fr24-token"
+              />
+              <button
+                disabled={!fr24Token.trim()}
+                onClick={() => {
+                  run(api.flightradarSetToken(fr24Token));
+                  setFr24Token("");
+                }}
+                data-testid="fr24-save"
+              >
+                Save
+              </button>
+            </div>
+          )}
+          {tested && (
+            <p role="status" data-testid="fr24-tested">
+              {tested}
+            </p>
+          )}
+        </div>
+      )}
+      {route?.enabled && route.source !== "flightradar" && (
         <div className="block" data-testid="opensky-client">
           <strong>OpenSky API client</strong>
           <p className="muted">
@@ -229,7 +318,7 @@ export function AircraftSettings() {
             {navigator.userAgent.includes("Mac") ? "the Keychain" : "Windows Credential Manager"},
             never in a file.
           </p>
-          {route.credentials ? (
+          {route.opensky ? (
             <div className="row">
               <span className="muted" data-testid="opensky-saved">
                 Saved.

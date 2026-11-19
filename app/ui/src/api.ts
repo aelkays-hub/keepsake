@@ -364,6 +364,9 @@ export const api = {
   openskySetCredentials: (clientId: string, secret: string) =>
     invoke<void>("opensky_set_credentials", { clientId, secret }),
   openskyTest: () => invoke<string>("opensky_test"),
+  aircraftSetRouteSource: (source: string) => invoke<void>("aircraft_set_route_source", { source }),
+  flightradarSetToken: (token: string) => invoke<void>("flightradar_set_token", { token }),
+  flightradarTest: () => invoke<string>("flightradar_test"),
   aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),

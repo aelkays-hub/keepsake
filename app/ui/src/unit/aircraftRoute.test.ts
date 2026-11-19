@@ -121,5 +121,10 @@ describe("Add route", () => {
     expect(routeProgress(2, 5, false)).toBe("Asking OpenSky about 2 of 5 photos…");
     expect(routeProgress(0, 1, false)).toBe("1 photo.");
     expect(routeProgress(1, 5, true)).toContain("Stopped");
+    expect(routeProgress(2, 5, false, "flightradar")).toBe(
+      "Asking Flightradar24 about 2 of 5 photos…",
+    );
+    expect(stateLine(item("waiting"), "flightradar")).toBe("Asking Flightradar24…");
+    expect(stateLine(item("nothing"), "flightradar")).toContain("June 2022");
   });
 });

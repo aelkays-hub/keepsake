@@ -163,6 +163,24 @@ impl<M> Ai<'_, M> {
             .optional()?)
     }
 
+    /// The kept Flightradar24 flights of `registration` on `day`, and when
+    /// they were asked (Unix ms).
+    pub fn fr24_flights(
+        &self,
+        registration: &str,
+        day: &str,
+    ) -> Result<Option<(String, i64)>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT flights, asked_ms FROM aircraft_flights_fr24
+                 WHERE registration = ?1 AND day = ?2",
+                [registration, day],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
     /// Every registration's build date, as `(registration, built)`.
     pub fn aircraft_built_all(&self) -> Result<Vec<(String, String)>, CatalogError> {
         let mut st = self
@@ -513,6 +531,43 @@ impl Ai<'_, Rw> {
             [icao24, day],
         )?;
         Ok(())
+    }
+
+    /// Keep what Flightradar24 said `registration` flew on `day`.
+    pub fn put_fr24_flights(
+        &self,
+        registration: &str,
+        day: &str,
+        flights: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_flights_fr24 (registration, day, flights, asked_ms)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(registration, day) DO UPDATE SET flights = excluded.flights,
+               asked_ms = excluded.asked_ms",
+            params![registration, day, flights, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Forget the Flightradar24 flights kept of `registration` on `day`.
+    pub fn forget_fr24_flights(&self, registration: &str, day: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_flights_fr24 WHERE registration = ?1 AND day = ?2",
+            [registration, day],
+        )?;
+        Ok(())
+    }
+
+    /// Delete the Flightradar24 flights asked before `before_ms`. Returns
+    /// how many days were deleted.
+    pub fn forget_fr24_flights_before(&self, before_ms: i64) -> Result<u64, CatalogError> {
+        let n = self.conn.execute(
+            "DELETE FROM aircraft_flights_fr24 WHERE asked_ms < ?1",
+            [before_ms],
+        )?;
+        Ok(u64::try_from(n).unwrap_or(0))
     }
 
     /// Forget what the online lookup said about `registration`.

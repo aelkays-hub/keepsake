@@ -152,10 +152,16 @@ dto! {
 
     /// Add route at a glance (Settings → Read aircraft; ADR-044).
     pub struct RouteStatusDto {
-        /// Find the route online (OpenSky) is on.
+        /// Find the route online is on.
         pub enabled: bool,
-        /// An OpenSky client ID and secret are saved.
+        /// The chosen source can be asked: its client or token is saved.
         pub credentials: bool,
+        /// Where flights are found: `opensky` or `flightradar`.
+        pub source: String,
+        /// An OpenSky client ID and secret are saved.
+        pub opensky: bool,
+        /// A Flightradar24 API token is saved.
+        pub flightradar: bool,
         /// Look registrations up online is on (the transponder code comes
         /// from it).
         pub lookup: bool,

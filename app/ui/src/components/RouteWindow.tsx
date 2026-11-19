@@ -15,6 +15,7 @@ import {
   offsetLabel,
   routeLine,
   routeProgress,
+  serviceName,
   stateLine,
   takenLine,
   tickedKeywords,
@@ -41,6 +42,7 @@ export function RouteWindow() {
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   // The camera's clock on Eastern time, changed for daylight saving.
   const [eastern, setEastern] = useState<boolean | null>(null);
+  const [source, setSource] = useState<string | undefined>(undefined);
   const box = useRef<HTMLDivElement>(null);
   const close = useCallback(() => dispatch({ t: "route", job: null }), [dispatch]);
 
@@ -57,7 +59,11 @@ export function RouteWindow() {
     let live = true;
     api
       .aircraftRouteStatus()
-      .then((r) => live && setEastern(r.eastern))
+      .then((r) => {
+        if (!live) return;
+        setEastern(r.eastern);
+        setSource(r.source);
+      })
       .catch(() => live && setEastern(false));
     api
       .aircraftRoute(job.selection)
@@ -193,7 +199,7 @@ export function RouteWindow() {
         <div className="rt-bar">
           <span role="status" data-testid="rt-progress" className="grow">
             {review
-              ? routeProgress(review.pending, review.items.length, stopped)
+              ? routeProgress(review.pending, review.items.length, stopped, source)
               : problem
                 ? ""
                 : "Starting…"}
@@ -237,7 +243,7 @@ export function RouteWindow() {
         )}
         <ul className="rt-list">
           {(review?.items ?? []).map((item) => {
-            const line = stateLine(item);
+            const line = stateLine(item, source);
             const taken = takenLine(item);
             const done = added.get(item.id);
             const pickIdx = chosen.get(item.id) ?? (item.state === "several" ? -1 : 0);
@@ -285,7 +291,7 @@ export function RouteWindow() {
                         {item.zoneSet && <span className="muted">kept in the sidecar</span>}
                       </label>
                     )}
-                    {item.registration && (
+                    {item.registration && source !== "flightradar" && (
                       <span className="rt-field">
                         Transponder code
                         {drafts.has(item.id) || !item.code ? (
@@ -408,8 +414,10 @@ export function RouteWindow() {
           })}
         </ul>
         <p className="muted rt-note">
-          OpenSky's times are in UTC. A flight is offered when it took off or landed within three
-          hours of the photo; an airport OpenSky did not see is "Not known".
+          Times are in UTC. A flight is offered when it took off or landed within three hours of the
+          photo; an airport {serviceName(source)} did not see is "Not known".
+          {source === "flightradar" &&
+            " Flightradar24's answers are kept 30 days (its terms); the keywords you accept stay."}
         </p>
         <div className="modal-foot">
           <span className="grow" />

@@ -90,6 +90,15 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     if slot.as_ref().is_some_and(|h| !h.is_finished()) {
         return Ok(false);
     }
+    // Flightradar24's answers are kept 30 days at most (its terms).
+    if let Ok(mut cat) = open.writer() {
+        if let Err(e) = keepsake_core::ai::aircraft::route::forget_expired(
+            &mut cat,
+            keepsake_core::jobs::now_ms(),
+        ) {
+            tracing::warn!("Flightradar24 answers could not be deleted: {e}");
+        }
+    }
     let mut opts = RenderOptions::from_settings(&open.settings.render).with_ai(&open.settings.ai);
     opts.until_empty = false;
     let svc = RenderService::new(&open.lib, RenderTools::discover(), open.cache.clone(), opts)
@@ -104,7 +113,7 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
     };
     // Add route (ADR-044): only with the setting on.
     let svc = if open.settings.ai.aircraft_route {
-        svc.with_flights(crate::route::opensky())
+        svc.with_flights(crate::route::client(&open.settings))
             .with_route_clock(crate::route::clock(&open.settings))
     } else {
         svc

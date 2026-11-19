@@ -67,6 +67,13 @@
 
 ---
 
+## Add route from Flightradar24 (2026-11-19)
+
+- **Asked:** use the Flightradar24 API (the owner has an API plan) for the flights of the registrations. FR24's terms allow keeping its data 30 days; the owner chose to keep answers 30 days and the keywords they accept; the new table was approved.
+- **Built:** migration 0020 `aircraft_flights_fr24`; repo `fr24_flights`, `put_fr24_flights`, `forget_fr24_flights`, `forget_fr24_flights_before`; `route::Source`, `Flightradar` (Flight summary light by registration), `parse_fr24`, `forget_expired`, `FR24_KEEP_MS`; `Flights::source`; `Flight.number`, `shown_number`; `run_job`, `review`, `again` ask and keep by registration for Flightradar24. Setting `ai.aircraft_route_source`. App: `aircraft_set_route_source`, `flightradar_set_token`, `flightradar_test` (no credits); `RouteStatusDto.source`, `opensky`, `flightradar`; expired answers deleted when the render service starts. UI: Settings → Flights from (OpenSky / Flightradar24), the token (Save, Test, Remove; what is sent, the credits, the 30 days); the window names the source and hides the transponder code with Flightradar24.
+- **Tests, run here (Windows):** route unit tests (+2: FR24 answers and errors read; asked by registration for the UTC day with the token and `Accept-Version`), `aircraft_tests` (+1: PH-BKO found by registration, kept, asked again, unused and deleted after 30 days), catalog tests (schema 20); Vitest (98); mocked Playwright aircraft (21, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against Flightradar24 itself (asked by hand with the installer and the owner's token).
+
 ## Add route: a transponder code typed, a photo's time zone (2026-11-19)
 
 - **Reported:** PH-BKO still had no transponder code after the database was downloaded again: it is newer than OpenSky's April 2024 snapshot (KLM's PH-BKA to PH-BKL are in it). Chosen: "Let me type the code". Asked too: set the time zone of a specific picture by ± UTC.

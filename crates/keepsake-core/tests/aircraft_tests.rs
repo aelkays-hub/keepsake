@@ -1191,7 +1191,7 @@ fn the_downloaded_database_gives_lookups_already_kept_their_build_year() {
 
 // ---- Add route (ADR-044, part 2) ----
 
-use keepsake_core::ai::aircraft::route::{self, Airports, Clock, Flight, Pick};
+use keepsake_core::ai::aircraft::route::{self, Airports, Clock, Flight, Pick, Source};
 
 /// OpenSky as the tests see it: C-GBIJ's day (2026-05-31), counting what
 /// it is asked.
@@ -1211,6 +1211,7 @@ impl route::Flights for FakeSky {
             departure: dep.map(str::to_owned),
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
+            number: None,
         };
         // ROU2000 left Toronto at 12:16 UTC; ROU1917 landed there at 10:43.
         Ok(vec![
@@ -1288,7 +1289,14 @@ fn the_same_aircraft_and_day_is_asked_once_and_photos_beside_it_reuse_it() {
     assert_eq!(sky.asked.lock().unwrap().len(), 1);
 
     let airports = Airports::builtin();
-    let it = route::review(&w.cat, &airports, ids[0], Clock::AsRecorded).unwrap();
+    let it = route::review(
+        &w.cat,
+        &airports,
+        ids[0],
+        Clock::AsRecorded,
+        Source::OpenSky,
+    )
+    .unwrap();
     match it.state {
         route::State::Found(Pick::One(c)) => {
             assert_eq!(c.flight.callsign.as_deref(), Some("ROU2000"));
@@ -1334,7 +1342,7 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
     ));
     let airports = Airports::builtin();
     assert_eq!(
-        route::review(&w2.cat, &airports, c, Clock::AsRecorded)
+        route::review(&w2.cat, &airports, c, Clock::AsRecorded, Source::OpenSky)
             .unwrap()
             .state,
         route::State::NoRegistration
@@ -1378,10 +1386,16 @@ fn the_route_worker_asks_in_the_background_and_accepting_writes_only_aircraft_ke
     assert!(scan::add_to(&mut w.cat, &w.lib, &ids[..1], &other).is_err());
     let airports = Airports::builtin();
     assert_eq!(
-        route::review(&w.cat, &airports, ids[0], Clock::AsRecorded)
-            .unwrap()
-            .has
-            .len(),
+        route::review(
+            &w.cat,
+            &airports,
+            ids[0],
+            Clock::AsRecorded,
+            Source::OpenSky
+        )
+        .unwrap()
+        .has
+        .len(),
         2
     );
     assert_eq!(hashes(&w.media), before, "originals unchanged");
@@ -1519,7 +1533,7 @@ fn ask_again_forgets_the_flights_kept_and_asks_opensky_once_more() {
     assert_eq!(run(&mut w, &sky), 0);
     // Ask again: queued, and OpenSky is asked again.
     assert_eq!(
-        route::again(&mut w.cat, &ids, Clock::AsRecorded).unwrap(),
+        route::again(&mut w.cat, &ids, Clock::AsRecorded, Source::OpenSky).unwrap(),
         1
     );
     assert!(route::kept_day(&w.cat, "c04826", "2026-05-31")
@@ -1539,7 +1553,7 @@ fn ask_again_forgets_the_flights_kept_and_asks_opensky_once_more() {
     w.cat
         .write(|tx| tx.ai().put_aircraft_lookup("C-GBIJ", &json, 1))
         .unwrap();
-    route::again(&mut w.cat, &ids, Clock::AsRecorded).unwrap();
+    route::again(&mut w.cat, &ids, Clock::AsRecorded, Source::OpenSky).unwrap();
     assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().is_none());
 }
 
@@ -1559,12 +1573,20 @@ fn an_eastern_camera_clock_is_read_with_daylight_saving_by_the_date() {
     };
     let airports = Airports::builtin();
     route::run_job(&mut w.cat, &sky, None, ids[0], Clock::Eastern).unwrap();
-    let as_recorded = route::review(&w.cat, &airports, ids[0], Clock::AsRecorded).unwrap();
+    let as_recorded = route::review(
+        &w.cat,
+        &airports,
+        ids[0],
+        Clock::AsRecorded,
+        Source::OpenSky,
+    )
+    .unwrap();
     assert_eq!(as_recorded.taken_s, Some(PHOTO_S));
     assert_eq!(as_recorded.offset_min, Some(-300));
     // Read as Eastern daylight time: an hour earlier, between ROU1917's
     // landing (48 min before) and ROU2000's take-off (45 min after).
-    let eastern = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    let eastern =
+        route::review(&w.cat, &airports, ids[0], Clock::Eastern, Source::OpenSky).unwrap();
     assert_eq!(eastern.taken_s, Some(PHOTO_S - 3600));
     assert_eq!(eastern.offset_min, Some(-240));
     match eastern.state {
@@ -1640,7 +1662,7 @@ fn a_time_zone_set_for_a_photo_keeps_its_clock_time_and_wins_over_the_eastern_se
         Some(keepsake_core::catalog::CaptureSource::Sidecar)
     );
     assert!(sidecars(&w).contains("2026-05-31T07:31:11.000+01:00"));
-    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern, Source::OpenSky).unwrap();
     assert_eq!(
         (it.taken_s, it.offset_min),
         (Some(PHOTO_S - 6 * 3600), Some(60))
@@ -1650,6 +1672,146 @@ fn a_time_zone_set_for_a_photo_keeps_its_clock_time_and_wins_over_the_eastern_se
     MetadataService::new(&w.lib, &mut w.cat)
         .set_capture_offset(ids[0], -300)
         .unwrap();
-    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern, Source::OpenSky).unwrap();
     assert_eq!((it.taken_s, it.offset_min), (Some(PHOTO_S), Some(-300)));
+}
+
+/// Flightradar24 as the tests see it: PH-BKO's flight on 2025-04-01, by
+/// registration.
+struct FakeFr24 {
+    asked: Mutex<Vec<String>>,
+}
+
+impl route::Flights for FakeFr24 {
+    fn flights(&self, id: &str, _: i64, _: i64) -> Result<Vec<Flight>, AiError> {
+        self.asked.lock().unwrap().push(id.to_owned());
+        // KL692 left Toronto at 19:20 UTC.
+        Ok(vec![Flight {
+            first_seen: 1_743_535_200,
+            last_seen: 1_743_565_500,
+            departure: Some("CYYZ".into()),
+            arrival: Some("EHAM".into()),
+            callsign: Some("KLM692".into()),
+            number: Some("KL692".into()),
+        }])
+    }
+    fn source(&self) -> Source {
+        Source::Flightradar
+    }
+}
+
+#[test]
+fn flightradar24_finds_the_flight_by_registration_and_forgets_it_after_30_days() {
+    // A7_05212.ARW: 2025-04-01 19:56 UTC, PH-BKO, no transponder code.
+    let (mut w, ids) = route_world(&["a.jpg"], &[1_743_537_378]);
+    let reg = TagPath::parse_lightroom("Aircraft|Registration|PH-BKO").unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(ids[0], std::slice::from_ref(&reg))
+        .unwrap();
+    assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+    let fr = FakeFr24 {
+        asked: Mutex::new(Vec::new()),
+    };
+    let airports = Airports::builtin();
+    // Not asked yet.
+    assert_eq!(
+        route::review(
+            &w.cat,
+            &airports,
+            ids[0],
+            Clock::AsRecorded,
+            Source::Flightradar
+        )
+        .unwrap()
+        .state,
+        route::State::Waiting
+    );
+    let asked = route::run_job(&mut w.cat, &fr, None, ids[0], Clock::AsRecorded).unwrap();
+    assert_eq!(asked.requests, 1);
+    assert_eq!(*fr.asked.lock().unwrap(), ["PH-BKO"]);
+    let it = route::review(
+        &w.cat,
+        &airports,
+        ids[0],
+        Clock::AsRecorded,
+        Source::Flightradar,
+    )
+    .unwrap();
+    match it.state {
+        route::State::Found(Pick::One(c)) => {
+            let k: Vec<String> = route::keywords(&c.flight, &airports)
+                .unwrap()
+                .iter()
+                .map(TagPath::to_lightroom)
+                .collect();
+            assert_eq!(
+                k,
+                [
+                    "Aircraft|From|YYZ",
+                    "Aircraft|From country|Canada",
+                    "Aircraft|To|AMS",
+                    "Aircraft|To country|Netherlands",
+                    "Aircraft|Flight|KL692"
+                ]
+            );
+        }
+        s => panic!("{s:?}"),
+    }
+    // Kept: not asked again; OpenSky's answers are apart.
+    route::run_job(&mut w.cat, &fr, None, ids[0], Clock::AsRecorded).unwrap();
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+    assert_eq!(
+        route::review(
+            &w.cat,
+            &airports,
+            ids[0],
+            Clock::AsRecorded,
+            Source::OpenSky
+        )
+        .unwrap()
+        .state,
+        route::State::NoTransponder
+    );
+
+    // Ask again: asked once more.
+    route::again(&mut w.cat, &ids, Clock::AsRecorded, Source::Flightradar).unwrap();
+    route::run_job(&mut w.cat, &fr, None, ids[0], Clock::AsRecorded).unwrap();
+    assert_eq!(fr.asked.lock().unwrap().len(), 2);
+
+    // 31 days on: deleted (Flightradar24's terms), not used before that.
+    let now = keepsake_core::jobs::now_ms();
+    assert_eq!(route::forget_expired(&mut w.cat, now).unwrap(), 0);
+    let day = w
+        .cat
+        .read(|tx| tx.ai().fr24_flights("PH-BKO", "2025-04-01"))
+        .unwrap()
+        .unwrap();
+    w.cat
+        .write(|tx| {
+            tx.ai().put_fr24_flights(
+                "PH-BKO",
+                "2025-04-01",
+                &day.0,
+                now - route::FR24_KEEP_MS - 1,
+            )
+        })
+        .unwrap();
+    assert_eq!(
+        route::review(
+            &w.cat,
+            &airports,
+            ids[0],
+            Clock::AsRecorded,
+            Source::Flightradar
+        )
+        .unwrap()
+        .state,
+        route::State::Waiting
+    );
+    assert_eq!(route::forget_expired(&mut w.cat, now).unwrap(), 1);
+    assert!(w
+        .cat
+        .read(|tx| tx.ai().fr24_flights("PH-BKO", "2025-04-01"))
+        .unwrap()
+        .is_none());
 }

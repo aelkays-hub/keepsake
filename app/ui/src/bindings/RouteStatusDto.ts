@@ -5,13 +5,25 @@
  */
 export type RouteStatusDto = { 
 /**
- * Find the route online (OpenSky) is on.
+ * Find the route online is on.
  */
 enabled: boolean, 
 /**
- * An OpenSky client ID and secret are saved.
+ * The chosen source can be asked: its client or token is saved.
  */
 credentials: boolean, 
+/**
+ * Where flights are found: `opensky` or `flightradar`.
+ */
+source: string, 
+/**
+ * An OpenSky client ID and secret are saved.
+ */
+opensky: boolean, 
+/**
+ * A Flightradar24 API token is saved.
+ */
+flightradar: boolean, 
 /**
  * Look registrations up online is on (the transponder code comes
  * from it).

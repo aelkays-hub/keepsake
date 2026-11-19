@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use keepsake_core::ai::aircraft::route::{
-    self, Airports, At, Choice, Clock, OpenSky, Pick, State as RouteState,
+    self, Airports, At, Choice, Clock, Flightradar, OpenSky, Pick, Source, State as RouteState,
 };
 use keepsake_core::ai::aircraft::scan;
 use keepsake_core::catalog::{AssetId, JobState, TagPath};
@@ -30,12 +30,40 @@ pub fn clock(s: &Settings) -> Clock {
     }
 }
 
-/// The client the render service uses.
-pub fn opensky() -> Arc<dyn route::Flights> {
-    Arc::new(OpenSky::new(
-        Arc::new(keepsake_core::ai::cloud::UreqHttp::new()),
-        Arc::new(|| keepsake_platform::secrets::opensky().ok().flatten()),
-    ))
+/// Where Add route finds flights (the setting).
+pub fn source(s: &Settings) -> Source {
+    Source::parse(&s.ai.aircraft_route_source)
+}
+
+/// The Flightradar24 API token's entry in the OS's credential store.
+const FR24_KEY: &str = "flightradar";
+
+fn fr24_token() -> Option<String> {
+    keepsake_platform::secrets::api_key(FR24_KEY).ok().flatten()
+}
+
+/// The client the render service uses: OpenSky or Flightradar24.
+pub fn client(s: &Settings) -> Arc<dyn route::Flights> {
+    let http = Arc::new(keepsake_core::ai::cloud::UreqHttp::new());
+    match source(s) {
+        Source::Flightradar => Arc::new(Flightradar::new(http, Arc::new(fr24_token))),
+        Source::OpenSky => Arc::new(OpenSky::new(
+            http,
+            Arc::new(|| keepsake_platform::secrets::opensky().ok().flatten()),
+        )),
+    }
+}
+
+/// The chosen source's client or token is saved.
+fn ready(s: &Settings) -> CmdResult<bool> {
+    Ok(match source(s) {
+        Source::Flightradar => keepsake_platform::secrets::api_key(FR24_KEY)
+            .map_err(err)?
+            .is_some(),
+        Source::OpenSky => keepsake_platform::secrets::opensky()
+            .map_err(err)?
+            .is_some(),
+    })
 }
 
 #[tauri::command(async)]
@@ -43,7 +71,12 @@ pub fn aircraft_route_status() -> CmdResult<RouteStatusDto> {
     let s = Settings::load().map_err(err)?;
     Ok(RouteStatusDto {
         enabled: s.ai.aircraft_route,
-        credentials: keepsake_platform::secrets::opensky()
+        credentials: ready(&s)?,
+        source: source(&s).id().to_owned(),
+        opensky: keepsake_platform::secrets::opensky()
+            .map_err(err)?
+            .is_some(),
+        flightradar: keepsake_platform::secrets::api_key(FR24_KEY)
             .map_err(err)?
             .is_some(),
         lookup: s.ai.aircraft_lookup,
@@ -78,6 +111,35 @@ pub fn aircraft_set_route_eastern(app: AppHandle, eastern: bool) -> CmdResult<()
     s.ai.aircraft_route_eastern = eastern;
     s.save().map_err(err)?;
     restart(&app)
+}
+
+/// Find flights with `source` (`opensky` or `flightradar`).
+#[tauri::command(async)]
+pub fn aircraft_set_route_source(app: AppHandle, source: String) -> CmdResult<()> {
+    let mut s = Settings::load().map_err(err)?;
+    s.ai.aircraft_route_source = Source::parse(&source).id().to_owned();
+    s.save().map_err(err)?;
+    restart(&app)
+}
+
+/// Save the Flightradar24 API token (blank: remove it).
+#[tauri::command(async)]
+pub fn flightradar_set_token(app: AppHandle, token: String) -> CmdResult<()> {
+    let t = token.trim();
+    keepsake_platform::secrets::set_api_key(FR24_KEY, (!t.is_empty()).then_some(t)).map_err(err)?;
+    restart(&app)
+}
+
+/// Ask Flightradar24 something with no answer (no credits used): whether
+/// the token works.
+#[tauri::command(async)]
+pub fn flightradar_test() -> CmdResult<String> {
+    let fr = Flightradar::new(
+        Arc::new(keepsake_core::ai::cloud::UreqHttp::new()),
+        Arc::new(fr24_token),
+    );
+    fr.test().map_err(err)?;
+    Ok("Flightradar24 accepted the API token.".into())
 }
 
 /// Save the OpenSky API client (both blank: remove it).
@@ -123,17 +185,18 @@ pub fn aircraft_route(
 ) -> CmdResult<CloudStarted> {
     let s = Settings::load().map_err(err)?;
     if !s.ai.aircraft_route {
-        return Err(
-            "Turn on Find the route online (OpenSky) in Settings → Read aircraft first.".into(),
-        );
+        return Err("Turn on Find the route online in Settings → Read aircraft first.".into());
     }
-    if keepsake_platform::secrets::opensky()
-        .map_err(err)?
-        .is_none()
-    {
-        return Err(
-            "Add your OpenSky client ID and secret in Settings → Read aircraft first.".into(),
-        );
+    if !ready(&s)? {
+        return Err(match source(&s) {
+            Source::Flightradar => {
+                "Add your Flightradar24 API token in Settings → Read aircraft first."
+            }
+            Source::OpenSky => {
+                "Add your OpenSky client ID and secret in Settings → Read aircraft first."
+            }
+        }
+        .into());
     }
     let mut ids: Vec<AssetId> = Vec::new();
     for id in crate::edit::resolve(&state, &selection)? {
@@ -163,7 +226,7 @@ pub fn aircraft_route(
     crate::render::start_service(&app)?;
     let cat = open.cat()?;
     Ok(CloudStarted {
-        provider: route::SERVICE.to_owned(),
+        provider: source(&s).name().to_owned(),
         ids: ids.iter().map(ToString::to_string).collect(),
         status: dto(route::status(&cat, &ids).map_err(err)?),
     })
@@ -182,7 +245,7 @@ pub fn aircraft_route_again(
     let open = state.open()?;
     let n = {
         let mut cat = open.writer()?;
-        route::again(&mut cat, &ids, clock(&s)).map_err(err)?
+        route::again(&mut cat, &ids, clock(&s), source(&s)).map_err(err)?
     };
     crate::render::start_service(&app)?;
     Ok(n)
@@ -230,7 +293,7 @@ fn choice_dto(c: &Choice, airports: &Airports) -> CmdResult<RouteChoiceDto> {
     let (from, to) = (end(&c.flight.departure), end(&c.flight.arrival));
     Ok(RouteChoiceDto {
         callsign: c.flight.callsign.clone(),
-        flight: c.flight.callsign.as_deref().map(route::flight_number),
+        flight: c.flight.shown_number(),
         from: from.as_ref().map(|f| f.0.clone()),
         from_icao: from.as_ref().map(|f| f.1.clone()),
         from_country: from.and_then(|f| f.2),
@@ -263,10 +326,11 @@ pub fn aircraft_route_review(
     let open = state.open()?;
     let cat = open.cat()?;
     let airports = Airports::builtin();
-    let clock = clock(&Settings::load().map_err(err)?);
+    let settings = Settings::load().map_err(err)?;
+    let (clock, from) = (clock(&settings), source(&settings));
     let mut items = Vec::new();
     for id in &ids {
-        let it = route::review(&cat, &airports, *id, clock).map_err(err)?;
+        let it = route::review(&cat, &airports, *id, clock, from).map_err(err)?;
         let job = cat
             .read(|tx| tx.jobs().find(route::JOB_AI_ROUTE, *id))
             .map_err(err)?;

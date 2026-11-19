@@ -17,6 +17,13 @@
 //! - Airports: `airports.tsv` (OurAirports, The Unlicense), the airports
 //!   with an IATA code: ICAO → IATA and country.
 //! - Nothing becomes a keyword until the user accepts it.
+//! - Or from Flightradar24 ([`Flightradar`], the user's API subscription):
+//!   asked by registration, so no transponder code is needed
+//!   (`GET /api/flight-summary/light?registrations=…&flight_datetime_from=…`,
+//!   a UTC day; 3 credits per flight returned, none for none). Its terms
+//!   allow keeping its data 30 days: answers are kept per registration and
+//!   day (`aircraft_flights_fr24`) and deleted after [`FR24_KEEP_MS`]
+//!   ([`forget_expired`]). The keywords the user accepts are theirs.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -34,6 +41,45 @@ use crate::catalog::{AssetId, Catalog, JobState, NewJob, Priority, TagPath, TagS
 pub const JOB_AI_ROUTE: &str = "ai.route";
 /// Who answers, for people.
 pub const SERVICE: &str = "OpenSky";
+pub const FR24_SERVICE: &str = "Flightradar24";
+pub const FR24_API: &str = "https://fr24api.flightradar24.com/api/flight-summary/light";
+/// Flightradar24's terms: its data is kept at most 30 days.
+pub const FR24_KEEP_MS: i64 = 30 * 24 * 3600 * 1000;
+
+/// Where Add route finds flights (Settings → Read aircraft).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Source {
+    /// OpenSky's flight history, by transponder code (free).
+    #[default]
+    OpenSky,
+    /// Flightradar24's API, by registration (the user's subscription).
+    Flightradar,
+}
+
+impl Source {
+    /// As kept in the settings (`opensky`, `flightradar`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenSky => "opensky",
+            Self::Flightradar => "flightradar",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        if s == "flightradar" {
+            Self::Flightradar
+        } else {
+            Self::OpenSky
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::OpenSky => SERVICE,
+            Self::Flightradar => FR24_SERVICE,
+        }
+    }
+}
 pub const API_BASE: &str = "https://opensky-network.org/api/flights/aircraft";
 pub const TOKEN_URL: &str =
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
@@ -87,11 +133,31 @@ pub struct Flight {
     pub arrival: Option<String>,
     /// Trimmed (`ACA856`).
     pub callsign: Option<String>,
+    /// The flight number, when the source gives it (Flightradar24: `AC856`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
 }
 
-/// Gives an aircraft's flights between two times (Unix seconds).
+impl Flight {
+    /// The flight number to show: the source's, else worked out from the
+    /// callsign ([`flight_number`]).
+    pub fn shown_number(&self) -> Option<String> {
+        self.number
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .or_else(|| self.callsign.as_deref().map(flight_number))
+    }
+}
+
+/// Gives an aircraft's flights between two times (Unix seconds): by its
+/// transponder code (OpenSky), or by its registration (Flightradar24).
 pub trait Flights: Send + Sync {
-    fn flights(&self, icao24: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError>;
+    fn flights(&self, id: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError>;
+
+    /// Which source this is: what `id` is, and where answers are kept.
+    fn source(&self) -> Source {
+        Source::OpenSky
+    }
 }
 
 /// The user's OpenSky API client: its id and secret.
@@ -246,6 +312,7 @@ pub fn parse_flights(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
                 departure: text(f, "estDepartureAirport").map(|s| s.to_ascii_uppercase()),
                 arrival: text(f, "estArrivalAirport").map(|s| s.to_ascii_uppercase()),
                 callsign: text(f, "callsign"),
+                number: None,
             })
         })
         .collect())
@@ -287,6 +354,247 @@ impl Flights for OpenSky {
         }
         Err(cloud(format!("{SERVICE} refused the token"), false))
     }
+}
+
+/// The user's Flightradar24 API token.
+pub type Token = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
+/// [`Flights`] from Flightradar24's API (Flight summary, light), by
+/// registration.
+pub struct Flightradar {
+    http: Arc<dyn Http>,
+    token: Token,
+}
+
+/// `2025-04-01T00:00:00` (UTC) of a Unix second.
+fn fr24_time(s: i64) -> String {
+    chrono::DateTime::from_timestamp(s, 0)
+        .map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string())
+        .unwrap_or_default()
+}
+
+/// A Unix second of Flightradar24's `2025-04-01T20:56:18` (UTC).
+fn fr24_parse_time(s: &str) -> Option<i64> {
+    let s = s.trim().trim_end_matches('Z');
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        .ok()
+        .map(|d| d.and_utc().timestamp())
+}
+
+/// Read Flightradar24's answer.
+pub fn parse_fr24(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
+    let said = || {
+        serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|v| {
+                v["message"]
+                    .as_str()
+                    .or(v["error"].as_str())
+                    .or(v["details"].as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_default()
+    };
+    match status {
+        200 => {}
+        404 => return Ok(Vec::new()),
+        401 => {
+            return Err(cloud(
+                "Flightradar24 refused the API token: check it in Settings → Read aircraft",
+                false,
+            ))
+        }
+        402 => {
+            return Err(cloud(
+                "Flightradar24 says the subscription's credits are used up",
+                false,
+            ))
+        }
+        403 => {
+            return Err(cloud(
+                format!(
+                    "Flightradar24 refused: check the API token and that the plan includes Flight summary {}",
+                    said()
+                )
+                .trim_end()
+                .to_owned(),
+                false,
+            ))
+        }
+        429 => {
+            return Err(cloud(
+                "Flightradar24 asks to slow down; Add route goes on later",
+                true,
+            ))
+        }
+        400 => {
+            return Err(cloud(
+                format!("Flightradar24 did not accept the question: {}", said()),
+                false,
+            ))
+        }
+        s => return Err(cloud(format!("{FR24_SERVICE} answered {s}"), s >= 500)),
+    }
+    let v: Value = serde_json::from_str(body).map_err(|e| {
+        cloud(
+            format!("{FR24_SERVICE}'s answer could not be read: {e}"),
+            true,
+        )
+    })?;
+    let text = |f: &Value, keys: &[&str]| {
+        keys.iter().find_map(|k| {
+            f[*k]
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+    };
+    Ok(v["data"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|f| {
+            let time = |keys: &[&str]| text(f, keys).as_deref().and_then(fr24_parse_time);
+            Some(Flight {
+                first_seen: time(&["datetime_takeoff", "first_seen"])?,
+                last_seen: time(&["datetime_landed", "last_seen"])?,
+                departure: text(f, &["origin_icao", "orig_icao"]).map(|s| s.to_ascii_uppercase()),
+                arrival: text(
+                    f,
+                    &[
+                        "destination_icao_actual",
+                        "dest_icao_actual",
+                        "destination_icao",
+                        "dest_icao",
+                    ],
+                )
+                .map(|s| s.to_ascii_uppercase()),
+                callsign: text(f, &["callsign"]),
+                number: text(f, &["flight"]).map(|s| s.to_ascii_uppercase()),
+            })
+        })
+        .collect())
+}
+
+impl Flightradar {
+    pub fn new(http: Arc<dyn Http>, token: Token) -> Self {
+        Self { http, token }
+    }
+
+    /// Whether the token works: a question with no answer (no credits).
+    pub fn test(&self) -> Result<(), AiError> {
+        self.flights("KEEPSAKE-TEST", 1_704_067_200, 1_704_067_260)
+            .map(|_| ())
+    }
+}
+
+impl Flights for Flightradar {
+    fn flights(&self, registration: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        let reg = registration.trim().to_ascii_uppercase();
+        if reg.is_empty() || reg.contains(',') {
+            return Err(cloud(
+                format!("{registration} is not a registration"),
+                false,
+            ));
+        }
+        let token = (self.token)().ok_or_else(|| {
+            cloud(
+                "No Flightradar24 API token: add it in Settings → Read aircraft",
+                false,
+            )
+        })?;
+        let url = format!(
+            "{FR24_API}?{}",
+            form(&[
+                ("flight_datetime_from", &fr24_time(begin)),
+                ("flight_datetime_to", &fr24_time(end)),
+                ("registrations", &reg),
+                ("limit", "100"),
+            ])
+        );
+        let auth = format!("Bearer {token}");
+        let (status, body) = self
+            .http
+            .get(
+                &url,
+                &[
+                    ("authorization", &auth),
+                    ("accept", "application/json"),
+                    ("accept-version", "v1"),
+                ],
+            )
+            .map_err(|e| cloud(format!("could not reach {FR24_SERVICE}: {e}"), true))?;
+        parse_fr24(status, &body)
+    }
+
+    fn source(&self) -> Source {
+        Source::Flightradar
+    }
+}
+
+/// Delete the Flightradar24 answers asked more than 30 days before `now_ms`
+/// (its terms). Returns how many days were deleted.
+pub fn forget_expired(cat: &mut Catalog, now_ms: i64) -> Result<u64, AiError> {
+    Ok(cat.write(|tx| tx.ai().forget_fr24_flights_before(now_ms - FR24_KEEP_MS))?)
+}
+
+/// Where a photo's flights are kept: by transponder code (OpenSky) or by
+/// registration (Flightradar24).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Key {
+    Icao(String),
+    Reg(String),
+}
+
+impl Key {
+    /// What the source is asked with.
+    fn id(&self) -> &str {
+        match self {
+            Self::Icao(s) | Self::Reg(s) => s,
+        }
+    }
+}
+
+/// The flights kept under `key` on `day` (a Flightradar24 answer only for
+/// 30 days); `None` when not asked yet.
+fn kept_at_key(cat: &Catalog, key: &Key, day: &str) -> Result<Option<Vec<Flight>>, AiError> {
+    match key {
+        Key::Icao(i) => kept_day(cat, i, day),
+        Key::Reg(r) => {
+            let now = crate::jobs::now_ms();
+            Ok(cat
+                .read(|tx| tx.ai().fr24_flights(r, day))?
+                .filter(|(_, at)| now - at < FR24_KEEP_MS)
+                .and_then(|(j, _)| serde_json::from_str(&j).ok()))
+        }
+    }
+}
+
+fn keep_at_key(cat: &mut Catalog, key: &Key, day: &str, found: &[Flight]) -> Result<(), AiError> {
+    let json = serde_json::to_string(found)
+        .map_err(|e| AiError::Image(format!("the flights could not be kept: {e}")))?;
+    let now = crate::jobs::now_ms();
+    match key {
+        Key::Icao(i) => cat.write(|tx| tx.ai().put_aircraft_flights(i, day, &json, now))?,
+        Key::Reg(r) => cat.write(|tx| tx.ai().put_fr24_flights(r, day, &json, now))?,
+    }
+    Ok(())
+}
+
+fn forget_at_key(cat: &mut Catalog, key: &Key, day: &str) -> Result<(), AiError> {
+    match key {
+        Key::Icao(i) => cat.write(|tx| tx.ai().forget_aircraft_flights(i, day))?,
+        Key::Reg(r) => cat.write(|tx| tx.ai().forget_fr24_flights(r, day))?,
+    }
+    Ok(())
+}
+
+/// The registration as Flightradar24's answers are kept under.
+fn reg_key(registration: &str) -> Key {
+    Key::Reg(registration.trim().to_ascii_uppercase())
 }
 
 /// An airport of the list.
@@ -492,8 +800,8 @@ pub fn keywords(f: &Flight, airports: &Airports) -> Result<Vec<TagPath>, AiError
             }
         }
     }
-    if let Some(cs) = &f.callsign {
-        add("Flight", &flight_number(cs))?;
+    if let Some(n) = f.shown_number() {
+        add("Flight", &n)?;
     }
     Ok(out)
 }
@@ -673,6 +981,20 @@ pub fn run_job(
     let Some(t) = p.taken_s else {
         return Err(cloud("the photo has no capture time", false));
     };
+    if flights.source() == Source::Flightradar {
+        // By registration: no transponder code needed.
+        forget_expired(cat, crate::jobs::now_ms())?;
+        let key = reg_key(&reg);
+        for (day, start) in days_for(t) {
+            if kept_at_key(cat, &key, &day)?.is_some() {
+                continue;
+            }
+            let found = flights.flights(key.id(), start, start + DAY_S - 1)?;
+            asked.requests += 1;
+            keep_at_key(cat, &key, &day, &found)?;
+        }
+        return Ok(asked);
+    }
     let mut icao = icao24_of(cat, &reg)?;
     if icao.is_none() {
         if let Some(l) = lookup {
@@ -697,16 +1019,14 @@ pub fn run_job(
             false,
         ));
     };
+    let key = Key::Icao(icao);
     for (day, start) in days_for(t) {
-        if kept_day(cat, &icao, &day)?.is_some() {
+        if kept_at_key(cat, &key, &day)?.is_some() {
             continue;
         }
-        let found = flights.flights(&icao, start, start + DAY_S - 1)?;
+        let found = flights.flights(key.id(), start, start + DAY_S - 1)?;
         asked.requests += 1;
-        let json = serde_json::to_string(&found)
-            .map_err(|e| AiError::Image(format!("the flights could not be kept: {e}")))?;
-        let now = crate::jobs::now_ms();
-        cat.write(|tx| tx.ai().put_aircraft_flights(&icao, &day, &json, now))?;
+        keep_at_key(cat, &key, &day, &found)?;
     }
     Ok(asked)
 }
@@ -744,6 +1064,7 @@ pub fn review(
     airports: &Airports,
     asset: AssetId,
     clock: Clock,
+    source: Source,
 ) -> Result<RouteItem, AiError> {
     let p = photo(cat, asset, clock)?;
     let has = cat
@@ -766,19 +1087,25 @@ pub fn review(
     let Some(t) = p.taken_s else {
         return Ok(item(State::NoCaptureTime));
     };
-    let Some(icao) = icao24_of(cat, reg)? else {
-        let waiting = cat
-            .read(|tx| tx.jobs().find(JOB_AI_ROUTE, asset))?
-            .is_some_and(|j| matches!(j.state, JobState::Queued | JobState::Running));
-        return Ok(item(if waiting {
-            State::Waiting
-        } else {
-            State::NoTransponder
-        }));
+    let key = match source {
+        Source::Flightradar => reg_key(reg),
+        Source::OpenSky => match icao24_of(cat, reg)? {
+            Some(i) => Key::Icao(i),
+            None => {
+                let waiting = cat
+                    .read(|tx| tx.jobs().find(JOB_AI_ROUTE, asset))?
+                    .is_some_and(|j| matches!(j.state, JobState::Queued | JobState::Running));
+                return Ok(item(if waiting {
+                    State::Waiting
+                } else {
+                    State::NoTransponder
+                }));
+            }
+        },
     };
     let mut all: Vec<Flight> = Vec::new();
     for (day, _) in days_for(t) {
-        match kept_day(cat, &icao, &day)? {
+        match kept_at_key(cat, &key, &day)? {
             Some(v) => {
                 for f in v {
                     if !all.contains(&f) {
@@ -820,19 +1147,30 @@ pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
 /// photo's aircraft on its days, and what the registration lookup said
 /// when it did not know the aircraft, then queue them. Returns how many
 /// photos are asked about (those with a registration).
-pub fn again(cat: &mut Catalog, ids: &[AssetId], clock: Clock) -> Result<u64, AiError> {
+pub fn again(
+    cat: &mut Catalog,
+    ids: &[AssetId],
+    clock: Clock,
+    source: Source,
+) -> Result<u64, AiError> {
     let mut ask = Vec::new();
     for id in ids {
         let p = photo(cat, *id, clock)?;
         let Some(reg) = p.registration else {
             continue;
         };
-        if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known && f.typed_mode_s.is_none()) {
-            cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
-        }
-        if let (Some(icao), Some(t)) = (icao24_of(cat, &reg)?, p.taken_s) {
+        let key = match source {
+            Source::Flightradar => Some(reg_key(&reg)),
+            Source::OpenSky => {
+                if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known && f.typed_mode_s.is_none()) {
+                    cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
+                }
+                icao24_of(cat, &reg)?.map(Key::Icao)
+            }
+        };
+        if let (Some(key), Some(t)) = (key, p.taken_s) {
             for (day, _) in days_for(t) {
-                cat.write(|tx| tx.ai().forget_aircraft_flights(&icao, &day))?;
+                forget_at_key(cat, &key, &day)?;
             }
         }
         ask.push(*id);
@@ -866,6 +1204,7 @@ mod tests {
             departure: dep.map(str::to_owned),
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
+            number: None,
         }
     }
 
@@ -1070,6 +1409,100 @@ mod tests {
             read_clock(utc_ms, Some(-300), Clock::Eastern, true),
             (1_743_540_978, Some(-300))
         );
+    }
+
+    #[test]
+    fn flightradar24_answers_are_read_and_trouble_is_said_clearly() {
+        // Flight summary light (docs example), and a full one's names.
+        let body = r#"{"data":[{"fr24_id":"1","flight":"KL692","callsign":"KLM692","reg":"PH-BKO","origin_icao":"CYYZ","datetime_takeoff":"2025-04-01T21:20:00","destination_icao":"EHAM","destination_icao_actual":null,"datetime_landed":"2025-04-02T05:55:00","hex":"485E31","first_seen":"2025-04-01T21:05:00","last_seen":"2025-04-02T06:02:00","flight_ended":"true"},
+          {"fr24_id":"2","flight":null,"callsign":"KLM691","orig_icao":"EHAM","datetime_takeoff":null,"dest_icao":"CYYZ","dest_icao_actual":"CYOW","datetime_landed":null,"first_seen":"2025-04-01T11:00:00","last_seen":"2025-04-01T19:10:00"},
+          {"fr24_id":"3","callsign":"X","first_seen":null,"last_seen":null}]}"#;
+        let v = parse_fr24(200, body).unwrap();
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].departure.as_deref(), Some("CYYZ"));
+        assert_eq!(v[0].arrival.as_deref(), Some("EHAM"));
+        // Take-off and landing, not first and last seen.
+        assert_eq!(
+            v[0].first_seen,
+            fr24_parse_time("2025-04-01T21:20:00").unwrap()
+        );
+        assert_eq!(v[0].shown_number().as_deref(), Some("KL692"));
+        // Diverted: where it landed; no take-off time: first seen.
+        assert_eq!(v[1].arrival.as_deref(), Some("CYOW"));
+        assert_eq!(
+            v[1].first_seen,
+            fr24_parse_time("2025-04-01 11:00:00").unwrap()
+        );
+        assert_eq!(v[1].shown_number().as_deref(), Some("KL691"));
+        assert_eq!(parse_fr24(404, "").unwrap(), []);
+        assert_eq!(parse_fr24(200, r#"{"data":[]}"#).unwrap(), []);
+        for (status, retry, says) in [
+            (401, false, "API token"),
+            (402, false, "credits"),
+            (403, false, "Flight summary"),
+            (429, true, "slow down"),
+            (400, false, "bad date"),
+            (503, true, "503"),
+        ] {
+            match parse_fr24(status, r#"{"message":"bad date"}"#) {
+                Err(AiError::Cloud { retry: r, message }) => {
+                    assert_eq!(r, retry, "{status}");
+                    assert!(message.contains(says), "{status}: {message}");
+                }
+                x => panic!("{status}: {x:?}"),
+            }
+        }
+    }
+
+    /// A request: its URL and headers.
+    type Request = (String, Vec<(String, String)>);
+
+    /// Flightradar24 as the tests see it: keeps the request.
+    struct Fr24Fake {
+        gets: Mutex<Vec<Request>>,
+    }
+
+    impl Http for Fr24Fake {
+        fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<(u16, String), String> {
+            Err("no posts".into())
+        }
+        fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+            self.gets.lock().unwrap().push((
+                url.to_owned(),
+                headers
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            ));
+            Ok((200, r#"{"data":[]}"#.into()))
+        }
+    }
+
+    #[test]
+    fn flightradar24_is_asked_by_registration_for_the_utc_day_with_the_token() {
+        let http = Arc::new(Fr24Fake {
+            gets: Mutex::new(Vec::new()),
+        });
+        let fr = Flightradar::new(http.clone(), Arc::new(|| Some("tok".into())));
+        assert_eq!(fr.source(), Source::Flightradar);
+        // 2025-04-01, the whole UTC day.
+        fr.flights(" ph-bko", 1_743_465_600, 1_743_465_600 + DAY_S - 1)
+            .unwrap();
+        let gets = http.gets.lock().unwrap();
+        assert_eq!(
+            gets[0].0,
+            format!("{FR24_API}?flight_datetime_from=2025-04-01T00%3A00%3A00&flight_datetime_to=2025-04-01T23%3A59%3A59&registrations=PH-BKO&limit=100")
+        );
+        let h: HashMap<_, _> = gets[0].1.iter().cloned().collect();
+        assert_eq!(h["authorization"], "Bearer tok");
+        assert_eq!(h["accept-version"], "v1");
+        drop(gets);
+        // No token: nothing is sent.
+        let fr = Flightradar::new(http.clone(), Arc::new(|| None));
+        assert!(fr.flights("PH-BKO", 0, 1).is_err());
+        assert_eq!(http.gets.lock().unwrap().len(), 1);
+        assert_eq!(Source::parse("flightradar"), Source::Flightradar);
+        assert_eq!(Source::parse("anything"), Source::OpenSky);
     }
 
     #[test]
