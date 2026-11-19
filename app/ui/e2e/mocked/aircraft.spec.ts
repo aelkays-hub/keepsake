@@ -620,3 +620,39 @@ test("Add route: ask again, and read an Eastern camera clock with daylight savin
   await settings(page);
   await expect(page.getByTestId("aircraft-route-eastern")).toBeChecked();
 });
+
+test("Add route: a time zone set for one photo, and a transponder code typed", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved&nocode=on");
+  const win = await addRoute(page, 20);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  // No code known: the field asks for it.
+  const photo = win
+    .getByTestId("rt-photo")
+    .filter({ has: page.getByTestId("rt-code") })
+    .first();
+  const name = (await photo.locator(".rt-name").textContent()) ?? "";
+  const it = win.getByTestId("rt-photo").filter({ hasText: name });
+  await expect(it.getByTestId("rt-state")).toContainText("Type it below");
+  await it.getByTestId("rt-code").fill("PH-BKO");
+  await it.getByTestId("rt-code-use").click();
+  await expect(win.getByTestId("rt-problem")).toContainText("six digits");
+  await it.getByTestId("rt-code").fill("484f6e");
+  await it.getByTestId("rt-code-use").click();
+  expect(await calls(page, "aircraft_route_set_code")).toEqual([
+    { registration: expect.any(String), code: "484F6E" },
+  ]);
+  expect(await calls(page, "aircraft_route_again")).toHaveLength(1);
+  await expect(it.getByTestId("rt-code-shown")).toHaveText("484F6E (typed)");
+
+  // The photo's time zone: UTC+01:00 keeps the clock time, moves UTC.
+  await expect(it.getByTestId("rt-taken")).toContainText("07:31 (UTC−05:00) · 12:31 UTC");
+  await it.getByTestId("rt-zone").selectOption("60");
+  const set = (await calls(page, "time_zone_apply"))[0] as {
+    selection: { ids: string[] };
+    offsetMin: number;
+  };
+  expect(set.offsetMin).toBe(60);
+  expect(set.selection.ids).toHaveLength(1);
+  await expect(it.getByTestId("rt-taken")).toContainText("07:31 (UTC+01:00) · 06:31 UTC");
+  await expect(it).toContainText("kept in the sidecar");
+});

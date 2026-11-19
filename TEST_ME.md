@@ -1,8 +1,25 @@
-# Manual Test Steps — Add route: Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Add route: a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Add route: a transponder code typed, a photo's time zone
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests typed time_zone`
+
+Manual (both OSes):
+1. Add route on A7_05212.ARW (PH-BKO).
+   - **Expected:** "The transponder code of PH-BKO is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below…", and a **Transponder code** field.
+2. Type `PH-BKO` and click **Use**.
+   - **Expected:** "A transponder code is six digits and letters A–F". Type the real code (from a flight-tracking site: Mode S / ICAO 24-bit address) and click **Use**.
+   - **Expected:** OpenSky is asked; the field shows the code with "(typed)" and **Change**. Another photo of PH-BKO uses it too.
+3. On a photo, choose a **Time zone** (for example UTC+01:00).
+   - **Expected:** the clock time stays (15:56), the UTC time moves ("15:56 (UTC+01:00) · 14:56 UTC"), "kept in the sidecar" shows, and the flight is looked for at that time. The Inspector shows the new time and Time source sidecar. The photo file is not changed.
+4. With **Camera clock on Eastern time** ticked, set a photo to UTC−05:00 by hand.
+   - **Expected:** it stays UTC−05:00 (not moved to −04:00 in summer).
 
 ---
 

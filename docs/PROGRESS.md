@@ -67,6 +67,13 @@
 
 ---
 
+## Add route: a transponder code typed, a photo's time zone (2026-11-19)
+
+- **Reported:** PH-BKO still had no transponder code after the database was downloaded again: it is newer than OpenSky's April 2024 snapshot (KLM's PH-BKA to PH-BKL are in it). Chosen: "Let me type the code". Asked too: set the time zone of a specific picture by ± UTC.
+- **Built:** `Found.typed_mode_s`, `lookup::set_typed_code` (six hex digits), kept by `ask` when asked again; `route::icao24_of` uses it first; `route::again` keeps a lookup with a typed code; the not-known message says neither source lists it. `MetadataService::set_capture_offset` (clock time stays, source `sidecar`); `read_clock` leaves a time from a sidecar. App: commands `aircraft_route_set_code`, `time_zone_apply`; `RouteItemDto.code`, `code_typed`, `zone_set`. UI: per photo in the Add route window, Time zone (UTC−12:00 to UTC+14:00) and Transponder code (type, Use, Change).
+- **Tests, run here (Windows):** `aircraft_tests` (+2: a typed code used and kept when asked again, forgotten when cleared; a photo's time zone keeps its clock time, goes in the sidecar and wins over the Eastern setting), route unit test, core lib (233), app lib (118); Vitest (98); mocked Playwright aircraft (20, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against OpenSky.
+
 ## Add route: Eastern clock with daylight saving, Ask again, a readable window (2026-11-19)
 
 - **Reported:** most photos are taken on Eastern time and the date's daylight saving should count; Add route could only be run once; the window's text was over the picture and unreadable.

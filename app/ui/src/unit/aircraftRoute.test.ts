@@ -8,6 +8,9 @@ import {
   routeProgress,
   takenLine,
   offsetLabel,
+  cleanCode,
+  zoneChoices,
+  ZONES,
   stateLine,
   tickedKeywords,
   whenLine,
@@ -40,6 +43,9 @@ const item = (state: string, p: Partial<RouteItemDto> = {}): RouteItemDto => ({
   taken: "2026-05-31T12:31:11Z",
   local: "2026-05-31T08:31:11",
   offsetMin: -240,
+  zoneSet: false,
+  code: "C04826",
+  codeTyped: false,
   state,
   error: null,
   choices: [],
@@ -88,6 +94,20 @@ describe("Add route", () => {
       "Taken 2026-05-31 12:31, time zone not known (read as UTC)",
     );
     expect(takenLine(item("no-time", { taken: null }))).toBeNull();
+  });
+
+  it("offers time zones and reads a typed transponder code", () => {
+    expect(ZONES[0]).toBe(-720);
+    expect(ZONES[ZONES.length - 1]).toBe(840);
+    expect(ZONES).toContain(-300);
+    expect(ZONES).toContain(330);
+    expect(zoneChoices(-300)).toBe(ZONES);
+    expect(zoneChoices(-17)).toContain(-17);
+    expect(cleanCode(" 484f6e ")).toBe("484F6E");
+    expect(cleanCode("0x484F6E")).toBe("484F6E");
+    expect(cleanCode("")).toBeNull();
+    expect(cleanCode("PH-BKO")).toBeUndefined();
+    expect(stateLine(item("no-transponder"))).toContain("Type it below");
   });
 
   it("offers the keywords left ticked", () => {

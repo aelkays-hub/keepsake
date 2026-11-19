@@ -263,6 +263,8 @@ export const api = {
     invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),
   timeShiftApply: (selection: Selection, offsetS: number) =>
     invoke<EditResult>("time_shift_apply", { selection, offsetS }),
+  timeZoneApply: (selection: Selection, offsetMin: number) =>
+    invoke<EditResult>("time_zone_apply", { selection, offsetMin }),
 
   backupOverview: () => invoke<BackupOverview>("backup_overview"),
   libraryReport: () => invoke<LibraryReport>("library_report"),
@@ -357,6 +359,8 @@ export const api = {
   aircraftSetRouteEastern: (eastern: boolean) =>
     invoke<void>("aircraft_set_route_eastern", { eastern }),
   aircraftRouteAgain: (ids: string[]) => invoke<number>("aircraft_route_again", { ids }),
+  aircraftRouteSetCode: (registration: string, code: string | null) =>
+    invoke<void>("aircraft_route_set_code", { registration, code }),
   openskySetCredentials: (clientId: string, secret: string) =>
     invoke<void>("opensky_set_credentials", { clientId, secret }),
   openskyTest: () => invoke<string>("opensky_test"),

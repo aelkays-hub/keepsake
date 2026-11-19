@@ -200,6 +200,12 @@ dto! {
         /// zone known.
         pub local: Option<String>,
         pub offset_min: Option<i16>,
+        /// The time comes from the sidecar (a time zone set in Keepsake).
+        pub zone_set: bool,
+        /// The transponder code asked about (`484F6E`), and whether the
+        /// user typed it.
+        pub code: Option<String>,
+        pub code_typed: bool,
         /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
         /// `failed`, `nothing`, `none-near`, `found` or `several`.
         pub state: String,

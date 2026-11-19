@@ -113,7 +113,17 @@ export interface MockState {
   aircraftBuilt: Map<string, { built: string; source: string }>;
   /** Add route (ADR-044): on (`?route=on`), the OpenSky client saved
    * (`?opensky=saved`), and how often each photo was asked about. */
-  route: { enabled: boolean; saved: boolean; eastern: boolean; asked: Map<string, number> };
+  route: {
+    enabled: boolean;
+    saved: boolean;
+    eastern: boolean;
+    asked: Map<string, number>;
+    /** Time zones set per item; codes typed per registration; with
+     * `?nocode=on` no aircraft's code is known until typed. */
+    zone: Map<string, number>;
+    codes: Map<string, string>;
+    noCode: boolean;
+  };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -526,6 +536,9 @@ export function installMock(): void {
     route: {
       enabled: params.get("route") === "on",
       eastern: false,
+      zone: new Map(),
+      codes: new Map(),
+      noCode: params.get("nocode") === "on",
       saved: params.get("opensky") === "saved",
       asked: new Map(),
     },
@@ -1688,6 +1701,17 @@ export function installMock(): void {
           st.route.eastern = Boolean(a.eastern);
           void emit("aircraft://status", null);
           return null;
+        case "aircraft_route_set_code": {
+          const reg = String(a.registration);
+          if (a.code) st.route.codes.set(reg, String(a.code));
+          else st.route.codes.delete(reg);
+          return null;
+        }
+        case "time_zone_apply": {
+          const ids = resolve(a.selection as Selection);
+          for (const i of ids) st.route.zone.set(`a${i}`, Number(a.offsetMin));
+          return { changed: ids.length, background: false };
+        }
         case "aircraft_route_again": {
           const ids = (a.ids ?? []) as string[];
           for (const id of ids) st.route.asked.set(id, 0);
@@ -1769,15 +1793,23 @@ export function installMock(): void {
               (it && isAircraft(it) ? "C-FJZS" : null);
             const n = st.route.asked.get(id) ?? 1;
             if (n >= 0) st.route.asked.set(id, n + 1);
+            const offset = st.route.zone.get(id) ?? (st.route.eastern ? -240 : -300);
+            const code = (reg && st.route.codes.get(reg)) ?? (st.route.noCode ? null : "C04826");
             const base = {
               id,
               name: it?.name ?? null,
               thumb: null,
               registration: reg,
-              // Marked UTC−05:00; read as Eastern daylight time, an hour earlier.
-              taken: st.route.eastern ? "2026-05-31T11:31:11Z" : "2026-05-31T12:31:11Z",
+              // Marked UTC−05:00; read as Eastern daylight time, an hour
+              // earlier; a time zone set keeps the clock time (07:31).
+              taken: new Date(Date.UTC(2026, 4, 31, 7, 31, 11) - offset * 60_000)
+                .toISOString()
+                .replace(".000", ""),
               local: "2026-05-31T07:31:11",
-              offsetMin: st.route.eastern ? -240 : -300,
+              offsetMin: offset,
+              zoneSet: st.route.zone.has(id),
+              code: reg ? code : null,
+              codeTyped: reg !== null && st.route.codes.has(reg),
               error: null,
               choices: [] as ReturnType<typeof choice>[],
               has: kws.filter((k) =>
@@ -1785,6 +1817,7 @@ export function installMock(): void {
               ),
             };
             if (!reg) return { ...base, state: "no-registration" };
+            if (!code) return { ...base, state: "no-transponder" };
             if (n === 0) {
               pending += 1;
               return { ...base, state: "waiting" };

@@ -570,11 +570,18 @@ pub fn eastern_offset(wall_s: i64) -> i16 {
 }
 
 /// The capture instant (Unix seconds, UTC) and the offset it is read with
-/// (`None`: not known), under `clock`.
-pub fn read_clock(utc_ms: i64, offset_min: Option<i16>, clock: Clock) -> (i64, Option<i16>) {
+/// (`None`: not known), under `clock`. A time taken from a sidecar
+/// (`user_set`: a time zone set in Keepsake, or another program's date) is
+/// kept as it is.
+pub fn read_clock(
+    utc_ms: i64,
+    offset_min: Option<i16>,
+    clock: Clock,
+    user_set: bool,
+) -> (i64, Option<i16>) {
     let s = utc_ms.div_euclid(1000);
     match (clock, offset_min) {
-        (Clock::Eastern, None | Some(EST_MIN)) => {
+        (Clock::Eastern, None | Some(EST_MIN)) if !user_set => {
             let wall = s + i64::from(offset_min.unwrap_or(0)) * 60;
             let o = eastern_offset(wall);
             (wall - i64::from(o) * 60, Some(o))
@@ -606,10 +613,13 @@ pub fn photo(cat: &Catalog, asset: AssetId, clock: Clock) -> Result<Photo, AiErr
             let s = t.path.segments();
             (s.len() == 3 && s[0] == TAG_PARENT && s[1] == "Registration").then(|| s[2].clone())
         });
+    let user_set = a
+        .as_ref()
+        .is_some_and(|a| a.capture_source == Some(crate::catalog::CaptureSource::Sidecar));
     let read = a
         .as_ref()
         .and_then(|a| a.capture)
-        .map(|c| read_clock(c.utc_ms, c.utc_offset_min, clock));
+        .map(|c| read_clock(c.utc_ms, c.utc_offset_min, clock, user_set));
     Ok(Photo {
         registration,
         taken_s: read.map(|r| r.0),
@@ -618,10 +628,11 @@ pub fn photo(cat: &Catalog, asset: AssetId, clock: Clock) -> Result<Photo, AiErr
     })
 }
 
-/// The transponder code of `registration`, as the lookup keeps it.
+/// The transponder code of `registration`, as the lookup keeps it (the
+/// one the user typed first).
 pub fn icao24_of(cat: &Catalog, registration: &str) -> Result<Option<String>, AiError> {
     Ok(lookup::kept(cat, registration)?
-        .and_then(|f| f.mode_s)
+        .and_then(|f| f.typed_mode_s.or(f.mode_s))
         .map(|m| m.to_ascii_lowercase()))
 }
 
@@ -674,9 +685,15 @@ pub fn run_job(
     }
     let Some(icao) = icao else {
         return Err(cloud(
-            format!(
-                "the transponder code of {reg} is not known (turn on Look registrations up online)"
-            ),
+            if lookup.is_some() {
+                format!(
+                    "the transponder code of {reg} is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it in the Add route window"
+                )
+            } else {
+                format!(
+                    "the transponder code of {reg} is not known (turn on Look registrations up online, or type it in the Add route window)"
+                )
+            },
             false,
         ));
     };
@@ -810,7 +827,7 @@ pub fn again(cat: &mut Catalog, ids: &[AssetId], clock: Clock) -> Result<u64, Ai
         let Some(reg) = p.registration else {
             continue;
         };
-        if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known) {
+        if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known && f.typed_mode_s.is_none()) {
             cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
         }
         if let (Some(icao), Some(t)) = (icao24_of(cat, &reg)?, p.taken_s) {
@@ -1027,24 +1044,32 @@ mod tests {
         // A7_05212.ARW: 15:56 on 1 April 2025, marked UTC−05:00.
         let utc_ms = 1_743_540_978_000;
         assert_eq!(
-            read_clock(utc_ms, Some(-300), Clock::AsRecorded),
+            read_clock(utc_ms, Some(-300), Clock::AsRecorded, false),
             (1_743_540_978, Some(-300))
         );
         assert_eq!(
-            read_clock(utc_ms, Some(-300), Clock::Eastern),
+            read_clock(utc_ms, Some(-300), Clock::Eastern, false),
             (1_743_540_978 - 3600, Some(-240))
         );
         // Another time zone is kept; none at all is read as Eastern.
         assert_eq!(
-            read_clock(utc_ms, Some(60), Clock::Eastern),
+            read_clock(utc_ms, Some(60), Clock::Eastern, false),
             (1_743_540_978, Some(60))
         );
         let w = wall(2025, 4, 1, 15, 56);
         assert_eq!(
-            read_clock(w * 1000, None, Clock::Eastern),
+            read_clock(w * 1000, None, Clock::Eastern, false),
             (w + 4 * 3600, Some(-240))
         );
-        assert_eq!(read_clock(w * 1000, None, Clock::AsRecorded), (w, None));
+        assert_eq!(
+            read_clock(w * 1000, None, Clock::AsRecorded, false),
+            (w, None)
+        );
+        // A time zone the user set is kept.
+        assert_eq!(
+            read_clock(utc_ms, Some(-300), Clock::Eastern, true),
+            (1_743_540_978, Some(-300))
+        );
     }
 
     #[test]

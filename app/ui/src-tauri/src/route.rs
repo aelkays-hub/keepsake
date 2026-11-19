@@ -188,6 +188,23 @@ pub fn aircraft_route_again(
     Ok(n)
 }
 
+/// Keep the transponder code the user typed for `registration` (blank:
+/// forget it).
+#[tauri::command(async)]
+pub fn aircraft_route_set_code(
+    state: State<'_, AppState>,
+    registration: String,
+    code: Option<String>,
+) -> CmdResult<()> {
+    let reg = registration.trim();
+    if reg.is_empty() {
+        return Err("No registration.".into());
+    }
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    keepsake_core::ai::aircraft::lookup::set_typed_code(&mut cat, reg, code.as_deref()).map_err(err)
+}
+
 #[tauri::command(async)]
 pub fn aircraft_route_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdResult<()> {
     let ids = convert::ids(&ids)?;
@@ -277,6 +294,20 @@ pub fn aircraft_route_review(
             }
         };
         let (name, thumb) = crate::aircraft::photo_of(&cat, &open.cache, *id)?;
+        let kept = match it.registration.as_deref() {
+            Some(r) => keepsake_core::ai::aircraft::lookup::kept(&cat, r).map_err(err)?,
+            None => None,
+        };
+        let code_typed = kept.as_ref().is_some_and(|f| f.typed_mode_s.is_some());
+        let code = kept
+            .and_then(|f| f.typed_mode_s.or(f.mode_s))
+            .map(|c| c.to_ascii_uppercase());
+        let zone_set = cat
+            .read(|tx| tx.assets().get(*id))
+            .map_err(err)?
+            .is_some_and(|a| {
+                a.capture_source == Some(keepsake_core::catalog::CaptureSource::Sidecar)
+            });
         items.push(RouteItemDto {
             id: id.to_string(),
             name,
@@ -288,6 +319,9 @@ pub fn aircraft_route_review(
                 .zip(it.offset_min)
                 .map(|(t, o)| iso(t + i64::from(o) * 60).trim_end_matches('Z').to_owned()),
             offset_min: it.offset_min,
+            zone_set,
+            code,
+            code_typed,
             state: state.to_owned(),
             error,
             choices,

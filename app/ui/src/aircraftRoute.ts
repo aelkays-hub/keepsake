@@ -53,7 +53,7 @@ export function stateLine(item: RouteItemDto): string | null {
     case "no-time":
       return "The photo has no capture time.";
     case "no-transponder":
-      return `The transponder code of ${item.registration ?? "this aircraft"} is not known: turn on Look registrations up online in Settings → Read aircraft.`;
+      return `The transponder code of ${item.registration ?? "this aircraft"} is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below: a flight-tracking site shows it as Mode S or ICAO 24-bit address (six digits and letters A–F).`;
     case "waiting":
       return "Asking OpenSky…";
     case "failed":
@@ -104,4 +104,36 @@ export function takenLine(item: RouteItemDto): string | null {
   }
   const local = item.local.slice(0, 16).replace("T", " ");
   return `Taken ${local} (${offsetLabel(item.offsetMin)}) · ${utc.slice(11)} UTC`;
+}
+
+/** Time zones offered (minutes from UTC): every hour from −12:00 to
+ * +14:00 and the half and three-quarter hours in use. */
+export const ZONES: number[] = [
+  ...Array.from({ length: 27 }, (_, i) => (i - 12) * 60),
+  -570,
+  -210,
+  210,
+  270,
+  330,
+  345,
+  390,
+  525,
+  570,
+  630,
+  765,
+].sort((a, b) => a - b);
+
+/** The time zones to offer for a photo read at `current`. */
+export function zoneChoices(current: number | null): number[] {
+  return current === null || ZONES.includes(current)
+    ? ZONES
+    : [...ZONES, current].sort((a, b) => a - b);
+}
+
+/** A transponder code as typed: six hex digits, upper case; `null` when
+ * blank; `undefined` when it is not one. */
+export function cleanCode(typed: string): string | null | undefined {
+  const t = typed.trim().replace(/^0x/i, "");
+  if (!t) return null;
+  return /^[0-9a-f]{6}$/i.test(t) ? t.toUpperCase() : undefined;
 }

@@ -1572,3 +1572,84 @@ fn an_eastern_camera_clock_is_read_with_daylight_saving_by_the_date() {
         s => panic!("{s:?}"),
     }
 }
+
+#[test]
+fn a_transponder_code_typed_is_used_and_kept_when_the_registration_is_asked_again() {
+    let mut w = World::new(&["a.jpg"]);
+    let http = Arc::new(Unknown {
+        asked: Mutex::new(Vec::new()),
+    });
+    let client = lookup::AdsbDb::new(http.clone());
+    lookup::lookup_cached(&mut w.cat, Some(&client), "PH-BKO").unwrap();
+    assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+
+    assert!(lookup::set_typed_code(&mut w.cat, "PH-BKO", Some("PH-BKO")).is_err());
+    lookup::set_typed_code(&mut w.cat, "PH-BKO", Some(" 0x484f6e ")).unwrap();
+    assert_eq!(
+        route::icao24_of(&w.cat, "PH-BKO").unwrap().as_deref(),
+        Some("484f6e")
+    );
+
+    // Asked again 30 days on: adsbdb still does not know it; the code stays.
+    let (f, _) = lookup::kept_at(&w.cat, "PH-BKO").unwrap().unwrap();
+    let json = serde_json::to_string(&f).unwrap();
+    let long_ago = keepsake_core::jobs::now_ms() - lookup::RETRY_UNKNOWN_MS - 86_400_000;
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("PH-BKO", &json, long_ago))
+        .unwrap();
+    assert_eq!(
+        lookup::refresh_one(&mut w.cat, &client).unwrap().as_deref(),
+        Some("PH-BKO")
+    );
+    assert_eq!(http.asked.lock().unwrap().len(), 2);
+    assert_eq!(
+        route::icao24_of(&w.cat, "PH-BKO").unwrap().as_deref(),
+        Some("484f6e")
+    );
+
+    // A code typed for a registration never asked about; and forgotten.
+    lookup::set_typed_code(&mut w.cat, "PH-BKP", Some("484F70")).unwrap();
+    assert_eq!(
+        route::icao24_of(&w.cat, "PH-BKP").unwrap().as_deref(),
+        Some("484f70")
+    );
+    lookup::set_typed_code(&mut w.cat, "PH-BKO", None).unwrap();
+    assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+}
+
+#[test]
+fn a_time_zone_set_for_a_photo_keeps_its_clock_time_and_wins_over_the_eastern_setting() {
+    let (mut w, ids) = route_world(&["a.jpg"], &[PHOTO_S]);
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    db.execute(
+        "UPDATE assets SET capture_utc_offset_min = -300 WHERE id = ?1",
+        [ids[0]],
+    )
+    .unwrap();
+    drop(db);
+    let airports = Airports::builtin();
+    let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+    assert!(svc.set_capture_offset(ids[0], 900).is_err());
+    // 07:31 on the camera's clock, in UTC+01:00: 06:31 UTC.
+    let a = svc.set_capture_offset(ids[0], 60).unwrap();
+    let c = a.capture.unwrap();
+    assert_eq!(c.utc_ms, (PHOTO_S - 6 * 3600) * 1000);
+    assert_eq!(c.utc_offset_min, Some(60));
+    assert_eq!(
+        a.capture_source,
+        Some(keepsake_core::catalog::CaptureSource::Sidecar)
+    );
+    assert!(sidecars(&w).contains("2026-05-31T07:31:11.000+01:00"));
+    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    assert_eq!(
+        (it.taken_s, it.offset_min),
+        (Some(PHOTO_S - 6 * 3600), Some(60))
+    );
+
+    // Set back to UTC−05:00 by hand: the Eastern setting leaves it.
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_capture_offset(ids[0], -300)
+        .unwrap();
+    let it = route::review(&w.cat, &airports, ids[0], Clock::Eastern).unwrap();
+    assert_eq!((it.taken_s, it.offset_min), (Some(PHOTO_S), Some(-300)));
+}

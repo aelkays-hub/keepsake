@@ -2086,6 +2086,22 @@ button.danger {
   margin: 10px 0 0;
   font-size: 0.85em;
 }
+.route-window .rt-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  font-size: 0.9em;
+}
+.route-window .rt-field {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.route-window .rt-field input {
+  font-family: ui-monospace, monospace;
+  text-transform: uppercase;
+}
 @media (max-width: 560px) {
   .route-window .rt-photo {
     grid-template-columns: minmax(0, 1fr);

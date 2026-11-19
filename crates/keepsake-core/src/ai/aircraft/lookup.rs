@@ -80,6 +80,10 @@ pub struct Found {
     /// What the answer holds ([`LOOKUP_VERSION`]); 0: kept before 2.
     #[serde(default)]
     pub version: u32,
+    /// The transponder code the user typed (Add route), hex: used before
+    /// [`Found::mode_s`], and kept when the registration is asked again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_mode_s: Option<String>,
 }
 
 impl Found {
@@ -197,6 +201,7 @@ pub fn parse(
         country: text("registered_owner_country_name"),
         mode_s: text("mode_s").map(|m| m.to_ascii_uppercase()),
         built: None,
+        typed_mode_s: None,
         version: LOOKUP_VERSION,
     })
 }
@@ -279,7 +284,9 @@ pub fn lookup_cached(
 /// Ask about `registration` now, and keep the answer (and when the aircraft
 /// was built, [`built::note_found`]).
 fn ask(cat: &mut Catalog, lookup: &dyn Lookup, registration: &str) -> Result<Found, AiError> {
-    let found = lookup.lookup(registration)?;
+    let mut found = lookup.lookup(registration)?;
+    // A code the user typed stays.
+    found.typed_mode_s = kept(cat, registration)?.and_then(|f| f.typed_mode_s);
     let json = serde_json::to_string(&found)
         .map_err(|e| AiError::Image(format!("the lookup could not be kept: {e}")))?;
     let now = crate::jobs::now_ms();
@@ -305,6 +312,47 @@ pub fn refresh_one(cat: &mut Catalog, lookup: &dyn Lookup) -> Result<Option<Stri
     };
     ask(cat, lookup, &reg)?;
     Ok(Some(reg))
+}
+
+/// Keep the transponder code the user typed for `registration` (six hex
+/// digits; `None`: forget it). Kept with what the lookup said, or as a
+/// registration not known when nothing was asked yet.
+pub fn set_typed_code(
+    cat: &mut Catalog,
+    registration: &str,
+    code: Option<&str>,
+) -> Result<(), AiError> {
+    let code = match code.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => {
+            let hex = c.trim_start_matches("0x").trim_start_matches("0X");
+            if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(AiError::Cloud {
+                    message: format!(
+                        "{c} is not a transponder code: it is six digits and letters A–F (484F6E)"
+                    ),
+                    retry: false,
+                });
+            }
+            Some(hex.to_ascii_uppercase())
+        }
+        None => None,
+    };
+    let now = crate::jobs::now_ms();
+    let (mut found, at) = kept_at(cat, registration)?.unwrap_or_else(|| {
+        (
+            Found {
+                registration: registration.to_owned(),
+                version: LOOKUP_VERSION,
+                ..Found::default()
+            },
+            now,
+        )
+    });
+    found.typed_mode_s = code;
+    let json = serde_json::to_string(&found)
+        .map_err(|e| AiError::Image(format!("the lookup could not be kept: {e}")))?;
+    cat.write(|tx| tx.ai().put_aircraft_lookup(registration, &json, at))?;
+    Ok(())
 }
 
 /// What is kept about `registration`, without asking.

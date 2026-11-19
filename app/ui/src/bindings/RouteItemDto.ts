@@ -16,6 +16,15 @@ taken: string | null,
  */
 local: string | null, offsetMin: number | null, 
 /**
+ * The time comes from the sidecar (a time zone set in Keepsake).
+ */
+zoneSet: boolean, 
+/**
+ * The transponder code asked about (`484F6E`), and whether the
+ * user typed it.
+ */
+code: string | null, codeTyped: boolean, 
+/**
  * `no-registration`, `no-time`, `no-transponder`, `waiting`,
  * `failed`, `nothing`, `none-near`, `found` or `several`.
  */

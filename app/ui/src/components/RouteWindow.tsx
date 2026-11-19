@@ -9,14 +9,17 @@ import { api, fileUrl } from "../api";
 import type { RouteItemDto } from "../bindings/RouteItemDto";
 import type { RouteReviewDto } from "../bindings/RouteReviewDto";
 import {
+  cleanCode,
   flightLine,
   keywordLabel,
+  offsetLabel,
   routeLine,
   routeProgress,
   stateLine,
   takenLine,
   tickedKeywords,
   whenLine,
+  zoneChoices,
 } from "../aircraftRoute";
 import { useUi } from "../state";
 
@@ -34,6 +37,8 @@ export function RouteWindow() {
   const [chosen, setChosen] = useState<Map<string, number>>(new Map());
   const [unticked, setUnticked] = useState<Map<string, Set<string>>>(new Map());
   const [added, setAdded] = useState<Map<string, string[]>>(new Map());
+  // Transponder codes being typed, per photo.
+  const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   // The camera's clock on Eastern time, changed for daylight saving.
   const [eastern, setEastern] = useState<boolean | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -121,6 +126,41 @@ export function RouteWindow() {
     api
       .aircraftSetRouteEastern(on)
       .then(() => api.aircraftRoute(job.selection))
+      .then(refresh)
+      .catch((e) => setProblem(String(e)));
+  };
+  const one = (id: string) => ({ ids: [id], view: null, ranges: [] as [number, number][] });
+  // Set the photo's time zone (the clock time stays), then look again.
+  const setZone = (id: string, offsetMin: number) => {
+    setProblem(null);
+    api
+      .timeZoneApply(one(id), offsetMin)
+      .then(() => {
+        dispatch({ t: "edited" });
+        return api.aircraftRoute(one(id));
+      })
+      .then(refresh)
+      .catch((e) => setProblem(String(e)));
+  };
+  // Keep the transponder code typed for the photo's registration, and ask.
+  const applyCode = (item: RouteItemDto) => {
+    const code = cleanCode(drafts.get(item.id) ?? "");
+    if (code === undefined) {
+      setProblem("A transponder code is six digits and letters A–F, such as 484F6E.");
+      return;
+    }
+    if (!item.registration) return;
+    setProblem(null);
+    api
+      .aircraftRouteSetCode(item.registration, code)
+      .then(() => {
+        setDrafts((m) => {
+          const n = new Map(m);
+          n.delete(item.id);
+          return n;
+        });
+        return api.aircraftRouteAgain([item.id]);
+      })
       .then(refresh)
       .catch((e) => setProblem(String(e)));
   };
@@ -225,6 +265,66 @@ export function RouteWindow() {
                       {taken}
                     </p>
                   )}
+                  <div className="rt-tools">
+                    {item.taken && (
+                      <label className="rt-field">
+                        Time zone
+                        <select
+                          value={item.offsetMin ?? ""}
+                          onChange={(e) => setZone(item.id, Number(e.target.value))}
+                          title="The time zone the photo was taken in: the camera's clock time stays, its UTC time moves. Kept in the catalog and the sidecar; the photo is not changed."
+                          data-testid="rt-zone"
+                        >
+                          {item.offsetMin === null && <option value="">Not known</option>}
+                          {zoneChoices(item.offsetMin).map((m) => (
+                            <option key={m} value={m}>
+                              {offsetLabel(m)}
+                            </option>
+                          ))}
+                        </select>
+                        {item.zoneSet && <span className="muted">kept in the sidecar</span>}
+                      </label>
+                    )}
+                    {item.registration && (
+                      <span className="rt-field">
+                        Transponder code
+                        {drafts.has(item.id) || !item.code ? (
+                          <>
+                            <input
+                              value={drafts.get(item.id) ?? ""}
+                              onChange={(e) =>
+                                setDrafts((m) => new Map(m).set(item.id, e.target.value))
+                              }
+                              onKeyDown={(e) => e.key === "Enter" && applyCode(item)}
+                              placeholder="484F6E"
+                              size={8}
+                              maxLength={8}
+                              aria-label="Transponder code"
+                              data-testid="rt-code"
+                            />
+                            <button onClick={() => applyCode(item)} data-testid="rt-code-use">
+                              Use
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span data-testid="rt-code-shown">
+                              {item.code}
+                              {item.codeTyped ? " (typed)" : ""}
+                            </span>
+                            <button
+                              onClick={() =>
+                                setDrafts((m) => new Map(m).set(item.id, item.code ?? ""))
+                              }
+                              data-testid="rt-code-change"
+                            >
+                              Change
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
                   {line && (
                     <p className="rt-state" data-testid="rt-state">
                       {line}
