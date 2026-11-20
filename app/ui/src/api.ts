@@ -4,6 +4,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { FlightReportDto } from "./bindings/FlightReportDto";
+import type { RouteFillDto } from "./bindings/RouteFillDto";
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
@@ -276,6 +278,8 @@ export const api = {
   libraryReportCsv: (path: string) => invoke<string>("library_report_csv", { path }),
   aircraftReport: () => invoke<AircraftReport>("aircraft_report"),
   aircraftReportCsv: (path: string) => invoke<string>("aircraft_report_csv", { path }),
+  flightReport: () => invoke<FlightReportDto>("flight_report"),
+  flightReportCsv: (path: string) => invoke<string>("flight_report_csv", { path }),
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),
@@ -385,6 +389,11 @@ export const api = {
   fr24AircraftStart: () => invoke<boolean>("fr24_aircraft_start"),
   fr24AircraftStop: () => invoke<void>("fr24_aircraft_stop"),
   aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
+  /** Fill in route keywords (in the background): the photos asked about. */
+  aircraftRouteFill: (selection: Selection) =>
+    invoke<string[]>("aircraft_route_fill", { selection }),
+  aircraftRouteFillStatus: (ids: string[]) =>
+    invoke<RouteFillDto>("aircraft_route_fill_status", { ids }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>

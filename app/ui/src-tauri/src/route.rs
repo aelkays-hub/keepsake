@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
     CloudStarted, CloudStatusDto, Fr24AircraftDto, Fr24AircraftStatusDto, RouteChoiceDto,
-    RouteItemDto, RouteReviewDto, RouteStatusDto, Selection,
+    RouteFillDto, RouteFillItemDto, RouteItemDto, RouteReviewDto, RouteStatusDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -529,4 +529,68 @@ pub fn aircraft_route_accept(
     let open = state.open()?;
     let mut cat = open.writer()?;
     route::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
+}
+
+/// Fill in route keywords of the selected photos, in the background: from
+/// the route keywords each has, the missing ones. Returns the photos.
+#[tauri::command(async)]
+pub fn aircraft_route_fill(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection: Selection,
+) -> CmdResult<Vec<String>> {
+    let mut ids: Vec<AssetId> = Vec::new();
+    for id in crate::edit::resolve(&state, &selection)? {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    if ids.is_empty() {
+        return Err("Select the photos first.".into());
+    }
+    let open = state.open()?;
+    {
+        let mut cat = open.writer()?;
+        keepsake_core::ai::aircraft::complete::enqueue(&mut cat, &ids).map_err(err)?;
+    }
+    crate::render::start_service(&app)?;
+    Ok(ids.iter().map(ToString::to_string).collect())
+}
+
+/// Where Fill in route keywords stands for `ids`.
+#[tauri::command(async)]
+pub fn aircraft_route_fill_status(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> CmdResult<RouteFillDto> {
+    use keepsake_core::ai::aircraft::complete::{self, State as Fill};
+    let ids = convert::ids(&ids)?;
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let mut items = Vec::new();
+    let mut pending = 0;
+    for id in &ids {
+        let (name, _) = crate::aircraft::photo_of(&cat, &open.cache, *id)?;
+        let st = complete::state(&cat, *id).map_err(err)?;
+        let (state, added, message) = match st {
+            Fill::Waiting => {
+                pending += 1;
+                ("waiting", Vec::new(), None)
+            }
+            Fill::Done(now) => (
+                "done",
+                now.iter().map(TagPath::to_lightroom).collect(),
+                None,
+            ),
+            Fill::Nothing(why) => ("nothing", Vec::new(), Some(why)),
+        };
+        items.push(RouteFillItemDto {
+            id: id.to_string(),
+            name: name.unwrap_or_default(),
+            state: state.to_owned(),
+            added,
+            message,
+        });
+    }
+    Ok(RouteFillDto { pending, items })
 }

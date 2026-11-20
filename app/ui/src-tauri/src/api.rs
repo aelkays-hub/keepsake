@@ -1186,6 +1186,50 @@ dto! {
         pub children: Vec<AircraftReportGroup>,
     }
 
+    /// One photo of Fill in route keywords.
+    pub struct RouteFillItemDto {
+        pub id: String,
+        pub name: String,
+        /// `waiting`, `done` or `nothing`.
+        pub state: String,
+        /// The route keywords added (`Aircraft|To|YYZ`, …).
+        pub added: Vec<String>,
+        /// Why nothing was added.
+        pub message: Option<String>,
+    }
+
+    /// Fill in route keywords: each photo, and how many are left.
+    pub struct RouteFillDto {
+        pub pending: u32,
+        pub items: Vec<RouteFillItemDto>,
+    }
+
+    /// One flight of the flight report.
+    pub struct FlightReportRowDto {
+        pub date: Option<String>,
+        pub time: Option<String>,
+        pub flight: Option<String>,
+        pub from: Option<String>,
+        pub from_country: Option<String>,
+        pub to: Option<String>,
+        pub to_country: Option<String>,
+        pub airline: Option<String>,
+        pub registration: Option<String>,
+        pub aircraft_type: Option<String>,
+        pub photos: u32,
+        pub first_photo: Option<String>,
+        /// Its keywords that open its photos (`Aircraft|Registration|…`, …).
+        pub tags: Vec<String>,
+    }
+
+    /// Tools → Report → Flights.
+    pub struct FlightReportDto {
+        /// Newest first.
+        pub flights: Vec<FlightReportRowDto>,
+        /// Photos with a registration but no route keyword.
+        pub without_route: u32,
+    }
+
     /// Tools → Report → Aircraft.
     pub struct AircraftReport {
         pub totals: AircraftReportTotals,

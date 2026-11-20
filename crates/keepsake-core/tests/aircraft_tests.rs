@@ -2243,3 +2243,225 @@ fn at_opensky_s_limit_the_route_jobs_wait_until_it_allows_more_and_do_not_fail()
     let (st, _) = route::status(&w.cat, &ids).unwrap();
     assert_eq!((st.pending, st.failed), (2, 0));
 }
+
+/// adsbdb's callsign routes for Fill in route keywords, counting asks.
+struct FillRoutes(Mutex<Vec<String>>);
+
+impl lookup::Lookup for FillRoutes {
+    fn lookup(&self, _: &str) -> Result<lookup::Found, AiError> {
+        Ok(lookup::Found::default())
+    }
+    fn callsign_route(&self, cs: &str) -> Result<Option<(String, String)>, AiError> {
+        self.0.lock().unwrap().push(cs.to_owned());
+        Ok(match cs {
+            "AT210" => Some(("GMMN".into(), "CYYZ".into())),
+            _ => None,
+        })
+    }
+}
+
+fn tag(w: &mut World, id: AssetId, keywords: &[&str]) {
+    let mut all: Vec<TagPath> = MetadataService::new(&w.lib, &mut w.cat)
+        .user_tags(id)
+        .unwrap();
+    all.extend(
+        keywords
+            .iter()
+            .map(|k| TagPath::parse_lightroom(k).unwrap()),
+    );
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(id, &all)
+        .unwrap();
+}
+
+#[test]
+fn fill_in_route_keywords_adds_only_what_is_missing() {
+    use keepsake_core::ai::aircraft::complete::{self, Filled};
+    let (mut w, ids) = route_world(
+        &["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"],
+        &[PHOTO_S; 5],
+    );
+    let before = hashes(&w.media);
+    let airports = Airports::builtin();
+    let routes = FillRoutes(Mutex::new(Vec::new()));
+    // A flight number: its airports and their countries.
+    tag(&mut w, ids[0], &["Aircraft|Flight|AT210"]);
+    let (f, asked) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        Some(&routes),
+        ids[0],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    assert_eq!(asked, 1);
+    let added: Vec<String> = match f {
+        Filled::Added(v) => v.iter().map(TagPath::to_lightroom).collect(),
+        f => panic!("{f:?}"),
+    };
+    assert_eq!(
+        added,
+        [
+            "Aircraft|From|CMN",
+            "Aircraft|From country|Morocco",
+            "Aircraft|To|YYZ",
+            "Aircraft|To country|Canada"
+        ]
+    );
+    let kw = w.keywords(ids[0]);
+    assert!(kw.contains(&"Aircraft|Flight|AT210".to_owned()), "{kw:?}");
+    assert!(kw.contains(&"Aircraft|From|CMN".to_owned()), "{kw:?}");
+    assert!(sidecars(&w).contains("Aircraft|To country|Canada"));
+    // Again: nothing missing, nothing asked.
+    let (f, asked) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        Some(&routes),
+        ids[0],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    assert!(matches!(f, Filled::Nothing(_)), "{f:?}");
+    assert_eq!(asked, 0);
+
+    // A flight that does not fly what the photo says: nothing added.
+    tag(
+        &mut w,
+        ids[1],
+        &["Aircraft|Flight|AT210", "Aircraft|From|LHR"],
+    );
+    let (f, _) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        Some(&routes),
+        ids[1],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    match f {
+        Filled::Nothing(why) => assert!(why.contains("AT210 flies CMN → YYZ"), "{why}"),
+        f => panic!("{f:?}"),
+    }
+    assert!(!w.keywords(ids[1]).contains(&"Aircraft|To|YYZ".to_owned()));
+
+    // Only From: the flight from the aircraft's flights kept that day
+    // (ROU2000 left YYZ at 12:16, 15 min before the photo); and only the
+    // country added where the airport was typed as its ICAO code.
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    route::run_job(&mut w.cat, &sky, None, ids[2], Clock::AsRecorded).unwrap();
+    tag(&mut w, ids[2], &["Aircraft|From|YYZ"]);
+    let (f, asked) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        None,
+        ids[2],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    assert_eq!(asked, 0);
+    match f {
+        Filled::Added(v) => {
+            let v: Vec<String> = v.iter().map(TagPath::to_lightroom).collect();
+            assert_eq!(
+                v,
+                ["Aircraft|From country|Canada", "Aircraft|Flight|RV2000"]
+            );
+        }
+        f => panic!("{f:?}"),
+    }
+
+    // No route keyword: nothing.
+    let (f, _) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        None,
+        ids[3],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    assert!(matches!(f, Filled::Nothing(why) if why.contains("no route keyword")));
+    // A flight number without adsbdb: says to turn it on.
+    tag(&mut w, ids[4], &["Aircraft|Flight|AT210"]);
+    assert!(matches!(
+        complete::fill(&mut w.cat, &w.lib, &airports, None, ids[4], Clock::AsRecorded),
+        Err(AiError::Cloud { retry: false, message }) if message.contains("Look registrations up online")
+    ));
+    // The media is never touched.
+    assert_eq!(hashes(&w.media), before);
+
+    // The worker: queued, filled in the background, states for the window.
+    tag(&mut w, ids[3], &["Aircraft|Flight|AT210"]);
+    complete::enqueue(&mut w.cat, &ids[3..4]).unwrap();
+    assert_eq!(
+        complete::state(&w.cat, ids[3]).unwrap(),
+        complete::State::Waiting
+    );
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&AIR_CANADA, &seen))
+        .with_lookup(Arc::new(FillRoutes(Mutex::new(Vec::new()))))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    match complete::state(&w.cat, ids[3]).unwrap() {
+        complete::State::Done(now) => {
+            let now: Vec<String> = now.iter().map(TagPath::to_lightroom).collect();
+            assert!(now.contains(&"Aircraft|To|YYZ".to_owned()), "{now:?}");
+        }
+        s => panic!("{s:?}"),
+    }
+}
+
+#[test]
+fn the_flight_report_lists_each_flight_photographed_once() {
+    let (mut w, ids) = route_world(
+        &["a.jpg", "b.jpg", "c.jpg", "d.jpg"],
+        &[PHOTO_S + 60, PHOTO_S, PHOTO_S + 86_400, PHOTO_S],
+    );
+    let flight = [
+        "Aircraft|Flight|RV2000",
+        "Aircraft|From|YYZ",
+        "Aircraft|From country|Canada",
+        "Aircraft|Airline|Air Canada Rouge",
+        "Aircraft|Type|Airbus A321",
+    ];
+    // Two photos of one flight; the same aircraft the next day, another.
+    tag(&mut w, ids[0], &flight);
+    tag(&mut w, ids[1], &flight);
+    tag(&mut w, ids[2], &["Aircraft|To|YUL"]);
+    // ids[3]: a registration and no route.
+    let r = w.cat.read(|tx| tx.flight_report().flights()).unwrap();
+    assert_eq!(r.without_route, 1);
+    assert_eq!(r.flights.len(), 2);
+    // Newest first.
+    assert_eq!(r.flights[0].to.as_deref(), Some("YUL"));
+    let f = &r.flights[1];
+    assert_eq!(f.photos, 2);
+    assert_eq!(f.flight.as_deref(), Some("RV2000"));
+    assert_eq!(f.from.as_deref(), Some("YYZ"));
+    assert_eq!(f.from_country.as_deref(), Some("Canada"));
+    assert_eq!(f.airline.as_deref(), Some("Air Canada Rouge"));
+    assert_eq!(f.aircraft_type.as_deref(), Some("Airbus A321"));
+    assert_eq!(f.registration.as_deref(), Some("C-GBIJ"));
+    assert_eq!(f.first_photo.as_deref(), Some("b.jpg"));
+    assert_eq!(f.first_id, ids[1]);
+    // Written only where asked, with a byte-order mark.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("flights.csv");
+    keepsake_core::report::write_flights_csv(&r, &out).unwrap();
+    assert!(std::fs::read(&out).unwrap().starts_with(&[0xEF, 0xBB, 0xBF]));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    let csv = keepsake_core::report::flights_to_csv(&r);
+    let lines: Vec<&str> = csv.split("\r\n").collect();
+    assert_eq!(lines[0], keepsake_core::report::FLIGHT_CSV_HEADER);
+    assert!(
+        lines[2].contains(",RV2000,YYZ,Canada,,,Air Canada Rouge,C-GBIJ,Airbus A321,2,b.jpg"),
+        "{}",
+        lines[2]
+    );
+}

@@ -164,3 +164,65 @@ pub fn aircraft_report_csv(state: State<'_, AppState>, path: String) -> CmdResul
     report::write_aircraft_csv(&build_aircraft(&state)?, &out).map_err(err)?;
     Ok(crate::convert::path_text(&out))
 }
+
+fn build_flights(state: &AppState) -> CmdResult<keepsake_core::catalog::FlightReport> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    cat.read(|tx| tx.flight_report().flights()).map_err(err)
+}
+
+/// Tools → Report → Flights: every flight photographed (from the photos'
+/// route and aircraft keywords).
+#[tauri::command(async)]
+pub fn flight_report(state: State<'_, AppState>) -> CmdResult<crate::api::FlightReportDto> {
+    let r = build_flights(&state)?;
+    let n = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
+    Ok(crate::api::FlightReportDto {
+        without_route: n(r.without_route),
+        flights: r
+            .flights
+            .into_iter()
+            .map(|x| {
+                let tags = [
+                    ("Registration", &x.registration),
+                    ("Flight", &x.flight),
+                    ("From", &x.from),
+                    ("To", &x.to),
+                ]
+                .iter()
+                .filter_map(|(k, v)| v.as_ref().map(|v| format!("Aircraft|{k}|{v}")))
+                .collect();
+                crate::api::FlightReportRowDto {
+                    date: x.date,
+                    time: x.time,
+                    flight: x.flight,
+                    from: x.from,
+                    from_country: x.from_country,
+                    to: x.to,
+                    to_country: x.to_country,
+                    airline: x.airline,
+                    registration: x.registration,
+                    aircraft_type: x.aircraft_type,
+                    photos: n(x.photos),
+                    first_photo: x.first_photo,
+                    tags,
+                }
+            })
+            .collect(),
+    })
+}
+
+/// Write the flight report as CSV to `path` (from the save dialog).
+#[tauri::command(async)]
+pub fn flight_report_csv(state: State<'_, AppState>, path: String) -> CmdResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("choose where to save the report".into());
+    }
+    let mut out = PathBuf::from(path);
+    if out.extension().is_none() {
+        out.set_extension("csv");
+    }
+    report::write_flights_csv(&build_flights(&state)?, &out).map_err(err)?;
+    Ok(crate::convert::path_text(&out))
+}

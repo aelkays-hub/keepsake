@@ -36,6 +36,7 @@ pub use repo::{
     RegisterRow, RegisterSource, Renditions, Report, ReportRow, Search, SearchQuery, Sequences,
     Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
+pub use repo::{FlightReport, FlightReportRepo, FlightRow};
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
 /// Marker: read-only transaction.
@@ -80,6 +81,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(sequences, Sequences);
     repo_accessor!(report, Report);
     repo_accessor!(aircraft_report, AircraftReportRepo);
+    repo_accessor!(flight_report, FlightReportRepo);
     repo_accessor!(ai, Ai);
     repo_accessor!(faces, Faces);
 

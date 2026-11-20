@@ -134,6 +134,8 @@ export interface MockState {
     fr24Auto: boolean;
     /** National registers downloaded (`?registers=tc,faa`). */
     registers: Set<string>;
+    /** Fill in route keywords: how often each photo was looked at. */
+    fill: Map<string, number>;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -555,6 +557,7 @@ export function installMock(): void {
       lookedUp: 0,
       fr24Auto: true,
       registers: new Set((params.get("registers") ?? "").split(",").filter(Boolean)),
+      fill: new Map(),
       lookingUp: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
@@ -1224,6 +1227,86 @@ export function installMock(): void {
           return "C:\\Users\\me\\Documents\\Keepsake report.csv";
         case "aircraft_report":
           return mockAircraftReport();
+        case "flight_report":
+          return {
+            withoutRoute: 12,
+            flights: (
+              [
+                [
+                  "2026-06-27",
+                  "12:56",
+                  "BG305",
+                  "YYZ",
+                  "Canada",
+                  "DAC",
+                  "Bangladesh",
+                  "Biman Bangladesh",
+                  "S2-AJY",
+                  "Boeing 787-9",
+                  14,
+                ],
+                [
+                  "2026-06-07",
+                  "20:00",
+                  null,
+                  "CMN",
+                  "Morocco",
+                  "YYZ",
+                  "Canada",
+                  "Royal Air Maroc",
+                  "CN-RGY",
+                  "Boeing 787-9",
+                  6,
+                ],
+                [
+                  "2026-05-31",
+                  "08:31",
+                  "RV2000",
+                  "YYZ",
+                  "Canada",
+                  null,
+                  null,
+                  "Air Canada Rouge",
+                  "C-GBIJ",
+                  "Airbus A321",
+                  3,
+                ],
+              ] as const
+            ).map(
+              ([
+                date,
+                time,
+                flight,
+                from,
+                fromCountry,
+                to,
+                toCountry,
+                airline,
+                registration,
+                aircraftType,
+                photos,
+              ]) => ({
+                date,
+                time,
+                flight,
+                from,
+                fromCountry,
+                to,
+                toCountry,
+                airline,
+                registration,
+                aircraftType,
+                photos,
+                firstPhoto: "A7402789.ARW",
+                tags: [`Aircraft|Registration|${registration}`],
+              }),
+            ),
+          };
+        case "flight_report_csv": {
+          const path = String(a.path ?? "").trim();
+          if (!path) throw new Error("choose where to save the report");
+          return /\.[^\\/.]+$/.test(path) ? path : `${path}.csv`;
+        }
         case "aircraft_report_csv": {
           const path = String(a.path ?? "").trim();
           if (!path) throw new Error("choose where to save the report");
@@ -1863,6 +1946,48 @@ export function installMock(): void {
           if (!st.route.saved)
             throw "No OpenSky client ID and secret: add them in Settings → Read aircraft";
           return "OpenSky accepted the client ID and secret.";
+        case "aircraft_route_fill": {
+          const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+          for (const id of ids) st.route.fill.set(id, 0);
+          return ids;
+        }
+        case "aircraft_route_fill_status": {
+          // The first photo gets its airports; the others have no route
+          // keyword. Done on the second look.
+          const ids = (a.ids as string[]) ?? [];
+          let pending = 0;
+          const items = ids.map((id, i) => {
+            const n = (st.route.fill.get(id) ?? 0) + 1;
+            st.route.fill.set(id, n);
+            const name = `${id}.ARW`;
+            if (n < 2) {
+              pending += 1;
+              return { id, name, state: "waiting", added: [], message: null };
+            }
+            return i === 0
+              ? {
+                  id,
+                  name,
+                  state: "done",
+                  added: [
+                    "Aircraft|From|CMN",
+                    "Aircraft|From country|Morocco",
+                    "Aircraft|To|YYZ",
+                    "Aircraft|To country|Canada",
+                  ],
+                  message: null,
+                }
+              : {
+                  id,
+                  name,
+                  state: "nothing",
+                  added: [],
+                  message:
+                    "no route keyword: add Aircraft|Flight|… (AT210), Aircraft|From|… or Aircraft|To|… first",
+                };
+          });
+          return { pending, items };
+        }
         case "aircraft_route": {
           if (!st.route.enabled)
             throw "Turn on Find the route online in Settings → Read aircraft first.";

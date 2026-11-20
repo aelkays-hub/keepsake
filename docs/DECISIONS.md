@@ -1781,3 +1781,11 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 
 **Decision.** `Http::get_wait` returns the wait a response asks for; `OpenSky` keeps it and asks nothing before (`AiError::Later`, `route::limit_reached`: "OpenSky's limit is reached (it allows more at …); Add route goes on by itself then"; an hour when it does not say). The route worker defers the job and every queued route job until then (`JobsRepo::defer_kind`), attempts not counted, never failed; the window's `later` state says so.
 
+### ADR-044 addition — Fill in route keywords; the flight report (2026-11-20)
+
+**Context.** The owner asked for "an api call that takes either flight number and/or to and/or from and return the missing information as tags to the photo", and "a flight report that lists all the flights that we have captured, from, to, airline, date". adsbdb's callsign routes (already used, ADR-044 addition above) take a flight number (`AT210`) or a callsign (`RAM210`) and give its usual airports; no open source gives a flight number from a pair of airports.
+
+**Decision.**
+- Right-click photos → **Fill in route keywords** (`ai::aircraft::complete`, job `ai.route.fill`, on the job queue). From the photo's route keywords: a flight number gives its airports (adsbdb; needs Look registrations up online); From and/or To without a flight number give it from the aircraft's flights kept that day (OpenSky or Flightradar24, nothing asked; the one fitting, nearest the photo within three hours, unless two are as near); every airport gives its country (the airport list). Only kinds the photo lacks are added, as the user's keywords (catalog and sidecar); nothing it has is changed; a flight whose route contradicts the photo's From or To adds nothing and says so. A window shows what each photo got, or why not.
+- Tools → Report → **Flights** (`FlightReportRepo`): one row per flight photographed (the photos of one camera day with the same registration, flight number, from and to), newest first: date and time, flight, from and to with countries, airline, registration, type, photos; find, sort, open its photos, Export to CSV (`report::flights_to_csv`). Photos with a registration but no route are counted beside it. Read-only.
+

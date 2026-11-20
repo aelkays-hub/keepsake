@@ -785,3 +785,23 @@ test("Flightradar24: new registrations only, and on their own when tagged", asyn
   expect(await calls(page, "fr24_set_auto")).toEqual([{ on: false }]);
   await expect(box.getByTestId("fr24-auto")).not.toBeChecked();
 });
+
+test("Fill in route keywords: what each photo got, and why not", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on");
+  const tiles = page.getByTestId("tile");
+  await tiles.nth(0).click();
+  await tiles.nth(1).click({ modifiers: ["Shift"] });
+  await tiles.nth(0).click({ button: "right" });
+  await page.getByTestId("tile-menu-route-fill").click();
+  const win = page.getByTestId("route-fill-window");
+  await expect(win).toContainText("What a photo has is never changed.");
+  expect(await calls(page, "aircraft_route_fill")).toHaveLength(1);
+  await expect(win.getByTestId("rf-progress")).toHaveText("Done: 1 of 2 photos got keywords.");
+  const items = win.getByTestId("rf-item");
+  await expect(items.nth(0).getByTestId("rf-added")).toHaveText(
+    "Added: From CMNFrom country MoroccoTo YYZTo country Canada",
+  );
+  await expect(items.nth(1).getByTestId("rf-message")).toContainText("no route keyword");
+  await win.getByTestId("rf-close").click();
+  await expect(win).toBeHidden();
+});

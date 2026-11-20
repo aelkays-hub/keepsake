@@ -472,6 +472,10 @@ impl RenderService {
                         .is_some()
                         .then_some(crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT),
                 )
+                .chain(
+                    (self.opts.aircraft || self.lookup.is_some() || self.flights.is_some())
+                        .then_some(crate::ai::aircraft::complete::JOB_AI_ROUTE_FILL),
+                )
                 // One worker sends the photos of every provider.
                 .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
@@ -591,6 +595,9 @@ impl RenderService {
         }
         if kind == crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT {
             return self.fr24_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::ai::aircraft::complete::JOB_AI_ROUTE_FILL {
+            return self.route_fill_worker(&mut cat, cancel, tx, shared);
         }
         // The cloud worker sends the photos of every provider: tagging and
         // edit suggestions.
@@ -1179,6 +1186,97 @@ impl RenderService {
                     let e = Self::ai_error(cat, &job, e)?;
                     self.settle_err(cat, cancel, tx, shared, fr24::JOB_FR24_AIRCRAFT, &job, e)?;
                     Self::sleep(cancel, Duration::from_secs(5));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Fill in route keywords: one photo at a time, waiting
+    /// [`crate::ai::aircraft::lookup::MIN_GAP`] after asking adsbdb.
+    fn route_fill_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::ai::aircraft::{complete, lookup as lk, route};
+        let airports = route::Airports::builtin();
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed =
+                match cat.write(|t| t.jobs().claim(&[complete::JOB_AI_ROUTE_FILL], now_ms())) {
+                    Err(e) if e.is_busy() => {
+                        Self::sleep(cancel, BUSY_RETRY);
+                        continue;
+                    }
+                    r => r?,
+                };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            let result = complete::fill(
+                cat,
+                &self.lib,
+                &airports,
+                self.lookup.as_deref(),
+                job.asset_id,
+                self.route_clock,
+            );
+            match result {
+                Ok((complete::Filled::Added(_), asked)) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                    if asked > 0 {
+                        Self::sleep(cancel, lk::MIN_GAP);
+                    }
+                }
+                Ok((complete::Filled::Nothing(why), asked)) => {
+                    let e = RenderError::Refused(why);
+                    self.settle_err(
+                        cat,
+                        cancel,
+                        tx,
+                        shared,
+                        complete::JOB_AI_ROUTE_FILL,
+                        &job,
+                        e,
+                    )?;
+                    if asked > 0 {
+                        Self::sleep(cancel, lk::MIN_GAP);
+                    }
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(
+                        cat,
+                        cancel,
+                        tx,
+                        shared,
+                        complete::JOB_AI_ROUTE_FILL,
+                        &job,
+                        e,
+                    )?;
+                    Self::sleep(cancel, lk::MIN_GAP);
                 }
             }
         }

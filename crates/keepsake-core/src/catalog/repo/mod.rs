@@ -8,6 +8,7 @@ mod browse;
 mod events;
 mod faces;
 mod files;
+mod flight_report;
 mod imports;
 mod jobs;
 mod labels;
@@ -38,6 +39,7 @@ pub use faces::{
     RESTORED_MODEL, SAME_FACE_IOU,
 };
 pub use files::Files;
+pub use flight_report::{FlightReport, FlightReportRepo, FlightRow};
 pub use imports::Imports;
 pub use jobs::{Job, JobCounts, JobState, Jobs, NewJob, Priority};
 pub use labels::Labels;

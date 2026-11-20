@@ -816,6 +816,20 @@ impl Airports {
         self.by_icao.get(&icao.trim().to_ascii_uppercase())
     }
 
+    /// The ICAO code of an airport as a keyword names it: its IATA code
+    /// (`YYZ`) or its ICAO code (`CYYZ`); `None` when not in the list.
+    pub fn icao_of(&self, code: &str) -> Option<String> {
+        let c = code.trim().to_ascii_uppercase();
+        if self.by_icao.contains_key(&c) {
+            return Some(c);
+        }
+        self.by_icao
+            .values()
+            .filter(|a| a.iata.eq_ignore_ascii_case(&c))
+            .map(|a| a.icao.clone())
+            .min()
+    }
+
     /// The code to show (IATA, else the ICAO code kept) and the country,
     /// when known.
     pub fn place(&self, icao: &str) -> (String, Option<String>) {
@@ -1312,6 +1326,31 @@ pub fn icao24_of(cat: &Catalog, registration: &str) -> Result<Option<String>, Ai
         },
     };
     Ok(code.map(|m| m.to_ascii_lowercase()))
+}
+
+/// The flights of `registration`'s aircraft kept for the days around
+/// `photo_s` (OpenSky's by its transponder code, and Flightradar24's while
+/// kept); nothing is asked.
+pub fn kept_around(
+    cat: &Catalog,
+    registration: &str,
+    photo_s: i64,
+) -> Result<Vec<Flight>, AiError> {
+    let mut keys = vec![reg_key(registration)];
+    if let Some(i) = icao24_of(cat, registration)? {
+        keys.push(Key::Icao(i));
+    }
+    let mut all: Vec<Flight> = Vec::new();
+    for key in &keys {
+        for (day, _) in days_for(photo_s) {
+            for f in kept_at_key(cat, key, &day)?.unwrap_or_default() {
+                if !all.contains(&f) {
+                    all.push(f);
+                }
+            }
+        }
+    }
+    Ok(all)
 }
 
 /// The kept flights of `icao24` on `day`; `None` when not asked yet.
