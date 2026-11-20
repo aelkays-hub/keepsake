@@ -33,6 +33,7 @@ const choice = (p: Partial<RouteChoiceDto>): RouteChoiceDto => ({
   gapMin: 15,
   keywords: ["Aircraft|From|YYZ", "Aircraft|To|LHR", "Aircraft|Flight|AC856"],
   inferred: false,
+  byCallsign: false,
   ...p,
 });
 
@@ -82,6 +83,46 @@ describe("Add route", () => {
     expect(flightLine(c)).toBe("Flight not seen (worked out from the flights before and after)");
     expect(whenLine(c)).toBe(
       "Between landing at YYZ (21:22 UTC) and next taking off from WAW (10:52 UTC, next day)",
+    );
+  });
+
+  it("says the flight in or out the source did not see, and an end from the callsign", () => {
+    // A7402578.ARW: CN-RGY landed at YYZ from Casablanca; OpenSky saw only
+    // its take-off for CMN at 02:30 UTC.
+    const inbound = choice({
+      inferred: true,
+      at: "inbound",
+      from: "CMN",
+      to: "YYZ",
+      flight: null,
+      callsign: null,
+      departed: "2026-06-08T02:30:06Z",
+      arrived: "2026-06-08T02:30:06Z",
+      gapMin: 0,
+    });
+    expect(flightLine(inbound)).toBe("Flight in not seen (worked out from the next take-off)");
+    expect(whenLine(inbound)).toBe(
+      "Landed at YYZ before the photo; next took off from there at 02:30 UTC for CMN, so most likely came from there",
+    );
+    expect(whenLine({ ...inbound, from: null })).toBe(
+      "Landed at YYZ before the photo; next took off from there at 02:30 UTC",
+    );
+    const outbound = choice({
+      inferred: true,
+      at: "outbound",
+      from: "YYZ",
+      to: "CMN",
+      flight: null,
+      callsign: null,
+      departed: "2026-06-07T22:10:00Z",
+      arrived: "2026-06-07T22:10:00Z",
+    });
+    expect(flightLine(outbound)).toBe("Flight out not seen (worked out from the landing before)");
+    expect(whenLine(outbound)).toBe(
+      "Took off from YYZ after the photo, having landed there at 22:10 UTC; it came from CMN, so most likely went back there",
+    );
+    expect(flightLine(choice({ byCallsign: true }))).toBe(
+      "Flight AC856 (callsign ACA856), where the source lost it from the callsign's usual route",
     );
   });
 

@@ -396,7 +396,11 @@ fn choice_dto(c: &Choice, airports: &Airports) -> CmdResult<RouteChoiceDto> {
         departed: iso(c.flight.first_seen),
         arrived: iso(c.flight.last_seen),
         at: if c.flight.inferred {
-            "between"
+            match c.flight.half {
+                None => "between",
+                Some(At::Arrival) => "inbound",
+                Some(At::Departure) => "outbound",
+            }
         } else {
             match c.at {
                 At::Departure => "departure",
@@ -405,6 +409,7 @@ fn choice_dto(c: &Choice, airports: &Airports) -> CmdResult<RouteChoiceDto> {
         }
         .to_owned(),
         inferred: c.flight.inferred,
+        by_callsign: c.flight.by_callsign,
         gap_min: u32::try_from(c.gap_s / 60).unwrap_or(u32::MAX),
         keywords: route::keywords(&c.flight, airports)
             .map_err(err)?

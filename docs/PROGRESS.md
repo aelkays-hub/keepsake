@@ -69,6 +69,15 @@
 
 
 
+
+## Add route: the flight in or out not seen; ends from the callsign (2026-11-20)
+
+- **Asked:** A7402578.ARW is CN-RGY landing at Toronto from Casablanca; Add route offered the opposite (its next take-off) and no missing leg.
+- **Cause:** OpenSky saw only RAM211B leave YYZ at 02:30 UTC (150 min after the photo), not where it went; nothing before the photo, so `missing_leg` (between a landing and a take-off) had nothing to work from.
+- **Built:** `route::missing_end` (the flight in before the first take-off seen, the flight out after the last landing; 40 min to 6 h), offered first beside the flight seen; `route::fill_ends` with `Lookup::callsign_route` (adsbdb's callsign routes, `lookup::parse_callsign_route`) fills the end OpenSky did not see; `Flight.half`, `by_callsign`, `route_asked`. Window: `at` `inbound`/`outbound`, `byCallsign`.
+- **Tests, run here (Windows):** route unit tests (+2), lookup (+1), `aircraft_tests` (+1, the CN-RGY day), app, Vitest (100), mocked Playwright aircraft (25); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; adsbdb from the app (its answer checked with curl: RAM211B → CYYZ–GMMN).
+
 ## National aircraft registers; Flightradar24 for new registrations (2026-11-20)
 
 - **Asked:** download Transport Canada's and the FAA's aircraft registers with on-demand updates, in the schema, used to identify and tag aircraft; Flightradar24 on demand for registrations not processed, and called when a photo is tagged with a new registration. Approved: the `zip` crate, the new tables, downloading both files once to read their layout.

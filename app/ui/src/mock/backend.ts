@@ -1909,6 +1909,7 @@ export function installMock(): void {
             at,
             gapMin,
             inferred: false,
+            byCallsign: false,
             keywords: [
               ...(from ? [`Aircraft|From|${from[0]}`, `Aircraft|From country|${from[2]}`] : []),
               ...(to ? [`Aircraft|To|${to[0]}`, `Aircraft|To country|${to[2]}`] : []),

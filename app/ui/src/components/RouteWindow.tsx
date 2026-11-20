@@ -339,9 +339,11 @@ export function RouteWindow() {
                   {item.state === "several" && (
                     <fieldset className="rt-several" data-testid="rt-several">
                       <legend>
-                        {item.choices.some((ch) => ch.inferred)
+                        {item.choices.some((ch) => ch.at === "between")
                           ? "The source missed a flight between these: which is it?"
-                          : "Two flights are as near the photo's time: which is it?"}
+                          : item.choices.some((ch) => ch.inferred)
+                            ? "The source did not see the flight in or out: which is it?"
+                            : "Two flights are as near the photo's time: which is it?"}
                       </legend>
                       {item.choices.map((ch, i) => (
                         <label key={i} className="check">

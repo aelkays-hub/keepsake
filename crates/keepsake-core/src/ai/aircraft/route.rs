@@ -140,7 +140,7 @@ pub fn airline_of_code(icao: &str) -> Option<&'static str> {
 }
 
 /// One flight, as OpenSky saw it (times in Unix seconds).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flight {
     pub first_seen: i64,
     pub last_seen: i64,
@@ -158,6 +158,21 @@ pub struct Flight {
     /// take-off). Never kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub inferred: bool,
+    /// A worked-out flight of which one end only was seen
+    /// ([`missing_end`]): `Arrival`, the flight in (it landed at `arrival`
+    /// before the photo and was next seen taking off from there at
+    /// `last_seen`); `Departure`, the flight out (it landed at `departure`
+    /// at `first_seen`, and its take-off after the photo was not seen).
+    /// `None`: between two airports ([`missing_leg`]). Never kept.
+    #[serde(skip)]
+    pub half: Option<At>,
+    /// An end the source did not see was filled in from where the
+    /// callsign usually flies ([`fill_ends`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_callsign: bool,
+    /// The callsign's usual route was asked for ([`fill_ends`]): not again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub route_asked: bool,
 }
 
 impl Flight {
@@ -335,7 +350,7 @@ pub fn parse_flights(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
                 arrival: text(f, "estArrivalAirport").map(|s| s.to_ascii_uppercase()),
                 callsign: text(f, "callsign"),
                 number: None,
-                inferred: false,
+                ..Flight::default()
             })
         })
         .collect())
@@ -519,7 +534,7 @@ pub fn parse_fr24(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
                 .map(|s| s.to_ascii_uppercase()),
                 callsign: text(f, &["callsign"]),
                 number: text(f, &["flight"]).map(|s| s.to_ascii_uppercase()),
-                inferred: false,
+                ..Flight::default()
             })
         })
         .collect())
@@ -857,11 +872,115 @@ pub fn missing_leg(photo_s: i64, flights: &[Flight], airports: &Airports) -> Opt
                 last_seen: b.first_seen,
                 departure: Some(landed.to_owned()),
                 arrival: Some(left.to_owned()),
-                callsign: None,
-                number: None,
                 inferred: true,
+                ..Flight::default()
             })
     })
+}
+
+/// Least time an aircraft is on the ground between landing and taking
+/// off again, for [`missing_end`].
+const TURN_S: i64 = 40 * 60;
+/// Farthest from the photo the take-off or landing seen may be, for
+/// [`missing_end`].
+const END_S: i64 = 6 * 3600;
+
+/// The flight in or out the source did not see, when the photo falls
+/// before everything it saw or after it: CN-RGY was seen only taking off
+/// from YYZ for CMN at 02:30 UTC, the photo taken 2½ hours before as it
+/// landed from Casablanca, over the Atlantic and out of OpenSky's reach.
+/// The flight in: nothing seen before the photo, and the first take-off
+/// seen at least [`TURN_S`] (and at most [`END_S`]) after it; it landed
+/// where that take-off left from, most likely from where that went (an
+/// aircraft flies out and back). The flight out the same way round: nothing
+/// seen after the photo, the last landing seen [`TURN_S`] to [`END_S`]
+/// before it; most likely back to where that came from.
+pub fn missing_end(photo_s: i64, flights: &[Flight]) -> Option<Flight> {
+    let seen: Vec<&Flight> = flights.iter().filter(|f| !f.inferred).collect();
+    let before = seen.iter().any(|f| f.first_seen <= photo_s);
+    let after = seen.iter().any(|f| f.last_seen >= photo_s);
+    let near = |gap: i64| (TURN_S..=END_S).contains(&gap);
+    if !before {
+        let next = seen.iter().min_by_key(|f| f.first_seen)?;
+        let at = next.departure.clone()?;
+        return near(next.first_seen - photo_s).then(|| Flight {
+            first_seen: next.first_seen,
+            last_seen: next.first_seen,
+            departure: next.arrival.clone().filter(|a| *a != at),
+            arrival: Some(at),
+            inferred: true,
+            half: Some(At::Arrival),
+            ..Flight::default()
+        });
+    }
+    if !after {
+        let last = seen.iter().max_by_key(|f| f.last_seen)?;
+        let at = last.arrival.clone()?;
+        return near(photo_s - last.last_seen).then(|| Flight {
+            first_seen: last.last_seen,
+            last_seen: last.last_seen,
+            arrival: last.departure.clone().filter(|d| *d != at),
+            departure: Some(at),
+            inferred: true,
+            half: Some(At::Departure),
+            ..Flight::default()
+        });
+    }
+    None
+}
+
+/// Fill in the end of each flight the source did not see from where its
+/// callsign usually flies (adsbdb's flight routes, by [`Lookup`]): OpenSky
+/// saw RAM211B leave YYZ but not where it went (over the Atlantic); RAM211
+/// flies YYZ → CMN. Only when the end seen is the route's (a callsign
+/// flown elsewhere that day says nothing). Each callsign is asked once
+/// (`routes` keeps the answers for the job); a flight is not asked about
+/// again (`route_asked`). A route that could not be asked is left for next
+/// time. Returns the requests sent and whether a flight changed.
+pub fn fill_ends(
+    flights: &mut [Flight],
+    lookup: &dyn Lookup,
+    routes: &mut HashMap<String, Option<(String, String)>>,
+) -> (u32, bool) {
+    let mut requests = 0;
+    let mut changed = false;
+    for f in flights.iter_mut() {
+        if f.inferred || f.route_asked || f.departure.is_some() == f.arrival.is_some() {
+            continue;
+        }
+        let Some(cs) = f.callsign.clone().filter(|c| !c.trim().is_empty()) else {
+            continue;
+        };
+        let route = match routes.get(&cs) {
+            Some(r) => r.clone(),
+            None => {
+                requests += 1;
+                match lookup.callsign_route(&cs) {
+                    Ok(r) => {
+                        routes.insert(cs.clone(), r.clone());
+                        r
+                    }
+                    Err(e) => {
+                        tracing::warn!(callsign = %cs, error = %e, "callsign route not asked");
+                        continue;
+                    }
+                }
+            }
+        };
+        f.route_asked = true;
+        changed = true;
+        let Some((from, to)) = route else {
+            continue;
+        };
+        if f.departure.as_deref() == Some(from.as_str()) && f.arrival.is_none() && to != from {
+            f.arrival = Some(to);
+            f.by_callsign = true;
+        } else if f.arrival.as_deref() == Some(to.as_str()) && f.departure.is_none() && to != from {
+            f.departure = Some(from);
+            f.by_callsign = true;
+        }
+    }
+    (requests, changed)
 }
 
 /// The flight the photo (taken at `photo_s`, Unix seconds, at `gps`)
@@ -871,7 +990,9 @@ pub fn missing_leg(photo_s: i64, flights: &[Flight], airports: &Airports) -> Opt
 /// the one whose airport is nearest; otherwise all are offered. When the
 /// photo falls between a landing and a take-off from another airport, the
 /// flight between them the source did not see ([`missing_leg`]) is offered
-/// too, beside the flights near: the user chooses. Never a silent guess.
+/// too, beside the flights near; so is the flight in or out it did not see
+/// when the photo is before or after all it saw ([`missing_end`]): the
+/// user chooses. Never a silent guess.
 pub fn pick(
     photo_s: i64,
     gps: Option<(f64, f64)>,
@@ -900,13 +1021,16 @@ pub fn pick(
             })
         })
         .collect();
-    if let Some(leg) = missing_leg(photo_s, flights, airports) {
+    let leg = missing_leg(photo_s, flights, airports).or_else(|| missing_end(photo_s, flights));
+    if let Some(leg) = leg {
         near.push(Choice {
+            at: leg.half.unwrap_or(At::Departure),
             flight: leg,
-            at: At::Departure,
             gap_s: 0,
         });
-        near.sort_by_key(|c| c.flight.first_seen);
+        // In time order; the flight in before the take-off it was seen
+        // making next.
+        near.sort_by_key(|c| (c.flight.first_seen, !c.flight.inferred));
         return if near.len() == 1 {
             Pick::One(near.swap_remove(0))
         } else {
@@ -1176,7 +1300,8 @@ pub struct Asked {
 /// One `ai.route` job: make sure the flights of `asset`'s aircraft on the
 /// days around it are kept, asking OpenSky for those not kept yet (and
 /// the registration's transponder code first, if unknown and `lookup` is
-/// given). Choosing the flight is left to the window ([`review`]).
+/// given; with `lookup`, the ends OpenSky did not see are filled in from
+/// the callsigns' routes, [`fill_ends`]). Choosing the flight is left to the window ([`review`]).
 pub fn run_job(
     cat: &mut Catalog,
     flights: &dyn Flights,
@@ -1234,13 +1359,25 @@ pub fn run_job(
         ));
     };
     let key = Key::Icao(icao);
+    let mut routes = HashMap::new();
     for (day, start) in days_for(t) {
-        if kept_at_key(cat, &key, &day)?.is_some() {
-            continue;
+        let (mut found, mut changed) = match kept_at_key(cat, &key, &day)? {
+            Some(v) => (v, false),
+            None => {
+                let v = flights.flights(key.id(), start, start + DAY_S - 1)?;
+                asked.requests += 1;
+                (v, true)
+            }
+        };
+        // The ends OpenSky did not see, from the callsigns' routes.
+        if let Some(l) = lookup {
+            let (n, c) = fill_ends(&mut found, l, &mut routes);
+            asked.requests += n;
+            changed |= c;
         }
-        let found = flights.flights(key.id(), start, start + DAY_S - 1)?;
-        asked.requests += 1;
-        keep_at_key(cat, &key, &day, &found)?;
+        if changed {
+            keep_at_key(cat, &key, &day, &found)?;
+        }
     }
     Ok(asked)
 }
@@ -1418,8 +1555,7 @@ mod tests {
             departure: dep.map(str::to_owned),
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
-            number: None,
-            inferred: false,
+            ..Flight::default()
         }
     }
 
@@ -1579,6 +1715,157 @@ mod tests {
         )
         .unwrap();
         assert!(!old.inferred);
+    }
+
+    #[test]
+    fn the_flight_in_or_out_the_source_did_not_see_is_worked_out_and_offered() {
+        let a = airports();
+        // A7402578.ARW, CN-RGY: the photo at 00:00 UTC as it landed from
+        // Casablanca; OpenSky saw only RAM211B leave YYZ for CMN at 02:30.
+        let fl = [f(
+            2 * H + 1800,
+            9 * H,
+            Some("CYYZ"),
+            Some("GMMN"),
+            "RAM211B",
+        )];
+        let photo = 0;
+        let leg = missing_end(photo, &fl).unwrap();
+        assert!(leg.inferred);
+        assert_eq!(leg.half, Some(At::Arrival));
+        assert_eq!(leg.departure.as_deref(), Some("GMMN"));
+        assert_eq!(leg.arrival.as_deref(), Some("CYYZ"));
+        assert_eq!(
+            (leg.first_seen, leg.last_seen),
+            (fl[0].first_seen, fl[0].first_seen)
+        );
+        let k: Vec<String> = keywords(&leg, &a)
+            .unwrap()
+            .iter()
+            .map(TagPath::to_lightroom)
+            .collect();
+        assert_eq!(
+            k,
+            [
+                "Aircraft|From|CMN",
+                "Aircraft|From country|Morocco",
+                "Aircraft|To|YYZ",
+                "Aircraft|To country|Canada"
+            ]
+        );
+        // Offered first, beside the take-off 150 min after: the user chooses.
+        match pick(photo, None, &fl, &a) {
+            Pick::Several(v) => {
+                assert_eq!(v.len(), 2);
+                assert!(v[0].flight.inferred);
+                assert_eq!(v[0].at, At::Arrival);
+                assert_eq!(v[1].flight.callsign.as_deref(), Some("RAM211B"));
+            }
+            p => panic!("{p:?}"),
+        }
+        // Where the take-off went not known: from where, not known.
+        let unknown = [f(2 * H + 1800, 9 * H, Some("CYYZ"), None, "RAM211B")];
+        let leg = missing_end(photo, &unknown).unwrap();
+        assert_eq!(leg.departure, None);
+        assert_eq!(leg.arrival.as_deref(), Some("CYYZ"));
+        // Too soon before the take-off (taxiing out): only the take-off.
+        assert_eq!(missing_end(2 * H, &fl), None);
+        match pick(2 * H, None, &fl, &a) {
+            Pick::One(c) => assert_eq!(c.flight.callsign.as_deref(), Some("RAM211B")),
+            p => panic!("{p:?}"),
+        }
+        // Too long before it: nothing.
+        assert_eq!(missing_end(-5 * H, &fl), None);
+        // Something seen before the photo: not the flight in.
+        let both = [
+            f(-9 * H, -H, Some("GMMN"), Some("CYYZ"), "RAM210"),
+            fl[0].clone(),
+        ];
+        assert_eq!(missing_end(photo, &both), None);
+
+        // The flight out, the same way round: landed at YYZ from CMN at
+        // 22:00, the photo at 00:30, nothing seen after.
+        let fl = [f(-10 * H, -2 * H, Some("GMMN"), Some("CYYZ"), "RAM210")];
+        let leg = missing_end(H / 2, &fl).unwrap();
+        assert_eq!(leg.half, Some(At::Departure));
+        assert_eq!(leg.departure.as_deref(), Some("CYYZ"));
+        assert_eq!(leg.arrival.as_deref(), Some("GMMN"));
+        assert_eq!((leg.first_seen, leg.last_seen), (-2 * H, -2 * H));
+        match pick(H / 2, None, &fl, &a) {
+            Pick::Several(v) => {
+                assert_eq!(v[0].flight.callsign.as_deref(), Some("RAM210"));
+                assert_eq!(v[1].at, At::Departure);
+                assert!(v[1].flight.inferred);
+            }
+            p => panic!("{p:?}"),
+        }
+        // Back where it came from: not said.
+        let round = [f(-10 * H, -2 * H, Some("CYYZ"), Some("CYYZ"), "ACA1")];
+        assert_eq!(missing_end(H / 2, &round).unwrap().arrival, None);
+    }
+
+    /// Callsign routes as adsbdb gives them, counting what is asked.
+    struct Routes(Mutex<Vec<String>>);
+
+    impl Lookup for Routes {
+        fn lookup(&self, _: &str) -> Result<lookup::Found, AiError> {
+            Ok(lookup::Found::default())
+        }
+        fn callsign_route(&self, cs: &str) -> Result<Option<(String, String)>, AiError> {
+            self.0.lock().unwrap().push(cs.to_owned());
+            match cs {
+                "RAM211B" => Ok(Some(("CYYZ".into(), "GMMN".into()))),
+                "RAM210" => Ok(Some(("GMMN".into(), "CYYZ".into()))),
+                "DOWN1" => Err(AiError::Cloud {
+                    message: "could not reach adsbdb".into(),
+                    retry: true,
+                }),
+                _ => Ok(None),
+            }
+        }
+    }
+
+    #[test]
+    fn the_end_the_source_did_not_see_is_filled_from_the_callsign_route() {
+        let routes = Routes(Mutex::new(Vec::new()));
+        let mut fl = vec![
+            // Left YYZ, not seen landing: CMN, from the route.
+            f(10 * H, 12 * H, Some("CYYZ"), None, "RAM211B"),
+            // Seen landing at YYZ, not leaving: CMN.
+            f(H, 9 * H, None, Some("CYYZ"), "RAM210"),
+            // Flown from elsewhere that day: the route says nothing.
+            f(20 * H, 21 * H, Some("KJFK"), None, "RAM211B"),
+            // Both ends seen: not asked.
+            f(30 * H, 31 * H, Some("CYYZ"), Some("CYUL"), "ACA412"),
+            // Not known to adsbdb: asked, left.
+            f(40 * H, 41 * H, Some("CYYZ"), None, "XYZ1"),
+            // adsbdb not reached: left for next time.
+            f(50 * H, 51 * H, Some("CYYZ"), None, "DOWN1"),
+        ];
+        let mut cache = HashMap::new();
+        let (n, changed) = fill_ends(&mut fl, &routes, &mut cache);
+        assert!(changed);
+        // RAM211B once for both flights.
+        assert_eq!(n, 4);
+        assert_eq!(
+            *routes.0.lock().unwrap(),
+            ["RAM211B", "RAM210", "XYZ1", "DOWN1"]
+        );
+        assert_eq!(fl[0].arrival.as_deref(), Some("GMMN"));
+        assert!(fl[0].by_callsign && fl[0].route_asked);
+        assert_eq!(fl[1].departure.as_deref(), Some("GMMN"));
+        assert!(fl[1].by_callsign);
+        assert_eq!(fl[2].arrival, None);
+        assert!(!fl[2].by_callsign && fl[2].route_asked);
+        assert!(!fl[3].route_asked);
+        assert!(fl[4].route_asked && fl[4].arrival.is_none());
+        assert!(!fl[5].route_asked);
+        // Kept and read back; asked again: only the one not reached.
+        let json = serde_json::to_string(&fl).unwrap();
+        let mut back: Vec<Flight> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, fl);
+        let (n, _) = fill_ends(&mut back, &routes, &mut HashMap::new());
+        assert_eq!(n, 1);
     }
 
     #[test]

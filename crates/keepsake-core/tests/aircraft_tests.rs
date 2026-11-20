@@ -1211,8 +1211,7 @@ impl route::Flights for FakeSky {
             departure: dep.map(str::to_owned),
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
-            number: None,
-            inferred: false,
+            ..Flight::default()
         };
         // ROU2000 left Toronto at 12:16 UTC; ROU1917 landed there at 10:43.
         Ok(vec![
@@ -1694,7 +1693,7 @@ impl route::Flights for FakeFr24 {
             arrival: Some("EHAM".into()),
             callsign: Some("KLM692".into()),
             number: Some("KL692".into()),
-            inferred: false,
+            ..Flight::default()
         }])
     }
     fn source(&self) -> Source {
@@ -2119,4 +2118,90 @@ fn a_national_register_gives_build_year_code_type_and_airline_and_puts_misreads_
     register::remove(&mut w.cat, Register::Tc).unwrap();
     assert_eq!(register::get(&w.cat, "C-FJZS").unwrap(), None);
     assert!(register::sources(&w.cat).unwrap().is_empty());
+}
+
+/// OpenSky as it saw CN-RGY on 2026-06-08: only RAM211B leaving Toronto at
+/// 02:30 UTC, not where it went.
+struct RgySky;
+
+impl route::Flights for RgySky {
+    fn flights(&self, _: &str, begin: i64, _: i64) -> Result<Vec<Flight>, AiError> {
+        Ok(if begin == 1_780_876_800 {
+            vec![Flight {
+                first_seen: 1_780_885_806,
+                last_seen: 1_780_909_269,
+                departure: Some("CYYZ".into()),
+                callsign: Some("RAM211B".into()),
+                ..Flight::default()
+            }]
+        } else {
+            Vec::new()
+        })
+    }
+}
+
+/// adsbdb's callsign routes, counting what is asked.
+struct RgyRoutes(Mutex<u32>);
+
+impl lookup::Lookup for RgyRoutes {
+    fn lookup(&self, _: &str) -> Result<lookup::Found, AiError> {
+        Ok(lookup::Found::default())
+    }
+    fn callsign_route(&self, cs: &str) -> Result<Option<(String, String)>, AiError> {
+        *self.0.lock().unwrap() += 1;
+        Ok((cs == "RAM211B").then(|| ("CYYZ".into(), "GMMN".into())))
+    }
+}
+
+#[test]
+fn a_flight_in_from_over_the_ocean_is_offered_from_the_next_take_off_and_its_callsign() {
+    // A7402578.ARW: 2026-06-08 00:00:43 UTC, CN-RGY landing at Toronto
+    // from Casablanca.
+    let (mut w, ids) = route_world(&["a.jpg"], &[1_780_876_843]);
+    let sky = RgySky;
+    let routes = RgyRoutes(Mutex::new(0));
+    let airports = Airports::builtin();
+    let asked = route::run_job(&mut w.cat, &sky, Some(&routes), ids[0], Clock::AsRecorded).unwrap();
+    // Two days asked, and RAM211B's route.
+    assert_eq!(asked.requests, 3);
+    assert_eq!(*routes.0.lock().unwrap(), 1);
+    let kept = route::kept_day(&w.cat, "c04826", "2026-06-08")
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept[0].arrival.as_deref(), Some("GMMN"));
+    assert!(kept[0].by_callsign);
+    // Run again: nothing asked.
+    let again = route::run_job(&mut w.cat, &sky, Some(&routes), ids[0], Clock::AsRecorded).unwrap();
+    assert_eq!(again.requests, 0);
+    assert_eq!(*routes.0.lock().unwrap(), 1);
+    let it = route::review(
+        &w.cat,
+        &airports,
+        ids[0],
+        Clock::AsRecorded,
+        Source::OpenSky,
+    )
+    .unwrap();
+    match it.state {
+        route::State::Found(Pick::Several(v)) => {
+            assert_eq!(v.len(), 2);
+            let k: Vec<String> = route::keywords(&v[0].flight, &airports)
+                .unwrap()
+                .iter()
+                .map(TagPath::to_lightroom)
+                .collect();
+            assert_eq!(
+                k,
+                [
+                    "Aircraft|From|CMN",
+                    "Aircraft|From country|Morocco",
+                    "Aircraft|To|YYZ",
+                    "Aircraft|To country|Canada"
+                ]
+            );
+            assert_eq!(v[1].flight.callsign.as_deref(), Some("RAM211B"));
+            assert_eq!(v[1].flight.arrival.as_deref(), Some("GMMN"));
+        }
+        s => panic!("{s:?}"),
+    }
 }

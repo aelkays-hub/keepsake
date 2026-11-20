@@ -25,11 +25,20 @@ at: string,
  */
 gapMin: number, 
 /**
- * Not seen by the source, worked out: it landed at `from` at
- * `departed` and next took off from `to` at `arrived` (`at` is
- * `between`).
+ * Not seen by the source, worked out. `at` `between`: it landed
+ * at `from` at `departed` and next took off from `to` at
+ * `arrived`. `inbound`: the flight in, landed at `to` before the
+ * photo; next seen taking off from there at `arrived` (`from`:
+ * where that went, most likely where it came from). `outbound`:
+ * the flight out, after landing at `from` at `departed` (`to`:
+ * where that came from, most likely where it went back to).
  */
 inferred: boolean, 
+/**
+ * An end the source did not see is from where the callsign
+ * usually flies (adsbdb).
+ */
+byCallsign: boolean, 
 /**
  * `Aircraft|From|YYZ`, …: what accepting it adds.
  */

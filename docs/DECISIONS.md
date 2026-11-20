@@ -1765,3 +1765,13 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 
 **Not done.** Other countries' registers; the FAA's deregistered aircraft (`DEREG.txt`, 278 MB); a registration read with two characters wrong.
 
+### ADR-044 addition — the flight in or out the source did not see; ends from the callsign (2026-11-20)
+
+**Context.** A7402578.ARW: CN-RGY photographed at 00:00 UTC landing at Toronto from Casablanca. OpenSky saw only RAM211B leave YYZ at 02:30 UTC, and not where it went (over the Atlantic); it never saw the flight in. With no landing seen before the photo, the missing leg (between a landing and a take-off) could not be worked out, and the take-off, 150 minutes after the photo, was offered alone.
+
+**Decision.**
+- `route::missing_end`: when nothing was seen before the photo and the first take-off seen is 40 minutes to 6 hours after it, the flight in is offered (to where that take-off left from; from where it went, most likely, as aircraft fly out and back); the same way round for the flight out (nothing seen after the photo, the last landing 40 minutes to 6 hours before it). Offered beside the flight seen, never alone in its place: the user chooses ("Flight in not seen (worked out from the next take-off)").
+- `route::fill_ends`: with Look registrations up online on, each flight with one end not seen is completed from where its callsign usually flies (adsbdb's flight routes, `https://api.adsbdb.com/v0/callsign/<callsign>`; the service already used for registrations, nothing else sent), only when the end seen is the route's. Asked once per flight (`route_asked`, kept with the flights); also for days already kept, so Add route run again fills them.
+
+**Not done.** The flight number of the flight in (RAM210): adsbdb gives routes by callsign, not the callsign of a route.
+
