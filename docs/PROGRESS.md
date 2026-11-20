@@ -67,13 +67,21 @@
 
 ---
 
+## The catalog's log is cut back after a checkpoint (2026-11-20)
+
+- **Asked:** a setting so the catalog's log does not stay large after big runs.
+- **Done by hand first (asked):** Keepsake closed; `catalog.db` and the 1.4 GB `catalog.db-wal` copied to `E:\Pictures6\catalog-backup-2026-11-20\`; `PRAGMA wal_checkpoint(TRUNCATE)`: the log written back and removed; `quick_check` ok, 129,127 assets. Keepsake had not written it back on closing.
+- **Built:** every catalog connection sets `journal_size_limit` = 64 MB (`catalog::WAL_SIZE_LIMIT`): after a checkpoint SQLite cuts the log back to that, instead of keeping it at its largest. Not a schema change. `Catalog::journal_size_limit`.
+- **Tests:** catalog tests (the limit is set on a file catalog); core and app tests; fmt, clippy `-D warnings`.
+- **Not done:** Keepsake does not checkpoint on closing (it exits without closing its connections).
+
 ## Look up aircraft: the catalog's log kept growing (2026-11-20)
 
 - **Reported:** Keepsake slow to load; the Flightradar24 option not seen in Settings. The run had finished (04:03 UTC, 1,308 registrations, 974 found). Start-up took 79 s (1.9 s the night before): `catalog.db-wal` was 1.4 GB beside a 569 MB catalog, on a USB drive, after a restart.
 - **Cause:** while the job ran, the Settings panel asked for its status every 3 s, and each status (and each batch's "what is left") read the lookup of every registration one by one (~1,300 reads), so SQLite's automatic checkpoint never found a quiet moment to write the log back. The panel showed nothing until that status came.
 - **Fixed:** `fr24::status` and `due` read all lookups in one query; the panel asks every 10 s and says "Checking…" until it knows.
 - **Tests:** `aircraft_tests` flightradar24 (2); mocked Playwright Flightradar24 tests (2); fmt, ESLint, Prettier, tsc.
-- **Not done:** Keepsake never forces a checkpoint (`wal_checkpoint(TRUNCATE)`); a large log is written back when the last connection closes.
+- **Then:** the log was written back by hand and `journal_size_limit` added (next section).
 
 ## Look up aircraft on Flightradar24 (2026-11-19)
 

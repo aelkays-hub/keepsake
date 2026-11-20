@@ -104,6 +104,12 @@ impl<M> Tx<'_, M> {
 /// with "database is locked".
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The write-ahead log is cut back to this size after a checkpoint
+/// (`journal_size_limit`). Without it SQLite keeps the file at its largest:
+/// after a long run polled by the UI it stayed 1.4 GB beside a 570 MB
+/// catalog, and every start read through it.
+pub const WAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
+
 /// A write that holds the catalog this long is logged with where it came
 /// from, since every other writer waits for it.
 const SLOW_WRITE_MS: u128 = 2000;
@@ -139,6 +145,7 @@ impl Catalog {
                 )));
             }
             conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT)?;
         }
         migrations::apply(&mut conn)?;
         Ok(Self { conn })
@@ -156,6 +163,13 @@ impl Catalog {
         Ok(self
             .conn
             .query_row("PRAGMA journal_mode", [], |r| r.get(0))?)
+    }
+
+    /// The size the write-ahead log is cut back to (`journal_size_limit`).
+    pub fn journal_size_limit(&self) -> Result<i64, CatalogError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA journal_size_limit", [], |r| r.get(0))?)
     }
 
     /// Run `f` in a read transaction (consistent snapshot of the database).
