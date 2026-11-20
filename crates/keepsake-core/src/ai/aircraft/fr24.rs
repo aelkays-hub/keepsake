@@ -60,15 +60,31 @@ pub fn kept(
         .filter(|a| a.fresh(now_ms)))
 }
 
+/// What Flightradar24 said about every registration looked up, while it
+/// may be kept: one read (a read per registration, polled while the job
+/// runs, kept the catalog's log from ever being written back).
+fn all_kept(
+    cat: &Catalog,
+    now_ms: i64,
+) -> Result<std::collections::HashMap<String, Fr24Aircraft>, AiError> {
+    Ok(cat
+        .read(|tx| tx.ai().aircraft_lookups())?
+        .into_iter()
+        .filter_map(|(reg, json, _)| {
+            let a = serde_json::from_str::<Found>(&json).ok()?.fr24?;
+            a.fresh(now_ms).then_some((reg, a))
+        })
+        .collect())
+}
+
 /// The registrations not asked about in the last 30 days.
 pub fn due(cat: &Catalog, now_ms: i64) -> Result<Vec<String>, AiError> {
-    let mut out = Vec::new();
-    for (reg, _) in registrations(cat)? {
-        if kept(cat, &reg, now_ms)?.is_none() {
-            out.push(reg);
-        }
-    }
-    Ok(out)
+    let kept = all_kept(cat, now_ms)?;
+    Ok(registrations(cat)?
+        .into_iter()
+        .map(|(reg, _)| reg)
+        .filter(|reg| !kept.contains_key(reg))
+        .collect())
 }
 
 /// Keep what Flightradar24 said about `registration`, with what the lookup
@@ -270,8 +286,9 @@ pub fn status(cat: &Catalog) -> Result<Status, AiError> {
         registrations: regs.len() as u64,
         ..Status::default()
     };
+    let kept = all_kept(cat, now)?;
     for (reg, _) in &regs {
-        if let Some(a) = kept(cat, reg, now)? {
+        if let Some(a) = kept.get(reg) {
             st.asked += 1;
             st.found += u64::from(a.found);
         }

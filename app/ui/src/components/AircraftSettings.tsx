@@ -417,13 +417,21 @@ function Fr24Lookup() {
       .catch((e) => setProblem(String(e)));
   }, []);
   useEffect(load, [load]);
-  // While it runs: every few seconds.
+  // While it runs: every 10 seconds.
   useEffect(() => {
     if (!st?.running) return;
-    const t = window.setTimeout(load, 3000);
+    const t = window.setTimeout(load, 10_000);
     return () => window.clearTimeout(t);
   }, [st, load]);
-  if (!st) return null;
+  if (!st)
+    return (
+      <div className="block" data-testid="fr24-lookup">
+        <strong>Look up aircraft on Flightradar24</strong>
+        <p className="muted" role="status">
+          {problem ?? "Checking…"}
+        </p>
+      </div>
+    );
   const left = Math.max(0, st.registrations - st.asked);
   return (
     <div className="block" data-testid="fr24-lookup">

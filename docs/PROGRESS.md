@@ -67,6 +67,14 @@
 
 ---
 
+## Look up aircraft: the catalog's log kept growing (2026-11-20)
+
+- **Reported:** Keepsake slow to load; the Flightradar24 option not seen in Settings. The run had finished (04:03 UTC, 1,308 registrations, 974 found). Start-up took 79 s (1.9 s the night before): `catalog.db-wal` was 1.4 GB beside a 569 MB catalog, on a USB drive, after a restart.
+- **Cause:** while the job ran, the Settings panel asked for its status every 3 s, and each status (and each batch's "what is left") read the lookup of every registration one by one (~1,300 reads), so SQLite's automatic checkpoint never found a quiet moment to write the log back. The panel showed nothing until that status came.
+- **Fixed:** `fr24::status` and `due` read all lookups in one query; the panel asks every 10 s and says "Checking…" until it knows.
+- **Tests:** `aircraft_tests` flightradar24 (2); mocked Playwright Flightradar24 tests (2); fmt, ESLint, Prettier, tsc.
+- **Not done:** Keepsake never forces a checkpoint (`wal_checkpoint(TRUNCATE)`); a large log is written back when the last connection closes.
+
 ## Look up aircraft on Flightradar24 (2026-11-19)
 
 - **Asked:** "use the flight radar api just to get some extra data about the aircrafts … just by passing the registration", "add this as an option in the settings menu", "build one batch job".

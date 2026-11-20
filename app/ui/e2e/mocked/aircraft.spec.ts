@@ -705,7 +705,7 @@ test("Look up aircraft on Flightradar24: one batch job over every registration",
   // It goes on in the background, and ends.
   await expect(box.getByTestId("fr24-lookup-status")).toHaveText(
     "40 of 40 registrations looked up, 30 found.",
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
   await expect(box.getByTestId("fr24-lookup-start")).toBeDisabled();
 });
