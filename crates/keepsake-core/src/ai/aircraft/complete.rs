@@ -3,8 +3,11 @@
 //! the ones it is missing. A flight number gives its airports (adsbdb's
 //! flight routes, [`Lookup::callsign_route`]); airports without a flight
 //! number give it from the aircraft's flights kept that day (OpenSky or
-//! Flightradar24, nothing asked); every airport gives its country (the
-//! airport list). Only what is missing is added; what the photo has is
+//! Flightradar24, nothing asked), else from the flight the other way that
+//! day: its return is most often numbered one away (RAM211 out of YYZ,
+//! RAM210 back), kept only when adsbdb says that number flies the photo's
+//! airports ([`paired`]); every airport gives its country (the airport
+//! list). Only what is missing is added; what the photo has is
 //! never changed, and a flight that does not fly what the photo says is
 //! not used.
 
@@ -108,6 +111,65 @@ fn kept_flight(flights: &[Flight], photo_s: i64, g: &Given, airports: &Airports)
     }
 }
 
+/// The flight numbers one away from a callsign (`RAM211B` → `RAM210`,
+/// `RAM212`): an airline most often numbers a flight and its return so.
+pub fn neighbours(callsign: &str) -> Vec<String> {
+    let cs = callsign.trim().to_ascii_uppercase();
+    let code: String = cs.chars().take_while(char::is_ascii_uppercase).collect();
+    let digits: String = cs[code.len()..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    let (Ok(n), 2..=3) = (digits.parse::<u32>(), code.len()) else {
+        return Vec::new();
+    };
+    [n.checked_sub(1), n.checked_add(1)]
+        .into_iter()
+        .flatten()
+        .filter(|m| *m > 0)
+        .map(|m| format!("{code}{m}"))
+        .collect()
+}
+
+/// The flight number of the photo's flight from the flight the other way
+/// that day (one leaving where the photo's flight lands, or landing where
+/// it left): the numbers one away from its callsign that adsbdb says fly
+/// `dep` → `arr`; only when exactly one does. Returns it and the requests
+/// sent.
+fn paired(
+    flights: &[Flight],
+    dep: Option<&str>,
+    arr: Option<&str>,
+    lookup: &dyn Lookup,
+) -> Result<(Option<String>, u32), AiError> {
+    let mut asked: Vec<String> = Vec::new();
+    let mut found: Vec<String> = Vec::new();
+    for f in flights.iter().filter(|f| !f.inferred) {
+        let back = (arr.is_some() && f.departure.as_deref() == arr)
+            || (dep.is_some() && f.arrival.as_deref() == dep);
+        let Some(cs) = f.callsign.as_deref().filter(|_| back) else {
+            continue;
+        };
+        for n in neighbours(cs) {
+            if asked.contains(&n) {
+                continue;
+            }
+            asked.push(n.clone());
+            if let Some((o, d)) = lookup.callsign_route(&n)? {
+                let fits = dep.is_none_or(|x| x == o) && arr.is_none_or(|x| x == d);
+                if fits && !found.contains(&n) {
+                    found.push(n);
+                }
+            }
+        }
+    }
+    let requests = u32::try_from(asked.len()).unwrap_or(u32::MAX);
+    Ok(match found.as_slice() {
+        [one] => (Some(route::flight_number(one)), requests),
+        _ => (None, requests),
+    })
+}
+
 /// Fill in `asset`'s route keywords from those it has. `lookup` (adsbdb)
 /// for a flight number's airports; `None`: only what is kept and the
 /// airport list. Returns what was added (written as the user's, in the
@@ -180,6 +242,11 @@ pub fn fill(
                 number = f.shown_number();
                 dep = dep.or(f.departure.clone());
                 arr = arr.or(f.arrival.clone());
+            } else if let Some(l) = lookup {
+                // Not seen: the number of the flight the other way, one away.
+                let (n, asked) = paired(&flights, dep.as_deref(), arr.as_deref(), l)?;
+                requests += asked;
+                number = n;
             }
         }
     }
@@ -204,7 +271,7 @@ pub fn fill(
     if add.is_empty() {
         return Ok((
             Filled::Nothing(if g.flight.is_none() {
-                "nothing more is known: no flight of the aircraft kept that day flies that (run Add route first), or add the flight number".into()
+                "the flight number is not known: no flight Add route found for this aircraft that day flies this route, nor the number next to the one it flew the other way; type it as Aircraft|Flight|… if you know it".into()
             } else {
                 "nothing missing".into()
             }),

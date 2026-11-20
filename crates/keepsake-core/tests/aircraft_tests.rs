@@ -2254,7 +2254,8 @@ impl lookup::Lookup for FillRoutes {
     fn callsign_route(&self, cs: &str) -> Result<Option<(String, String)>, AiError> {
         self.0.lock().unwrap().push(cs.to_owned());
         Ok(match cs {
-            "AT210" => Some(("GMMN".into(), "CYYZ".into())),
+            "AT210" | "RAM210" => Some(("GMMN".into(), "CYYZ".into())),
+            "RAM212" => Some(("GMMN".into(), "KJFK".into())),
             _ => None,
         })
     }
@@ -2466,4 +2467,44 @@ fn the_flight_report_lists_each_flight_photographed_once() {
         "{}",
         lines[2]
     );
+}
+
+#[test]
+fn fill_in_finds_the_flight_number_from_the_flight_the_other_way() {
+    use keepsake_core::ai::aircraft::complete::{self, Filled};
+    // A7402561_1.jpg: CN-RGY landing at YYZ from CMN at 00:00 UTC, From and
+    // To accepted from the flight in; OpenSky saw only RAM211B leave YYZ.
+    let (mut w, ids) = route_world(&["a.jpg"], &[1_780_876_833]);
+    route::run_job(&mut w.cat, &RgySky, None, ids[0], Clock::AsRecorded).unwrap();
+    tag(&mut w, ids[0], &["Aircraft|From|CMN", "Aircraft|To|YYZ"]);
+    let routes = FillRoutes(Mutex::new(Vec::new()));
+    let (f, asked) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &Airports::builtin(),
+        Some(&routes),
+        ids[0],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    // RAM210 and RAM212 asked; only RAM210 flies CMN to YYZ.
+    assert_eq!(*routes.0.lock().unwrap(), ["RAM210", "RAM212"]);
+    assert_eq!(asked, 2);
+    match f {
+        Filled::Added(v) => {
+            let v: Vec<String> = v.iter().map(TagPath::to_lightroom).collect();
+            assert_eq!(
+                v,
+                [
+                    "Aircraft|From country|Morocco",
+                    "Aircraft|To country|Canada",
+                    "Aircraft|Flight|AT210"
+                ]
+            );
+        }
+        f => panic!("{f:?}"),
+    }
+    assert_eq!(complete::neighbours("RAM211B"), ["RAM210", "RAM212"]);
+    assert_eq!(complete::neighbours("ACA1"), ["ACA2"]);
+    assert!(complete::neighbours("N12345").is_empty());
 }

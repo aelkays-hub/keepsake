@@ -19,9 +19,11 @@ Manual (both OSes; Look registrations up online on):
    - **Expected:** the window says "Added: From CMN, From country Morocco, To YYZ, To country Canada"; the inspector shows them.
 2. A photo with `Aircraft|From|YYZ` only, whose day Add route found → Fill in route keywords.
    - **Expected:** the flight number and countries added from the flight found.
-3. A photo with `Aircraft|Flight|AT210` and `Aircraft|From|LHR`.
+3. A7402561_1.jpg (From CMN, To YYZ, no flight number) → Fill in route keywords.
+   - **Expected:** "Added: Flight AT210" (RAM211 left YYZ that day; RAM210 flies CMN → YYZ).
+4. A photo with `Aircraft|Flight|AT210` and `Aircraft|From|LHR`.
    - **Expected:** nothing added: "AT210 flies CMN → YYZ, not what the photo says".
-4. A photo without route keywords.
+5. A photo without route keywords.
    - **Expected:** "no route keyword: add …".
 
 ## The flight report

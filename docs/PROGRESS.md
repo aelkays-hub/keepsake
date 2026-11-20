@@ -76,6 +76,7 @@
 
 - **Asked:** a call that takes a flight number and/or from and/or to and adds the missing information as keywords; a report of every flight photographed (from, to, airline, date…).
 - **Built:** `ai::aircraft::complete` (`given`, `fill`, `enqueue`, `state`, job `ai.route.fill`, `RenderService::route_fill_worker`); `Airports::icao_of`; `route::kept_around`; `catalog::FlightReportRepo` (`flights`), `report::flights_to_csv`/`write_flights_csv`. App: `aircraft_route_fill`, `aircraft_route_fill_status`, `flight_report`, `flight_report_csv`. UI: the tile menu's Fill in route keywords and its window; Report → Flights.
+- **Then:** A7402561_1.jpg (CN-RGY, From CMN, To YYZ from the flight in) got no flight number: OpenSky saw only RAM211B the other way. Now the numbers one away (RAM210, RAM212) are asked of adsbdb and the one flying CMN → YYZ is added (AT210); the message when none is found says so plainly.
 - **Real library (read only):** 112 flights from 1,186 photos; 21 with a flight number but an end missing, 11 with airports but no flight number; 21,558 photos with a registration and no route.
 - **Tests, run here (Windows):** `aircraft_tests` (+2: filling in each way, contradiction, nothing, the worker; the report and its CSV), Vitest (103), mocked Playwright aircraft and report (37), fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
 - **Not run:** CI; macOS; adsbdb from the app.
