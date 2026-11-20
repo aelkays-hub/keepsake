@@ -67,6 +67,11 @@
 
 ---
 
+
+## Version 0.6.0 (2026-11-20)
+
+- Version 0.6.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.6.0, with 0.5.4 (not released on its own) included. Everything on `claude/aircraft-age-route-378472` goes to `main` in one PR; `fix/month-last-day` and `fix/thumbnail-retry-loop` were already in it under other commits.
+
 ## Add route: a flight the source did not see (2026-11-20)
 
 - **Reported:** A7401009.ARW (SP-LSC, LOT 787-9; 2026-05-19 00:00 UTC, taken as it left YYZ) was offered WAW → YYZ.

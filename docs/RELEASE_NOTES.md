@@ -1,8 +1,33 @@
-# Keepsake 0.5.4
+# Keepsake 0.6.0
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.4 makes Read aircraft read only the text on the aircraft, show what every picked photo read, and read again on request; it also fixes a slowdown.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.6.0 tells you how old each aircraft is and which flight you photographed, from OpenSky or your own Flightradar24 subscription. It includes 0.5.4, which was not released on its own.
 
-## New in 0.5.4
+## New in 0.6.0
+
+**The aircraft's age**
+- For a photo with a registration, the inspector and the viewer's information panel show how old the aircraft is today and how old it was in the photo, worked out when shown.
+- **Build years from OpenSky's aircraft database** (Settings → Read aircraft → Build years, a 95 MB download, kept on this computer), or typed once per registration in the inspector (**Aircraft built**). Each photo of it gets `Aircraft|Built|<year>`.
+
+**Add route** (right-click photos → Add route…)
+- Finds the flight you photographed: **from and to** (airport codes and countries) and the **flight number**, offered as keywords you tick and accept. Nothing is added until you accept.
+- **From OpenSky** (free; by transponder code; history from about 2023) or **from Flightradar24** with your own API subscription (by registration; how far back depends on your plan; its answers are kept 30 days, as its terms require; the keywords you accept stay).
+- **A flight the source did not see** (over an ocean) is worked out from the landing before and the take-off after, and offered beside the others for you to choose.
+- **Two flights as near the photo:** you choose; the photo's position, when known, decides.
+- **Ask again** on a photo, or for all. Accepting a route replaces the route keywords it had.
+- **Transponder codes:** from adsbdb, from OpenSky's aircraft database, or typed in the window for an aircraft neither knows. A registration adsbdb did not know is asked again after 30 days.
+- **Camera clock on Eastern time, changed for daylight saving:** for a camera that marks every photo UTC−05:00 though its clock is put forward in summer, Add route reads its photos as UTC−04:00 from March to November. The photos are not changed.
+- **A photo's time zone** can be set in the window (UTC−12:00 to +14:00): the camera's clock time stays, its UTC time moves; kept in the catalog and the sidecar, never in the photo.
+
+**Look up aircraft on Flightradar24** (Settings → Read aircraft)
+- One background job asks your Flightradar24 API about every registration on your photos: its type, airline (from its livery), and transponder code, from its latest flight in the last four weeks. About 2 credits per aircraft found. Kept 30 days; shown in the inspector; its type and airline are offered in Read aircraft; its code lets OpenSky find the aircraft's older routes.
+
+**Faster and steadier**
+- **A photo you ask about is read next,** ahead of a backlog of queued photos.
+- **The catalog's change log is cut back** after it is written into the catalog (64 MB at most): a long run had left it at 1.4 GB, and every start read through it.
+
+API keys and tokens (OpenSky, Flightradar24) are kept in Windows Credential Manager or the macOS Keychain, never in a file.
+
+## New in 0.5.4 (included; not released on its own)
 
 **Read aircraft**
 - **Only the text on the aircraft is read:** an aircraft finder (YOLOX-s) finds the aircraft first, so signs, buildings and a signature are no longer read.
