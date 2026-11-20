@@ -112,7 +112,7 @@ pub fn start_service(app: &AppHandle) -> CmdResult<bool> {
         svc
     };
     // Look up aircraft on Flightradar24: with a token saved.
-    let svc = match crate::route::fr24_aircraft() {
+    let svc = match crate::route::fr24_client() {
         Some(c) => svc.with_fr24(c, keepsake_core::ai::aircraft::fr24::GAP),
         None => svc,
     };

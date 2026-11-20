@@ -1719,6 +1719,24 @@ export function installMock(): void {
           st.route.fr24 = Boolean(String(a.token ?? "").trim());
           void emit("aircraft://status", null);
           return null;
+        case "fr24_aircraft": {
+          // Known for C-FJZS once looked up (`?fr24=saved` and a run).
+          const reg = String(a.registration);
+          if (st.route.lookedUp === 0) return null;
+          return reg === "C-FJZS"
+            ? {
+                registration: reg,
+                found: true,
+                aircraftType: "Boeing 787-9",
+                icaoType: "B789",
+                airline: "Air Canada",
+                livery: "ACA",
+                hex: "C05E2B",
+                seen: "2026-11-19",
+                keptUntil: "2026-12-20",
+              }
+            : null;
+        }
         case "fr24_aircraft_status": {
           // 40 registrations; each look at the status while running asks 10.
           if (st.route.lookingUp) {

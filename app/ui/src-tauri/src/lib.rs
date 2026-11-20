@@ -206,6 +206,7 @@ pub fn run() {
             route::aircraft_set_route_source,
             route::flightradar_set_token,
             route::flightradar_test,
+            route::fr24_aircraft,
             route::fr24_aircraft_status,
             route::fr24_aircraft_start,
             route::fr24_aircraft_stop,

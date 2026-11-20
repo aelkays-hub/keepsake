@@ -15,8 +15,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    CloudStarted, CloudStatusDto, Fr24AircraftStatusDto, RouteChoiceDto, RouteItemDto,
-    RouteReviewDto, RouteStatusDto, Selection,
+    CloudStarted, CloudStatusDto, Fr24AircraftDto, Fr24AircraftStatusDto, RouteChoiceDto,
+    RouteItemDto, RouteReviewDto, RouteStatusDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -56,12 +56,38 @@ pub fn client(s: &Settings) -> Arc<dyn route::Flights> {
 
 /// The Flightradar24 client the render service looks aircraft up with,
 /// when a token is saved.
-pub fn fr24_aircraft() -> Option<Arc<dyn route::Fr24Aircrafts>> {
+pub fn fr24_client() -> Option<Arc<dyn route::Fr24Aircrafts>> {
     fr24_token()?;
     Some(Arc::new(Flightradar::new(
         Arc::new(keepsake_core::ai::cloud::UreqHttp::new()),
         Arc::new(fr24_token),
     )))
+}
+
+/// What Flightradar24 showed of `registration`'s aircraft, while kept.
+#[tauri::command(async)]
+pub fn fr24_aircraft(
+    state: State<'_, AppState>,
+    registration: String,
+) -> CmdResult<Option<Fr24AircraftDto>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let now = keepsake_core::jobs::now_ms();
+    let shown =
+        keepsake_core::ai::aircraft::fr24::shown(&cat, registration.trim(), now).map_err(err)?;
+    Ok(shown.map(|s| Fr24AircraftDto {
+        registration: registration.trim().to_owned(),
+        found: s.found,
+        aircraft_type: s.aircraft_type,
+        icao_type: s.icao_type,
+        airline: s.airline,
+        livery: s.livery,
+        hex: s.hex,
+        seen: s.seen,
+        kept_until: chrono::DateTime::from_timestamp_millis(s.until_ms)
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default(),
+    }))
 }
 
 /// Where looking aircraft up on Flightradar24 stands.

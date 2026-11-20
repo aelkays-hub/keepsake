@@ -1920,6 +1920,13 @@ fn looking_aircraft_up_on_flightradar24_keeps_type_airline_and_code_for_30_days(
         fr24::with_fr24(&no_op, now).unwrap().airline.as_deref(),
         Some("KLM")
     );
+    // For the inspector.
+    let shown = fr24::shown(&w.cat, "PH-BKO", now).unwrap().unwrap();
+    assert_eq!(shown.aircraft_type.as_deref(), Some("Boeing 787-10"));
+    assert_eq!(shown.airline.as_deref(), Some("KLM"));
+    assert_eq!(shown.hex.as_deref(), Some("485E31"));
+    assert_eq!(shown.until_ms - shown.asked_ms, route::FR24_KEEP_MS);
+    assert!(!fr24::shown(&w.cat, "C-GBIJ", now).unwrap().unwrap().found);
     // C-GBIJ (adsbdb knows it): its own answer is kept.
     assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().unwrap().known);
 

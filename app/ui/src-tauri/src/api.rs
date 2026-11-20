@@ -170,6 +170,25 @@ dto! {
         pub eastern: bool,
     }
 
+    /// What Flightradar24 showed of a photo's aircraft (the inspector).
+    pub struct Fr24AircraftDto {
+        pub registration: String,
+        /// A flight was found in the weeks asked about.
+        pub found: bool,
+        /// `Boeing 787-10` and `B78X`.
+        pub aircraft_type: Option<String>,
+        pub icao_type: Option<String>,
+        /// The airline, and the livery's code (`KLM`).
+        pub airline: Option<String>,
+        pub livery: Option<String>,
+        /// The transponder code (`485F82`).
+        pub hex: Option<String>,
+        /// The day of the flight seen, and the day it is deleted (30 days
+        /// after it was asked).
+        pub seen: Option<String>,
+        pub kept_until: String,
+    }
+
     /// Look up aircraft on Flightradar24 (Settings → Read aircraft).
     pub struct Fr24AircraftStatusDto {
         /// A Flightradar24 API token is saved.

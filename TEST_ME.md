@@ -17,7 +17,9 @@ Manual (both OSes; needs a Flightradar24 API plan and its token saved):
    - **Expected:** "(looking up…)" and the count going up about 10 a minute; **Stop** ends it after the registrations in hand; Look up again goes on with those left.
 3. When done, Add route (OpenSky) on a photo of an aircraft adsbdb does not know but that flew lately.
    - **Expected:** its transponder code is known; Read aircraft offers its type and airline.
-4. 30 days later (not checked by hand): what was found is deleted and the registrations can be looked up again.
+4. Select a photo with a registration that was found (for example A7_05212.ARW, PH-BKO).
+   - **Expected:** the inspector's aircraft block shows Flightradar24 (kept until …), Type "Boeing 787-10 (B78X)", Airline "KLM", Transponder "485F82", Seen flying (a date). One not found says it did not fly in the four weeks asked about.
+5. 30 days later (not checked by hand): what was found is deleted and the registrations can be looked up again.
 
 ---
 

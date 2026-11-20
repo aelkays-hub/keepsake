@@ -709,3 +709,25 @@ test("Look up aircraft on Flightradar24: one batch job over every registration",
   );
   await expect(box.getByTestId("fr24-lookup-start")).toBeDisabled();
 });
+
+test("the inspector shows what Flightradar24 showed of the photo's aircraft", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on&fr24=saved");
+  await settings(page);
+  await page.getByTestId("fr24-lookup-start").click();
+  await expect(page.getByTestId("fr24-lookup-status")).toContainText("40 of 40", {
+    timeout: 60_000,
+  });
+  await page.keyboard.press("Escape");
+  // A photo given C-FJZS.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  await page.getByTestId("tile").nth(0).click();
+  const insp = page.getByTestId("inspector");
+  await insp.getByTestId("keyword-input").fill("Aircraft|Registration|C-FJZS");
+  await insp.getByTestId("keyword-input").press("Enter");
+  const fr = page.getByTestId("fr24-aircraft");
+  await expect(fr).toContainText("kept until 2026-12-20");
+  await expect(fr.getByTestId("fr24-type")).toHaveText("Boeing 787-9 (B789)");
+  await expect(fr.getByTestId("fr24-airline")).toHaveText("Air Canada (ACA)");
+  await expect(fr.getByTestId("fr24-transponder")).toHaveText("C05E2B");
+  await expect(fr.getByTestId("fr24-seen-flying")).toHaveText("2026-11-19");
+});

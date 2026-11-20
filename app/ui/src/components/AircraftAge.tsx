@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type Details } from "../api";
+import type { Fr24AircraftDto } from "../bindings/Fr24AircraftDto";
 import { builtSource } from "../aircraftAge";
 import { ageLines, usePhotoBuilt } from "../photoBuilt";
 import { useUi } from "../state";
@@ -14,6 +15,7 @@ import { useUi } from "../state";
 export function AircraftAge({ d }: { d: Details }) {
   const { dispatch } = useUi();
   const b = usePhotoBuilt(d);
+  const fr24 = useFr24(b?.registration ?? null);
   const [text, setText] = useState("");
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => {
@@ -49,6 +51,7 @@ export function AircraftAge({ d }: { d: Details }) {
           </div>
         )}
       </dl>
+      {fr24 && <Fr24Rows a={fr24} />}
       {!b.built && (
         <p className="muted" data-testid="aircraft-age-unknown">
           When {b.registration} was built is not known. Type it below, or turn on the OpenSky
@@ -87,5 +90,64 @@ export function AircraftAge({ d }: { d: Details }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** What Flightradar24 showed of `registration`'s aircraft (Settings → Look
+ * up aircraft on Flightradar24), while it may be kept. */
+function useFr24(registration: string | null): Fr24AircraftDto | null {
+  const { s } = useUi();
+  const [a, setA] = useState<Fr24AircraftDto | null>(null);
+  useEffect(() => {
+    let live = true;
+    setA(null);
+    if (!registration) return;
+    api
+      .fr24Aircraft(registration)
+      .then((r) => live && setA(r))
+      .catch(console.error);
+    return () => {
+      live = false;
+    };
+  }, [registration, s.revision]);
+  return a;
+}
+
+/** The Flightradar24 rows: type, airline, transponder code, when seen. */
+function Fr24Rows({ a }: { a: Fr24AircraftDto }) {
+  if (!a.found) {
+    return (
+      <p className="muted" data-testid="fr24-aircraft">
+        Flightradar24: {a.registration} did not fly in the four weeks asked about (asked again after{" "}
+        {a.keptUntil}).
+      </p>
+    );
+  }
+  const type =
+    a.aircraftType && a.icaoType && a.aircraftType !== a.icaoType
+      ? `${a.aircraftType} (${a.icaoType})`
+      : (a.aircraftType ?? a.icaoType);
+  const airline = a.airline ?? a.livery;
+  const rows: [string, string | null][] = [
+    ["Type", type],
+    ["Airline", airline && a.livery && airline !== a.livery ? `${airline} (${a.livery})` : airline],
+    ["Transponder", a.hex],
+    ["Seen flying", a.seen],
+  ];
+  return (
+    <dl className="meta" data-testid="fr24-aircraft">
+      <div className="meta-row">
+        <dt>Flightradar24</dt>
+        <dd className="muted">kept until {a.keptUntil}</dd>
+      </div>
+      {rows
+        .filter((r): r is [string, string] => Boolean(r[1]))
+        .map(([k, v]) => (
+          <div key={k} className="meta-row">
+            <dt>{k}</dt>
+            <dd data-testid={`fr24-${k.toLowerCase().replace(" ", "-")}`}>{v}</dd>
+          </div>
+        ))}
+    </dl>
   );
 }

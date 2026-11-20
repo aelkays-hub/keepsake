@@ -139,6 +139,50 @@ pub fn with_fr24(f: &Found, now_ms: i64) -> Option<Found> {
     Some(out)
 }
 
+/// What Flightradar24 showed of an aircraft, for people.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown {
+    /// `Boeing 787-10`, else the designator (`B78X`).
+    pub aircraft_type: Option<String>,
+    pub icao_type: Option<String>,
+    /// The airline (from the operator, else the livery), and the livery's
+    /// code as Flightradar24 gives it (`KLM`).
+    pub airline: Option<String>,
+    pub livery: Option<String>,
+    pub hex: Option<String>,
+    /// The day of the flight seen.
+    pub seen: Option<String>,
+    /// When it was asked, and when it is deleted (Unix ms).
+    pub asked_ms: i64,
+    pub until_ms: i64,
+    pub found: bool,
+}
+
+/// What Flightradar24 said about `registration`, while it may be kept.
+pub fn shown(cat: &Catalog, registration: &str, now_ms: i64) -> Result<Option<Shown>, AiError> {
+    Ok(kept(cat, registration, now_ms)?.map(|a| {
+        let code = a.operator.clone().or_else(|| a.painted_as.clone());
+        Shown {
+            aircraft_type: a
+                .icao_type
+                .as_deref()
+                .and_then(|c| lookup::type_name(Some(c), None, None))
+                .or_else(|| a.icao_type.clone()),
+            icao_type: a.icao_type.clone(),
+            airline: code
+                .as_deref()
+                .and_then(super::route::airline_of_code)
+                .map(str::to_owned),
+            livery: a.painted_as.clone(),
+            hex: a.hex.clone(),
+            seen: a.seen.clone(),
+            asked_ms: a.asked_ms,
+            until_ms: a.asked_ms + super::route::FR24_KEEP_MS,
+            found: a.found,
+        }
+    }))
+}
+
 /// Delete what Flightradar24 said about aircraft more than 30 days before
 /// `now_ms` (its terms). Returns how many were deleted.
 pub fn forget_expired(cat: &mut Catalog, now_ms: i64) -> Result<u64, AiError> {

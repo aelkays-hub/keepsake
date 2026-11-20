@@ -67,6 +67,12 @@
 
 ---
 
+## The inspector shows what Flightradar24 showed (2026-11-20)
+
+- **Asked:** how to see the data from Flightradar24; "Yes, add it" (a line in the inspector).
+- **Built:** `fr24::shown` (type named from `icao-types.tsv`, airline from operator or livery, code, day seen, kept until); command `fr24_aircraft`; the inspector's aircraft block (a photo with a registration) shows Flightradar24 · kept until, Type, Airline, Transponder, Seen flying, or that it did not fly in the weeks asked about.
+- **Tests:** `aircraft_tests` flightradar24 (`shown`); mocked Playwright (+1: the inspector after a look-up); fmt, clippy, ESLint, Prettier, tsc.
+
 ## Look up aircraft: the airline from the livery (2026-11-20)
 
 - **Found** (reading what was kept: 1,453 asked, 974 found, 83 adsbdb did not know, 41 now with a transponder code, PH-BKO 485F82 B78X): Flightradar24 left `operated_as` empty for every aircraft, so no airline was offered; `painted_as` (the livery) was there.
