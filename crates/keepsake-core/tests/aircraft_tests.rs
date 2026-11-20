@@ -2454,7 +2454,9 @@ fn the_flight_report_lists_each_flight_photographed_once() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("flights.csv");
     keepsake_core::report::write_flights_csv(&r, &out).unwrap();
-    assert!(std::fs::read(&out).unwrap().starts_with(&[0xEF, 0xBB, 0xBF]));
+    assert!(std::fs::read(&out)
+        .unwrap()
+        .starts_with(&[0xEF, 0xBB, 0xBF]));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     let csv = keepsake_core::report::flights_to_csv(&r);
     let lines: Vec<&str> = csv.split("\r\n").collect();
