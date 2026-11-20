@@ -143,6 +143,10 @@ describe("Add route", () => {
       "OpenSky's daily limit is reached",
     );
     expect(stateLine(item("found"))).toBeNull();
+    const limit =
+      "OpenSky's limit is reached (it allows more at 2026-11-21 11:10 UTC); Add route goes on by itself then";
+    expect(stateLine(item("later", { error: limit }))).toBe(limit);
+    expect(stateLine(item("later"))).toContain("goes on by itself");
   });
 
   it("says when the photo was taken, in the camera's time and UTC", () => {

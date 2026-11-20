@@ -80,6 +80,8 @@ export function stateLine(item: RouteItemDto, source?: string): string | null {
       return `The transponder code of ${item.registration ?? "this aircraft"} is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below: a flight-tracking site shows it as Mode S or ICAO 24-bit address (six digits and letters A–F).`;
     case "waiting":
       return `Asking ${name}…`;
+    case "later":
+      return item.error ?? `${name} allows no more questions for now; Add route goes on by itself.`;
     case "failed":
       return item.error ?? `${name} could not be asked.`;
     case "nothing":

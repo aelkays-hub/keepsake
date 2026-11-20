@@ -2205,3 +2205,41 @@ fn a_flight_in_from_over_the_ocean_is_offered_from_the_next_take_off_and_its_cal
         s => panic!("{s:?}"),
     }
 }
+
+/// OpenSky out of credits until an hour from now, counting what is asked.
+struct LimitedSky(Mutex<u32>, i64);
+
+impl route::Flights for LimitedSky {
+    fn flights(&self, _: &str, _: i64, _: i64) -> Result<Vec<Flight>, AiError> {
+        *self.0.lock().unwrap() += 1;
+        Err(route::limit_reached(self.1))
+    }
+}
+
+#[test]
+fn at_opensky_s_limit_the_route_jobs_wait_until_it_allows_more_and_do_not_fail() {
+    // A7402789.ARW: OpenSky said 429, more in 61,899 s.
+    let (mut w, ids) = route_world(&["a.jpg", "b.jpg"], &[PHOTO_S, PHOTO_S + 5 * 86_400]);
+    assert_eq!(route::enqueue(&mut w.cat, &ids).unwrap(), 2);
+    let until = keepsake_core::jobs::now_ms() + 3_600_000;
+    let sky = Arc::new(LimitedSky(Mutex::new(0), until));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&AIR_CANADA, &seen))
+        .with_flights(sky.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    // Asked once; the other photo waits without asking.
+    assert_eq!(*sky.0.lock().unwrap(), 1);
+    for id in &ids {
+        let j = w
+            .cat
+            .read(|tx| tx.jobs().find(route::JOB_AI_ROUTE, *id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(j.state, JobState::Queued);
+        assert_eq!(j.not_before_ms, until);
+        assert!(j.error.unwrap().contains("OpenSky's limit is reached"));
+    }
+    let (st, _) = route::status(&w.cat, &ids).unwrap();
+    assert_eq!((st.pending, st.failed), (2, 0));
+}

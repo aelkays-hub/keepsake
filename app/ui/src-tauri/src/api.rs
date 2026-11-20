@@ -317,7 +317,7 @@ dto! {
         /// user typed it.
         pub code: Option<String>,
         pub code_typed: bool,
-        /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
+        /// `no-registration`, `no-time`, `no-transponder`, `waiting`, `later` (at a source's limit: `error` says until when),
         /// `failed`, `nothing`, `none-near`, `found` or `several`.
         pub state: String,
         /// Why asking failed (or will be tried again).

@@ -70,6 +70,15 @@
 
 
 
+
+## Add route: OpenSky's limit waits instead of failing (2026-11-20)
+
+- **Asked:** Add route on A7402789.ARW (S2-AJY) took very long.
+- **Cause:** OpenSky's limit was reached (429; more in 61,899 s, about 11:10 UTC the next day). The job was retried every minute and then failed; the window said "Asking OpenSky…".
+- **Built:** `Http::get_wait`, `cloud::wait_seconds`; `AiError::Later`; `OpenSky` remembers the limit (`limited_until`) and asks nothing before; `route::limit_reached`; the route worker defers all queued route jobs (`JobsRepo::defer_kind`). App and window: state `later` with the time.
+- **Tests, run here (Windows):** route unit test (the limit, asked once), `aircraft_tests` (+1: jobs wait, none failed), whole workspace, clippy `-D warnings`, Vitest, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS. Photos failed at the limit before this need Add route again.
+
 ## Add route: the flight in or out not seen; ends from the callsign (2026-11-20)
 
 - **Asked:** A7402578.ARW is CN-RGY landing at Toronto from Casablanca; Add route offered the opposite (its next take-off) and no missing leg.

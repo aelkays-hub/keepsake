@@ -480,6 +480,22 @@ impl Jobs<'_, Rw> {
         Ok(())
     }
 
+    /// Every queued `kind` job waits until `retry_at_ms` (a source's limit),
+    /// saying why. Returns how many.
+    pub fn defer_kind(
+        &self,
+        kind: &str,
+        reason: &str,
+        retry_at_ms: i64,
+    ) -> Result<u64, CatalogError> {
+        let n = self.conn.execute(
+            "UPDATE jobs SET error = ?2, not_before_ms = max(coalesce(not_before_ms, 0), ?3)
+              WHERE kind = ?1 AND state = 'queued'",
+            params![kind, reason, retry_at_ms],
+        )?;
+        Ok(n as u64)
+    }
+
     /// After a crash or restart: running jobs go back to the queue.
     pub fn recover(&self) -> Result<u64, CatalogError> {
         Ok(self.conn.execute(

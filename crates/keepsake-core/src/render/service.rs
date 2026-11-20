@@ -1097,8 +1097,9 @@ impl RenderService {
     /// The route worker (ADR-044): one `ai.route` job at a time, waiting
     /// [`crate::ai::aircraft::lookup::MIN_GAP`] after each request. Needs
     /// no model, so it runs whether or not Read aircraft's are loaded. At
-    /// OpenSky's daily limit the job is tried again later (its error says
-    /// so), as for any failure that may pass.
+    /// OpenSky's limit the job, and every route job queued, waits until it
+    /// allows more ([`crate::ai::AiError::Later`]), not failed; other
+    /// failures that may pass are tried again later.
     /// Look aircraft up on Flightradar24: one batch per job, queued again
     /// while registrations are left.
     fn fr24_worker(
@@ -1238,6 +1239,22 @@ impl RenderService {
                     if asked.requests > 0 {
                         Self::sleep(cancel, lk::MIN_GAP);
                     }
+                }
+                Err(crate::ai::AiError::Later { message, until_ms }) => {
+                    // At the source's limit: this job and the others
+                    // queued wait until it allows more (not failed).
+                    Self::write_busy(cat, cancel, |t| {
+                        t.jobs().defer(job.id, &message, until_ms)?;
+                        t.jobs()
+                            .defer_kind(route::JOB_AI_ROUTE, &message, until_ms)
+                            .map(|_| ())
+                    })?;
+                    let _ = tx.send(RenderEvent::Deferred {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        reason: message,
+                    });
                 }
                 Err(e) => {
                     let e = Self::ai_error(cat, &job, e)?;

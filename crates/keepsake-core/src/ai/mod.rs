@@ -119,6 +119,10 @@ pub enum AiError {
     /// may help.
     #[error("{message}")]
     Cloud { message: String, retry: bool },
+    /// The service refuses for now and says until when (Unix ms): the job
+    /// waits until then, its attempt not counted.
+    #[error("{message}")]
+    Later { message: String, until_ms: i64 },
 }
 
 impl AiError {

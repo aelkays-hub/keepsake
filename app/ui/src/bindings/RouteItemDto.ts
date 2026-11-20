@@ -25,7 +25,7 @@ zoneSet: boolean,
  */
 code: string | null, codeTyped: boolean, 
 /**
- * `no-registration`, `no-time`, `no-transponder`, `waiting`,
+ * `no-registration`, `no-time`, `no-transponder`, `waiting`, `later` (at a source's limit: `error` says until when),
  * `failed`, `nothing`, `none-near`, `found` or `several`.
  */
 state: string, 

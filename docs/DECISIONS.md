@@ -1775,3 +1775,9 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 
 **Not done.** The flight number of the flight in (RAM210): adsbdb gives routes by callsign, not the callsign of a route.
 
+### ADR-044 addition — OpenSky's limit: wait until it allows more (2026-11-20)
+
+**Context.** At its limit OpenSky answers 429 with `X-Rate-Limit-Retry-After-Seconds` (61,899 s on 2026-11-20 at 17:58 UTC: not midnight). Keepsake retried every minute, and after a few tries failed the photo (55 that day); the window said "Asking OpenSky…".
+
+**Decision.** `Http::get_wait` returns the wait a response asks for; `OpenSky` keeps it and asks nothing before (`AiError::Later`, `route::limit_reached`: "OpenSky's limit is reached (it allows more at …); Add route goes on by itself then"; an hour when it does not say). The route worker defers the job and every queued route job until then (`JobsRepo::defer_kind`), attempts not counted, never failed; the window's `later` state says so.
+

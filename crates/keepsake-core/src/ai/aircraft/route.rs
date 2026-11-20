@@ -95,6 +95,21 @@ const TOKEN_MARGIN_MS: i64 = 60_000;
 pub const KINDS: [&str; 5] = ["From", "To", "From country", "To country", "Flight"];
 /// What OpenSky says when the day's credits are used.
 pub const LIMIT_REACHED: &str = "OpenSky's daily limit is reached; Add route goes on tomorrow";
+/// How long to wait at OpenSky's limit when it does not say.
+const LIMIT_WAIT_S: i64 = 3600;
+
+/// At OpenSky's limit until `until_ms`: what the window says.
+pub fn limit_reached(until_ms: i64) -> AiError {
+    let at = chrono::DateTime::from_timestamp_millis(until_ms)
+        .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_default();
+    AiError::Later {
+        message: format!(
+            "OpenSky's limit is reached (it allows more at {at}); Add route goes on by itself then"
+        ),
+        until_ms,
+    }
+}
 
 const AIRPORTS_TSV: &str = include_str!("airports.tsv");
 const AIRLINE_CODES_TSV: &str = include_str!("airline-codes.tsv");
@@ -207,6 +222,8 @@ pub struct OpenSky {
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
     /// The token and when it runs out (Unix ms).
     token: Mutex<Option<(String, i64)>>,
+    /// At OpenSky's limit until then (Unix ms): nothing is asked before.
+    limited_until: Mutex<Option<i64>>,
 }
 
 fn cloud(message: impl Into<String>, retry: bool) -> AiError {
@@ -242,6 +259,7 @@ impl OpenSky {
             credentials,
             clock: Arc::new(crate::jobs::now_ms),
             token: Mutex::new(None),
+            limited_until: Mutex::new(None),
         }
     }
 
@@ -367,16 +385,30 @@ impl Flights for OpenSky {
             return Err(cloud(format!("{icao24} is not a transponder code"), false));
         }
         let url = format!("{API_BASE}?icao24={icao}&begin={begin}&end={end}");
+        let now = (self.clock)();
+        if let Some(until) = self.limited_until.lock().ok().and_then(|u| *u) {
+            if now < until {
+                return Err(limit_reached(until));
+            }
+        }
         for attempt in 0..2 {
             let tok = self.token()?;
             let auth = format!("Bearer {tok}");
-            let (status, body) = self
+            let (status, body, wait) = self
                 .http
-                .get(
+                .get_wait(
                     &url,
                     &[("authorization", &auth), ("accept", "application/json")],
                 )
                 .map_err(|e| cloud(format!("could not reach {SERVICE}: {e}"), true))?;
+            if status == 429 {
+                // Out of credits: until OpenSky says (about a day).
+                let until = now + wait.unwrap_or(LIMIT_WAIT_S).max(60) * 1000;
+                if let Ok(mut u) = self.limited_until.lock() {
+                    *u = Some(until);
+                }
+                return Err(limit_reached(until));
+            }
             if status == 401 && attempt == 0 {
                 // The token ran out early: once more with a new one.
                 self.forget_token();
@@ -2191,6 +2223,15 @@ mod tests {
             };
             Ok((s, "[]".into()))
         }
+        fn get_wait(
+            &self,
+            url: &str,
+            headers: &[(&str, &str)],
+        ) -> Result<(u16, String, Option<i64>), String> {
+            // What OpenSky said on 2026-11-20 at its limit.
+            self.get(url, headers)
+                .map(|(s, b)| (s, b, (s == 429).then_some(61_899)))
+        }
     }
 
     fn fake(token_status: u16, flight_status: &[u16]) -> Arc<Fake> {
@@ -2250,12 +2291,24 @@ mod tests {
             sky.test(),
             Err(AiError::Cloud { retry: false, .. })
         ));
-        // The daily limit.
-        let sky = OpenSky::new(fake(200, &[429]), creds());
+        // The daily limit: until when OpenSky says; nothing asked before.
+        let http = fake(200, &[429]);
+        let sky = OpenSky::new(http.clone(), creds()).with_clock(Arc::new(|| 1_000_000));
+        match sky.flights("c04826", 0, 1) {
+            Err(AiError::Later { message, until_ms }) => {
+                assert_eq!(until_ms, 1_000_000 + 61_899_000);
+                assert!(message.contains("1970-01-01 17:28 UTC"), "{message}");
+            }
+            r => panic!("{r:?}"),
+        }
         assert!(matches!(
             sky.flights("c04826", 0, 1),
-            Err(AiError::Cloud { retry: true, message }) if message == LIMIT_REACHED
+            Err(AiError::Later {
+                until_ms: 62_899_000,
+                ..
+            })
         ));
+        assert_eq!(http.gets.lock().unwrap().len(), 1);
         // No credentials.
         let sky = OpenSky::new(fake(200, &[200]), Arc::new(|| None));
         assert!(matches!(

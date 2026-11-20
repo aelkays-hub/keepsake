@@ -439,6 +439,12 @@ pub fn aircraft_route_review(
             .map_err(err)?;
         let error = job.as_ref().and_then(|j| j.error.clone());
         let failed = job.as_ref().is_some_and(|j| j.state == JobState::Failed);
+        // Queued, waiting until a source allows more (its error says when).
+        let later = job.as_ref().is_some_and(|j| {
+            j.state == JobState::Queued
+                && j.error.is_some()
+                && j.not_before_ms > keepsake_core::jobs::now_ms()
+        });
         let mut choices = Vec::new();
         let state = match &it.state {
             RouteState::NoRegistration => "no-registration",
@@ -446,6 +452,7 @@ pub fn aircraft_route_review(
             RouteState::NoTransponder if failed => "failed",
             RouteState::NoTransponder => "no-transponder",
             RouteState::Waiting if failed => "failed",
+            RouteState::Waiting if later => "later",
             RouteState::Waiting => "waiting",
             RouteState::Found(Pick::Nothing) => "nothing",
             RouteState::Found(Pick::NoneNear) => "none-near",
