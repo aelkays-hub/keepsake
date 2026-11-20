@@ -8,7 +8,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { fileUrl, type Row } from "../api";
+import { api, events, fileUrl, type Row } from "../api";
 import { selectionPayload, useListKeys } from "../edits";
 import * as fmt from "../format";
 import * as sel from "../selection";
@@ -118,6 +118,7 @@ function Tile({
 export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
   const { s, dispatch, view } = useUi();
   const rows = useRows(view, s.revision);
+  const routeOn = useRouteOn();
   const size = useThumbSize();
   const TILE = tilePx(size);
   const large = wantsLarge(size, window.devicePixelRatio || 1);
@@ -192,6 +193,23 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
             run: () =>
               dispatch({
                 t: "aircraftReview",
+                job: {
+                  selection: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                },
+              }),
+          },
+          {
+            label: "Add route…",
+            title: routeOn
+              ? "Find the flight of the aircraft in these photos: from and to, and the flight number (asks OpenSky; needs a registration)"
+              : "Turn on Find the route online in Settings → Read aircraft, and add the OpenSky client or Flightradar24 token",
+            testId: "tile-menu-route",
+            disabled: !routeOn || rows.get(i)?.kind === "video",
+            run: () =>
+              dispatch({
+                t: "route",
                 job: {
                   selection: selectionPayload(view?.view ?? null, cur),
                   count: n,
@@ -435,4 +453,25 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
       {itemMenu.element}
     </>
   );
+}
+
+/** Add route can be used: its setting is on and an OpenSky client is saved
+ * (ADR-044). Asked again when Settings change it. */
+function useRouteOn(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const ask = () =>
+      api
+        .aircraftRouteStatus()
+        .then((r) => live && setOn(r.enabled && r.credentials))
+        .catch(() => live && setOn(false));
+    ask();
+    const un = events.aircraftStatus(ask);
+    return () => {
+      live = false;
+      void un.then((f) => f()).catch(() => undefined);
+    };
+  }, []);
+  return on;
 }

@@ -7,14 +7,25 @@
 //!   an airline (`airlines.tsv`), which a type spelt out by the door.
 //! - [`types`]: the type a picture looks like, from its SigLIP 2 embedding
 //!   and a list of types (`aircraft-types.tsv`), when no type is painted.
-//! - [`install`]: where the text models are, and downloading them.
+//! - [`planes`]: where the aircraft are in a picture (YOLOX-s), so that
+//!   only the text on them is read.
+//! - [`install`]: where the text models and the aircraft finder are, and
+//!   downloading them.
+//! - [`built`]: when an aircraft was built (OpenSky's database, or typed),
+//!   for its age.
+//! - [`route`]: the flight a photo shows (OpenSky's flight history), for
+//!   Add route.
 //! - [`scan`]: the `ai.aircraft` job: one item's picture in, its
 //!   `Aircraft|…` keywords out. Originals are only read.
 
+pub mod built;
+pub mod fr24;
 pub mod install;
 pub mod lookup;
 pub mod marks;
 pub mod ocr;
+pub mod planes;
+pub mod route;
 pub mod scan;
 pub mod types;
 

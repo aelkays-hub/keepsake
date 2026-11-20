@@ -63,6 +63,8 @@ export function ordered(items: AircraftReviewItemDto[]): AircraftReviewItemDto[]
 /** Where an offered keyword comes from, for its label. */
 export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
   const pct = pctOf(item, keyword);
+  // The build year comes from OpenSky's database on this computer (ADR-044).
+  if (item.fromLookup.includes(keyword) && parts(keyword)[0] === "Built") return "(OpenSky)";
   if (item.fromLookup.includes(keyword)) return pct === null ? "(adsbdb)" : `${pct}%, adsbdb`;
   return pct === null ? "(its look)" : `${pct}%`;
 }
@@ -106,7 +108,12 @@ export function lookupLine(item: AircraftReviewItemDto): string {
   return item.lookups
     .map((l) =>
       l.known
-        ? `${l.registration}: ${[l.aircraftType, l.airline ?? l.owner, l.country]
+        ? `${l.registration}: ${[
+            l.aircraftType,
+            l.airline ?? l.owner,
+            l.country,
+            l.built && `built ${l.built.slice(0, 4)}`,
+          ]
             .filter(Boolean)
             .join(", ")}`
         : `adsbdb does not know ${l.registration}`,
@@ -157,6 +164,24 @@ export function toReview(i: AircraftReviewItemDto): boolean {
 /** How many are waiting for review with something to accept. */
 export function waitingCount(r: AircraftReviewDto): number {
   return r.items.filter(toReview).length;
+}
+
+/** Read, with no registration, airline or type found at any confidence. */
+export function nothingFound(i: AircraftReviewItemDto): boolean {
+  return i.registrations.length + i.airlines.length + i.types.length + i.offered.length === 0;
+}
+
+/** The window's line when it lists no photo although some were read: why. */
+export function noneWaitingLine(r: AircraftReviewDto): string {
+  if (belowLevels(r) > 0) return "Nothing more to accept at these levels.";
+  const empty = r.items.filter(nothingFound).length;
+  const reviewed = r.items.length - empty;
+  const none = `No registration, airline or type was found on ${
+    empty === 1 && r.items.length === 1 ? "this photo" : fmt.plural(empty, "photo")
+  }.`;
+  if (empty === 0) return "Every photo read so far has been reviewed.";
+  if (reviewed === 0) return none;
+  return `${none} The ${reviewed === 1 ? "other has" : "others have"} been reviewed (tick "Show accepted and dismissed too" to see them).`;
 }
 
 /** How many wait with nothing at the window's levels (shown when a level

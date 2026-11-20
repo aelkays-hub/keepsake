@@ -5,7 +5,7 @@ import * as fmt from "./format";
 
 /** One line on whether Read aircraft is ready, and how the type is found. */
 export function aircraftProgress(st: AircraftStatus): string {
-  if (st.installing !== null) return "Downloading the text models…";
+  if (st.installing !== null) return "Downloading the models…";
   if (!st.enabled) return "Off.";
   if (!st.runtimeFound) return "Not running: ONNX Runtime is missing.";
   if (st.problem) return `Not running: ${st.problem}`;

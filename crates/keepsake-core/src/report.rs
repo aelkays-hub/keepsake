@@ -100,11 +100,11 @@ pub fn write_csv(r: &LibraryReport, path: &Path) -> std::io::Result<()> {
 
 /// The aircraft report's CSV columns.
 pub const AIRCRAFT_CSV_HEADER: &str =
-    "Table,Name,Photos,Registrations,Airlines,Types,First seen,Last seen";
+    "Table,Name,Photos,Registrations,Airlines,Types,First seen,Last seen,Built";
 
 fn aircraft_line(out: &mut String, table: &str, r: &AircraftRow) {
     out.push_str(&format!(
-        "{},{},{},{},{},{},{},{}\r\n",
+        "{},{},{},{},{},{},{},{},{}\r\n",
         field(table),
         field(&r.name),
         r.photos,
@@ -113,11 +113,12 @@ fn aircraft_line(out: &mut String, table: &str, r: &AircraftRow) {
         field(&r.types.join("; ")),
         r.first.as_deref().unwrap_or_default(),
         r.last.as_deref().unwrap_or_default(),
+        r.built.as_deref().unwrap_or_default(),
     ));
 }
 
 /// The aircraft report: the totals as name–value lines, then airlines,
-/// types and registrations (CRLF line ends).
+/// types and registrations, then the drill-down (CRLF line ends).
 pub fn aircraft_to_csv(r: &AircraftReport) -> String {
     let t = &r.totals;
     let mut out = String::new();
@@ -135,7 +136,7 @@ pub fn aircraft_to_csv(r: &AircraftReport) -> String {
         ("Registrations", t.registrations),
         ("Reads waiting for review", t.waiting_review),
     ] {
-        out.push_str(&format!("Total,{},{n},,,,,\r\n", field(name)));
+        out.push_str(&format!("Total,{},{n},,,,,,\r\n", field(name)));
     }
     for (table, rows) in [
         ("Airline", &r.airlines),
@@ -144,6 +145,21 @@ pub fn aircraft_to_csv(r: &AircraftReport) -> String {
     ] {
         for row in rows {
             aircraft_line(&mut out, table, row);
+        }
+    }
+    // The drill-down, one line per airline, type and registration together
+    // (a blank where none is named).
+    for a in &r.by_airline {
+        for t in &a.children {
+            for reg in &t.children {
+                out.push_str(&format!(
+                    "Airline > Type > Registration,{},{},,{},{},,,\r\n",
+                    field(reg.name.as_deref().unwrap_or_default()),
+                    reg.photos,
+                    field(a.name.as_deref().unwrap_or_default()),
+                    field(t.name.as_deref().unwrap_or_default()),
+                ));
+            }
         }
     }
     out

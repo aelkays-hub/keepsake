@@ -462,6 +462,34 @@ impl<'a> MetadataService<'a> {
         })
     }
 
+    /// Set the time zone the photo was taken in (`offset_min` from UTC,
+    /// −12:00 to +14:00): the time the camera's clock showed stays, the
+    /// instant moves. Its source becomes the sidecar (where it is now
+    /// kept). Errors when the asset has no capture time.
+    pub fn set_capture_offset(
+        &mut self,
+        id: AssetId,
+        offset_min: i16,
+    ) -> Result<Asset, LibraryError> {
+        if !(-720..=840).contains(&offset_min) {
+            return Err(LibraryError::Invalid(format!(
+                "UTC{offset_min:+} minutes is not a time zone"
+            )));
+        }
+        self.edit(id, |_, a| {
+            let c = a
+                .capture
+                .as_mut()
+                .ok_or_else(|| LibraryError::Invalid(format!("asset {id} has no capture time")))?;
+            let wall = c.utc_ms + i64::from(c.utc_offset_min.unwrap_or(0)) * 60_000;
+            c.utc_ms = wall - i64::from(offset_min) * 60_000;
+            c.utc_offset_min = Some(offset_min);
+            a.capture_source = Some(crate::catalog::CaptureSource::Sidecar);
+            a.capture_confidence = Some(crate::catalog::Confidence::High);
+            Ok(())
+        })
+    }
+
     /// Create or update an event and put `assets` in it.
     pub fn set_event(&mut self, event: &Event, assets: &[AssetId]) -> Result<(), LibraryError> {
         let lib = self.lib;

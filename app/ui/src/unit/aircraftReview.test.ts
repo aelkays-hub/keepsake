@@ -18,6 +18,8 @@ import {
   waitingCount,
   toReview,
   belowLevels,
+  nothingFound,
+  noneWaitingLine,
 } from "../aircraftReview";
 
 const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => ({
@@ -123,6 +125,29 @@ describe("Read aircraft review", () => {
     expect(belowLevels(below)).toBe(1);
   });
 
+  it("says why no photo is listed", () => {
+    const empty = { registrations: [], airlines: [], types: [], offered: [] };
+    const none = item({ ...empty, review: "dismissed" });
+    expect(nothingFound(none)).toBe(true);
+    expect(nothingFound(item({ offered: [] }))).toBe(false);
+    // The one photo picked had nothing painted that could be read.
+    expect(noneWaitingLine(review({ items: [none] }))).toBe(
+      "No registration, airline or type was found on this photo.",
+    );
+    expect(noneWaitingLine(review({ items: [none, { ...none, id: "a2" }] }))).toBe(
+      "No registration, airline or type was found on 2 photos.",
+    );
+    expect(noneWaitingLine(review({ items: [none, item({ review: "accepted" })] }))).toContain(
+      "The other has been reviewed",
+    );
+    expect(noneWaitingLine(review({ items: [item({ review: "accepted" })] }))).toBe(
+      "Every photo read so far has been reviewed.",
+    );
+    expect(noneWaitingLine(review({ items: [item({ offered: [] })] }))).toBe(
+      "Nothing more to accept at these levels.",
+    );
+  });
+
   it("starts a disagreeing painted type unticked; a click turns any over", () => {
     const it2 = item({
       offered: [
@@ -141,6 +166,12 @@ describe("Read aircraft review", () => {
     expect(isTicked(it2, "Aircraft|Type|Boeing 777-300ER", clicks)).toBe(true);
     expect(isTicked(it2, "Aircraft|Type|Boeing 777-200LR", clicks)).toBe(false);
     expect(sourceOf(it2, "Aircraft|Type|Boeing 777-200LR")).toBe("(adsbdb)");
+    // The build year comes from OpenSky's database (ADR-044).
+    const built = item({
+      offered: ["Aircraft|Built|2008"],
+      fromLookup: ["Aircraft|Built|2008"],
+    });
+    expect(sourceOf(built, "Aircraft|Built|2008")).toBe("(OpenSky)");
     expect(sourceOf(it2, "Aircraft|Registration|C-FIUJ")).toBe("(its look)");
   });
 
@@ -158,6 +189,7 @@ describe("Read aircraft review", () => {
           airline: "Air Canada",
           owner: "Air Canada",
           country: "Canada",
+          built: "2008-03-05",
         },
         {
           registration: "VT-JEX",
@@ -166,13 +198,14 @@ describe("Read aircraft review", () => {
           airline: null,
           owner: null,
           country: null,
+          built: null,
         },
       ],
     });
     expect(tickedNeighbours(it3, undefined)).toEqual(["b"]);
     expect(tickedNeighbours(it3, new Set(["b", "c"]))).toEqual(["c"]);
     expect(lookupLine(it3)).toBe(
-      "C-FIUJ: Boeing 777-200LR, Air Canada, Canada; adsbdb does not know VT-JEX",
+      "C-FIUJ: Boeing 777-200LR, Air Canada, Canada, built 2008; adsbdb does not know VT-JEX",
     );
     expect(secondsLabel(2.4)).toBe("+2 s");
     expect(secondsLabel(-5)).toBe("−5 s");

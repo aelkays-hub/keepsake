@@ -120,14 +120,87 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
-    /// What an online lookup said about `registration` (JSON), if asked.
-    pub fn aircraft_lookup(&self, registration: &str) -> Result<Option<String>, CatalogError> {
+    /// Every registration looked up and what was said (JSON), the longest
+    /// ago first.
+    pub fn aircraft_lookups(&self) -> Result<Vec<(String, String, i64)>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT registration, found, looked_ms FROM aircraft_lookups
+             ORDER BY looked_ms, registration",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// When `registration` was built, and where that came from (ADR-044).
+    pub fn aircraft_built(
+        &self,
+        registration: &str,
+    ) -> Result<Option<(String, String)>, CatalogError> {
         Ok(self
             .conn
             .query_row(
-                "SELECT found FROM aircraft_lookups WHERE registration = ?1",
+                "SELECT built, source FROM aircraft_built WHERE registration = ?1",
                 [registration],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// What OpenSky said `icao24` flew on `day` (`YYYY-MM-DD`, UTC; JSON),
+    /// if asked (ADR-044).
+    pub fn aircraft_flights(
+        &self,
+        icao24: &str,
+        day: &str,
+    ) -> Result<Option<String>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT flights FROM aircraft_flights WHERE icao24 = ?1 AND day = ?2",
+                [icao24, day],
                 |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The kept Flightradar24 flights of `registration` on `day`, and when
+    /// they were asked (Unix ms).
+    pub fn fr24_flights(
+        &self,
+        registration: &str,
+        day: &str,
+    ) -> Result<Option<(String, i64)>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT flights, asked_ms FROM aircraft_flights_fr24
+                 WHERE registration = ?1 AND day = ?2",
+                [registration, day],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// Every registration's build date, as `(registration, built)`.
+    pub fn aircraft_built_all(&self) -> Result<Vec<(String, String)>, CatalogError> {
+        let mut st = self
+            .conn
+            .prepare_cached("SELECT registration, built FROM aircraft_built")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// What an online lookup said about `registration` (JSON), if asked.
+    pub fn aircraft_lookup(
+        &self,
+        registration: &str,
+    ) -> Result<Option<(String, i64)>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT found, looked_ms FROM aircraft_lookups WHERE registration = ?1",
+                [registration],
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?)
     }
@@ -406,6 +479,106 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Keep when `registration` was built. One the user typed is kept over
+    /// one from OpenSky (`source` = `opensky` does not replace it).
+    pub fn put_aircraft_built(
+        &self,
+        registration: &str,
+        built: &str,
+        source: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_built (registration, built, source, set_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(registration) DO UPDATE SET built = excluded.built,
+               source = excluded.source, set_ms = excluded.set_ms
+             WHERE aircraft_built.source <> 'typed' OR excluded.source = 'typed'",
+            params![registration, built, source, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Keep what OpenSky said `icao24` flew on `day`.
+    pub fn put_aircraft_flights(
+        &self,
+        icao24: &str,
+        day: &str,
+        flights: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_flights (icao24, day, flights, asked_ms) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(icao24, day) DO UPDATE SET flights = excluded.flights,
+               asked_ms = excluded.asked_ms",
+            params![icao24, day, flights, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Forget when `registration` was built.
+    pub fn forget_aircraft_built(&self, registration: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_built WHERE registration = ?1",
+            [registration],
+        )?;
+        Ok(())
+    }
+
+    /// Forget the flights kept of `icao24` on `day` (Add route → Ask again).
+    pub fn forget_aircraft_flights(&self, icao24: &str, day: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_flights WHERE icao24 = ?1 AND day = ?2",
+            [icao24, day],
+        )?;
+        Ok(())
+    }
+
+    /// Keep what Flightradar24 said `registration` flew on `day`.
+    pub fn put_fr24_flights(
+        &self,
+        registration: &str,
+        day: &str,
+        flights: &str,
+        at_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_flights_fr24 (registration, day, flights, asked_ms)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(registration, day) DO UPDATE SET flights = excluded.flights,
+               asked_ms = excluded.asked_ms",
+            params![registration, day, flights, at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Forget the Flightradar24 flights kept of `registration` on `day`.
+    pub fn forget_fr24_flights(&self, registration: &str, day: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_flights_fr24 WHERE registration = ?1 AND day = ?2",
+            [registration, day],
+        )?;
+        Ok(())
+    }
+
+    /// Delete the Flightradar24 flights asked before `before_ms`. Returns
+    /// how many days were deleted.
+    pub fn forget_fr24_flights_before(&self, before_ms: i64) -> Result<u64, CatalogError> {
+        let n = self.conn.execute(
+            "DELETE FROM aircraft_flights_fr24 WHERE asked_ms < ?1",
+            [before_ms],
+        )?;
+        Ok(u64::try_from(n).unwrap_or(0))
+    }
+
+    /// Forget what the online lookup said about `registration`.
+    pub fn forget_aircraft_lookup(&self, registration: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "DELETE FROM aircraft_lookups WHERE registration = ?1",
+            [registration],
+        )?;
+        Ok(())
+    }
+
     /// Keep what an online lookup said about `registration`.
     pub fn put_aircraft_lookup(
         &self,
@@ -467,6 +640,20 @@ impl Ai<'_, Rw> {
              WHERE aircraft_reads.review = 'waiting'",
             params![asset, empty, at_ms],
         )? > 0)
+    }
+
+    /// Forget that `ids` were accepted before they were read
+    /// ([`Self::accept_aircraft_unread`]): read next, they wait for review
+    /// like any other. Their keywords stay. Returns how many.
+    pub fn forget_aircraft_accepted_unread(&self, ids: &[AssetId]) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        let mut st = self
+            .conn
+            .prepare_cached("DELETE FROM aircraft_reads WHERE asset_id = ?1 AND made_ms = 0")?;
+        for id in ids {
+            n += st.execute(params![id])? as u64;
+        }
+        Ok(n)
     }
 
     /// Set aside the reads of `ids` that wait for review but found nothing

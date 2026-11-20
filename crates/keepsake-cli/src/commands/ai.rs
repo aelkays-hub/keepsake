@@ -114,6 +114,9 @@ pub enum AircraftAction {
         /// Use the processor only, not the graphics card.
         #[arg(long)]
         cpu: bool,
+        /// Read the whole picture, not only the aircraft found in it.
+        #[arg(long)]
+        whole: bool,
     },
 }
 
@@ -513,7 +516,7 @@ fn faces(ctx: &Ctx, action: FacesAction) -> Result<u8> {
 }
 
 fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
-    use keepsake_core::ai::aircraft::{install as text_install, marks, ocr, scan, types};
+    use keepsake_core::ai::aircraft::{install as text_install, marks, ocr, planes, scan, types};
     use keepsake_core::catalog::TagPath;
     use keepsake_core::render::Variant;
     match action {
@@ -702,6 +705,7 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
             detector,
             max_side,
             cpu,
+            whole,
         } => {
             let mut pictures: Vec<(String, std::path::PathBuf)> =
                 files.iter().map(|f| (path_str(f), f.clone())).collect();
@@ -749,6 +753,13 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
             if !ctx.json {
                 eprintln!("Text models loaded on the {}.", reader.accel().describe());
             }
+            let mut finder = match text_install::PLANES.find() {
+                Some(m) if !whole => Some(planes::PlaneFinder::load(&m, &runtime, !cpu)?),
+                _ => None,
+            };
+            if !ctx.json && finder.is_none() {
+                eprintln!("Reading the whole picture (no aircraft finder).");
+            }
             let tools = RenderTools::discover();
             let airlines = marks::Airlines::builtin();
             let types = types::TypeList::builtin()?;
@@ -761,7 +772,11 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                     .with_context(|| format!("reading {}", file.display()))?;
                 let load_ms = t_load.elapsed().as_millis() as u64;
                 let t0 = std::time::Instant::now();
-                let lines = scan::read_lines(&mut |i| reader.read(i), &airlines, &img)?;
+                let found = match finder.as_mut() {
+                    Some(f) => f.find(&img)?,
+                    None => Vec::new(),
+                };
+                let lines = scan::read_lines(&mut |i| reader.read(i), &found, &airlines, &img)?;
                 let ms = t0.elapsed().as_millis() as u64;
                 let marks = marks::interpret(&lines, &airlines);
                 let looks: Vec<(String, f32)> = match image_model.as_mut() {
@@ -783,6 +798,9 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                     "registrations": marks.registrations,
                     "airlines": marks.airlines,
                     "types": marks.types,
+                    "planes": found.iter().map(|p| json!({
+                        "x": p.x, "y": p.y, "w": p.w, "h": p.h, "score": p.score,
+                    })).collect::<Vec<_>>(),
                     "looks_like": looks.iter().map(|(n, p)| json!({"type": n, "probability": p})).collect::<Vec<_>>(),
                     "lines": lines.iter().map(|l| json!({
                         "text": l.text,
@@ -801,6 +819,8 @@ fn aircraft(ctx: &Ctx, action: AircraftAction) -> Result<u8> {
                         r["ms"],
                         r["picture"].as_str().unwrap_or("?")
                     );
+                    let planes = r["planes"].as_array().map_or(0, Vec::len);
+                    println!("  aircraft found: {planes}");
                     for key in ["registrations", "airlines", "types"] {
                         let v: Vec<&str> = r[key]
                             .as_array()

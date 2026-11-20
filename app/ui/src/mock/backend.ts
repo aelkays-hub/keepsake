@@ -91,7 +91,7 @@ export interface MockState {
   faces: { enabled: boolean; installed: boolean; scanned: number; people: number; left: number };
   /** Read aircraft (`?aircraft=on`: on, models installed), and the photos
    * asked for: status polls left. */
-  aircraft: { enabled: boolean; installed: boolean; asked: Map<string, number> };
+  aircraft: { enabled: boolean; installed: boolean; finder: boolean; asked: Map<string, number> };
   /** Read aircraft's review window: each photo's read (`left`: reviews
    * until it is read; −1: stopped before) and review state, and the
    * sliders. */
@@ -105,6 +105,32 @@ export interface MockState {
   };
   /** Look registrations up online (`?lookup=on`). */
   aircraftLookup: boolean;
+  /** OpenSky's aircraft database is on this computer (`?builtdb=on`; one
+   * kept before the transponder codes were: `?builtdb=old`). */
+  aircraftBuiltDb: boolean;
+  aircraftBuiltCodes: boolean;
+  /** When each registration was built, as kept (ADR-044). */
+  aircraftBuilt: Map<string, { built: string; source: string }>;
+  /** Add route (ADR-044): on (`?route=on`), the OpenSky client saved
+   * (`?opensky=saved`), and how often each photo was asked about. */
+  route: {
+    enabled: boolean;
+    saved: boolean;
+    eastern: boolean;
+    asked: Map<string, number>;
+    /** Time zones set per item; codes typed per registration; with
+     * `?nocode=on` no aircraft's code is known until typed. */
+    zone: Map<string, number>;
+    codes: Map<string, string>;
+    noCode: boolean;
+    /** `opensky` or `flightradar` (`?routesource=flightradar`); the
+     * Flightradar24 token saved (`?fr24=saved`). */
+    source: string;
+    fr24: boolean;
+    /** Look up aircraft on Flightradar24: asked so far, running. */
+    lookedUp: number;
+    lookingUp: boolean;
+  };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
   faceRows: Map<number, MockFace>;
@@ -170,7 +196,7 @@ const AIRCRAFT_TAGS = [
   "Aircraft|Airline|Air Canada",
   "Aircraft|Type|Boeing 777-300ER",
 ];
-const AIRCRAFT_BYTES = 95861692;
+const AIRCRAFT_BYTES = 88030804 + 7830888 + 35858002;
 /** The mock's aircraft photos (those "tagged Airplane"): every fifth item
  * that is not a video. */
 const isAircraft = (it: { i: number; kind: string }) => it.i % 5 === 0 && it.kind !== "video";
@@ -271,6 +297,7 @@ function mockAircraftReport(): AircraftReport {
     types: string[],
     first: string | null,
     last: string | null,
+    built: string | null = null,
   ) => ({
     name,
     path: `Aircraft|${kind}|${name}`,
@@ -280,6 +307,7 @@ function mockAircraftReport(): AircraftReport {
     types,
     first,
     last,
+    built,
   });
   return {
     totals: {
@@ -314,7 +342,17 @@ function mockAircraftReport(): AircraftReport {
       row("Type", "Boeing 777-300ER", 4, 1, ["Air Canada"], [], "2020-02-02", "2020-02-02"),
     ],
     registrations: [
-      row("Registration", "PH-BFA", 12, 0, ["KLM"], ["Boeing 747"], "2019-01-06", "2019-01-06"),
+      row(
+        "Registration",
+        "PH-BFA",
+        12,
+        0,
+        ["KLM"],
+        ["Boeing 747"],
+        "2019-01-06",
+        "2019-01-06",
+        "1989",
+      ),
       row(
         "Registration",
         "C-FVLU",
@@ -324,6 +362,7 @@ function mockAircraftReport(): AircraftReport {
         ["Boeing 787-9"],
         "2018-01-02",
         "2024-06-01",
+        "2016-03-10",
       ),
       row(
         "Registration",
@@ -334,6 +373,7 @@ function mockAircraftReport(): AircraftReport {
         ["Boeing 777-300ER"],
         "2020-02-02",
         "2020-02-02",
+        "2008",
       ),
       row("Registration", "XA-MBA", 6, 0, ["Interjet"], [], "2019-01-06", "2019-01-06"),
     ],
@@ -342,6 +382,46 @@ function mockAircraftReport(): AircraftReport {
       { year: "2019", photos: 60, withMarks: 25 },
       { year: "2024", photos: 25, withMarks: 5 },
       { year: null, photos: 5, withMarks: 0 },
+    ],
+    byAirline: [
+      {
+        name: "Air Canada",
+        photos: 20,
+        children: [
+          {
+            name: "Boeing 787-9",
+            photos: 14,
+            children: [
+              { name: "C-FVLU", photos: 10, children: [] },
+              { name: null, photos: 4, children: [] },
+            ],
+          },
+          {
+            name: "Boeing 777-300ER",
+            photos: 4,
+            children: [{ name: "C-FITU", photos: 4, children: [] }],
+          },
+          { name: null, photos: 2, children: [{ name: null, photos: 2, children: [] }] },
+        ],
+      },
+      {
+        name: "KLM",
+        photos: 12,
+        children: [
+          {
+            name: "Boeing 747",
+            photos: 12,
+            children: [{ name: "PH-BFA", photos: 12, children: [] }],
+          },
+        ],
+      },
+      {
+        name: "Interjet",
+        photos: 6,
+        children: [
+          { name: null, photos: 6, children: [{ name: "XA-MBA", photos: 6, children: [] }] },
+        ],
+      },
     ],
   };
 }
@@ -452,11 +532,30 @@ export function installMock(): void {
     aircraft: {
       enabled: params.get("aircraft") === "on",
       installed: params.get("aircraft") === "on",
+      finder: params.get("finder") !== "off",
       asked: new Map(),
     },
     aircraftReads: new Map(),
     aircraftConf: { registrationPct: 80, airlinePct: 85, typePct: 70, sameShotS: 10 },
     aircraftLookup: params.get("lookup") === "on",
+    aircraftBuiltDb: ["on", "old"].includes(params.get("builtdb") ?? ""),
+    aircraftBuiltCodes: params.get("builtdb") === "on",
+    route: {
+      enabled: params.get("route") === "on",
+      eastern: false,
+      zone: new Map(),
+      codes: new Map(),
+      noCode: params.get("nocode") === "on",
+      source: params.get("routesource") ?? "opensky",
+      fr24: params.get("fr24") === "saved",
+      lookedUp: 0,
+      lookingUp: false,
+      saved: params.get("opensky") === "saved",
+      asked: new Map(),
+    },
+    aircraftBuilt: new Map(
+      params.get("builtdb") === "on" ? [["C-FJZS", { built: "2008", source: "opensky" }]] : [],
+    ),
     faceRows: new Map(),
     facesMatch: 55,
     facesAsked: new Set(),
@@ -641,7 +740,7 @@ export function installMock(): void {
       st.calls.push({ cmd, args: a });
       switch (cmd) {
         case "app_info": {
-          const reply = { version: "0.5.3-mock", library, uiTest: true };
+          const reply = { version: "0.6.0-mock", library, uiTest: true };
           // ?opening=<ms>: the library takes that long to open.
           const ms = Number(params.get("opening") ?? 0);
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
@@ -649,7 +748,7 @@ export function installMock(): void {
         case "library_create":
         case "library_open":
           library = String(a.path);
-          return { version: "0.5.3-mock", library, uiTest: true };
+          return { version: "0.6.0-mock", library, uiTest: true };
         case "view_open": {
           const q = a.query as Query;
           const s = a.sort as SortSpec;
@@ -1341,7 +1440,7 @@ export function installMock(): void {
           return [
             "Keepsake diagnostic report",
             "==========================",
-            "Program: keepsake-app 0.5.3-mock",
+            "Program: keepsake-app 0.6.0-mock",
             "Tools:",
             "  exiftool   13.59  [~\\AppData\\Local\\Keepsake\\exiftool\\exiftool.exe]",
             `Library: D:\\Keepsake`,
@@ -1569,6 +1668,8 @@ export function installMock(): void {
           return {
             enabled: st.aircraft.enabled,
             modelsInstalled: st.aircraft.installed,
+            finderInstalled: st.aircraft.installed && st.aircraft.finder,
+            finderBytes: 35858002,
             modelsBytes: AIRCRAFT_BYTES,
             runtimeFound: true,
             looks: st.ai.modelInstalled,
@@ -1577,11 +1678,290 @@ export function installMock(): void {
             installing: null,
             confidence: st.aircraftConf,
             lookup: st.aircraftLookup,
+            builtInstalled: st.aircraftBuiltDb,
+            builtCodes: st.aircraftBuiltCodes,
+            builtBytes: 94509542,
+            builtInstalling: null,
           };
+        case "aircraft_built_install":
+          st.aircraftBuiltDb = true;
+          st.aircraftBuiltCodes = true;
+          if (!st.aircraftBuilt.has("C-FJZS"))
+            st.aircraftBuilt.set("C-FJZS", { built: "2008", source: "opensky" });
+          void emit("aircraft://built-install", {
+            done: 0,
+            total: 94509542,
+            finished: true,
+            error: null,
+          });
+          return null;
+        case "aircraft_built_cancel":
+          return null;
+        case "aircraft_route_status":
+          return {
+            enabled: st.route.enabled,
+            credentials: st.route.source === "flightradar" ? st.route.fr24 : st.route.saved,
+            source: st.route.source,
+            opensky: st.route.saved,
+            flightradar: st.route.fr24,
+            lookup: st.aircraftLookup,
+            eastern: st.route.eastern,
+          };
+        case "aircraft_set_route":
+          st.route.enabled = Boolean(a.enabled);
+          void emit("aircraft://status", null);
+          return null;
+        case "aircraft_set_route_source":
+          st.route.source = String(a.source) === "flightradar" ? "flightradar" : "opensky";
+          void emit("aircraft://status", null);
+          return null;
+        case "flightradar_set_token":
+          st.route.fr24 = Boolean(String(a.token ?? "").trim());
+          void emit("aircraft://status", null);
+          return null;
+        case "fr24_aircraft": {
+          // Known for C-FJZS once looked up (`?fr24=saved` and a run).
+          const reg = String(a.registration);
+          if (st.route.lookedUp === 0) return null;
+          return reg === "C-FJZS"
+            ? {
+                registration: reg,
+                found: true,
+                aircraftType: "Boeing 787-9",
+                icaoType: "B789",
+                airline: "Air Canada",
+                livery: "ACA",
+                hex: "C05E2B",
+                seen: "2026-11-19",
+                keptUntil: "2026-12-20",
+              }
+            : null;
+        }
+        case "fr24_aircraft_status": {
+          // 40 registrations; each look at the status while running asks 10.
+          if (st.route.lookingUp) {
+            st.route.lookedUp = Math.min(40, st.route.lookedUp + 10);
+            if (st.route.lookedUp >= 40) st.route.lookingUp = false;
+          }
+          return {
+            token: st.route.fr24,
+            registrations: 40,
+            asked: st.route.lookedUp,
+            found: Math.floor(st.route.lookedUp * 0.75),
+            running: st.route.lookingUp,
+            problem: null,
+          };
+        }
+        case "fr24_aircraft_start":
+          if (!st.route.fr24) throw "Add your Flightradar24 API token first.";
+          st.route.lookingUp = true;
+          return true;
+        case "fr24_aircraft_stop":
+          st.route.lookingUp = false;
+          return null;
+        case "flightradar_test":
+          if (!st.route.fr24)
+            throw "No Flightradar24 API token: add it in Settings → Read aircraft";
+          return "Flightradar24 accepted the API token.";
+        case "aircraft_set_route_eastern":
+          st.route.eastern = Boolean(a.eastern);
+          void emit("aircraft://status", null);
+          return null;
+        case "aircraft_route_set_code": {
+          const reg = String(a.registration);
+          if (a.code) st.route.codes.set(reg, String(a.code));
+          else st.route.codes.delete(reg);
+          return null;
+        }
+        case "time_zone_apply": {
+          const ids = resolve(a.selection as Selection);
+          for (const i of ids) st.route.zone.set(`a${i}`, Number(a.offsetMin));
+          return { changed: ids.length, background: false };
+        }
+        case "aircraft_route_again": {
+          const ids = (a.ids ?? []) as string[];
+          for (const id of ids) st.route.asked.set(id, 0);
+          return ids.length;
+        }
+        case "opensky_set_credentials": {
+          const id = String(a.clientId ?? "").trim();
+          const secret = String(a.secret ?? "").trim();
+          if (Boolean(id) !== Boolean(secret)) throw "Fill in both the client ID and the secret.";
+          st.route.saved = Boolean(id);
+          void emit("aircraft://status", null);
+          return null;
+        }
+        case "opensky_test":
+          if (!st.route.saved)
+            throw "No OpenSky client ID and secret: add them in Settings → Read aircraft";
+          return "OpenSky accepted the client ID and secret.";
+        case "aircraft_route": {
+          if (!st.route.enabled)
+            throw "Turn on Find the route online in Settings → Read aircraft first.";
+          const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+          for (const id of ids) st.route.asked.set(id, 0);
+          return {
+            provider: st.route.source === "flightradar" ? "Flightradar24" : "OpenSky",
+            ids,
+            status: {
+              items: ids.length,
+              analysed: 0,
+              pending: ids.length,
+              failed: 0,
+              problem: null,
+            },
+          };
+        }
+        case "aircraft_route_stop":
+          for (const id of (a.ids ?? []) as string[]) st.route.asked.set(id, -1);
+          return null;
+        case "aircraft_route_review": {
+          // Each photo is "asked about" on the first look and answered on
+          // the next. By the item's number: a departure (YYZ → LHR), two
+          // flights as near, no flight near, nothing known; videos and
+          // photos not of aircraft have no registration.
+          const choice = (
+            from: [string, string, string] | null,
+            to: [string, string, string] | null,
+            callsign: string,
+            flight: string,
+            at: string,
+            gapMin: number,
+          ) => ({
+            callsign,
+            flight,
+            from: from?.[0] ?? null,
+            fromIcao: from?.[1] ?? null,
+            fromCountry: from?.[2] ?? null,
+            to: to?.[0] ?? null,
+            toIcao: to?.[1] ?? null,
+            toCountry: to?.[2] ?? null,
+            departed: "2026-05-31T12:16:00Z",
+            arrived: "2026-05-31T19:25:00Z",
+            at,
+            gapMin,
+            inferred: false,
+            keywords: [
+              ...(from ? [`Aircraft|From|${from[0]}`, `Aircraft|From country|${from[2]}`] : []),
+              ...(to ? [`Aircraft|To|${to[0]}`, `Aircraft|To country|${to[2]}`] : []),
+              `Aircraft|Flight|${flight}`,
+            ],
+          });
+          const YYZ: [string, string, string] = ["YYZ", "CYYZ", "Canada"];
+          const LHR: [string, string, string] = ["LHR", "EGLL", "United Kingdom"];
+          const YUL: [string, string, string] = ["YUL", "CYUL", "Canada"];
+          let pending = 0;
+          const items = ((a.ids ?? []) as string[]).map((id) => {
+            const i = Number(id.slice(1));
+            const it = all[i];
+            const kws = st.keywords.get(i) ?? [];
+            const reg =
+              kws.find((k) => k.startsWith("Aircraft|Registration|"))?.slice(22) ??
+              (it && isAircraft(it) ? "C-FJZS" : null);
+            const n = st.route.asked.get(id) ?? 1;
+            if (n >= 0) st.route.asked.set(id, n + 1);
+            const offset = st.route.zone.get(id) ?? (st.route.eastern ? -240 : -300);
+            const code = (reg && st.route.codes.get(reg)) ?? (st.route.noCode ? null : "C04826");
+            const base = {
+              id,
+              name: it?.name ?? null,
+              thumb: null,
+              registration: reg,
+              // Marked UTC−05:00; read as Eastern daylight time, an hour
+              // earlier; a time zone set keeps the clock time (07:31).
+              taken: new Date(Date.UTC(2026, 4, 31, 7, 31, 11) - offset * 60_000)
+                .toISOString()
+                .replace(".000", ""),
+              local: "2026-05-31T07:31:11",
+              offsetMin: offset,
+              zoneSet: st.route.zone.has(id),
+              code: reg ? code : null,
+              codeTyped: reg !== null && st.route.codes.has(reg),
+              error: null,
+              choices: [] as ReturnType<typeof choice>[],
+              has: kws.filter((k) =>
+                /^Aircraft\|(From|To|From country|To country|Flight)\|/.test(k),
+              ),
+            };
+            if (!reg) return { ...base, state: "no-registration" };
+            if (!code && st.route.source !== "flightradar")
+              return { ...base, state: "no-transponder" };
+            if (n === 0) {
+              pending += 1;
+              return { ...base, state: "waiting" };
+            }
+            switch ((i / 5) % 4) {
+              case 0:
+                return {
+                  ...base,
+                  state: "found",
+                  choices: [choice(YYZ, LHR, "ACA856", "AC856", "departure", 15)],
+                };
+              case 1:
+                return {
+                  ...base,
+                  state: "several",
+                  choices: [
+                    choice(null, YYZ, "ACA443", "AC443", "arrival", 30),
+                    choice(YYZ, YUL, "ACA412", "AC412", "departure", 30),
+                  ],
+                };
+              case 2:
+                return { ...base, state: "none-near" };
+              default:
+                return { ...base, state: "nothing" };
+            }
+          });
+          return { items, pending, failed: 0 };
+        }
+        case "aircraft_route_accept": {
+          const keep = (a.keywords ?? []) as string[];
+          if (keep.some((k) => !/^Aircraft\|(From|To|From country|To country|Flight)\|/.test(k)))
+            throw `${keep.find((k) => !k.startsWith("Aircraft|From"))} is not a route keyword`;
+          const i = Number(String(a.id).slice(1));
+          const cur = st.keywords.get(i) ?? [];
+          const next = [...new Set([...cur, ...keep])];
+          st.keywords.set(i, next);
+          return next.length > cur.length ? 1 : 0;
+        }
+        case "aircraft_built_remove": {
+          const had = st.aircraftBuiltDb;
+          st.aircraftBuiltDb = false;
+          return had;
+        }
+        case "aircraft_built":
+          return ((a.registrations ?? []) as string[]).flatMap((r) => {
+            const k = st.aircraftBuilt.get(r);
+            return k ? [{ registration: r, ...k }] : [];
+          });
+        case "aircraft_set_built": {
+          const reg = String(a.registration ?? "");
+          const typed = a.built == null ? null : String(a.built).trim();
+          if (typed && !/^\d{4}(-\d{2}-\d{2})?$/.test(typed))
+            throw `${typed} is not a year (2014) or a date (2014-03-05)`;
+          const before = st.aircraftBuilt.get(reg);
+          if (typed) st.aircraftBuilt.set(reg, { built: typed, source: "typed" });
+          else st.aircraftBuilt.delete(reg);
+          let changed = 0;
+          for (const [i, kws] of st.keywords) {
+            if (!kws.includes(`Aircraft|Registration|${reg}`)) continue;
+            const old = before ? `Aircraft|Built|${before.built.slice(0, 4)}` : null;
+            const next = kws.filter(
+              (k) => !(k.startsWith("Aircraft|Built|") && (typed !== null || k === old)),
+            );
+            if (typed) next.push(`Aircraft|Built|${typed.slice(0, 4)}`);
+            if (next.join() !== kws.join()) {
+              st.keywords.set(i, next);
+              changed += 1;
+            }
+          }
+          return changed;
+        }
         case "aircraft_enable":
           st.aircraft.enabled = Boolean(a.enabled);
-          if (st.aircraft.enabled && !st.aircraft.installed) {
+          if (st.aircraft.enabled && (!st.aircraft.installed || !st.aircraft.finder)) {
             st.aircraft.installed = true;
+            st.aircraft.finder = true;
             void emit("aircraft://install", {
               done: AIRCRAFT_BYTES,
               total: AIRCRAFT_BYTES,
@@ -1698,7 +2078,12 @@ export function installMock(): void {
             // With the lookup on, the registry says a 777-200LR of Air Canada.
             const looked = st.aircraftLookup && conf.registrationPct <= 96;
             const fromLookup = looked
-              ? ["Aircraft|Airline|Air Canada", "Aircraft|Type|Boeing 777-200LR"]
+              ? [
+                  "Aircraft|Airline|Air Canada",
+                  "Aircraft|Type|Boeing 777-200LR",
+                  // The build year, from OpenSky's database (ADR-044).
+                  ...(st.aircraftBuiltDb ? ["Aircraft|Built|2008"] : []),
+                ]
               : [];
             offered.push(
               ...(painted.length
@@ -1745,6 +2130,7 @@ export function installMock(): void {
                       airline: "Air Canada",
                       owner: "Air Canada",
                       country: "Canada",
+                      built: st.aircraftBuiltDb ? "2008" : null,
                     },
                   ]
                 : [],

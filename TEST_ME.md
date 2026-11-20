@@ -1,8 +1,226 @@
-# Manual Test Steps — Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+## Add route: a flight the source did not see
+
+Automated: `cargo test -p keepsake-core --lib missing` and `cargo test -p keepsake-core --test aircraft_tests accepting`
+
+Manual (both OSes):
+1. Add route on A7401009.ARW (SP-LSC, 19 May 2026), **Ask again** if it shows the old answer.
+   - **Expected:** "The source missed a flight between these: which is it?" with LOT8N WAW → YYZ (taken … after landing) and "Flight not seen (worked out …)": YYZ → WAW, "Between landing at YYZ (21:22 UTC) and next taking off from WAW (10:52 UTC, next day)".
+2. Choose YYZ → WAW and **Accept**.
+   - **Expected:** the photo's keywords are From YYZ, To WAW and their countries; the From WAW, To YYZ and Flight LOT8N accepted before are gone.
+
+---
+
+## Look up aircraft on Flightradar24
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests flightradar24`
+
+Manual (both OSes; needs a Flightradar24 API plan and its token saved):
+1. Settings → Read aircraft → Flightradar24 API token → **Look up aircraft on Flightradar24**.
+   - **Expected:** what it finds (type, airline, transponder code; no build year), about 2 credits per aircraft found, and "0 of N registrations looked up".
+2. Click **Look up all N registrations**.
+   - **Expected:** "(looking up…)" and the count going up about 10 a minute; **Stop** ends it after the registrations in hand; Look up again goes on with those left.
+3. When done, Add route (OpenSky) on a photo of an aircraft adsbdb does not know but that flew lately.
+   - **Expected:** its transponder code is known; Read aircraft offers its type and airline.
+4. Select a photo with a registration that was found (for example A7_05212.ARW, PH-BKO).
+   - **Expected:** the inspector's aircraft block shows Flightradar24 (kept until …), Type "Boeing 787-10 (B78X)", Airline "KLM", Transponder "485F82", Seen flying (a date). One not found says it did not fly in the four weeks asked about.
+5. 30 days later (not checked by hand): what was found is deleted and the registrations can be looked up again.
+
+---
+
+## Add route from Flightradar24
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests flightradar` and `cargo test -p keepsake-core --lib flightradar`
+
+Manual (both OSes; needs a Flightradar24 API plan):
+1. Settings → Read aircraft → Find the route online → **Flights from: Flightradar24**.
+   - **Expected:** the OpenSky client box goes; a Flightradar24 API token box says what is sent, 3 credits per flight, and that answers are kept 30 days.
+2. Paste the token from Key management on fr24api.flightradar24.com and click **Save**, then **Test**.
+   - **Expected:** "Saved." and "Flightradar24 accepted the API token." (no credits used). A photo older than the plan covers says "your API plan gives flights from … on; this photo is older". A wrong token: "Flightradar24 refused the API token…".
+3. Right-click A7_05212.ARW (PH-BKO, 1 April 2025) → **Add route…**.
+   - **Expected:** "Asking Flightradar24…", then the flight (for example YYZ → AMS, Flight KL692) without any transponder code. Tick the keywords to keep and **Accept**.
+4. Add route on it again.
+   - **Expected:** answered at once from what is kept (no credits); **Ask again** asks Flightradar24 once more.
+5. Choose OpenSky again in Settings.
+   - **Expected:** the window uses OpenSky's answers and the transponder code field returns; the keywords accepted stay.
+
+---
+
+## Add route: a transponder code typed, a photo's time zone
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests typed time_zone`
+
+Manual (both OSes):
+1. Add route on A7_05212.ARW (PH-BKO).
+   - **Expected:** "The transponder code of PH-BKO is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below…", and a **Transponder code** field.
+2. Type `PH-BKO` and click **Use**.
+   - **Expected:** "A transponder code is six digits and letters A–F". Type the real code (from a flight-tracking site: Mode S / ICAO 24-bit address) and click **Use**.
+   - **Expected:** OpenSky is asked; the field shows the code with "(typed)" and **Change**. Another photo of PH-BKO uses it too.
+3. On a photo, choose a **Time zone** (for example UTC+01:00).
+   - **Expected:** the clock time stays (15:56), the UTC time moves ("15:56 (UTC+01:00) · 14:56 UTC"), "kept in the sidecar" shows, and the flight is looked for at that time. The Inspector shows the new time and Time source sidecar. The photo file is not changed.
+4. With **Camera clock on Eastern time** ticked, set a photo to UTC−05:00 by hand.
+   - **Expected:** it stays UTC−05:00 (not moved to −04:00 in summer).
+
+---
+
+## Add route: Eastern clock with daylight saving, Ask again, the window
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests ask_again eastern` and `cargo test -p keepsake-core --lib route`
+
+Manual (both OSes):
+1. Right-click a photo with an `Aircraft|Registration|…` keyword, for example A7_05212.ARW (1 April 2025), and choose **Add route…**.
+   - **Expected:** each photo is one row, with the picture on the left and its text beside it, never over it. The name and the registration are on top, then "Taken 2025-04-01 15:56 (UTC−05:00) · 20:56 UTC". A flight found is in a box: the route (from → to) in bold, the flight number, when the photo was taken in it, and the keywords to tick.
+2. Tick **Camera clock on Eastern time, changed for daylight saving**.
+   - **Expected:** the line says "Taken 2025-04-01 15:56 (UTC−04:00) · 19:56 UTC", and the flight is looked for an hour earlier. A January photo stays UTC−05:00. A photo marked another time zone (for example UTC+01:00) is unchanged.
+3. Click **Ask again** on a photo.
+   - **Expected:** "Asking OpenSky…" for a moment, then the answer again, newly asked. With several photos, **Ask again for all** does the same for every photo.
+4. Settings → Read aircraft.
+   - **Expected:** the same **Camera clock on Eastern time** box is ticked under Find the route online.
+5. The photo files and their capture times in the Inspector are not changed by the setting.
+
+---
+
+## Transponder codes from OpenSky's database (Add route for aircraft adsbdb does not know)
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests opensky` and `cargo test -p keepsake-core --lib built`
+
+Manual (both OSes):
+1. Settings → Read aircraft → Build years (OpenSky). With the file downloaded before this version:
+   - **Expected:** "On this computer, without the transponder codes. Download it again to keep them." and **Download again (94.5 MB)**.
+2. Click **Download again** and wait.
+   - **Expected:** "On this computer." The file `aircraft-built.tsv` (in the app's models folder, `opensky-aircraft`) starts with `#keepsake-aircraft` and is about 3 times larger than before.
+3. Add the keyword `Aircraft|Registration|PH-BKO` to A7_05212.ARW (1 April 2025), then right-click → **Add route…**.
+   - **Expected:** if OpenSky's April 2024 database lists PH-BKO, its flight near 20:56 UTC is found (or "no flight near the time"); if not, "The transponder code of PH-BKO is not known".
+4. A registration adsbdb did not know is asked again 30 days later, in the background (not checked by hand).
+
+---
+
+## A photo asked about is read next
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests a_photo_asked_about_now`
+
+Manual (both OSes):
+1. Right-click a folder or dates with many aircraft photos → **Read aircraft**. Leave it running.
+2. While it runs, right-click one photo from elsewhere → **Read aircraft**.
+   - **Expected:** that photo is read within about 10 seconds (the photo being read finishes first), and its review shows. The folder then goes on.
+3. Do the same with **Add route…** on one photo while another Add route runs.
+   - **Expected:** the photo picked is asked about first.
+
+---
+
+## Add route (the flight a photo shows, from OpenSky)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft::route
+cargo test -p keepsake-core --test aircraft_tests --test catalog_tests --test safety_audit_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftRoute.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts -g "Add route"
+```
+
+Manual (both OSes). You need a free OpenSky account with an API client (opensky-network.org → your account → API client), and Read aircraft and Look registrations up online on.
+1. Right-click a photo. **Expected:** **Add route…** is greyed out; hovering says to turn on Find the route online (OpenSky).
+2. Settings → Read aircraft → tick **Find the route online (OpenSky)**. **Expected:** the text says what is sent ("…This tells OpenSky when you photographed that aircraft. No photo is sent."), and an **OpenSky API client** block with Client ID and Client secret. Fill both and **Save**. **Expected:** "Saved." and the secret is not shown again. Windows: Credential Manager → Windows Credentials has `opensky-client-id` and `opensky-client-secret` under Keepsake; macOS: Keychain Access has them. `config.toml` and the log do not contain them.
+3. **Test**. **Expected:** "OpenSky accepted the client ID and secret." With a wrong secret (Remove, save a wrong one, Test): "OpenSky refused the client ID and secret…".
+4. Pick a recent (2023 or later) airport photo with an accepted registration, for example C-GBIJ on 31 May 2026 at 12:31 UTC. Right-click → **Add route…**. **Expected:** "Asking OpenSky…", then "YYZ (Canada) → Not known · Flight RV2000 (callsign ROU2000)" and "Taken in the air, soon after take-off (12:16 UTC)", with ticked keywords From YYZ, From country Canada, Flight RV2000. An aircraft landing from Frankfurt (D-ABVZ, 5 May 2024) gives "FRA (Germany) → YYZ (Canada) · Flight LH470".
+5. Untick one keyword and **Accept**. **Expected:** "Added: …"; the inspector shows the keywords ticked, under Aircraft; the photo's `.xmp` sidecar has them; the original's modified time is unchanged.
+6. Add route on a 2018–2022 photo. **Expected:** "OpenSky knows no flights of this aircraft that day. Its history goes back to about 2023…". On a photo whose time is far from any flight: "No flight near this time… Shift time".
+7. Add route on a photo without a registration. **Expected:** "No registration: read the aircraft first…", and nothing is sent.
+8. Add route again on the same photos. **Expected:** the answer is immediate (kept; nothing is asked again).
+9. Wi-Fi off, Add route on a new day. **Expected:** "Asking OpenSky…" stays, the photo is tried again later; no keyword is written. Wi-Fi on: it is found.
+10. Settings → **Remove**, untick the setting. **Expected:** Add route… is greyed out again.
+
+---
+
+## The aircraft's age (built year, age today and in the photo)
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --lib ai::aircraft
+cargo test -p keepsake-core --test aircraft_tests --test report_tests --test catalog_tests --test safety_audit_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftAge.test.ts src/unit/aircraftReview.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts e2e/mocked/report.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on and a library that has photos with `Aircraft|Registration|…` keywords:
+1. Settings → Read aircraft. With **Look registrations up online** off, there is no **Build years (OpenSky)** block. Tick it. **Expected:** the block appears with **Download it (94.5 MB)**, and the lookup's text says the build year is looked up on this computer and nothing more is sent.
+2. Click **Download it**. **Expected:** a progress bar, then "On this computer." The file is `aircraft-built.tsv` in the user cache folder (Windows `%LOCALAPPDATA%\keepsake\models\opensky-aircraft\`, macOS `~/Library/Caches/keepsake/models/opensky-aircraft/`), about 4.8 MB; the 94.5 MB CSV is gone.
+3. Select a photo of an aircraft that OpenSky knows (for example EI-EFY or G-STBA, or one of yours). **Expected:** in the inspector, **Aircraft age** "about N years (built YYYY)", counted to today, **Age in this photo** "about M years (built YYYY, photographed YYYY)", and "Built: REG: from OpenSky". An undated photo has no "Age in this photo".
+4. Press Enter, then I (information panel). **Expected:** the same two lines among the facts.
+5. Select a photo whose registration OpenSky does not know. **Expected:** "When REG was built is not known." Type `2014-03-05` in **Aircraft built** and press Save. **Expected:** "Aircraft age" now exact (no "about"), "typed by you", and every photo of that registration has the keyword `Aircraft|Built|2014` (check another one; its `.xmp` sidecar has it too). The original files' modified times do not change.
+6. Type `soon` and Save. **Expected:** a red message "soon is not a year (2014) or a date (2014-03-05)"; nothing changes. **Forget** removes the typed year (and its keyword); OpenSky's comes back if it has one.
+7. Right-click photos → **Read aircraft** on photos of a registration OpenSky knows. **Expected:** the review window offers "Built YYYY (OpenSky)" ticked, and the registry line ends "built YYYY". Accept: the photo gets `Aircraft|Built|YYYY`.
+8. Tools → Report → Aircraft → **Registrations**. **Expected:** **Built** and **Age** columns; click **Age**: oldest first, unknown ("—") last; click again: youngest first. Export to CSV: the last column is Built.
+9. Photos looked up with an older version (before this version): leave the app idle with Read aircraft and the lookup on. **Expected:** in the log, "aircraft lookup asked again" about one registration a second, once each, then nothing.
+10. Wi-Fi off, then **Download it**. **Expected:** "The download failed: …" in Settings, no file left, the ages already kept still shown.
+11. Settings → **Delete it**. **Expected:** the block offers the download again; years already kept and keywords stay.
+
+---
+
+## Aircraft report: drill down from airline to type to registration
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test report_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftReport.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/report.spec.ts
+```
+
+Manual (both OSes), with a library that has aircraft keywords (accepted from Read aircraft, or typed):
+1. Tools → **Report** → **Aircraft**. **Expected:** below By year, **Airline › Type › Registration** is chosen: one line per airline with its photos, most first, and "N types" beside the name.
+2. Click the arrow of an airline. **Expected:** its types under it, each with its photos and "N registrations". Click a type's arrow: its registrations, each with its photos.
+3. Photos of an airline that name no type are in a last line "No type named"; without a registration, "No registration named".
+4. Click a registration's name. **Expected:** the library shows exactly those photos, headed "Airline › Type › Registration"; **Report** in the heading leads back with the same lines open.
+5. **Expand all** shows every line; **Collapse all** only the airlines. Type a registration in Find: only its airline, type and itself are shown, opened.
+6. Airlines, Types and Registrations beside it show the tables as before. **Export to CSV…**: the file ends with lines "Airline > Type > Registration" holding the registration, its photos, airline and type.
+
+---
+
+## Read aircraft: a picked photo shows what was read; Read again
+
+Automated (run here and in CI):
+```
+cargo test -p keepsake-core --test aircraft_tests
+cd app/ui; pnpm exec vitest run src/unit/aircraftReview.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts
+```
+
+Manual (both OSes), with Read aircraft on:
+1. Pick one photo of an aircraft whose registration or airline can be read → right-click → **Read aircraft**. **Expected:** within a few seconds the window lists the photo with what was read, ticked, with Accept, Dismiss and Read again. This also holds for a photo that got its keywords earlier as another photo's neighbour.
+2. Pick one photo with no aircraft (or nothing painted that can be read) → Read aircraft. **Expected:** "1 of 1 photos read." and "No registration, airline or type was found on this photo."
+3. In the window, **Read again** on a photo. **Expected:** "Reading…", then the photo is listed again waiting for review with the new read. Tick "Show accepted and dismissed too": accepted and dismissed photos have Read again too. Keywords accepted before stay.
+4. **Read all again** with a few photos. **Expected:** all are read again and wait for review. With more than 20 photos it asks first.
+5. A folder or dates → Read aircraft. **Expected:** as before: photos accepted as neighbours are not asked about again.
+
+---
+
+## The app is slow: thumbnails that cannot be made are not tried again
+
+Automated: `cargo test -p keepsake-core --test aircraft_tests --test ai_tests --test render_tests`
+
+Manual (both OSes), with a library that has raw files without a built-in preview and faces, tags or Read aircraft asked for them:
+1. Start the app and leave it five minutes. Settings → **Open log folder**, newest log. **Expected:** each such file has at most a few "render failed: cannot render … (no embedded preview)" lines and one "no thumbnail can be made: …"; the same file does not come back every 15 seconds.
+2. Use the app meanwhile. **Expected:** it answers at once; few or no "slow view_rows" lines.
+
+---
+
+## Read aircraft reads only the text on the aircraft
+
+1. Settings → Read aircraft (already on, from an earlier version). **Expected:** "The aircraft finder is not downloaded…" with **Download it (35.9 MB)**. Click it. **Expected:** a download bar, then the line goes away.
+2. Read aircraft on a photo with signs, a terminal or vehicles beside the plane (DSC03242.ARW, the KLM 747 by a restaurant). **Expected:** KLM and PH-BFA; nothing from the signs.
+3. A photo with your signature in a corner. **Expected:** the signature is not read.
+4. A distant aircraft (A7202535.ARW, Interjet). **Expected:** XA-MBA and Interjet.
+5. A big aircraft filling most of the photo (DSC03440.ARW, Saudia). **Expected:** Saudia.
+6. A close-up of a tail or a fuselage. **Expected:** read as before (no aircraft found means the whole photo is read).
+7. On a new computer, turning Read aircraft on downloads the text models and the finder together (131.7 MB).
+8. On macOS: the same. Originals: unchanged.
 
 ---
 

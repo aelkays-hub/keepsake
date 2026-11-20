@@ -15,6 +15,7 @@ mod prefs;
 mod render;
 mod report;
 mod reveal;
+mod route;
 mod shutdown;
 mod state;
 mod suggest;
@@ -129,6 +130,7 @@ pub fn run() {
             reveal::show_in_folder,
             edit::time_shift_preview,
             edit::time_shift_apply,
+            edit::time_zone_apply,
             maintenance::backup_overview,
             maintenance::backup_run,
             maintenance::verify_run,
@@ -191,6 +193,29 @@ pub fn run() {
             aircraft::aircraft_set_lookup,
             aircraft::aircraft_same_plane,
             aircraft::aircraft_add_keywords,
+            aircraft::aircraft_built,
+            aircraft::aircraft_set_built,
+            aircraft::aircraft_built_install,
+            aircraft::aircraft_built_cancel,
+            aircraft::aircraft_built_remove,
+            route::aircraft_route_status,
+            route::aircraft_set_route,
+            route::aircraft_set_route_eastern,
+            route::aircraft_route_again,
+            route::aircraft_route_set_code,
+            route::aircraft_set_route_source,
+            route::flightradar_set_token,
+            route::flightradar_test,
+            route::fr24_aircraft,
+            route::fr24_aircraft_status,
+            route::fr24_aircraft_start,
+            route::fr24_aircraft_stop,
+            route::opensky_set_credentials,
+            route::opensky_test,
+            route::aircraft_route,
+            route::aircraft_route_stop,
+            route::aircraft_route_review,
+            route::aircraft_route_accept,
             suggest::edit_suggestions,
             suggest::edit_suggestions_ask,
             suggest::edit_suggestions_stop,

@@ -1296,6 +1296,20 @@ textarea {
 .aircraft-seen {
   white-space: nowrap;
 }
+.aircraft-drill-actions {
+  margin-bottom: 8px;
+}
+.aircraft-drill th[scope="row"] {
+  font-weight: normal;
+}
+.aircraft-drill tr[data-depth="0"] th[scope="row"] {
+  font-weight: 600;
+}
+.aircraft-twist {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
 
 /* ── Screens (Backup, Settings) ────────────────────────────────────── */
 .screen-main {
@@ -1952,4 +1966,149 @@ button.danger {
 }
 .report th .sort-arrow:empty {
   display: none;
+}
+
+/* Add route's window (ADR-044) */
+.route-window {
+  width: min(820px, calc(100vw - 32px));
+}
+.route-window .rt-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+.route-window .rt-clock {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.route-window .rt-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.route-window .rt-photo {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.route-window .rt-thumb {
+  display: block;
+  width: 180px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.route-window .rt-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.route-window .rt-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.route-window .rt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.route-window .rt-name {
+  overflow-wrap: anywhere;
+}
+.route-window .rt-reg {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+.route-window .rt-taken {
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.route-window .rt-flight {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.route-window .rt-route {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+.route-window .rt-several {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.route-window .rt-several label {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 2px 0;
+}
+.route-window .rt-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+}
+.route-window .rt-mark {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.route-window .rt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.route-window .rt-actions:empty {
+  display: none;
+}
+.route-window .rt-note {
+  margin: 10px 0 0;
+  font-size: 0.85em;
+}
+.route-window .rt-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  font-size: 0.9em;
+}
+.route-window .rt-field {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.route-window .rt-field input {
+  font-family: ui-monospace, monospace;
+  text-transform: uppercase;
+}
+@media (max-width: 560px) {
+  .route-window .rt-photo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .route-window .rt-thumb {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 3 / 2;
+  }
 }

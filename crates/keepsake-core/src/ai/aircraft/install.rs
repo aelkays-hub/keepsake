@@ -1,4 +1,5 @@
-//! The two text models (ADR-041): where they are, and installing them.
+//! The two text models and the aircraft finder (ADR-041): where they
+//! are, and installing them.
 //!
 //! Like the other models ([`crate::ai::install`]), they are never committed
 //! or bundled. Turning on Read aircraft downloads them once into the
@@ -33,20 +34,37 @@ pub const RECOGNIZER: ModelFile = ModelFile {
     env: "KEEPSAKE_TEXT_RECOGNIZER",
 };
 
-/// Both, in the order they are downloaded.
-pub const MODELS: [ModelFile; 2] = [DETECTOR, RECOGNIZER];
+/// Finds the aircraft in a picture, so that only the text on them is read:
+/// YOLOX-s (Apache-2.0, Megvii), ONNX from the project's release 0.1.1rc0.
+pub const PLANES: ModelFile = ModelFile {
+    dir: "yolox-s",
+    file: "yolox_s.onnx",
+    url: "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx",
+    bytes: 35_858_002,
+    blake3: "9d9759d4336220e8d65f58d9c475cc289efb2045936f714f6c32ec0e77c741e5",
+    env: "KEEPSAKE_PLANE_FINDER",
+};
 
-/// Bytes to download for both.
-pub const TOTAL_BYTES: u64 = DETECTOR.bytes + RECOGNIZER.bytes;
+/// All three, in the order they are downloaded.
+pub const MODELS: [ModelFile; 3] = [DETECTOR, RECOGNIZER, PLANES];
 
-/// Both text models are installed.
+/// Bytes to download for all three.
+pub const TOTAL_BYTES: u64 = DETECTOR.bytes + RECOGNIZER.bytes + PLANES.bytes;
+
+/// All three are installed.
 pub fn installed() -> bool {
     MODELS.iter().all(|m| m.find().is_some())
 }
 
-/// Download both into the user's cache folder. `progress` gets `(bytes so
-/// far, total)` for the two together. One already there and matching is
-/// kept as is.
+/// The two text models are installed: Read aircraft can run (without the
+/// aircraft finder it reads the whole picture).
+pub fn text_installed() -> bool {
+    [DETECTOR, RECOGNIZER].iter().all(|m| m.find().is_some())
+}
+
+/// Download all three into the user's cache folder. `progress` gets
+/// `(bytes so far, total)` for them together. One already there and
+/// matching is kept as is (an update downloads only the aircraft finder).
 pub fn install(cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64)) -> Result<(), AiError> {
     let mut before = 0;
     for m in MODELS {
@@ -61,7 +79,7 @@ pub fn install(cancel: &AtomicBool, progress: &mut dyn FnMut(u64, u64)) -> Resul
     Ok(())
 }
 
-/// Remove both from the user's cache folder. `true` if one was there.
+/// Remove all three from the user's cache folder. `true` if one was there.
 pub fn remove() -> Result<bool, AiError> {
     let mut any = false;
     for m in MODELS {
@@ -78,14 +96,20 @@ mod tests {
 
     #[test]
     fn the_pins_are_whole() {
-        for m in MODELS {
-            assert_eq!(m.blake3.len(), 64, "{}", m.file);
-            assert!(m.url.contains("/resolve/") && m.url.ends_with(m.file));
+        for m in [DETECTOR, RECOGNIZER] {
+            assert!(m.url.contains("/resolve/"));
             // A pinned revision, not a branch.
             let rev = m.url.split("/resolve/").nth(1).unwrap().split('/').next();
             assert_eq!(rev.map(str::len), Some(40), "{}", m.url);
         }
-        assert_eq!(TOTAL_BYTES, 88_030_804 + 7_830_888);
+        // A release's file (a tag, not a branch).
+        assert!(PLANES.url.contains("/releases/download/0.1.1rc0/"));
+        for m in MODELS {
+            assert_eq!(m.blake3.len(), 64, "{}", m.file);
+            assert!(m.url.ends_with(m.file));
+        }
+        assert_eq!(TOTAL_BYTES, 88_030_804 + 7_830_888 + 35_858_002);
         assert_ne!(DETECTOR.env, RECOGNIZER.env);
+        assert_ne!(PLANES.env, DETECTOR.env);
     }
 }

@@ -690,6 +690,58 @@ fn every_aircraft_row_opens_exactly_its_photos() {
 }
 
 #[test]
+fn the_drill_down_goes_from_airline_to_type_to_registration() {
+    let (cat, _) = fleet();
+    let r = aircraft(&cat);
+    let shape = |g: &[keepsake_core::catalog::AircraftGroup]| -> Vec<(Option<String>, u64)> {
+        g.iter().map(|x| (x.name.clone(), x.photos)).collect()
+    };
+    let some = |s: &str| Some(s.to_owned());
+    // One airline; its types, most photos first, and last the photo that
+    // names no type; their registrations.
+    assert_eq!(shape(&r.by_airline), [(some("KLM"), 4)]);
+    let klm = &r.by_airline[0];
+    assert_eq!(
+        shape(&klm.children),
+        [
+            (some("Boeing 747"), 2),
+            (some("Boeing 777-300ER"), 1),
+            (None, 1)
+        ]
+    );
+    assert_eq!(shape(&klm.children[0].children), [(some("PH-BFA"), 2)]);
+    assert_eq!(shape(&klm.children[1].children), [(some("PH-BVA"), 1)]);
+    assert_eq!(
+        shape(&klm.children[2].children),
+        [(some("PH-BFA"), 1)],
+        "PH-BFA once without its type"
+    );
+    // A step that names every level opens exactly its photos.
+    for a in &r.by_airline {
+        for t in &a.children {
+            for reg in &t.children {
+                let (Some(an), Some(tn), Some(rn)) = (&a.name, &t.name, &reg.name) else {
+                    continue;
+                };
+                let q = SearchQuery {
+                    tags: vec![
+                        format!("Aircraft|Airline|{an}"),
+                        format!("Aircraft|Type|{tn}"),
+                        format!("Aircraft|Registration|{rn}"),
+                    ],
+                    ..Default::default()
+                };
+                assert_eq!(found(&cat, &q), reg.photos, "{an} > {tn} > {rn}");
+            }
+        }
+    }
+    let csv = report::aircraft_to_csv(&r);
+    let lines: Vec<&str> = csv.split("\r\n").collect();
+    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,2,,KLM,Boeing 747,,,"));
+    assert!(lines.contains(&"Airline > Type > Registration,PH-BFA,1,,KLM,,,,"));
+}
+
+#[test]
 fn reads_waiting_for_review_are_counted_apart() {
     let (mut cat, items) = fleet();
     cat.write(|tx| {
@@ -719,7 +771,7 @@ fn the_aircraft_csv_has_the_totals_and_every_table() {
     let csv = report::aircraft_to_csv(&aircraft(&cat));
     let lines: Vec<&str> = csv.split("\r\n").collect();
     assert_eq!(lines[0], report::AIRCRAFT_CSV_HEADER);
-    assert!(lines.contains(&"Total,Aircraft photos,5,,,,,"));
-    assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01"));
-    assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06"));
+    assert!(lines.contains(&"Total,Aircraft photos,5,,,,,,"));
+    assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01,"));
+    assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06,"));
 }

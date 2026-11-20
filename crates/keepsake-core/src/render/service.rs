@@ -64,6 +64,11 @@ use crate::settings::RenderSettings;
 const OFFLINE_RETRY_MS: i64 = 10 * 60 * 1000;
 /// How soon a job is tried again after the catalog was busy.
 const BUSY_RETRY: Duration = Duration::from_secs(2);
+/// With no old lookup left to ask again, the aircraft worker looks again
+/// after this long (one may have come from another catalog's copy).
+const REFRESH_IDLE: Duration = Duration::from_secs(600);
+/// After asking again failed (offline, the service busy), it waits this long.
+const REFRESH_BACKOFF: Duration = Duration::from_secs(600);
 /// How long the fingerprint worker waits before looking again while
 /// thumbnail jobs are ready.
 const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
@@ -275,6 +280,12 @@ pub struct RenderService {
     aircraft: Option<ReaderLoader>,
     /// Looks read registrations up online (ADR-041), when set.
     lookup: Option<Arc<dyn crate::ai::aircraft::lookup::Lookup>>,
+    /// Finds the flights of Add route (ADR-044), when set: a route worker
+    /// then takes `ai.route` jobs.
+    flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
+    fr24: Option<Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>>,
+    fr24_gap: Duration,
+    route_clock: crate::ai::aircraft::route::Clock,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
     same_shot_ms: i64,
@@ -317,6 +328,10 @@ impl RenderService {
             faces: None,
             aircraft: None,
             lookup: None,
+            flights: None,
+            fr24: None,
+            fr24_gap: crate::ai::aircraft::fr24::GAP,
+            route_clock: crate::ai::aircraft::route::Clock::default(),
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
     }
@@ -330,6 +345,29 @@ impl RenderService {
     /// The same-shot window, in seconds (1–60).
     pub fn with_same_shot(mut self, seconds: u8) -> Self {
         self.same_shot_ms = i64::from(seconds.clamp(1, 60)) * 1000;
+        self
+    }
+
+    /// Find the flights of Add route with this (ADR-044).
+    pub fn with_flights(mut self, flights: Arc<dyn crate::ai::aircraft::route::Flights>) -> Self {
+        self.flights = Some(flights);
+        self
+    }
+
+    /// Look aircraft up on Flightradar24 with this (ADR-044), `gap` apart.
+    pub fn with_fr24(
+        mut self,
+        fr24: Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>,
+        gap: Duration,
+    ) -> Self {
+        self.fr24 = Some(fr24);
+        self.fr24_gap = gap;
+        self
+    }
+
+    /// Read the camera's clock this way for Add route (ADR-044).
+    pub fn with_route_clock(mut self, clock: crate::ai::aircraft::route::Clock) -> Self {
+        self.route_clock = clock;
         self
     }
 
@@ -414,6 +452,16 @@ impl RenderService {
                 .chain(self.opts.ai.then_some(JOB_AI))
                 .chain(self.opts.faces.then_some(JOB_AI_FACES))
                 .chain(self.opts.aircraft.then_some(JOB_AI_AIRCRAFT))
+                .chain(
+                    self.flights
+                        .is_some()
+                        .then_some(crate::ai::aircraft::route::JOB_AI_ROUTE),
+                )
+                .chain(
+                    self.fr24
+                        .is_some()
+                        .then_some(crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT),
+                )
                 // One worker sends the photos of every provider.
                 .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
@@ -527,6 +575,12 @@ impl RenderService {
         }
         if kind == JOB_AI_AIRCRAFT {
             return self.aircraft_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::ai::aircraft::route::JOB_AI_ROUTE {
+            return self.route_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::ai::aircraft::fr24::JOB_FR24_AIRCRAFT {
+            return self.fr24_worker(&mut cat, cancel, tx, shared);
         }
         // The cloud worker sends the photos of every provider: tagging and
         // edit suggestions.
@@ -943,6 +997,8 @@ impl RenderService {
                 return Ok(());
             }
         };
+        // When to look for an old lookup to ask again (`None`: now).
+        let mut refresh_after: Option<Instant> = None;
         while !cancel.load(Ordering::SeqCst) {
             let pause = pause_reason(cat, &self.on_battery, self.opts.pause_on_battery);
             self.note_pause(shared, pause, tx);
@@ -963,6 +1019,25 @@ impl RenderService {
                 if self.opts.until_empty && !Self::stills_wait(cat, shared) {
                     break;
                 }
+                // Nothing to read: ask again about one registration looked
+                // up before the build date was kept (ADR-044), at the
+                // lookup's pace; after a failure, not for a while.
+                if let Some(lookup) = self.lookup.as_deref() {
+                    if refresh_after.is_none_or(|t| Instant::now() >= t) {
+                        match crate::ai::aircraft::lookup::refresh_one(cat, lookup) {
+                            Ok(Some(reg)) => {
+                                tracing::info!(registration = %reg, "aircraft lookup asked again");
+                                Self::sleep(cancel, crate::ai::aircraft::lookup::MIN_GAP);
+                                continue;
+                            }
+                            Ok(None) => refresh_after = Some(Instant::now() + REFRESH_IDLE),
+                            Err(e) => {
+                                tracing::warn!("aircraft lookup asked again: {e}");
+                                refresh_after = Some(Instant::now() + REFRESH_BACKOFF);
+                            }
+                        }
+                    }
+                }
                 Self::sleep(cancel, Duration::from_secs(1));
                 continue;
             };
@@ -971,6 +1046,8 @@ impl RenderService {
                 kind: job.kind.clone(),
                 asset: job.asset_id,
             });
+            // A lookup made while reading may leave others to ask again.
+            refresh_after = None;
             let t0 = Instant::now();
             let read = aircraft_scan::read_asset(
                 cat,
@@ -1007,6 +1084,147 @@ impl RenderService {
         Ok(())
     }
 
+    /// The route worker (ADR-044): one `ai.route` job at a time, waiting
+    /// [`crate::ai::aircraft::lookup::MIN_GAP`] after each request. Needs
+    /// no model, so it runs whether or not Read aircraft's are loaded. At
+    /// OpenSky's daily limit the job is tried again later (its error says
+    /// so), as for any failure that may pass.
+    /// Look aircraft up on Flightradar24: one batch per job, queued again
+    /// while registrations are left.
+    fn fr24_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::ai::aircraft::fr24;
+        let Some(client) = self.fr24.as_deref() else {
+            return Ok(());
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed = match cat.write(|t| t.jobs().claim(&[fr24::JOB_FR24_AIRCRAFT], now_ms()))
+            {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match fr24::run_batch(cat, client, cancel, self.fr24_gap) {
+                Ok(b) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                    tracing::info!(
+                        asked = b.asked,
+                        found = b.found,
+                        left = b.left,
+                        "Flightradar24 aircraft batch"
+                    );
+                    // More to ask about, and not stopped: the next batch.
+                    if b.left > 0 && !cancel.load(Ordering::SeqCst) {
+                        if let Err(e) = fr24::enqueue(cat) {
+                            tracing::warn!("Flightradar24 batch not queued again: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(cat, cancel, tx, shared, fr24::JOB_FR24_AIRCRAFT, &job, e)?;
+                    Self::sleep(cancel, Duration::from_secs(5));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn route_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::ai::aircraft::{lookup as lk, route};
+        let Some(flights) = self.flights.as_deref() else {
+            return Ok(());
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed = match cat.write(|t| t.jobs().claim(&[route::JOB_AI_ROUTE], now_ms())) {
+                Err(e) if e.is_busy() => {
+                    Self::sleep(cancel, BUSY_RETRY);
+                    continue;
+                }
+                r => r?,
+            };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            match route::run_job(
+                cat,
+                flights,
+                self.lookup.as_deref(),
+                job.asset_id,
+                self.route_clock,
+            ) {
+                Ok(asked) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| t.jobs().complete(job.id, now))?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                    if asked.requests > 0 {
+                        Self::sleep(cancel, lk::MIN_GAP);
+                    }
+                }
+                Err(e) => {
+                    let e = Self::ai_error(cat, &job, e)?;
+                    self.settle_err(cat, cancel, tx, shared, route::JOB_AI_ROUTE, &job, e)?;
+                    Self::sleep(cancel, lk::MIN_GAP);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Look a read's registrations up (those read surely enough, not asked
     /// about before), one at a time with a pause between. A failure is
     /// logged: the read stands without it.
@@ -1023,8 +1241,8 @@ impl RenderService {
                 continue;
             }
             match lk::kept(cat, reg) {
-                Ok(Some(_)) => continue,
-                Ok(None) => {}
+                Ok(Some(f)) if !f.stale() => continue,
+                Ok(_) => {}
                 Err(e) => {
                     tracing::debug!("aircraft lookup: {e}");
                     continue;
@@ -1040,14 +1258,32 @@ impl RenderService {
         }
     }
 
+    /// An AI job found no thumbnail: have it made (as urgently) and wait.
+    /// When making it has already failed for good (a raw file without a
+    /// built-in preview), the AI job fails for good too. Queueing the
+    /// thumbnail again would only fail the same way, every few seconds.
+    fn wait_for_thumb(cat: &mut Catalog, job: &Job) -> Result<RenderError, RenderError> {
+        let stills = cat.read(|t| t.jobs().find(JOB_STILLS, job.asset_id))?;
+        if let Some(Job {
+            state: JobState::Failed,
+            error,
+            ..
+        }) = stills
+        {
+            return Ok(RenderError::Refused(format!(
+                "no thumbnail can be made: {}",
+                error.unwrap_or_default()
+            )));
+        }
+        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
+        Ok(RenderError::Waiting("no thumbnail yet".into()))
+    }
+
     /// An AI job's error as a render error. Without a thumbnail, it is made
     /// first (as urgently) and the job waits.
     fn ai_error(cat: &mut Catalog, job: &Job, e: AiError) -> Result<RenderError, RenderError> {
         Ok(match e {
-            AiError::NoThumbnail => {
-                super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
-                RenderError::Waiting("no thumbnail yet".into())
-            }
+            AiError::NoThumbnail => Self::wait_for_thumb(cat, job)?,
             AiError::Render(e) => e,
             AiError::Catalog(e) => RenderError::Catalog(e),
             AiError::Image(m) => RenderError::Image(m),
@@ -1154,11 +1390,8 @@ impl RenderService {
                 let purpose = Purpose::of_job(&job.kind).unwrap_or(Purpose::Duplicates);
                 match ai::analyze_asset(cat, &self.cache, model, labels, job.asset_id, purpose) {
                     Ok(out) => Ok((out.tags.into_iter().map(|(t, _)| t).collect(), None)),
-                    Err(AiError::NoThumbnail) => {
-                        // Make the thumbnail first (as urgently), then again.
-                        super::enqueue(cat, &[job.asset_id], job.priority.class(), true)?;
-                        Err(RenderError::Waiting("no thumbnail yet".into()))
-                    }
+                    // Make the thumbnail first (as urgently), then again.
+                    Err(AiError::NoThumbnail) => Err(Self::wait_for_thumb(cat, job)?),
                     Err(AiError::Render(e)) => Err(e),
                     Err(AiError::Catalog(e)) => Err(RenderError::Catalog(e)),
                     Err(AiError::Image(m)) => Err(RenderError::Image(m)),

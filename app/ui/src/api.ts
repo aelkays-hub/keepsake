@@ -18,6 +18,11 @@ import type { PhotoFacesDto } from "./bindings/PhotoFacesDto";
 import type { SuggestDto } from "./bindings/SuggestDto";
 import type { AiAdviceDto } from "./bindings/AiAdviceDto";
 import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
+import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
+import type { RouteReviewDto } from "./bindings/RouteReviewDto";
+import type { Fr24AircraftDto } from "./bindings/Fr24AircraftDto";
+import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
+import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
 import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
 import type { SamePlaneDto } from "./bindings/SamePlaneDto";
@@ -99,6 +104,7 @@ export type {
   SuggestDto,
   AiAdviceDto,
   AircraftConfidenceDto,
+  AircraftBuiltDto,
   AircraftLookupDto,
   AircraftNeighbourDto,
   SamePlaneDto,
@@ -259,6 +265,8 @@ export const api = {
     invoke<TimeShiftPreview>("time_shift_preview", { selection, reference, correct }),
   timeShiftApply: (selection: Selection, offsetS: number) =>
     invoke<EditResult>("time_shift_apply", { selection, offsetS }),
+  timeZoneApply: (selection: Selection, offsetMin: number) =>
+    invoke<EditResult>("time_zone_apply", { selection, offsetMin }),
 
   backupOverview: () => invoke<BackupOverview>("backup_overview"),
   libraryReport: () => invoke<LibraryReport>("library_report"),
@@ -335,6 +343,42 @@ export const api = {
   /** Look registrations up online (adsbdb.com). */
   aircraftSetLookup: (enabled: boolean) => invoke<void>("aircraft_set_lookup", { enabled }),
   aircraftDismiss: (id: string) => invoke<void>("aircraft_dismiss", { id }),
+  /** When the aircraft of these registrations were built (ADR-044). */
+  aircraftBuilt: (registrations: string[]) =>
+    invoke<AircraftBuiltDto[]>("aircraft_built", { registrations }),
+  /** Type when a registration's aircraft was built (null: forget it);
+   * how many photos changed. */
+  aircraftSetBuilt: (registration: string, built: string | null) =>
+    invoke<number>("aircraft_set_built", { registration, built }),
+  /** Download OpenSky's aircraft database (build years), once. */
+  aircraftBuiltInstall: () => invoke<void>("aircraft_built_install"),
+  aircraftBuiltCancel: () => invoke<void>("aircraft_built_cancel"),
+  aircraftBuiltRemove: () => invoke<boolean>("aircraft_built_remove"),
+  /** Add route (ADR-044): the setting, the OpenSky API client (kept in the
+   * OS's credential store), and finding the photos' flights. */
+  aircraftRouteStatus: () => invoke<RouteStatusDto>("aircraft_route_status"),
+  aircraftSetRoute: (enabled: boolean) => invoke<void>("aircraft_set_route", { enabled }),
+  aircraftSetRouteEastern: (eastern: boolean) =>
+    invoke<void>("aircraft_set_route_eastern", { eastern }),
+  aircraftRouteAgain: (ids: string[]) => invoke<number>("aircraft_route_again", { ids }),
+  aircraftRouteSetCode: (registration: string, code: string | null) =>
+    invoke<void>("aircraft_route_set_code", { registration, code }),
+  openskySetCredentials: (clientId: string, secret: string) =>
+    invoke<void>("opensky_set_credentials", { clientId, secret }),
+  openskyTest: () => invoke<string>("opensky_test"),
+  aircraftSetRouteSource: (source: string) => invoke<void>("aircraft_set_route_source", { source }),
+  flightradarSetToken: (token: string) => invoke<void>("flightradar_set_token", { token }),
+  flightradarTest: () => invoke<string>("flightradar_test"),
+  fr24Aircraft: (registration: string) =>
+    invoke<Fr24AircraftDto | null>("fr24_aircraft", { registration }),
+  fr24AircraftStatus: () => invoke<Fr24AircraftStatusDto>("fr24_aircraft_status"),
+  fr24AircraftStart: () => invoke<boolean>("fr24_aircraft_start"),
+  fr24AircraftStop: () => invoke<void>("fr24_aircraft_stop"),
+  aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
+  aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
+  aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
+  aircraftRouteAccept: (id: string, keywords: string[]) =>
+    invoke<number>("aircraft_route_accept", { id, keywords }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
@@ -454,6 +498,8 @@ export const events = {
   aircraftInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("aircraft://install", (e) => f(e.payload)),
   aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
+  aircraftBuiltInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
+    listen<AiInstallProgress>("aircraft://built-install", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

@@ -7,4 +7,9 @@ export type AircraftLookupDto = { registration: string,
 /**
  * The service knows it.
  */
-known: boolean, aircraftType: string | null, airline: string | null, owner: string | null, country: string | null, };
+known: boolean, aircraftType: string | null, airline: string | null, owner: string | null, country: string | null, 
+/**
+ * When it was built (`2014` or `2014-03-05`), from OpenSky's
+ * aircraft database on this computer.
+ */
+built: string | null, };

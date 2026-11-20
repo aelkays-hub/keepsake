@@ -110,10 +110,16 @@ dto! {
     pub struct AircraftStatus {
         /// Turned on in the settings.
         pub enabled: bool,
-        /// Both text models are on this computer.
+        /// The two text models and the aircraft finder are on this computer.
         pub models_installed: bool,
         #[ts(type = "number")]
         pub models_bytes: u64,
+        /// The aircraft finder is on this computer: only the text on the
+        /// aircraft is read (else the whole picture).
+        pub finder_installed: bool,
+        /// Its size, to download.
+        #[ts(type = "number")]
+        pub finder_bytes: u64,
         /// ONNX Runtime is present.
         pub runtime_found: bool,
         /// On-device AI's model is installed, so the type can be guessed
@@ -130,6 +136,148 @@ dto! {
         pub confidence: AircraftConfidenceDto,
         /// Registrations are looked up online (adsbdb.com).
         pub lookup: bool,
+        /// OpenSky's aircraft database (build years, ADR-044) is on this
+        /// computer.
+        pub built_installed: bool,
+        /// The file on this computer keeps every aircraft's transponder
+        /// code (for Add route); one kept before is offered again.
+        pub built_codes: bool,
+        /// Its size, to download.
+        #[ts(type = "number")]
+        pub built_bytes: u64,
+        /// Downloading it: bytes so far.
+        #[ts(type = "number | null")]
+        pub built_installing: Option<u64>,
+    }
+
+    /// Add route at a glance (Settings → Read aircraft; ADR-044).
+    pub struct RouteStatusDto {
+        /// Find the route online is on.
+        pub enabled: bool,
+        /// The chosen source can be asked: its client or token is saved.
+        pub credentials: bool,
+        /// Where flights are found: `opensky` or `flightradar`.
+        pub source: String,
+        /// An OpenSky client ID and secret are saved.
+        pub opensky: bool,
+        /// A Flightradar24 API token is saved.
+        pub flightradar: bool,
+        /// Look registrations up online is on (the transponder code comes
+        /// from it).
+        pub lookup: bool,
+        /// The camera's clock showed Eastern time, changed for daylight
+        /// saving, though its photos say UTC−05:00.
+        pub eastern: bool,
+    }
+
+    /// What Flightradar24 showed of a photo's aircraft (the inspector).
+    pub struct Fr24AircraftDto {
+        pub registration: String,
+        /// A flight was found in the weeks asked about.
+        pub found: bool,
+        /// `Boeing 787-10` and `B78X`.
+        pub aircraft_type: Option<String>,
+        pub icao_type: Option<String>,
+        /// The airline, and the livery's code (`KLM`).
+        pub airline: Option<String>,
+        pub livery: Option<String>,
+        /// The transponder code (`485F82`).
+        pub hex: Option<String>,
+        /// The day of the flight seen, and the day it is deleted (30 days
+        /// after it was asked).
+        pub seen: Option<String>,
+        pub kept_until: String,
+    }
+
+    /// Look up aircraft on Flightradar24 (Settings → Read aircraft).
+    pub struct Fr24AircraftStatusDto {
+        /// A Flightradar24 API token is saved.
+        pub token: bool,
+        /// Registrations accepted on photos.
+        #[ts(type = "number")]
+        pub registrations: u64,
+        /// Asked about in the last 30 days, and of them found.
+        #[ts(type = "number")]
+        pub asked: u64,
+        #[ts(type = "number")]
+        pub found: u64,
+        /// The batch job is queued or running.
+        pub running: bool,
+        pub problem: Option<String>,
+    }
+
+    /// A flight offered for a photo (Add route).
+    pub struct RouteChoiceDto {
+        pub callsign: Option<String>,
+        /// The flight number it is sold as (`AC856`), else the callsign.
+        pub flight: Option<String>,
+        /// The code shown (IATA, else ICAO), the ICAO code and the country.
+        pub from: Option<String>,
+        pub from_icao: Option<String>,
+        pub from_country: Option<String>,
+        pub to: Option<String>,
+        pub to_icao: Option<String>,
+        pub to_country: Option<String>,
+        /// When OpenSky first and last saw it (UTC, ISO 8601).
+        pub departed: String,
+        pub arrived: String,
+        /// `departure` or `arrival`: which end the photo is near.
+        pub at: String,
+        /// Minutes between the photo and that end (0: in the air).
+        pub gap_min: u32,
+        /// Not seen by the source, worked out: it landed at `from` at
+        /// `departed` and next took off from `to` at `arrived` (`at` is
+        /// `between`).
+        pub inferred: bool,
+        /// `Aircraft|From|YYZ`, …: what accepting it adds.
+        pub keywords: Vec<String>,
+    }
+
+    /// A photo of the Add route window.
+    pub struct RouteItemDto {
+        pub id: String,
+        pub name: Option<String>,
+        pub thumb: Option<String>,
+        pub registration: Option<String>,
+        /// Capture time, UTC, ISO 8601.
+        pub taken: Option<String>,
+        /// The camera's time (local, `2025-04-01T15:56:18`) and its offset
+        /// from UTC in minutes, as Add route read them; `None`: no time
+        /// zone known.
+        pub local: Option<String>,
+        pub offset_min: Option<i16>,
+        /// The time comes from the sidecar (a time zone set in Keepsake).
+        pub zone_set: bool,
+        /// The transponder code asked about (`484F6E`), and whether the
+        /// user typed it.
+        pub code: Option<String>,
+        pub code_typed: bool,
+        /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
+        /// `failed`, `nothing`, `none-near`, `found` or `several`.
+        pub state: String,
+        /// Why asking failed (or will be tried again).
+        pub error: Option<String>,
+        pub choices: Vec<RouteChoiceDto>,
+        /// The route keywords the photo has already.
+        pub has: Vec<String>,
+    }
+
+    /// The Add route window: its photos and how far asking has got.
+    pub struct RouteReviewDto {
+        pub items: Vec<RouteItemDto>,
+        #[ts(type = "number")]
+        pub pending: u64,
+        #[ts(type = "number")]
+        pub failed: u64,
+    }
+
+    /// When an aircraft was built (ADR-044), as kept for its registration.
+    pub struct AircraftBuiltDto {
+        pub registration: String,
+        /// `2014` or `2014-03-05`.
+        pub built: String,
+        /// `opensky` or `typed`.
+        pub source: String,
     }
 
     /// Recognise faces at a glance (Settings; ADR-040).
@@ -947,6 +1095,9 @@ dto! {
         /// First and last capture day, `YYYY-MM-DD`.
         pub first: Option<String>,
         pub last: Option<String>,
+        /// When the aircraft was built (`2014` or `2014-03-05`;
+        /// registrations only). Its age is worked out where shown.
+        pub built: Option<String>,
     }
 
     /// One year of the aircraft report.
@@ -959,6 +1110,17 @@ dto! {
         pub with_marks: u64,
     }
 
+    /// One step of the aircraft report's drill-down: an airline, a type
+    /// under it, or a registration under that.
+    pub struct AircraftReportGroup {
+        /// Null: the photos that name none at this step.
+        pub name: Option<String>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// The next step down, most photos first (none for a registration).
+        pub children: Vec<AircraftReportGroup>,
+    }
+
     /// Tools → Report → Aircraft.
     pub struct AircraftReport {
         pub totals: AircraftReportTotals,
@@ -968,6 +1130,8 @@ dto! {
         pub registrations: Vec<AircraftReportRow>,
         /// Oldest first, undated last.
         pub years: Vec<AircraftReportYear>,
+        /// Airline › type › registration, most photos first, unnamed last.
+        pub by_airline: Vec<AircraftReportGroup>,
     }
 
     /// `maint://progress`: a backup, verify or folder scan is running.
@@ -1189,6 +1353,9 @@ dto! {
         pub airline: Option<String>,
         pub owner: Option<String>,
         pub country: Option<String>,
+        /// When it was built (`2014` or `2014-03-05`), from OpenSky's
+        /// aircraft database on this computer.
+        pub built: Option<String>,
     }
 
     /// A photo taken just before or after a read one.

@@ -374,6 +374,39 @@ impl Jobs<'_, Rw> {
         Ok(n)
     }
 
+    /// The rank before every queued job of `kind`: what [`Self::place`]
+    /// gives jobs that go to the front.
+    pub fn front_rank(&self, kind: &str) -> Result<i64, CatalogError> {
+        let min: i64 = self.conn.query_row(
+            "SELECT coalesce(min(rank), 0) FROM jobs WHERE kind = ?1 AND state = 'queued'",
+            [kind],
+            |r| r.get(0),
+        )?;
+        Ok(min.min(0).saturating_sub(1))
+    }
+
+    /// Put the queued jobs of `kind` for `assets` at `rank`, in this order
+    /// from `first_sort_key`: a photo asked about now goes ahead of a
+    /// backlog queued before (its place is otherwise kept).
+    pub fn place(
+        &self,
+        kind: &str,
+        assets: &[AssetId],
+        rank: i64,
+        first_sort_key: i64,
+    ) -> Result<u64, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "UPDATE jobs SET rank = ?3, sort_key = ?4
+             WHERE kind = ?1 AND asset_id = ?2 AND state = 'queued'",
+        )?;
+        let mut n = 0u64;
+        for (i, a) in assets.iter().enumerate() {
+            let key = first_sort_key.saturating_add(i64::try_from(i).unwrap_or(i64::MAX));
+            n += st.execute(params![kind, a, rank, key])? as u64;
+        }
+        Ok(n)
+    }
+
     /// Make exactly these assets "visible": their queued jobs jump ahead;
     /// jobs that were visible before fall back to their class.
     pub fn set_visible(&self, assets: &[AssetId]) -> Result<u64, CatalogError> {

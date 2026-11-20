@@ -60,6 +60,12 @@ fn opens_file_catalog_in_wal_mode_and_migrates_once() {
     {
         let cat = Catalog::open(&path).unwrap();
         assert_eq!(cat.journal_mode().unwrap(), "wal");
+        // The log is cut back after a checkpoint instead of staying at its
+        // largest.
+        assert_eq!(
+            cat.journal_size_limit().unwrap(),
+            keepsake_core::catalog::WAL_SIZE_LIMIT
+        );
         assert_eq!(cat.schema_version().unwrap(), LATEST_VERSION);
     }
     // Reopen: migrations are not re-applied (they would fail on existing tables).

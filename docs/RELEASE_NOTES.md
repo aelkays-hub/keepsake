@@ -1,8 +1,48 @@
-# Keepsake 0.5.3
+# Keepsake 0.6.0
 
-Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.5.3 adds an Aircraft report, and Read aircraft reads more registrations: distant aircraft, and letters misread as digits.
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.6.0 tells you how old each aircraft is and which flight you photographed, from OpenSky or your own Flightradar24 subscription. It includes 0.5.4, which was not released on its own.
 
-## New in 0.5.3
+## New in 0.6.0
+
+**The aircraft's age**
+- For a photo with a registration, the inspector and the viewer's information panel show how old the aircraft is today and how old it was in the photo, worked out when shown.
+- **Build years from OpenSky's aircraft database** (Settings → Read aircraft → Build years, a 95 MB download, kept on this computer), or typed once per registration in the inspector (**Aircraft built**). Each photo of it gets `Aircraft|Built|<year>`.
+
+**Add route** (right-click photos → Add route…)
+- Finds the flight you photographed: **from and to** (airport codes and countries) and the **flight number**, offered as keywords you tick and accept. Nothing is added until you accept.
+- **From OpenSky** (free; by transponder code; history from about 2023) or **from Flightradar24** with your own API subscription (by registration; how far back depends on your plan; its answers are kept 30 days, as its terms require; the keywords you accept stay).
+- **A flight the source did not see** (over an ocean) is worked out from the landing before and the take-off after, and offered beside the others for you to choose.
+- **Two flights as near the photo:** you choose; the photo's position, when known, decides.
+- **Ask again** on a photo, or for all. Accepting a route replaces the route keywords it had.
+- **Transponder codes:** from adsbdb, from OpenSky's aircraft database, or typed in the window for an aircraft neither knows. A registration adsbdb did not know is asked again after 30 days.
+- **Camera clock on Eastern time, changed for daylight saving:** for a camera that marks every photo UTC−05:00 though its clock is put forward in summer, Add route reads its photos as UTC−04:00 from March to November. The photos are not changed.
+- **A photo's time zone** can be set in the window (UTC−12:00 to +14:00): the camera's clock time stays, its UTC time moves; kept in the catalog and the sidecar, never in the photo.
+
+**Look up aircraft on Flightradar24** (Settings → Read aircraft)
+- One background job asks your Flightradar24 API about every registration on your photos: its type, airline (from its livery), and transponder code, from its latest flight in the last four weeks. About 2 credits per aircraft found. Kept 30 days; shown in the inspector; its type and airline are offered in Read aircraft; its code lets OpenSky find the aircraft's older routes.
+
+**Faster and steadier**
+- **A photo you ask about is read next,** ahead of a backlog of queued photos.
+- **The catalog's change log is cut back** after it is written into the catalog (64 MB at most): a long run had left it at 1.4 GB, and every start read through it.
+
+API keys and tokens (OpenSky, Flightradar24) are kept in Windows Credential Manager or the macOS Keychain, never in a file.
+
+## New in 0.5.4 (included; not released on its own)
+
+**Read aircraft**
+- **Only the text on the aircraft is read:** an aircraft finder (YOLOX-s) finds the aircraft first, so signs, buildings and a signature are no longer read.
+- **A photo you pick always shows what was read.** A photo that got its keywords earlier as another photo's neighbour was read but not listed; now it waits for review like any other. Its keywords stay.
+- **"No registration, airline or type was found on this photo"** is said when a read finds nothing.
+- **Read again** on each photo in the window, and **Read all again** for all of them (it asks first above 20 photos). A new read replaces the one kept and waits for review.
+- The window lists only photos with something to accept.
+
+**Aircraft report**
+- It opens on a drill-down, **Airline › Type › Registration**: each airline with its photos; open it for its types, and a type for its registrations, each with its count. Expand all, Collapse all and Find. A line opens exactly its photos. The CSV has the same lines.
+
+**Fixes**
+- **The app was slow** when raw files without a built-in preview had faces, tags or aircraft asked for them: their thumbnails were tried again every 15 seconds without end. They are now tried once.
+
+## New in 0.5.3 (included)
 
 **Aircraft report** (Tools → Report → Aircraft)
 - How many aircraft photos you have (and how many distinct shots, with copies in other folders counted once), how many airlines, types and registrations are named on them, and how many reads are waiting for review.

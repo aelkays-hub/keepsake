@@ -8,6 +8,9 @@
 //! aircraft found and the user accepted. Reads still waiting for review are
 //! counted apart, not as marks.
 //!
+//! A registration's row says when the aircraft was built (ADR-044), from
+//! `aircraft_built` or its photos' `Aircraft|Built|…` keywords.
+//!
 //! Read-only: two scans of `asset_tags` and one of the items found; no
 //! media file is read.
 
@@ -29,6 +32,8 @@ define_repo!(
 pub const AIRPLANE_TAG: &str = "Airplane";
 /// The parent of the aircraft keywords.
 pub const AIRCRAFT_KEYWORDS: &str = "Aircraft";
+/// The keyword kind that says when an aircraft was built (`Aircraft|Built|2014`).
+pub const BUILT: &str = "Built";
 /// How many airlines or types a row lists.
 pub const TOP: usize = 3;
 
@@ -90,6 +95,12 @@ pub struct AircraftRow {
     /// The first and last capture day (`YYYY-MM-DD`, local), when dated.
     pub first: Option<String>,
     pub last: Option<String>,
+    /// When the aircraft was built (`2014` or `2014-03-05`; registrations
+    /// only, ADR-044): as kept for the registration, else the year its
+    /// photos' `Aircraft|Built|…` keywords say. Its age is worked out where
+    /// it is shown.
+    #[serde(default)]
+    pub built: Option<String>,
 }
 
 /// One year.
@@ -99,6 +110,20 @@ pub struct AircraftYear {
     pub year: Option<String>,
     pub photos: u64,
     pub with_marks: u64,
+}
+
+/// One step of the drill-down: an airline, a type under it or a
+/// registration under that, with its photos.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AircraftGroup {
+    /// `None`: the photos that name none at this step (no airline, no
+    /// type, no registration).
+    pub name: Option<String>,
+    /// Photos here; one naming two registrations counts once in their
+    /// type, and once under each of them.
+    pub photos: u64,
+    /// The next step down, most photos first (empty for a registration).
+    pub children: Vec<AircraftGroup>,
 }
 
 /// The whole aircraft report.
@@ -111,6 +136,36 @@ pub struct AircraftReport {
     pub registrations: Vec<AircraftRow>,
     /// Oldest first; undated last.
     pub years: Vec<AircraftYear>,
+    /// The drill-down, for the photos that name an airline, type or
+    /// registration: airline › type › registration. Most photos first,
+    /// then by name; the unnamed last.
+    pub by_airline: Vec<AircraftGroup>,
+}
+
+/// A step of the drill-down while it is counted.
+#[derive(Default)]
+struct Node {
+    photos: HashSet<AssetId>,
+    children: HashMap<Option<String>, Node>,
+}
+
+fn groups(map: HashMap<Option<String>, Node>) -> Vec<AircraftGroup> {
+    let mut out: Vec<AircraftGroup> = map
+        .into_iter()
+        .map(|(name, n)| AircraftGroup {
+            name,
+            photos: n.photos.len() as u64,
+            children: groups(n.children),
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        a.name
+            .is_none()
+            .cmp(&b.name.is_none())
+            .then_with(|| b.photos.cmp(&a.photos))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    out
 }
 
 #[derive(Default)]
@@ -154,6 +209,7 @@ fn rows(map: HashMap<String, Acc>, kind: Kind) -> Vec<AircraftRow> {
             },
             first: a.first,
             last: a.last,
+            built: None,
         })
         .collect();
     out.sort_by(|a, b| b.photos.cmp(&a.photos).then_with(|| a.name.cmp(&b.name)));
@@ -177,6 +233,8 @@ impl<M> AircraftReportRepo<'_, M> {
               WHERE tp.path LIKE '{AIRCRAFT_KEYWORDS}|%|%'"
         ))?;
         let mut marks: HashMap<AssetId, Vec<(Kind, String, String)>> = HashMap::new();
+        // `Aircraft|Built|<year>` on an item (ADR-044).
+        let mut built_kw: HashMap<AssetId, String> = HashMap::new();
         let mut q = st.query([])?;
         while let Some(r) = q.next()? {
             let id: AssetId = r.get(0)?;
@@ -185,6 +243,10 @@ impl<M> AircraftReportRepo<'_, M> {
             let (_, Some(kind), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
                 continue;
             };
+            if kind == BUILT {
+                built_kw.insert(id, name.to_owned());
+                continue;
+            }
             let Some(kind) = Kind::parse(kind) else {
                 continue;
             };
@@ -280,6 +342,37 @@ impl<M> AircraftReportRepo<'_, M> {
             }
         }
 
+        // The drill-down: a photo is under each airline it names, there
+        // under each of its types, there under each of its registrations.
+        let mut tree: HashMap<Option<String>, Node> = HashMap::new();
+        for (id, ms) in &marks {
+            let named = |k: Kind| -> Vec<Option<String>> {
+                let v: Vec<Option<String>> = ms
+                    .iter()
+                    .filter(|(kind, _, _)| *kind == k)
+                    .map(|(_, name, _)| Some(name.clone()))
+                    .collect();
+                if v.is_empty() {
+                    vec![None]
+                } else {
+                    v
+                }
+            };
+            let (types, regs) = (named(Kind::Type), named(Kind::Registration));
+            for airline in named(Kind::Airline) {
+                let a = tree.entry(airline).or_default();
+                a.photos.insert(*id);
+                for ty in &types {
+                    let t = a.children.entry(ty.clone()).or_default();
+                    t.photos.insert(*id);
+                    for reg in &regs {
+                        let r = t.children.entry(reg.clone()).or_default();
+                        r.photos.insert(*id);
+                    }
+                }
+            }
+        }
+
         let mut years: BTreeMap<Option<String>, (u64, u64)> = BTreeMap::new();
         for (id, it) in &items {
             let y = it
@@ -305,10 +398,38 @@ impl<M> AircraftReportRepo<'_, M> {
             years.rotate_left(1);
         }
 
+        // When each registration was built: as kept, else the year most of
+        // its photos' keywords say.
+        let kept: HashMap<String, String> = {
+            let mut st = self
+                .conn
+                .prepare("SELECT registration, built FROM aircraft_built")?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut said: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        for (id, year) in &built_kw {
+            for (kind, name, _) in marks.get(id).into_iter().flatten() {
+                if *kind == Kind::Registration {
+                    *said
+                        .entry(name.clone())
+                        .or_default()
+                        .entry(year.clone())
+                        .or_default() += 1;
+                }
+            }
+        }
+
         let mut take = |k: Kind| rows(by.remove(&k).unwrap_or_default(), k);
         let airlines = take(Kind::Airline);
         let types = take(Kind::Type);
-        let registrations = take(Kind::Registration);
+        let mut registrations = take(Kind::Registration);
+        for r in &mut registrations {
+            r.built = kept
+                .get(&r.name)
+                .cloned()
+                .or_else(|| said.remove(&r.name).and_then(|c| top(c).into_iter().next()));
+        }
         let shots: HashSet<_> = items.values().map(|i| &i.shot).collect();
         Ok(AircraftReport {
             totals: AircraftTotals {
@@ -327,6 +448,7 @@ impl<M> AircraftReportRepo<'_, M> {
             types,
             registrations,
             years,
+            by_airline: groups(tree),
         })
     }
 }

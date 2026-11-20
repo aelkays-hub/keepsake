@@ -40,6 +40,8 @@
 | — | Read aircraft reads upside-down registrations, less clear painted types and airlines that no longer fly | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft review window: you set how sure each kind must be and accept what is kept | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
+| — | The aircraft's age: build year from OpenSky's database or typed, age worked out when shown (ADR-044, part 1) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Add route: the flight a photo shows, from OpenSky's flight history (from, to, countries, flight number; ADR-044, part 2) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -64,6 +66,157 @@
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
 
 ---
+
+
+## Version 0.6.0 (2026-11-20)
+
+- Version 0.6.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.6.0, with 0.5.4 (not released on its own) included. Everything on `claude/aircraft-age-route-378472` goes to `main` in one PR; `fix/month-last-day` and `fix/thumbnail-retry-loop` were already in it under other commits.
+
+## Add route: a flight the source did not see (2026-11-20)
+
+- **Reported:** A7401009.ARW (SP-LSC, LOT 787-9; 2026-05-19 00:00 UTC, taken as it left YYZ) was offered WAW → YYZ.
+- **Found:** OpenSky had LOT8N WAW → YYZ (landed 21:22 UTC on 18 May) and LOT29 WAW → MIA (seen from 10:52 on 19 May), nothing between: the YYZ → WAW flight over the Atlantic was not seen. The only flight within three hours was the arrival, 158 min before the photo, so it was offered alone.
+- **Fixed:** `route::missing_leg`: landed at one airport, next taking off from another, with time for the flight (850 km/h and an hour on the ground): the flight between them is worked out (`Flight.inferred`, never kept), offered beside the flights near (the user chooses), with no flight number. The window says "Flight not seen (worked out …)" and "Between landing at YYZ … and next taking off from WAW …". Accepting a route now replaces the photo's route keywords accepted before (`route::accept`).
+- **Tests:** route unit test (+1: SP-LSC's day; no time for it; nothing missing; old answers read), `aircraft_tests` (+1: accepting replaces); Vitest (+1); mocked Playwright Add route (6); fmt, clippy, ESLint, Prettier, tsc.
+
+
+- **Asked:** how to see the data from Flightradar24; "Yes, add it" (a line in the inspector).
+- **Built:** `fr24::shown` (type named from `icao-types.tsv`, airline from operator or livery, code, day seen, kept until); command `fr24_aircraft`; the inspector's aircraft block (a photo with a registration) shows Flightradar24 · kept until, Type, Airline, Transponder, Seen flying, or that it did not fly in the weeks asked about.
+- **Tests:** `aircraft_tests` flightradar24 (`shown`); mocked Playwright (+1: the inspector after a look-up); fmt, clippy, ESLint, Prettier, tsc.
+
+## Look up aircraft: the airline from the livery (2026-11-20)
+
+- **Found** (reading what was kept: 1,453 asked, 974 found, 83 adsbdb did not know, 41 now with a transponder code, PH-BKO 485F82 B78X): Flightradar24 left `operated_as` empty for every aircraft, so no airline was offered; `painted_as` (the livery) was there.
+- **Fixed:** the airline comes from the operator, else the livery (`with_fr24`); `operating_as` is read too. Nothing needs asking again.
+- **Tests:** `aircraft_tests` flightradar24 (no operator: the livery's airline).
+
+## The catalog's log is cut back after a checkpoint (2026-11-20)
+
+- **Asked:** a setting so the catalog's log does not stay large after big runs.
+- **Done by hand first (asked):** Keepsake closed; `catalog.db` and the 1.4 GB `catalog.db-wal` copied to `E:\Pictures\2026\catalog-backup-2026-11-20\`; `PRAGMA wal_checkpoint(TRUNCATE)`: the log written back and removed; `quick_check` ok, 129,127 assets. Keepsake had not written it back on closing.
+- **Built:** every catalog connection sets `journal_size_limit` = 64 MB (`catalog::WAL_SIZE_LIMIT`): after a checkpoint SQLite cuts the log back to that, instead of keeping it at its largest. Not a schema change. `Catalog::journal_size_limit`.
+- **Tests:** catalog tests (the limit is set on a file catalog); core and app tests; fmt, clippy `-D warnings`.
+- **Not done:** Keepsake does not checkpoint on closing (it exits without closing its connections).
+
+## Look up aircraft: the catalog's log kept growing (2026-11-20)
+
+- **Reported:** Keepsake slow to load; the Flightradar24 option not seen in Settings. The run had finished (04:03 UTC, 1,308 registrations, 974 found). Start-up took 79 s (1.9 s the night before): `catalog.db-wal` was 1.4 GB beside a 569 MB catalog, on a USB drive, after a restart.
+- **Cause:** while the job ran, the Settings panel asked for its status every 3 s, and each status (and each batch's "what is left") read the lookup of every registration one by one (~1,300 reads), so SQLite's automatic checkpoint never found a quiet moment to write the log back. The panel showed nothing until that status came.
+- **Fixed:** `fr24::status` and `due` read all lookups in one query; the panel asks every 10 s and says "Checking…" until it knows.
+- **Tests:** `aircraft_tests` flightradar24 (2); mocked Playwright Flightradar24 tests (2); fmt, ESLint, Prettier, tsc.
+- **Then:** the log was written back by hand and `journal_size_limit` added (next section).
+
+## Look up aircraft on Flightradar24 (2026-11-19)
+
+- **Asked:** "use the flight radar api just to get some extra data about the aircrafts … just by passing the registration", "add this as an option in the settings menu", "build one batch job".
+- **Built:** `ai::aircraft::fr24` (job `ai.fr24.aircraft`: `registrations`, `due`, `ask_one`, `run_batch`, `put`, `with_fr24`, `forget_expired`, `enqueue`, `stop`, `status`); `lookup::Fr24Aircraft` in `Found.fr24`; `route::Fr24Aircrafts`, `parse_fr24_aircraft`, `airline_of_code` (airline-codes.tsv: a name column); `icao24_of` uses its code; `scan::offer` its type and airline; repo `tags().user_children`; render service `with_fr24` and its worker. App: `fr24_aircraft_status`, `fr24_aircraft_start`, `fr24_aircraft_stop`; the Flightradar24 token box shown without Add route on; Settings → Look up aircraft on Flightradar24 (what it finds, the credits, Look up all N registrations, progress, Stop).
+- **Tests, run here (Windows):** route unit test (+1: an aircraft read, airline names), `aircraft_tests` (+1: two registrations, two windows, found and not, not asked again, code and offers used, deleted after 30 days); Vitest (98); mocked Playwright aircraft (22, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against Flightradar24 (by hand with the installer).
+
+## Flightradar24: Test fixed, the plan's limit said (2026-11-19)
+
+- **Reported:** Test said "Flightradar24 did not accept the question: Validation failed". Asked Flightradar24 with the owner's token (curl, token on stdin; no credits): the plan gives data from 2026-10-20 on (the last 30 days), and Test asked about January 2024 with a registration it rejects. A recent minute with `ZZ-ZZZ` answers `{"data":[]}`.
+- **Fixed:** `Flightradar::test` asks about a minute two hours ago with `ZZ-ZZZ`; errors show Flightradar24's `details`; a date before the plan says "your API plan gives flights from 2026-10-20 on; this photo is older". Settings no longer says June 2022 (it depends on the plan).
+- **Tests:** route unit test (+1, the plan's limit), clippy; Vitest (98); Playwright Flightradar24 test.
+
+## Add route from Flightradar24 (2026-11-19)
+
+- **Asked:** use the Flightradar24 API (the owner has an API plan) for the flights of the registrations. FR24's terms allow keeping its data 30 days; the owner chose to keep answers 30 days and the keywords they accept; the new table was approved.
+- **Built:** migration 0020 `aircraft_flights_fr24`; repo `fr24_flights`, `put_fr24_flights`, `forget_fr24_flights`, `forget_fr24_flights_before`; `route::Source`, `Flightradar` (Flight summary light by registration), `parse_fr24`, `forget_expired`, `FR24_KEEP_MS`; `Flights::source`; `Flight.number`, `shown_number`; `run_job`, `review`, `again` ask and keep by registration for Flightradar24. Setting `ai.aircraft_route_source`. App: `aircraft_set_route_source`, `flightradar_set_token`, `flightradar_test` (no credits); `RouteStatusDto.source`, `opensky`, `flightradar`; expired answers deleted when the render service starts. UI: Settings → Flights from (OpenSky / Flightradar24), the token (Save, Test, Remove; what is sent, the credits, the 30 days); the window names the source and hides the transponder code with Flightradar24.
+- **Tests, run here (Windows):** route unit tests (+2: FR24 answers and errors read; asked by registration for the UTC day with the token and `Accept-Version`), `aircraft_tests` (+1: PH-BKO found by registration, kept, asked again, unused and deleted after 30 days), catalog tests (schema 20); Vitest (98); mocked Playwright aircraft (21, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against Flightradar24 itself (asked by hand with the installer and the owner's token).
+
+## Add route: a transponder code typed, a photo's time zone (2026-11-19)
+
+- **Reported:** PH-BKO still had no transponder code after the database was downloaded again: it is newer than OpenSky's April 2024 snapshot (KLM's PH-BKA to PH-BKL are in it). Chosen: "Let me type the code". Asked too: set the time zone of a specific picture by ± UTC.
+- **Built:** `Found.typed_mode_s`, `lookup::set_typed_code` (six hex digits), kept by `ask` when asked again; `route::icao24_of` uses it first; `route::again` keeps a lookup with a typed code; the not-known message says neither source lists it. `MetadataService::set_capture_offset` (clock time stays, source `sidecar`); `read_clock` leaves a time from a sidecar. App: commands `aircraft_route_set_code`, `time_zone_apply`; `RouteItemDto.code`, `code_typed`, `zone_set`. UI: per photo in the Add route window, Time zone (UTC−12:00 to UTC+14:00) and Transponder code (type, Use, Change).
+- **Tests, run here (Windows):** `aircraft_tests` (+2: a typed code used and kept when asked again, forgotten when cleared; a photo's time zone keeps its clock time, goes in the sidecar and wins over the Eastern setting), route unit test, core lib (233), app lib (118); Vitest (98); mocked Playwright aircraft (20, +1); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against OpenSky.
+
+## Add route: Eastern clock with daylight saving, Ask again, a readable window (2026-11-19)
+
+- **Reported:** most photos are taken on Eastern time and the date's daylight saving should count; Add route could only be run once; the window's text was over the picture and unreadable.
+- **Found:** the A7 III marks every photo UTC−05:00, in summer too (the catalog: 72,144 photos at −05:00, none of its at −04:00). A photo's flights were kept for good, so running again asked nothing. The window used Read aircraft's grid (96 px) with a 160 px picture.
+- **Built:** `route::Clock` (`AsRecorded`, `Eastern`), `eastern_offset`, `read_clock`; `photo`, `run_job`, `review` take the clock; `RouteItem.offset_min`; `route::again`; repo `forget_aircraft_flights`, `forget_aircraft_lookup`; setting `ai.aircraft_route_eastern`; render service `with_route_clock`. App: commands `aircraft_set_route_eastern`, `aircraft_route_again`; `RouteStatusDto.eastern`; `RouteItemDto.local`, `offset_min`. UI: the window's own layout (picture left, text beside it, the flight in a box, keyword ticks in a row), the time taken in the camera's time and UTC, the clock checkbox, **Ask again** per photo and **Ask again for all**; the same checkbox in Settings → Read aircraft.
+- **Tests, run here (Windows):** route unit test (daylight-saving dates 2025 and 2006, `read_clock`), `aircraft_tests` (+2: Ask again asks once more and forgets a not-known lookup; an Eastern clock reads a −05:00 photo in May an hour earlier); Vitest (`takenLine`, `offsetLabel`); mocked Playwright aircraft (+1: Ask again, the clock, picture and text side by side); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; against OpenSky (asked by hand with the installer).
+
+## Transponder codes from OpenSky's database; not-known lookups asked again (2026-11-18)
+
+- **Reported:** Add route found nothing for A7_05212.ARW (PH-BKO): adsbdb does not know PH-BKO, so it has no transponder code to search OpenSky's history with. Asked: "do both, keep OpenSky's codes and re-ask after 30 days".
+- **Built:** `built::convert` keeps every aircraft with a code and a registration (`#keepsake-aircraft\t2` header); `BuiltDb::code`, `has_codes`, `built::installed_with_codes`; `AdsbDb` fills `mode_s` from it when adsbdb gives none; `fill_from_db` fills codes of lookups kept before, keeping when each was asked; `Found::due` and `RETRY_UNKNOWN_MS` (30 days) for `lookup_cached` and `refresh_one`; repo `aircraft_lookup(s)` return `looked_ms`. App: `AircraftStatus.built_codes`; Settings → Build years offers **Download again** for a file kept before the codes.
+- **Tests, run here (Windows):** `built` unit tests (codes kept, an old file without them), `aircraft_tests` (22, +2: code from OpenSky when adsbdb does not know it and asked again after 30 days, not before; codes filled after download with the asked time kept), core lib, app lib (118); Vitest (96); mocked Playwright aircraft (18, +1 Download again); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; the real download and conversion (95 MB) in the app.
+
+## A photo asked about goes to the front of the queue (2026-11-18)
+
+- **Reported:** reading a single picture took a very long time.
+- **Found:** each photo still takes about 6 s (as before). But 2,290 Read aircraft jobs were queued: 1,976 left from a folder read on 2026-11-18 and 375 from 6-7 June. A photo picked again kept its old place, so it waited behind them.
+- **Fixed:** `Jobs::front_rank` and `Jobs::place`; Read aircraft and Add route on picked photos put them ahead of any backlog of their kind (`scan::to_front`), queued already or not. A folder or dates read keeps its order.
+- **Tests, run here (Windows):** `aircraft_tests` (20, +1), core lib (232), `catalog_tests`; fmt, clippy `-D warnings`.
+- **Not run:** CI; macOS.
+
+## Add route (ADR-044, part 2) (2026-11-18)
+
+- **Asked:** right-click → Add route: departure and arrival (IATA codes and countries) from the registration and the photo's time; then "maybe we should include the flight number as a tag".
+- **Checked first** with the owner's OpenSky client: flights found for every photo from September 2023 on (6 of 6), none for August 2022 or 2018. The owner chose to build it (and the `aircraft_flights` table, schema v19).
+- **Built:**
+  - Core: `ai::aircraft::route` (OpenSky client with its 30-minute token, `pick`, `Airports` from `airports.tsv`, `flight_number` from `airline-codes.tsv`, `run_job` with the per-day cache, `review`, `enqueue`/`status`/`stop`); the render service's route worker (`with_flights`); `is_aircraft_keyword` takes the route kinds; `ai.aircraft_route`; `secrets::{opensky, set_opensky}`; `scripts/make-airports.py`.
+  - App: `aircraft_route_status`, `aircraft_set_route`, `opensky_set_credentials`, `opensky_test`, `aircraft_route`, `aircraft_route_stop`, `aircraft_route_review`, `aircraft_route_accept`.
+  - UI: **Add route…** in the photo menu, the Add route window (`RouteWindow`, `aircraftRoute.ts`), Settings → Find the route online (OpenSky) and the OpenSky API client (Save, Test, Remove); the mock backend.
+- **Tests, run here (Windows):** `ai::aircraft::route` (10: departure and arrival, nearest within 3 h, two as near, nothing near, nothing known, GPS breaking a tie, ICAO → IATA and country, a code not listed, flight numbers, the token kept and renewed, 401/403/429), `aircraft_tests` (19, +3: the same aircraft and day asked once and reused beside it, two days near midnight, the worker end to end and accepting only aircraft keywords with originals unchanged), core lib (232), `catalog_tests`, `safety_audit_tests`, `report_tests`, `keepsake-platform` secrets, app lib tests (118, bindings); Vitest (96, +4 `aircraftRoute`); mocked Playwright (71 across aircraft, report, viewer, library, a11y, multi-select, cloud; +3 Add route); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; the app against live OpenSky (the endpoints and answers were checked by hand with the owner's client, by script).
+- Branch `claude/aircraft-age-route-378472`, not pushed.
+
+## The aircraft's age (ADR-044, part 1) (2026-11-18)
+
+- **Asked:** the aircraft's age, "dynamically calculated when the picture is selected", so it goes up each year. Part 2 (Add route from OpenSky's flight history) is not started.
+- **Sources checked** (table in ADR-044): OpenSky's per-aircraft endpoint is gone (410); its aircraft database (April 2024) has a build year for 25% of airliners; ADS-B Exchange's has 22% and no licence; adsbdb and hexdb.io none. **The owner chose** (the recommendation): typing it always, plus OpenSky's database downloaded once on request; a new `aircraft_built` table (schema v18).
+- **Built:**
+  - Core: `ai::aircraft::built` (pinned download, CSV cut down to `aircraft-built.tsv`, `BuiltDb`, `kept`, `note_found`, `set_typed`, `fill_from_db`); `lookup::Found` keeps `mode_s`, `built`, `version`; `lookup::refresh_one` (old answers asked again once, when the aircraft worker is idle, one per 1.1 s); `scan::offer` offers `Aircraft|Built|<year>`; `is_aircraft_keyword` accepts Built; the report's registration rows and CSV have Built; schema v18 `aircraft_built`.
+  - App: `aircraft_built`, `aircraft_set_built`, `aircraft_built_install` (`aircraft://built-install`), `aircraft_built_cancel`, `aircraft_built_remove`; status and lookup DTOs carry the database and the year.
+  - UI: `aircraftAge.ts` (age to today and in the photo, "about" with a year alone), the inspector's **Aircraft age** block with **Aircraft built** (typed once per registration), the viewer's information panel, the report's **Built** and **Age** columns (sortable), Settings → Build years (OpenSky), the review window's "(OpenSky)".
+- **Checked against the real file:** the pinned CSV (94,509,542 bytes) gives 256,567 aircraft with a date (4.8 MB) in 1.4 s; EI-EFY 2009, G-STBA 2010.
+- **Tests, run here (Windows):** `ai::aircraft` lib tests (+5: dates and years, the cut-down, the pin, stale answers, the year from the database), `aircraft_tests` (16, +4: asked again once, offered and accepted, typed wins on every photo and its sidecars with originals unchanged, the download fills kept lookups), `report_tests` (15), `catalog_tests` (17), `safety_audit_tests`, core lib (222), app lib tests (bindings); Vitest (92, +7 `aircraftAge`); mocked Playwright `aircraft`, `report`, `viewer`, `library`, `a11y` (56, +4); `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; in the installed app; the real download from the app (the file was fetched and checked by hand).
+- Branch `claude/aircraft-age-route-378472` (from `feat/aircraft-drilldown`), not pushed.
+
+## Aircraft report: drill down from airline to type to registration (2026-11-16)
+
+- **Asked:** "I want the report to be a drill down report, Airline, Type, registration then count".
+- **Built** (ADR-043, addition): Tools → Report → Aircraft opens on **Airline › Type › Registration**: the airlines with their photos, most first; open one for its types, and a type for its registrations, each with its count. Expand all, Collapse all, and Find (opens down to what it finds). A line named at every step opens exactly its photos (all its keywords together). Photos naming no airline, type or registration at a step are kept apart, last ("No type named"). The three tables are beside it as before.
+  - Core: `AircraftGroup`, `AircraftReport::by_airline` (counted from the keywords already read for the tables; no new query); the CSV has a line per airline, type and registration together.
+  - App: `AircraftReportGroup`, `byAirline`. UI: `drillRows`, `drillKeys`, `DrillDown`.
+- **Counting:** a photo naming two airlines (or two registrations) is under each, so lines can add up to more than the line above.
+- **Tests, run here (Windows):** `report_tests` (+1: the tree, the unnamed step, exact photos by keywords, the CSV), app lib tests (bindings); Vitest (85, +1); mocked Playwright `report` (9, +1) and `a11y`; fmt, clippy, ESLint, tsc, Prettier on the files changed.
+- **Not run:** in the installed app; CI. Branch `feat/aircraft-drilldown` (from `fix/aircraft-single-read`), not pushed.
+
+## Read aircraft: a picked photo shows what was read; Read again (2026-11-16)
+
+- **Asked:** "the read aircraft is not working also" (picked photos: no keywords, never finishes), "a single picture does not read", then "add a re-read option also".
+- **Found** in the owner's catalog: reads work (a picked photo starts in 1 s and takes 2–5 s), but the window then listed nothing for it and said "Every photo read so far has been reviewed":
+  - 2,479 photos were accepted beside another photo before being read themselves; read later they stayed accepted, so the window hid the read (two of the four photos picked that day);
+  - a read that finds nothing is set aside at once, with no word that nothing was found (one of the four).
+- **Built:**
+  - Core: `scan::enqueue` (the photos picked) forgets an acceptance made before the photo was read (`Ai::forget_aircraft_accepted_unread`), so its read waits for review. Its keywords stay. Folders and dates are as before.
+  - UI: the window says "No registration, airline or type was found on this photo." (`noneWaitingLine`, `nothingFound`); **Read again** on each photo and **Read all again** in the window (asks first above 20 photos). A new read replaces the one kept and waits for review.
+- **Tests, run here (Windows):** `aircraft_tests` (+1), `ai_tests`, `render_tests`, `face_tests`, `report_tests`; Vitest (84, +1); mocked Playwright `aircraft` (11, +1) and `a11y`; fmt, clippy, ESLint, tsc; Prettier on the files changed.
+- **Not run:** in the installed app; CI. Branch `fix/aircraft-single-read` (from `feat/aircraft-finder`), not pushed.
+
+## The app was slow: thumbnails that cannot be made were tried without end (2026-11-16)
+
+- **Asked:** "application seem too slow" (the installed app: everything, Settings, starting up).
+- **Found** in the installed app's logs: raw files on the network drive with no built-in preview (45 failed thumbnail jobs) each had an AI job (faces, tags or aircraft) waiting for that thumbnail. Every 15 s the AI job queued the failed thumbnail job again (`render::enqueue(…, again = true)` also wakes failed jobs), it failed again, and so on: about 9,000 failed renders an hour (42,000 in one session), each an ExifTool read over the network and several catalog writes, with 10 MB logs.
+- **Fixed:** `RenderService::wait_for_thumb` (core). An AI job whose thumbnail job has failed for good fails once too ("no thumbnail can be made: …") and leaves the thumbnail job alone. A thumbnail only evicted, or not made yet, is queued as before.
+- **Tests, run here (Windows):** `aircraft_tests` (+1; it fails on the old code), with the suites above.
+- **Not explained yet:** one start-up of 66 s, and grid pages of 0.5–1.2 s. The catalog's write-ahead log (`catalog.db-wal`) was 888 MB beside a 574 MB catalog, which slows every read and the start; why it is not folded back in is still to be looked at.
+
+## Read aircraft reads only the text on the aircraft (2026-11-16)
+
+- An aircraft finder (YOLOX-s, Apache-2.0, 35.9 MB; the owner chose it over rules) finds the aircraft before the text is read; only the text on them counts. Big aircraft are read in the whole picture keeping the text inside them; smaller ones are cut out and read at full size. None found: the whole picture, as before. Settings → Read aircraft offers the finder alone to those who have the text models.
+- Sample (30 photos): aircraft found in all; nothing lost, C-GSWJ gained; signs, buildings and the signature no longer read; 66 s against 72 s.
+- Core: `ai::aircraft::planes` (`PlaneFinder`, `decode`, `fit`, `input`), `install::PLANES`, `Reader::planes`, `scan::read_lines` with planes. App: `finder_installed`, `finder_bytes`. CLI: `keepsake ai aircraft read` uses the finder (`--whole` to read the whole picture). UI: Settings' finder line and button.
+- Tests: `ai::aircraft` (+5), `aircraft_tests`, `safety_audit_tests`, Vitest `aircraft`, mocked Playwright `aircraft` (+1), fmt and clippy on Rust 1.100, ESLint, Prettier, tsc. **Not run:** CI; in the app. Branch `feat/aircraft-finder`.
 
 ## Read aircraft lists only what can be accepted (2026-11-16)
 

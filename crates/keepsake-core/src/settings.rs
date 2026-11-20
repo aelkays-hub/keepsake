@@ -217,6 +217,17 @@ pub struct AiSettings {
     /// Look registrations up online (adsbdb.com) and offer what it knows
     /// in the review window (ADR-041). Off until the user turns it on.
     pub aircraft_lookup: bool,
+    /// Add route (ADR-044): find the flight of a photo's aircraft in
+    /// OpenSky's flight history. Off until the user turns it on; needs an
+    /// OpenSky API client, kept in the OS's credential store.
+    pub aircraft_route: bool,
+    /// Add route: the camera's clock showed Eastern time, changed for
+    /// daylight saving, though its photos say UTC−05:00 (or no time zone).
+    pub aircraft_route_eastern: bool,
+    /// Add route: where flights are found, `opensky` (free, by transponder
+    /// code) or `flightradar` (the user's Flightradar24 API subscription,
+    /// by registration; its token is in the OS's credential store).
+    pub aircraft_route_source: String,
     /// Photos taken this many seconds either side, by the same camera and
     /// lens, that look alike count as the same shot: Read aircraft offers
     /// them its keywords, Tag with AI gives them its tags. 1–60.
@@ -311,6 +322,9 @@ impl Default for AiSettings {
             aircraft_airline_pct: 85,
             aircraft_type_pct: 70,
             aircraft_lookup: false,
+            aircraft_route: false,
+            aircraft_route_eastern: false,
+            aircraft_route_source: "opensky".to_owned(),
             same_shot_s: 10,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),

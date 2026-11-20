@@ -300,6 +300,34 @@ pub fn time_shift_preview(
     })
 }
 
+/// Set the time zone of the selection (`offset_min` from UTC): the time the
+/// camera's clock showed stays. Only the catalog and the XMP sidecars
+/// change; originals are never written.
+#[tauri::command(async)]
+pub fn time_zone_apply(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    selection: Selection,
+    offset_min: i16,
+) -> CmdResult<EditResult> {
+    let open = state.open()?;
+    let ids = resolve(&state, &selection)?;
+    let dated: Vec<AssetId> = open
+        .cat()?
+        .read(|tx| tx.browse().rows(&ids))
+        .map_err(err)?
+        .into_iter()
+        .filter(|r| r.capture_ms.is_some())
+        .map(|r| r.id)
+        .collect();
+    apply(
+        &app,
+        open,
+        dated,
+        Arc::new(move |svc, id| svc.set_capture_offset(id, offset_min).map(|_| ())),
+    )
+}
+
 /// Shift the capture time of the selection by `offset_s` seconds. Only the
 /// catalog and the XMP sidecars change; originals are never written.
 #[tauri::command(async)]

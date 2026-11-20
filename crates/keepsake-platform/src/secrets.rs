@@ -72,6 +72,62 @@ pub fn set_api_key(provider: &str, key: Option<&str>) -> Result<(), PlatformErro
     }
 }
 
+/// The OpenSky API client (Add route, ADR-044): its id and secret, two
+/// entries (`opensky-client-id`, `opensky-client-secret`).
+/// `KEEPSAKE_OPENSKY_CLIENT_ID` and `KEEPSAKE_OPENSKY_CLIENT_SECRET`, when
+/// both are set, are used instead.
+pub fn opensky() -> Result<Option<(String, String)>, PlatformError> {
+    let var = |n: &str| {
+        std::env::var(n)
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    if let (Some(i), Some(s)) = (
+        var("KEEPSAKE_OPENSKY_CLIENT_ID"),
+        var("KEEPSAKE_OPENSKY_CLIENT_SECRET"),
+    ) {
+        return Ok(Some((i, s)));
+    }
+    let get = |account: &str| -> Result<Option<String>, PlatformError> {
+        let e =
+            keyring::Entry::new(SERVICE, account).map_err(|e| PlatformError::Os(e.to_string()))?;
+        match e.get_password() {
+            Ok(k) => Ok(Some(k)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(PlatformError::Os(e.to_string())),
+        }
+    };
+    Ok(match (get(OPENSKY_ID)?, get(OPENSKY_SECRET)?) {
+        (Some(i), Some(s)) => Some((i, s)),
+        _ => None,
+    })
+}
+
+const OPENSKY_ID: &str = "opensky-client-id";
+const OPENSKY_SECRET: &str = "opensky-client-secret";
+
+/// Save the OpenSky API client (`None`: remove it).
+pub fn set_opensky(client: Option<(&str, &str)>) -> Result<(), PlatformError> {
+    for (account, value) in [
+        (OPENSKY_ID, client.map(|c| c.0)),
+        (OPENSKY_SECRET, client.map(|c| c.1)),
+    ] {
+        let e =
+            keyring::Entry::new(SERVICE, account).map_err(|e| PlatformError::Os(e.to_string()))?;
+        match value {
+            Some(v) => e
+                .set_password(v.trim())
+                .map_err(|e| PlatformError::Os(e.to_string()))?,
+            None => match e.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(e) => return Err(PlatformError::Os(e.to_string())),
+            },
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

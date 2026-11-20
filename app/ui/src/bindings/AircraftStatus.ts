@@ -10,9 +10,18 @@ export type AircraftStatus = {
  */
 enabled: boolean, 
 /**
- * Both text models are on this computer.
+ * The two text models and the aircraft finder are on this computer.
  */
 modelsInstalled: boolean, modelsBytes: number, 
+/**
+ * The aircraft finder is on this computer: only the text on the
+ * aircraft is read (else the whole picture).
+ */
+finderInstalled: boolean, 
+/**
+ * Its size, to download.
+ */
+finderBytes: number, 
 /**
  * ONNX Runtime is present.
  */
@@ -41,4 +50,22 @@ confidence: AircraftConfidenceDto,
 /**
  * Registrations are looked up online (adsbdb.com).
  */
-lookup: boolean, };
+lookup: boolean, 
+/**
+ * OpenSky's aircraft database (build years, ADR-044) is on this
+ * computer.
+ */
+builtInstalled: boolean, 
+/**
+ * The file on this computer keeps every aircraft's transponder
+ * code (for Add route); one kept before is offered again.
+ */
+builtCodes: boolean, 
+/**
+ * Its size, to download.
+ */
+builtBytes: number, 
+/**
+ * Downloading it: bytes so far.
+ */
+builtInstalling: number | null, };

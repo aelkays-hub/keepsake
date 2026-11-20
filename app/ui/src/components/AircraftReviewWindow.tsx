@@ -33,6 +33,7 @@ import {
   toReview,
   waitingCount,
   belowLevels,
+  noneWaitingLine,
 } from "../aircraftReview";
 import * as fmt from "../format";
 import { useUi } from "../state";
@@ -42,6 +43,8 @@ import type { AircraftJob } from "../uiModel";
 const POLL_MS = 2000;
 /** Photos shown at once (Show more adds as many again). */
 const PAGE = 100;
+/** Reading more photos than this again asks first. */
+const REREAD_ASK = 20;
 
 /** Start reading `job`; the photos it covers. */
 async function start(job: AircraftJob): Promise<string[]> {
@@ -68,6 +71,7 @@ function Photo({
   onToggleNear,
   onAccept,
   onDismiss,
+  onReread,
   busy,
   sameShotS,
 }: {
@@ -78,6 +82,7 @@ function Photo({
   onToggleNear: (id: string) => void;
   onAccept: () => void;
   onDismiss: () => void;
+  onReread: () => void;
   busy: boolean;
   sameShotS: number;
 }) {
@@ -174,20 +179,30 @@ function Photo({
           </div>
         )}
       </div>
-      {!done && (
-        <div className="ar-actions">
-          <button onClick={onAccept} disabled={busy} data-testid="ar-accept">
-            {ticked(item, toggled).length
-              ? near.length
-                ? `Accept (and ${near.length} more)`
-                : "Accept"
-              : "Nothing to keep"}
-          </button>
-          <button onClick={onDismiss} disabled={busy} data-testid="ar-dismiss">
-            Dismiss
-          </button>
-        </div>
-      )}
+      <div className="ar-actions">
+        {!done && (
+          <>
+            <button onClick={onAccept} disabled={busy} data-testid="ar-accept">
+              {ticked(item, toggled).length
+                ? near.length
+                  ? `Accept (and ${near.length} more)`
+                  : "Accept"
+                : "Nothing to keep"}
+            </button>
+            <button onClick={onDismiss} disabled={busy} data-testid="ar-dismiss">
+              Dismiss
+            </button>
+          </>
+        )}
+        <button
+          onClick={onReread}
+          disabled={busy}
+          title="Read this photo again; what is read replaces this and waits for review. Keywords it has stay."
+          data-testid="ar-reread"
+        >
+          Read again
+        </button>
+      </div>
     </li>
   );
 }
@@ -348,6 +363,27 @@ export function AircraftReviewWindow() {
         for (const id of await accept(item)) done.add(id);
       }
     });
+  // Read photos again: each new read replaces the one kept and waits for
+  // review (keywords accepted before stay).
+  const reread = (which: string[]) => {
+    if (
+      which.length > REREAD_ASK &&
+      !window.confirm(`Read ${fmt.plural(which.length, "photo")} again? This can take a while.`)
+    )
+      return;
+    run(async () => {
+      await api.aircraftRead({ ids: which, view: null, ranges: [] });
+      const forget = (m: Map<string, Set<string>>) => {
+        const n = new Map(m);
+        for (const id of which) n.delete(id);
+        return n;
+      };
+      setToggled(forget);
+      setToggledNear(forget);
+      setStopped(false);
+      setTick((n) => n + 1);
+    });
+  };
   const waiting = review ? waitingCount(review) : 0;
   const below = review ? belowLevels(review) : 0;
 
@@ -505,6 +541,7 @@ export function AircraftReviewWindow() {
               onDismiss={() =>
                 run(() => api.aircraftDismiss(item.id).then(() => setState(item.id, "dismissed")))
               }
+              onReread={() => reread([item.id])}
               busy={busy}
               sameShotS={conf?.sameShotS ?? 10}
             />
@@ -517,9 +554,7 @@ export function AircraftReviewWindow() {
         )}
         {review && items.length === 0 && review.read > 0 && (
           <p className="muted" data-testid="ar-none-waiting">
-            {below > 0
-              ? "Nothing more to accept at these levels."
-              : "Every photo read so far has been reviewed."}
+            {noneWaitingLine(review)}
           </p>
         )}
 
@@ -548,6 +583,14 @@ export function AircraftReviewWindow() {
             data-testid="ar-accept-all"
           >
             Accept all shown
+          </button>
+          <button
+            onClick={() => reread(ids ?? [])}
+            disabled={busy || reading || !ids?.length}
+            title="Read every photo of this window again, also those accepted or dismissed. Keywords they have stay."
+            data-testid="ar-reread-all"
+          >
+            Read all again
           </button>
           <span className="grow" />
           <button onClick={close} data-testid="ar-close">
