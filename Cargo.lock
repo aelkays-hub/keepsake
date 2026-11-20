@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "keepsake-app"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "keepsake-core",
@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "keepsake-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2094,7 +2094,7 @@ dependencies = [
 
 [[package]]
 name = "keepsake-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -2120,7 +2120,7 @@ dependencies = [
 
 [[package]]
 name = "keepsake-platform"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "keepsake-core",
  "keyring",
