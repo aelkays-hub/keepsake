@@ -14,7 +14,11 @@ const app = process.argv.some((a) => a.includes("--project=app"));
 export default defineConfig({
   testDir: "e2e",
   timeout: 90_000,
-  expect: { timeout: 10_000 },
+  // A slow CI runner (Windows) can take more than 10 s to show the first
+  // screen (the item count): twice as long there, as each spec's open()
+  // waits for it (failed twice on main after 0.6.0: edit-advice, then
+  // auto-import, each passing elsewhere).
+  expect: { timeout: process.env.CI ? 20_000 : 10_000 },
   fullyParallel: false,
   workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
