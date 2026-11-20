@@ -25,6 +25,12 @@ at: string,
  */
 gapMin: number, 
 /**
+ * Not seen by the source, worked out: it landed at `from` at
+ * `departed` and next took off from `to` at `arrived` (`at` is
+ * `between`).
+ */
+inferred: boolean, 
+/**
  * `Aircraft|From|YYZ`, …: what accepting it adds.
  */
 keywords: Array<string>, };

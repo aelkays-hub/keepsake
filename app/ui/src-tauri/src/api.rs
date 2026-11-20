@@ -225,6 +225,10 @@ dto! {
         pub at: String,
         /// Minutes between the photo and that end (0: in the air).
         pub gap_min: u32,
+        /// Not seen by the source, worked out: it landed at `from` at
+        /// `departed` and next took off from `to` at `arrived` (`at` is
+        /// `between`).
+        pub inferred: bool,
         /// `Aircraft|From|YYZ`, …: what accepting it adds.
         pub keywords: Vec<String>,
     }

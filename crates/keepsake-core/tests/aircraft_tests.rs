@@ -1212,6 +1212,7 @@ impl route::Flights for FakeSky {
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
             number: None,
+            inferred: false,
         };
         // ROU2000 left Toronto at 12:16 UTC; ROU1917 landed there at 10:43.
         Ok(vec![
@@ -1693,6 +1694,7 @@ impl route::Flights for FakeFr24 {
             arrival: Some("EHAM".into()),
             callsign: Some("KLM692".into()),
             number: Some("KL692".into()),
+            inferred: false,
         }])
     }
     fn source(&self) -> Source {
@@ -1940,4 +1942,45 @@ fn looking_aircraft_up_on_flightradar24_keeps_type_airline_and_code_for_30_days(
         .fr24
         .is_none());
     assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+}
+
+#[test]
+fn accepting_a_route_replaces_the_route_keywords_accepted_before() {
+    let (mut w, ids) = route_world(&["a.jpg"], &[PHOTO_S]);
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    // The wrong one first (WAW → YYZ, LOT8N), then the right one.
+    route::accept(
+        &mut w.cat,
+        &w.lib,
+        ids[0],
+        &[
+            p("Aircraft|From|WAW"),
+            p("Aircraft|To|YYZ"),
+            p("Aircraft|Flight|LOT8N"),
+        ],
+    )
+    .unwrap();
+    route::accept(
+        &mut w.cat,
+        &w.lib,
+        ids[0],
+        &[p("Aircraft|From|YYZ"), p("Aircraft|To|WAW")],
+    )
+    .unwrap();
+    let mut tags: Vec<String> = MetadataService::new(&w.lib, &mut w.cat)
+        .user_tags(ids[0])
+        .unwrap()
+        .iter()
+        .map(TagPath::to_lightroom)
+        .collect();
+    tags.sort();
+    assert_eq!(
+        tags,
+        [
+            "Aircraft|From|YYZ",
+            "Aircraft|Registration|C-GBIJ",
+            "Aircraft|To|WAW"
+        ]
+    );
+    assert!(route::accept(&mut w.cat, &w.lib, ids[0], &[p("Aircraft|Type|X")]).is_err());
 }

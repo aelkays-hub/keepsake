@@ -9,7 +9,6 @@ use std::sync::Arc;
 use keepsake_core::ai::aircraft::route::{
     self, Airports, At, Choice, Clock, Flightradar, OpenSky, Pick, Source, State as RouteState,
 };
-use keepsake_core::ai::aircraft::scan;
 use keepsake_core::catalog::{AssetId, JobState, TagPath};
 use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -384,11 +383,16 @@ fn choice_dto(c: &Choice, airports: &Airports) -> CmdResult<RouteChoiceDto> {
         to_country: to.and_then(|f| f.2),
         departed: iso(c.flight.first_seen),
         arrived: iso(c.flight.last_seen),
-        at: match c.at {
-            At::Departure => "departure",
-            At::Arrival => "arrival",
+        at: if c.flight.inferred {
+            "between"
+        } else {
+            match c.at {
+                At::Departure => "departure",
+                At::Arrival => "arrival",
+            }
         }
         .to_owned(),
+        inferred: c.flight.inferred,
         gap_min: u32::try_from(c.gap_s / 60).unwrap_or(u32::MAX),
         keywords: route::keywords(&c.flight, airports)
             .map_err(err)?
@@ -500,5 +504,5 @@ pub fn aircraft_route_accept(
     }
     let open = state.open()?;
     let mut cat = open.writer()?;
-    scan::add_to(&mut cat, &open.lib, &[asset], &paths).map_err(err)
+    route::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
 }

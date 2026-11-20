@@ -152,6 +152,12 @@ pub struct Flight {
     /// The flight number, when the source gives it (Flightradar24: `AC856`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<String>,
+    /// Not seen by the source, worked out ([`missing_leg`]): it landed at
+    /// one airport and next took off from another, so it flew between them
+    /// some time from `first_seen` (that landing) to `last_seen` (that
+    /// take-off). Never kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inferred: bool,
 }
 
 impl Flight {
@@ -329,6 +335,7 @@ pub fn parse_flights(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
                 arrival: text(f, "estArrivalAirport").map(|s| s.to_ascii_uppercase()),
                 callsign: text(f, "callsign"),
                 number: None,
+                inferred: false,
             })
         })
         .collect())
@@ -512,6 +519,7 @@ pub fn parse_fr24(status: u16, body: &str) -> Result<Vec<Flight>, AiError> {
                 .map(|s| s.to_ascii_uppercase()),
                 callsign: text(f, &["callsign"]),
                 number: text(f, &["flight"]).map(|s| s.to_ascii_uppercase()),
+                inferred: false,
             })
         })
         .collect())
@@ -813,12 +821,56 @@ fn km(a: (f64, f64), b: (f64, f64)) -> f64 {
     2.0 * 6371.0 * h.sqrt().asin()
 }
 
+/// An airliner's speed between airports, for [`missing_leg`].
+const CRUISE_KMH: f64 = 850.0;
+/// Time on the ground at both ends, for [`missing_leg`].
+const GROUND_S: i64 = 3600;
+
+/// The flight the source did not see, when the photo falls in it: the
+/// aircraft landed at one airport (`a`) and next took off from another
+/// (`b`), so it flew from the first to the second in between (OpenSky has
+/// no receivers over oceans: SP-LSC landed at YYZ at 21:22 UTC and next
+/// left WAW at 10:52; its YYZ → WAW flight is in neither day's answer).
+/// It must have had time for it: the flight at [`CRUISE_KMH`] and an hour
+/// on the ground ([`GROUND_S`]); a pair of airports not in the list, at
+/// least two hours.
+pub fn missing_leg(photo_s: i64, flights: &[Flight], airports: &Airports) -> Option<Flight> {
+    let mut seen: Vec<&Flight> = flights.iter().filter(|f| !f.inferred).collect();
+    seen.sort_by_key(|f| f.first_seen);
+    seen.windows(2).find_map(|w| {
+        let (a, b) = (w[0], w[1]);
+        let (landed, left) = (a.arrival.as_deref()?, b.departure.as_deref()?);
+        let needed = match (airports.get(landed), airports.get(left)) {
+            (Some(x), Some(y)) => {
+                let hours = km((x.lat, x.lon), (y.lat, y.lon)) / CRUISE_KMH;
+                GROUND_S + (hours * 3600.0) as i64
+            }
+            _ => 2 * 3600,
+        };
+        (landed != left
+            && a.last_seen < photo_s
+            && photo_s < b.first_seen
+            && b.first_seen - a.last_seen >= needed)
+            .then(|| Flight {
+                first_seen: a.last_seen,
+                last_seen: b.first_seen,
+                departure: Some(landed.to_owned()),
+                arrival: Some(left.to_owned()),
+                callsign: None,
+                number: None,
+                inferred: true,
+            })
+    })
+}
+
 /// The flight the photo (taken at `photo_s`, Unix seconds, at `gps`)
 /// shows: the one that took off or landed nearest it, within [`NEAR_S`]
 /// (in the air at the time counts as nearest). Flights within [`TIE_S`] of
 /// each other are equally close: the photo's position, when known, picks
-/// the one whose airport is nearest; otherwise all are offered. Never a
-/// silent guess.
+/// the one whose airport is nearest; otherwise all are offered. When the
+/// photo falls between a landing and a take-off from another airport, the
+/// flight between them the source did not see ([`missing_leg`]) is offered
+/// too, beside the flights near: the user chooses. Never a silent guess.
 pub fn pick(
     photo_s: i64,
     gps: Option<(f64, f64)>,
@@ -847,6 +899,19 @@ pub fn pick(
             })
         })
         .collect();
+    if let Some(leg) = missing_leg(photo_s, flights, airports) {
+        near.push(Choice {
+            flight: leg,
+            at: At::Departure,
+            gap_s: 0,
+        });
+        near.sort_by_key(|c| c.flight.first_seen);
+        return if near.len() == 1 {
+            Pick::One(near.swap_remove(0))
+        } else {
+            Pick::Several(near)
+        };
+    }
     if near.is_empty() {
         return Pick::NoneNear;
     }
@@ -908,6 +973,35 @@ pub fn keywords(f: &Flight, airports: &Airports) -> Result<Vec<TagPath>, AiError
         add("Flight", &n)?;
     }
     Ok(out)
+}
+
+/// Accept a photo's route: its route keywords become `paths` (those it had
+/// from another route are taken off: a photo is of one flight), as the
+/// aircraft reader's. Returns how many photos got something new.
+pub fn accept(
+    cat: &mut Catalog,
+    lib: &crate::library::Library,
+    asset: AssetId,
+    paths: &[TagPath],
+) -> Result<u64, AiError> {
+    if let Some(p) = paths.iter().find(|p| !is_route_keyword(p)) {
+        return Err(cloud(
+            format!("{} is not a route keyword", p.to_lightroom()),
+            false,
+        ));
+    }
+    let lib_err = |e: crate::library::LibraryError| AiError::Image(e.to_string());
+    let mut svc = crate::metadata::MetadataService::new(lib, cat);
+    let had = svc.user_tags(asset).map_err(lib_err)?;
+    let keep: Vec<TagPath> = had
+        .iter()
+        .filter(|t| !is_route_keyword(t) || paths.contains(t))
+        .cloned()
+        .collect();
+    if keep.len() != had.len() {
+        svc.set_user_tags(asset, &keep).map_err(lib_err)?;
+    }
+    super::scan::add_to(cat, lib, &[asset], paths)
 }
 
 /// Is `path` a keyword a route gives (`Aircraft|From|YYZ`, …)?
@@ -1315,6 +1409,7 @@ mod tests {
             arrival: arr.map(str::to_owned),
             callsign: Some(cs.to_owned()),
             number: None,
+            inferred: false,
         }
     }
 
@@ -1389,6 +1484,91 @@ mod tests {
             Pick::Several(v) => assert_eq!(v.len(), 2),
             p => panic!("{p:?}"),
         }
+    }
+
+    #[test]
+    fn a_flight_the_source_did_not_see_is_worked_out_and_offered() {
+        let a = airports();
+        // SP-LSC: WAW → YYZ landed 21:22; next seen leaving WAW at 10:52
+        // the next day (for Miami). The photo: YYZ, 00:00, 158 min after
+        // the landing, as it left for Warsaw.
+        let fl = [
+            f(
+                13 * H,
+                21 * H + 22 * 60,
+                Some("EPWA"),
+                Some("CYYZ"),
+                "LOT8N",
+            ),
+            f(
+                34 * H + 52 * 60,
+                45 * H,
+                Some("EPWA"),
+                Some("KMIA"),
+                "LOT29",
+            ),
+        ];
+        let photo = 24 * H;
+        let leg = missing_leg(photo, &fl, &a).unwrap();
+        assert!(leg.inferred);
+        assert_eq!(leg.departure.as_deref(), Some("CYYZ"));
+        assert_eq!(leg.arrival.as_deref(), Some("EPWA"));
+        assert_eq!(
+            (leg.first_seen, leg.last_seen),
+            (fl[0].last_seen, fl[1].first_seen)
+        );
+        let k: Vec<String> = keywords(&leg, &a)
+            .unwrap()
+            .iter()
+            .map(TagPath::to_lightroom)
+            .collect();
+        assert_eq!(
+            k,
+            [
+                "Aircraft|From|YYZ",
+                "Aircraft|From country|Canada",
+                "Aircraft|To|WAW",
+                "Aircraft|To country|Poland"
+            ]
+        );
+        // Offered beside the arrival (158 min after it): the user chooses.
+        match pick(photo, None, &fl, &a) {
+            Pick::Several(v) => {
+                assert_eq!(v.len(), 2);
+                assert_eq!(v[0].flight.callsign.as_deref(), Some("LOT8N"));
+                assert!(v[1].flight.inferred);
+            }
+            p => panic!("{p:?}"),
+        }
+        // Long after the landing (nothing near): the missing flight alone.
+        match pick(28 * H, None, &fl, &a) {
+            Pick::One(c) => assert!(c.flight.inferred),
+            p => panic!("{p:?}"),
+        }
+        // Next leaving from where it landed: nothing missing.
+        let fl = [
+            f(13 * H, 21 * H, Some("EPWA"), Some("CYYZ"), "LOT8N"),
+            f(23 * H, 31 * H, Some("CYYZ"), Some("EPWA"), "LOT45"),
+        ];
+        assert_eq!(missing_leg(22 * H, &fl, &a), None);
+        // No time for it (lands at Ottawa, leaves Toronto an hour later).
+        let fl = [
+            f(10 * H, 11 * H, Some("CYYZ"), Some("CYOW"), "ACA443"),
+            f(12 * H, 13 * H, Some("CYYZ"), Some("CYUL"), "ACA412"),
+        ];
+        assert_eq!(missing_leg(11 * H + 1800, &fl, &a), None);
+        // Not between the two: nothing worked out.
+        let fl = [
+            f(13 * H, 21 * H, Some("EPWA"), Some("CYYZ"), "LOT8N"),
+            f(34 * H, 45 * H, Some("EPWA"), Some("KMIA"), "LOT29"),
+        ];
+        assert_eq!(missing_leg(20 * H, &fl, &a), None);
+        // An answer kept before this (no `inferred`) still reads.
+        let old: Flight = serde_json::from_str(
+            r#"{"first_seen":1,"last_seen":2,"departure":null,"arrival":null,"callsign":null}"#,
+        )
+        .unwrap();
+        assert!(!old.inferred);
     }
 
     #[test]

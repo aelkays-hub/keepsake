@@ -21,6 +21,7 @@ export function routeLine(c: RouteChoiceDto): string {
 
 /** `Flight AC856 (callsign ACA856)`, or just the callsign. */
 export function flightLine(c: RouteChoiceDto): string {
+  if (c.inferred) return "Flight not seen (worked out from the flights before and after)";
   if (!c.flight) return "Flight not known";
   return c.callsign && c.callsign !== c.flight
     ? `Flight ${c.flight} (callsign ${c.callsign})`
@@ -34,6 +35,11 @@ function hm(iso: string): string {
 
 /** Where the photo is in the flight: `Taken 15 min before landing (22:36 UTC)`. */
 export function whenLine(c: RouteChoiceDto): string {
+  if (c.inferred || c.at === "between") {
+    const day = (iso: string) => iso.slice(0, 10);
+    const next = day(c.arrived) !== day(c.departed) ? ", next day" : "";
+    return `Between landing at ${c.from ?? "?"} (${hm(c.departed)} UTC) and next taking off from ${c.to ?? "?"} (${hm(c.arrived)} UTC${next})`;
+  }
   const dep = c.at === "departure";
   const time = hm(dep ? c.departed : c.arrived);
   const end = dep ? "take-off" : "landing";

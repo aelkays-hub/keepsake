@@ -67,7 +67,13 @@
 
 ---
 
-## The inspector shows what Flightradar24 showed (2026-11-20)
+## Add route: a flight the source did not see (2026-11-20)
+
+- **Reported:** A7401009.ARW (SP-LSC, LOT 787-9; 2026-05-19 00:00 UTC, taken as it left YYZ) was offered WAW → YYZ.
+- **Found:** OpenSky had LOT8N WAW → YYZ (landed 21:22 UTC on 18 May) and LOT29 WAW → MIA (seen from 10:52 on 19 May), nothing between: the YYZ → WAW flight over the Atlantic was not seen. The only flight within three hours was the arrival, 158 min before the photo, so it was offered alone.
+- **Fixed:** `route::missing_leg`: landed at one airport, next taking off from another, with time for the flight (850 km/h and an hour on the ground): the flight between them is worked out (`Flight.inferred`, never kept), offered beside the flights near (the user chooses), with no flight number. The window says "Flight not seen (worked out …)" and "Between landing at YYZ … and next taking off from WAW …". Accepting a route now replaces the photo's route keywords accepted before (`route::accept`).
+- **Tests:** route unit test (+1: SP-LSC's day; no time for it; nothing missing; old answers read), `aircraft_tests` (+1: accepting replaces); Vitest (+1); mocked Playwright Add route (6); fmt, clippy, ESLint, Prettier, tsc.
+
 
 - **Asked:** how to see the data from Flightradar24; "Yes, add it" (a line in the inspector).
 - **Built:** `fr24::shown` (type named from `icao-types.tsv`, airline from operator or livery, code, day seen, kept until); command `fr24_aircraft`; the inspector's aircraft block (a photo with a registration) shows Flightradar24 · kept until, Type, Airline, Transponder, Seen flying, or that it did not fly in the weeks asked about.

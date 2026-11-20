@@ -338,7 +338,11 @@ export function RouteWindow() {
                   )}
                   {item.state === "several" && (
                     <fieldset className="rt-several" data-testid="rt-several">
-                      <legend>Two flights are as near the photo's time: which is it?</legend>
+                      <legend>
+                        {item.choices.some((ch) => ch.inferred)
+                          ? "The source missed a flight between these: which is it?"
+                          : "Two flights are as near the photo's time: which is it?"}
+                      </legend>
                       {item.choices.map((ch, i) => (
                         <label key={i} className="check">
                           <input

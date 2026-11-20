@@ -6,6 +6,18 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 ---
 
+## Add route: a flight the source did not see
+
+Automated: `cargo test -p keepsake-core --lib missing` and `cargo test -p keepsake-core --test aircraft_tests accepting`
+
+Manual (both OSes):
+1. Add route on A7401009.ARW (SP-LSC, 19 May 2026), **Ask again** if it shows the old answer.
+   - **Expected:** "The source missed a flight between these: which is it?" with LOT8N WAW → YYZ (taken … after landing) and "Flight not seen (worked out …)": YYZ → WAW, "Between landing at YYZ (21:22 UTC) and next taking off from WAW (10:52 UTC, next day)".
+2. Choose YYZ → WAW and **Accept**.
+   - **Expected:** the photo's keywords are From YYZ, To WAW and their countries; the From WAW, To YYZ and Flight LOT8N accepted before are gone.
+
+---
+
 ## Look up aircraft on Flightradar24
 
 Automated: `cargo test -p keepsake-core --test aircraft_tests flightradar24`

@@ -32,6 +32,7 @@ const choice = (p: Partial<RouteChoiceDto>): RouteChoiceDto => ({
   at: "departure",
   gapMin: 15,
   keywords: ["Aircraft|From|YYZ", "Aircraft|To|LHR", "Aircraft|Flight|AC856"],
+  inferred: false,
   ...p,
 });
 
@@ -64,6 +65,23 @@ describe("Add route", () => {
     );
     expect(whenLine(choice({ at: "arrival", gapMin: 0 }))).toBe(
       "Taken in the air, before landing (19:25 UTC)",
+    );
+  });
+
+  it("says a flight the source did not see, worked out from those before and after", () => {
+    const c = choice({
+      inferred: true,
+      at: "between",
+      from: "YYZ",
+      to: "WAW",
+      flight: null,
+      callsign: null,
+      departed: "2026-05-18T21:22:00Z",
+      arrived: "2026-05-19T10:52:00Z",
+    });
+    expect(flightLine(c)).toBe("Flight not seen (worked out from the flights before and after)");
+    expect(whenLine(c)).toBe(
+      "Between landing at YYZ (21:22 UTC) and next taking off from WAW (10:52 UTC, next day)",
     );
   });
 
