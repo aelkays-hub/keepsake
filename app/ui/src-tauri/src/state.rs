@@ -115,6 +115,8 @@ pub struct AppState {
     pub faces: crate::faces::FacesState,
     /// Read aircraft's status and the text models' download.
     pub aircraft: crate::aircraft::AircraftState,
+    /// National aircraft registers being updated (ADR-045).
+    pub registers: crate::registers::RegistersState,
 }
 
 /// WebView2 arguments for the UI tests: `KEEPSAKE_UI_DEBUG_PORT=<port>`

@@ -285,6 +285,8 @@ pub struct RenderService {
     flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
     fr24: Option<Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>>,
     fr24_gap: Duration,
+    /// Look new registrations up on their own.
+    fr24_auto: bool,
     route_clock: crate::ai::aircraft::route::Clock,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
@@ -331,6 +333,7 @@ impl RenderService {
             flights: None,
             fr24: None,
             fr24_gap: crate::ai::aircraft::fr24::GAP,
+            fr24_auto: false,
             route_clock: crate::ai::aircraft::route::Clock::default(),
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
@@ -362,6 +365,13 @@ impl RenderService {
     ) -> Self {
         self.fr24 = Some(fr24);
         self.fr24_gap = gap;
+        self
+    }
+
+    /// Look new registrations up on Flightradar24 on their own (checked
+    /// each [`crate::ai::aircraft::fr24::AUTO_EVERY`] while idle).
+    pub fn with_fr24_auto(mut self, on: bool) -> Self {
+        self.fr24_auto = on;
         self
     }
 
@@ -1102,7 +1112,21 @@ impl RenderService {
         let Some(client) = self.fr24.as_deref() else {
             return Ok(());
         };
+        let mut checked: Option<Instant> = None;
         while !cancel.load(Ordering::SeqCst) {
+            // New registrations, on their own: queue the batch for them.
+            if self.fr24_auto && checked.is_none_or(|c| c.elapsed() >= fr24::AUTO_EVERY) {
+                checked = Some(Instant::now());
+                match fr24::due(cat, now_ms()) {
+                    Ok(d) if !d.is_empty() => {
+                        if let Err(e) = fr24::enqueue(cat) {
+                            tracing::warn!("Flightradar24 lookup not queued: {e}");
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("new registrations not checked: {e}"),
+                }
+            }
             let claimed = match cat.write(|t| t.jobs().claim(&[fr24::JOB_FR24_AIRCRAFT], now_ms()))
             {
                 Err(e) if e.is_busy() => {

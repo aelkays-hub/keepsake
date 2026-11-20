@@ -546,6 +546,7 @@ pub fn parse_fr24_aircraft(
         hex: up(&["hex"]),
         seen: fr24_text(f, &["datetime_takeoff", "first_seen"])
             .and_then(|s| s.get(..10).map(str::to_owned)),
+        expired: false,
     }))
 }
 
@@ -1139,13 +1140,22 @@ pub fn photo(cat: &Catalog, asset: AssetId, clock: Clock) -> Result<Photo, AiErr
 /// may be kept).
 pub fn icao24_of(cat: &Catalog, registration: &str) -> Result<Option<String>, AiError> {
     let now = crate::jobs::now_ms();
-    Ok(lookup::kept(cat, registration)?
-        .and_then(|f| {
-            f.typed_mode_s
-                .or(f.mode_s)
-                .or_else(|| f.fr24.filter(|a| a.fresh(now)).and_then(|a| a.hex))
-        })
-        .map(|m| m.to_ascii_lowercase()))
+    let kept = lookup::kept(cat, registration)?;
+    let typed = kept
+        .as_ref()
+        .and_then(|f| f.typed_mode_s.clone().or(f.mode_s.clone()));
+    // Then a national register (ADR-045), then Flightradar24.
+    let code = match typed {
+        Some(c) => Some(c),
+        None => match super::register::get(cat, registration)?.and_then(|r| r.mode_s) {
+            Some(c) => Some(c),
+            None => kept
+                .and_then(|f| f.fr24)
+                .filter(|a| a.fresh(now))
+                .and_then(|a| a.hex),
+        },
+    };
+    Ok(code.map(|m| m.to_ascii_lowercase()))
 }
 
 /// The kept flights of `icao24` on `day`; `None` when not asked yet.

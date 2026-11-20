@@ -25,6 +25,7 @@ pub mod lookup;
 pub mod marks;
 pub mod ocr;
 pub mod planes;
+pub mod register;
 pub mod route;
 pub mod scan;
 pub mod types;

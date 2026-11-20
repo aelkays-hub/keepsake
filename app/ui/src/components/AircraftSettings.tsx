@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { aircraftProgress } from "../aircraft";
 import { api, events, type AircraftStatus } from "../api";
 import type { Fr24AircraftStatusDto } from "../bindings/Fr24AircraftStatusDto";
+import { AircraftRegisters } from "./AircraftRegisters";
 import type { RouteStatusDto } from "../bindings/RouteStatusDto";
 import * as fmt from "../format";
 
@@ -187,6 +188,7 @@ export function AircraftSettings() {
           )}
         </div>
       )}
+      {st.enabled && <AircraftRegisters />}
       <label className="check">
         <input
           type="checkbox"
@@ -432,23 +434,38 @@ function Fr24Lookup() {
         </p>
       </div>
     );
-  const left = Math.max(0, st.registrations - st.asked);
+  const left = st.new;
   return (
     <div className="block" data-testid="fr24-lookup">
       <strong>Look up aircraft on Flightradar24</strong>
       <p className="muted">
-        Asks for each registration's latest flight in the last four weeks: its type, the airline
+        Asks for each new registration's latest flight in the last four weeks: its type, the airline
         operating it and its transponder code (so OpenSky can find its older routes). Aircraft that
         did not fly in that time are not found, and there is no build year. About 2 credits per
         aircraft found, none for those not found; the job asks about 10 a minute. Kept 30 days (its
-        terms); the type and airline are offered in Read aircraft for you to accept.
+        terms), then deleted; a registration is asked about once. The type and airline are offered
+        in Read aircraft for you to accept.
       </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={st.auto}
+          onChange={(e) =>
+            api
+              .fr24SetAuto(e.target.checked)
+              .then(load)
+              .catch((err) => setProblem(String(err)))
+          }
+          data-testid="fr24-auto"
+        />
+        Look up a new registration on its own when it is tagged on a photo
+      </label>
       <p role="status" data-testid="fr24-lookup-status">
         {st.registrations === 0
           ? "No registrations accepted on photos yet."
-          : `${st.asked} of ${st.registrations} registrations looked up, ${st.found} found${
-              st.running ? " (looking up…)" : ""
-            }.`}
+          : `${st.registrations} registrations: ${st.found} found in the last 30 days, ${
+              st.new
+            } new${st.running ? " (looking up…)" : ""}.`}
       </p>
       {st.problem && (
         <p className="error" role="alert" data-testid="fr24-lookup-problem">
@@ -485,9 +502,9 @@ function Fr24Lookup() {
             }}
             data-testid="fr24-lookup-start"
           >
-            {st.asked === 0
-              ? `Look up all ${st.registrations} registrations (at most ${st.registrations * 2} credits)`
-              : `Look up the ${left} left (at most ${left * 2} credits)`}
+            {left === 0
+              ? "No new registrations"
+              : `Look up ${left} new ${left === 1 ? "registration" : "registrations"} (at most ${left * 2} credits)`}
           </button>
         )}
       </div>

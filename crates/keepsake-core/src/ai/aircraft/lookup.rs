@@ -111,12 +111,16 @@ pub struct Fr24Aircraft {
     /// The day of the flight seen (`2026-11-17`).
     #[serde(default)]
     pub seen: Option<String>,
+    /// Asked more than 30 days ago: what it said is deleted (its terms);
+    /// only when it was asked is kept, so it is not asked again unasked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expired: bool,
 }
 
 impl Fr24Aircraft {
     /// Still within the 30 days Flightradar24's terms allow it to be kept.
     pub fn fresh(&self, now_ms: i64) -> bool {
-        now_ms - self.asked_ms < super::route::FR24_KEEP_MS
+        !self.expired && now_ms - self.asked_ms < super::route::FR24_KEEP_MS
     }
 }
 

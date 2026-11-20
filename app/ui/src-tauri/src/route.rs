@@ -103,9 +103,21 @@ pub fn fr24_aircraft_status(state: State<'_, AppState>) -> CmdResult<Fr24Aircraf
         registrations: st.registrations,
         asked: st.asked,
         found: st.found,
+        new: st.new,
+        auto: Settings::load().map_err(err)?.ai.fr24_auto,
         running: st.running,
         problem: st.problem,
     })
+}
+
+/// Look new registrations up on Flightradar24 on their own (on), or only
+/// when asked (off).
+#[tauri::command(async)]
+pub fn fr24_set_auto(app: AppHandle, on: bool) -> CmdResult<()> {
+    let mut s = Settings::load().map_err(err)?;
+    s.ai.fr24_auto = on;
+    s.save().map_err(err)?;
+    restart(&app)
 }
 
 /// Look every registration up on Flightradar24 (one batch job, in the

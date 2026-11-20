@@ -1845,6 +1845,7 @@ impl route::Fr24Aircrafts for FakeFr24Aircraft {
                 painted_as: Some("KLM".into()),
                 hex: Some("485E31".into()),
                 seen: Some("2026-11-01".into()),
+                expired: false,
             }),
         )
     }
@@ -1936,12 +1937,30 @@ fn looking_aircraft_up_on_flightradar24_keeps_type_airline_and_code_for_30_days(
     let later = now + route::FR24_KEEP_MS + 86_400_000;
     assert!(fr24::with_fr24(&f, later).is_none());
     assert_eq!(fr24::forget_expired(&mut w.cat, later).unwrap(), 2);
-    assert!(lookup::kept(&w.cat, "PH-BKO")
+    // Only when it was asked stays: nothing Flightradar24 said.
+    let left = lookup::kept(&w.cat, "PH-BKO")
         .unwrap()
         .unwrap()
         .fr24
-        .is_none());
+        .unwrap();
+    assert!(left.expired);
+    assert_eq!(
+        (left.icao_type, left.hex, left.operator, left.seen),
+        (None, None, None, None)
+    );
     assert_eq!(route::icao24_of(&w.cat, "PH-BKO").unwrap(), None);
+    // Asked about before: not asked again (new registrations only).
+    assert!(fr24::due(&w.cat, later).unwrap().is_empty());
+    assert_eq!(fr24::forget_expired(&mut w.cat, later).unwrap(), 0);
+    let st = fr24::status(&w.cat).unwrap();
+    assert_eq!((st.new, st.asked), (0, 0));
+    // A new registration tagged: due.
+    let new = TagPath::parse_lightroom("Aircraft|Registration|C-FNEW").unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(ids[0], &[new])
+        .unwrap();
+    assert_eq!(fr24::due(&w.cat, later).unwrap(), ["C-FNEW"]);
+    assert_eq!(fr24::status(&w.cat).unwrap().new, 1);
 }
 
 #[test]
@@ -1983,4 +2002,121 @@ fn accepting_a_route_replaces_the_route_keywords_accepted_before() {
         ]
     );
     assert!(route::accept(&mut w.cat, &w.lib, ids[0], &[p("Aircraft|Type|X")]).is_err());
+}
+
+#[test]
+fn a_national_register_gives_build_year_code_type_and_airline_and_puts_misreads_right() {
+    use keepsake_core::ai::aircraft::register::{self, Register};
+    use keepsake_core::catalog::RegisterRow;
+    let mut w = World::new(&["a.jpg"]);
+    let row = |reg: &str, current: bool| RegisterRow {
+        registration: reg.into(),
+        source: "tc".into(),
+        maker: Some("Boeing".into()),
+        model: Some("777-333ER".into()),
+        aircraft_type: Some("Boeing 777-300ER".into()),
+        serial: Some("62400".into()),
+        built: Some("2016".into()),
+        mode_s: Some("C01A61".into()),
+        owner: Some("Air Canada".into()),
+        airline: Some("Air Canada".into()),
+        current,
+    };
+    // Not downloaded: nothing.
+    assert_eq!(register::get(&w.cat, "C-FJZS").unwrap(), None);
+    assert_eq!(register::near(&w.cat, "C-FJ2S").unwrap(), None);
+    register::import(
+        &mut w.cat,
+        Register::Tc,
+        &[row("C-FJZS", true), row("C-GOLD", false)],
+        Some("Thu, 19 Nov 2026 16:44:22 GMT"),
+    )
+    .unwrap();
+    let src = register::sources(&w.cat).unwrap();
+    assert_eq!(src.len(), 1);
+    assert_eq!(src[0].rows, 2);
+    assert_eq!(
+        src[0].file_modified.as_deref(),
+        Some("Thu, 19 Nov 2026 16:44:22 GMT")
+    );
+    assert_eq!(
+        register::get(&w.cat, "cfjzs")
+            .unwrap()
+            .unwrap()
+            .registration,
+        "C-FJZS"
+    );
+
+    // The build year (before OpenSky's), and the transponder code.
+    let k = built::kept(&w.cat, "C-FJZS").unwrap().unwrap();
+    assert_eq!((k.built.as_str(), k.source.as_str()), ("2016", "tc"));
+    assert_eq!(
+        route::icao24_of(&w.cat, "C-FJZS").unwrap().as_deref(),
+        Some("c01a61")
+    );
+    // Typed wins over the register.
+    built::set_typed(&mut w.cat, &w.lib, "C-FJZS", Some("2015-06-01")).unwrap();
+    assert_eq!(
+        built::kept(&w.cat, "C-FJZS").unwrap().unwrap().source,
+        "typed"
+    );
+
+    // What the lookup does not know, the register fills.
+    let f = register::with_register(&w.cat, "C-FJZS", None)
+        .unwrap()
+        .unwrap();
+    assert!(f.known);
+    assert_eq!(f.aircraft_type.as_deref(), Some("Boeing 777-300ER"));
+    assert_eq!(f.airline.as_deref(), Some("Air Canada"));
+    assert_eq!(f.mode_s.as_deref(), Some("C01A61"));
+
+    // A misread one character off a registered aircraft: that one. Not one
+    // no longer registered, nor a registration listed.
+    assert_eq!(
+        register::near(&w.cat, "C-FJ2S").unwrap().as_deref(),
+        Some("C-FJZS")
+    );
+    assert_eq!(register::near(&w.cat, "C-FJZS").unwrap(), None);
+    assert_eq!(register::near(&w.cat, "C-G0LD").unwrap(), None);
+    assert_eq!(register::near(&w.cat, "PH-BK0").unwrap(), None);
+
+    // Read aircraft offers the real one ticked, the one read unticked, and
+    // the register's type and airline.
+    let item = scan::ReviewItem {
+        asset: w.asset("a.jpg"),
+        candidates: keepsake_core::ai::aircraft::marks::Candidates {
+            registrations: vec![("C-FJ2S".into(), 0.97)],
+            airlines: vec![],
+            types: vec![],
+        },
+        looks_like: None,
+        full_size: true,
+        made_ms: 0,
+        review: scan::Review::Waiting,
+    };
+    let o = scan::offer_for(&w.cat, &item, &Confidence::default()).unwrap();
+    let k: Vec<String> = o.keywords.iter().map(TagPath::to_lightroom).collect();
+    assert!(
+        k.contains(&"Aircraft|Registration|C-FJZS".to_owned()),
+        "{k:?}"
+    );
+    assert!(
+        k.contains(&"Aircraft|Registration|C-FJ2S".to_owned()),
+        "{k:?}"
+    );
+    assert!(
+        k.contains(&"Aircraft|Type|Boeing 777-300ER".to_owned()),
+        "{k:?}"
+    );
+    assert!(
+        k.contains(&"Aircraft|Airline|Air Canada".to_owned()),
+        "{k:?}"
+    );
+    let unticked: Vec<String> = o.unticked.iter().map(TagPath::to_lightroom).collect();
+    assert_eq!(unticked, ["Aircraft|Registration|C-FJ2S"]);
+
+    // Removed: nothing again.
+    register::remove(&mut w.cat, Register::Tc).unwrap();
+    assert_eq!(register::get(&w.cat, "C-FJZS").unwrap(), None);
+    assert!(register::sources(&w.cat).unwrap().is_empty());
 }

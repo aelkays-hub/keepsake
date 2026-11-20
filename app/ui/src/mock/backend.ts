@@ -130,6 +130,10 @@ export interface MockState {
     /** Look up aircraft on Flightradar24: asked so far, running. */
     lookedUp: number;
     lookingUp: boolean;
+    /** Look new registrations up on their own. */
+    fr24Auto: boolean;
+    /** National registers downloaded (`?registers=tc,faa`). */
+    registers: Set<string>;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -549,6 +553,8 @@ export function installMock(): void {
       source: params.get("routesource") ?? "opensky",
       fr24: params.get("fr24") === "saved",
       lookedUp: 0,
+      fr24Auto: true,
+      registers: new Set((params.get("registers") ?? "").split(",").filter(Boolean)),
       lookingUp: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
@@ -1748,8 +1754,70 @@ export function installMock(): void {
             registrations: 40,
             asked: st.route.lookedUp,
             found: Math.floor(st.route.lookedUp * 0.75),
+            new: 40 - st.route.lookedUp,
+            auto: st.route.fr24Auto,
             running: st.route.lookingUp,
             problem: null,
+          };
+        }
+        case "fr24_set_auto":
+          st.route.fr24Auto = Boolean(a.on);
+          return null;
+        case "aircraft_registers":
+          return [
+            ["tc", "Transport Canada", 4_600_000, 34919, "Thu, 19 Nov 2026 16:44:22 GMT"],
+            ["faa", "FAA", 73_000_000, 319530, "Fri, 20 Nov 2026 05:58:34 GMT"],
+          ].map(([id, name, bytes, rows, date]) => {
+            const on = st.route.registers.has(id as string);
+            return {
+              id,
+              name,
+              bytes,
+              downloaded: on,
+              fileModified: on ? date : null,
+              imported: on ? "2026-11-20 12:00 UTC" : null,
+              rows: on ? rows : 0,
+              running: false,
+              done: 0,
+              importing: false,
+            };
+          });
+        case "aircraft_register_update": {
+          // Downloaded and imported at once; a second time: unchanged.
+          const id = String(a.id);
+          const had = st.route.registers.has(id);
+          st.route.registers.add(id);
+          void emit("aircraft://register", {
+            id,
+            done: 0,
+            total: 0,
+            importing: false,
+            finished: true,
+            message: had ? "Already up to date." : "34919 aircraft imported.",
+            error: null,
+          });
+          return null;
+        }
+        case "aircraft_register_cancel":
+          return null;
+        case "aircraft_register_remove":
+          st.route.registers.delete(String(a.id));
+          return null;
+        case "aircraft_register": {
+          const reg = String(a.registration);
+          if (!st.route.registers.has("tc") || reg !== "C-FJZS") return null;
+          return {
+            registration: "C-FJZS",
+            register: "Transport Canada",
+            aircraftType: "Boeing 777-300ER",
+            maker: "Boeing",
+            model: "777-333ER",
+            serial: "62400",
+            built: "2016",
+            modeS: "C01A61",
+            owner: "Air Canada",
+            airline: "Air Canada",
+            current: true,
           };
         }
         case "fr24_aircraft_start":

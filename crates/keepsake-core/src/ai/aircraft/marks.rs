@@ -351,7 +351,7 @@ fn cut_off(read: &str, name: &str) -> bool {
 
 /// Words a company's registered name adds to the airline's: `Emirates
 /// Airline`, `JetBlue Airways`, `TUI Airways Ltd`.
-const COMPANY_WORDS: [&str; 18] = [
+const COMPANY_WORDS: [&str; 20] = [
     "AIR",
     "AIRLINE",
     "AIRLINES",
@@ -370,6 +370,9 @@ const COMPANY_WORDS: [&str; 18] = [
     "COMPANY",
     "PLC",
     "AG",
+    // `Air Canada rouge LP` (Transport Canada's register).
+    "LP",
+    "LLP",
 ];
 
 /// Are the two the same but for one character changed, added or missing?

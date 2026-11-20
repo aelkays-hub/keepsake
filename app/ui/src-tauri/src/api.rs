@@ -170,6 +170,59 @@ dto! {
         pub eastern: bool,
     }
 
+    /// A national aircraft register (Settings → Read aircraft; ADR-045).
+    pub struct RegisterStatusDto {
+        /// `tc` or `faa`.
+        pub id: String,
+        pub name: String,
+        /// About how big the download is.
+        #[ts(type = "number")]
+        pub bytes: u64,
+        pub downloaded: bool,
+        /// The file's date (the server's), and when it was imported.
+        pub file_modified: Option<String>,
+        pub imported: Option<String>,
+        #[ts(type = "number")]
+        pub rows: u64,
+        /// Being updated: bytes so far, and whether it is being imported.
+        pub running: bool,
+        #[ts(type = "number")]
+        pub done: u64,
+        pub importing: bool,
+    }
+
+    /// `aircraft://register`: how an update is going.
+    pub struct RegisterProgress {
+        pub id: String,
+        #[ts(type = "number")]
+        pub done: u64,
+        #[ts(type = "number")]
+        pub total: u64,
+        pub importing: bool,
+        pub finished: bool,
+        /// When finished: what was done, or why not.
+        pub message: Option<String>,
+        pub error: Option<String>,
+    }
+
+    /// What a national register says about a registration (the inspector).
+    pub struct RegisterEntryDto {
+        pub registration: String,
+        /// `Transport Canada` or `FAA`.
+        pub register: String,
+        pub aircraft_type: Option<String>,
+        pub maker: Option<String>,
+        pub model: Option<String>,
+        pub serial: Option<String>,
+        pub built: Option<String>,
+        pub mode_s: Option<String>,
+        /// The owner when a company, and the airline it is.
+        pub owner: Option<String>,
+        pub airline: Option<String>,
+        /// Registered now.
+        pub current: bool,
+    }
+
     /// What Flightradar24 showed of a photo's aircraft (the inspector).
     pub struct Fr24AircraftDto {
         pub registration: String,
@@ -201,6 +254,11 @@ dto! {
         pub asked: u64,
         #[ts(type = "number")]
         pub found: u64,
+        /// Never asked about.
+        #[ts(type = "number")]
+        pub new: u64,
+        /// New registrations are looked up on their own.
+        pub auto: bool,
         /// The batch job is queued or running.
         pub running: bool,
         pub problem: Option<String>,

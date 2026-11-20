@@ -241,6 +241,110 @@ pub fn download_checked(
     Ok(())
 }
 
+/// How Keepsake names itself to a server it downloads from (the FAA
+/// refuses curl's own name, and one with a web address in it).
+pub fn user_agent() -> String {
+    format!("Keepsake/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Download `url` to `target` (through `target.part`) if it changed since
+/// `since` (a `Last-Modified` kept from before; `None`: in any case).
+/// Returns the file's `Last-Modified` (`Some("")` when the server gives
+/// none), or `None` when it has not changed: nothing is downloaded.
+/// `progress` gets `(bytes so far, total_guess)` about twice a second.
+pub fn download_if_newer(
+    url: &str,
+    target: &Path,
+    since: Option<&str>,
+    total_guess: u64,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<Option<String>, AiError> {
+    let dir = target
+        .parent()
+        .ok_or_else(|| AiError::Download("bad download path".into()))?;
+    std::fs::create_dir_all(dir)?;
+    let part = target.with_extension("part");
+    let headers = target.with_extension("headers");
+    let _ = std::fs::remove_file(&part);
+    let _ = std::fs::remove_file(&headers);
+    let mut cmd = Command::new(curl());
+    cmd.args(["--fail", "--location", "--silent", "--show-error"])
+        .arg("--user-agent")
+        .arg(user_agent())
+        .arg("--dump-header")
+        .arg(&headers)
+        .arg("--write-out")
+        .arg("%{http_code}")
+        .arg("--output")
+        .arg(&part);
+    if let Some(d) = since.filter(|d| !d.trim().is_empty()) {
+        cmd.arg("--time-cond").arg(d);
+    }
+    let mut child = cmd
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| AiError::Download(format!("could not start curl: {e}")))?;
+    let status = loop {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(&headers);
+            return Err(AiError::Cancelled);
+        }
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        progress(
+            std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0),
+            total_guess,
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let mut code = String::new();
+    if let Some(mut o) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut o, &mut code);
+    }
+    let head = std::fs::read_to_string(&headers).unwrap_or_default();
+    let _ = std::fs::remove_file(&headers);
+    if !status.success() {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = std::io::Read::read_to_string(&mut e, &mut err);
+        }
+        let _ = std::fs::remove_file(&part);
+        return Err(AiError::Download(format!(
+            "curl failed ({status}): {}",
+            err.trim()
+        )));
+    }
+    // Not changed: a 304, or (a `file://` source) nothing written at all.
+    if code.trim() == "304" || !part.exists() {
+        let _ = std::fs::remove_file(&part);
+        return Ok(None);
+    }
+    // The last response's Last-Modified (after any redirect).
+    let modified = head
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .filter(|(k, _)| k.trim().eq_ignore_ascii_case("last-modified"))
+        .map(|(_, v)| v.trim().to_owned())
+        .next_back()
+        .unwrap_or_default();
+    if since.is_some_and(|d| !modified.is_empty() && d.trim() == modified) {
+        let _ = std::fs::remove_file(&part);
+        return Ok(None);
+    }
+    std::fs::rename(&part, target)?;
+    let got = std::fs::metadata(target).map(|m| m.len()).unwrap_or(0);
+    progress(got, got);
+    Ok(Some(modified))
+}
+
 /// Remove the model from the user's cache folder (turning AI off for good).
 pub fn remove_user_model() -> Result<bool, AiError> {
     match user_model_path() {
@@ -297,6 +401,54 @@ mod tests {
         let good = file_blake3(&src).unwrap();
         download_checked(&url, &target, 5, &good, &cancel, &mut |_, _| {}).unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn a_register_is_downloaded_only_when_it_changed_and_leaves_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.zip");
+        std::fs::write(&src, b"PK register").unwrap();
+        let url = format!("file:///{}", src.display().to_string().replace('\\', "/"));
+        let target = dir.path().join("registers").join("tc.zip");
+        let cancel = AtomicBool::new(false);
+        let r = download_if_newer(&url, &target, None, 11, &cancel, &mut |_, _| {});
+        if matches!(&r, Err(AiError::Download(m)) if m.contains("could not start curl")) {
+            return; // no curl on this machine
+        }
+        let modified = r.unwrap().expect("downloaded");
+        assert_eq!(std::fs::read(&target).unwrap(), b"PK register");
+        assert!(!target.with_extension("part").exists());
+        assert!(!target.with_extension("headers").exists());
+        // Not changed since (the date it gave): nothing downloaded.
+        if !modified.is_empty() {
+            std::fs::remove_file(&target).unwrap();
+            let again =
+                download_if_newer(&url, &target, Some(&modified), 11, &cancel, &mut |_, _| {})
+                    .unwrap();
+            assert_eq!(again, None);
+            assert!(!target.exists());
+            assert!(!target.with_extension("part").exists());
+        }
+        // A file that is not there: an error, nothing left.
+        let missing = format!("{url}.missing");
+        let gone = dir.path().join("registers").join("faa.zip");
+        assert!(download_if_newer(&missing, &gone, None, 1, &cancel, &mut |_, _| {}).is_err());
+        assert!(!gone.exists());
+        assert!(!gone.with_extension("part").exists());
+        assert!(!gone.with_extension("headers").exists());
+        // Stopped: nothing left.
+        let stop = AtomicBool::new(true);
+        let r = download_if_newer(
+            "https://127.0.0.1:9/never",
+            &gone,
+            None,
+            1,
+            &stop,
+            &mut |_, _| {},
+        );
+        assert!(matches!(r, Err(AiError::Cancelled)), "{r:?}");
+        assert!(!gone.exists());
+        assert!(!gone.with_extension("part").exists());
     }
 
     #[test]

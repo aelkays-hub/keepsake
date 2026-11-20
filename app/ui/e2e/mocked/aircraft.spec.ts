@@ -697,14 +697,14 @@ test("Look up aircraft on Flightradar24: one batch job over every registration",
   const box = page.getByTestId("fr24-lookup");
   await expect(box).toContainText("transponder code");
   await expect(box.getByTestId("fr24-lookup-status")).toHaveText(
-    "0 of 40 registrations looked up, 0 found.",
+    "40 registrations: 0 found in the last 30 days, 40 new.",
   );
   await box.getByTestId("fr24-lookup-start").click();
   expect(await calls(page, "fr24_aircraft_start")).toHaveLength(1);
   await expect(box.getByTestId("fr24-lookup-stop")).toBeVisible();
   // It goes on in the background, and ends.
   await expect(box.getByTestId("fr24-lookup-status")).toHaveText(
-    "40 of 40 registrations looked up, 30 found.",
+    "40 registrations: 30 found in the last 30 days, 0 new.",
     { timeout: 60_000 },
   );
   await expect(box.getByTestId("fr24-lookup-start")).toBeDisabled();
@@ -714,7 +714,7 @@ test("the inspector shows what Flightradar24 showed of the photo's aircraft", as
   await open(page, "&aircraft=on&lookup=on&fr24=saved");
   await settings(page);
   await page.getByTestId("fr24-lookup-start").click();
-  await expect(page.getByTestId("fr24-lookup-status")).toContainText("40 of 40", {
+  await expect(page.getByTestId("fr24-lookup-status")).toContainText("30 found", {
     timeout: 60_000,
   });
   await page.keyboard.press("Escape");
@@ -730,4 +730,58 @@ test("the inspector shows what Flightradar24 showed of the photo's aircraft", as
   await expect(fr.getByTestId("fr24-airline")).toHaveText("Air Canada (ACA)");
   await expect(fr.getByTestId("fr24-transponder")).toHaveText("C05E2B");
   await expect(fr.getByTestId("fr24-seen-flying")).toHaveText("2026-11-19");
+});
+
+test("National aircraft registers: download, update, remove; the inspector shows the entry", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on");
+  await settings(page);
+  const box = page.getByTestId("aircraft-registers");
+  await expect(box).toContainText("never a person's name or address");
+  const tc = box.getByTestId("register-tc");
+  await expect(tc.getByTestId("register-state")).toHaveText("Not downloaded.");
+  await expect(tc.getByTestId("register-update")).toHaveText("Download (about 4.6 MB)");
+  await tc.getByTestId("register-update").click();
+  expect(await calls(page, "aircraft_register_update")).toEqual([{ id: "tc" }]);
+  await expect(tc.getByTestId("register-note")).toHaveText("34919 aircraft imported.");
+  await expect(tc.getByTestId("register-state")).toContainText("34,919 aircraft");
+  // Update now: only when the file changed.
+  await tc.getByTestId("register-update").click();
+  await expect(tc.getByTestId("register-note")).toHaveText("Already up to date.");
+  await expect(box.getByTestId("register-faa").getByTestId("register-state")).toHaveText(
+    "Not downloaded.",
+  );
+
+  // The inspector: what the register says of C-FJZS.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  await page.getByTestId("tile").nth(0).click();
+  const insp = page.getByTestId("inspector");
+  await insp.getByTestId("keyword-input").fill("Aircraft|Registration|C-FJZS");
+  await insp.getByTestId("keyword-input").press("Enter");
+  const e = insp.getByTestId("register-entry");
+  await expect(e).toContainText("Transport Canada");
+  await expect(e.getByTestId("register-type")).toHaveText("Boeing 777-300ER (777-333ER)");
+  await expect(e.getByTestId("register-owner")).toHaveText("Air Canada");
+  await expect(e.getByTestId("register-transponder")).toHaveText("C01A61");
+
+  // Removed.
+  await settings(page);
+  await page.getByTestId("register-tc").getByTestId("register-remove").click();
+  await expect(page.getByTestId("register-tc").getByTestId("register-state")).toHaveText(
+    "Not downloaded.",
+  );
+});
+
+test("Flightradar24: new registrations only, and on their own when tagged", async ({ page }) => {
+  await open(page, "&aircraft=on&lookup=on&fr24=saved");
+  await settings(page);
+  const box = page.getByTestId("fr24-lookup");
+  await expect(box.getByTestId("fr24-lookup-start")).toHaveText(
+    "Look up 40 new registrations (at most 80 credits)",
+  );
+  await expect(box.getByTestId("fr24-auto")).toBeChecked();
+  await box.getByTestId("fr24-auto").uncheck();
+  expect(await calls(page, "fr24_set_auto")).toEqual([{ on: false }]);
+  await expect(box.getByTestId("fr24-auto")).not.toBeChecked();
 });

@@ -84,6 +84,8 @@ export function builtKeyword(keywords: string[]): string | null {
 /** Where the build date came from, for people. */
 export function builtSource(source: string | null): string {
   if (source === "opensky") return "from OpenSky";
+  if (source === "tc") return "from Transport Canada's register";
+  if (source === "faa") return "from the FAA register";
   if (source === "typed") return "typed by you";
   return "from the photo's keyword";
 }

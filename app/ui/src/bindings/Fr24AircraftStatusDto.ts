@@ -17,6 +17,14 @@ registrations: number,
  */
 asked: number, found: number, 
 /**
+ * Never asked about.
+ */
+new: number, 
+/**
+ * New registrations are looked up on their own.
+ */
+auto: boolean, 
+/**
  * The batch job is queued or running.
  */
 running: boolean, problem: string | null, };

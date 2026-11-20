@@ -21,6 +21,9 @@ import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
 import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
 import type { RouteReviewDto } from "./bindings/RouteReviewDto";
 import type { Fr24AircraftDto } from "./bindings/Fr24AircraftDto";
+import type { RegisterEntryDto } from "./bindings/RegisterEntryDto";
+import type { RegisterProgress } from "./bindings/RegisterProgress";
+import type { RegisterStatusDto } from "./bindings/RegisterStatusDto";
 import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
@@ -371,6 +374,13 @@ export const api = {
   flightradarTest: () => invoke<string>("flightradar_test"),
   fr24Aircraft: (registration: string) =>
     invoke<Fr24AircraftDto | null>("fr24_aircraft", { registration }),
+  fr24SetAuto: (on: boolean) => invoke<void>("fr24_set_auto", { on }),
+  aircraftRegisters: () => invoke<RegisterStatusDto[]>("aircraft_registers"),
+  aircraftRegisterUpdate: (id: string) => invoke<void>("aircraft_register_update", { id }),
+  aircraftRegisterCancel: (id: string) => invoke<void>("aircraft_register_cancel", { id }),
+  aircraftRegisterRemove: (id: string) => invoke<void>("aircraft_register_remove", { id }),
+  aircraftRegister: (registration: string) =>
+    invoke<RegisterEntryDto | null>("aircraft_register", { registration }),
   fr24AircraftStatus: () => invoke<Fr24AircraftStatusDto>("fr24_aircraft_status"),
   fr24AircraftStart: () => invoke<boolean>("fr24_aircraft_start"),
   fr24AircraftStop: () => invoke<void>("fr24_aircraft_stop"),
@@ -500,6 +510,8 @@ export const events = {
   aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
   aircraftBuiltInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("aircraft://built-install", (e) => f(e.payload)),
+  aircraftRegister: (f: (e: RegisterProgress) => void): Promise<UnlistenFn> =>
+    listen<RegisterProgress>("aircraft://register", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

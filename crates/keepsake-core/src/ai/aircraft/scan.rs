@@ -691,11 +691,41 @@ pub fn found_for(
 ) -> Result<Vec<super::lookup::Found>, AiError> {
     let mut out = Vec::new();
     for reg in item.candidates.at(conf).registrations {
-        if let Some(f) = super::lookup::kept(cat, &reg)? {
+        let kept = super::lookup::kept(cat, &reg)?;
+        // A national register fills what the lookup does not know.
+        if let Some(f) = super::register::with_register(cat, &reg, kept)? {
             out.push(f);
         }
     }
     Ok(out)
+}
+
+/// The keywords to offer for a read ([`offer`]), with what lookups and the
+/// national registers say; a registration read one character off a
+/// registered aircraft is offered as that one, the one read beside it
+/// unticked ([`super::register::near`]).
+pub fn offer_for(cat: &Catalog, item: &ReviewItem, conf: &Confidence) -> Result<Offer, AiError> {
+    let mut it = item.clone();
+    let mut fixes = Vec::new();
+    for (r, _) in &mut it.candidates.registrations {
+        if let Some(real) = super::register::near(cat, r)? {
+            fixes.push((r.clone(), real.clone()));
+            *r = real;
+        }
+    }
+    let found = found_for(cat, &it, conf)?;
+    let mut o = offer(&it, conf, &found)?;
+    for (read, real) in fixes {
+        let k = TagPath::new([TAG_PARENT, "Registration", read.as_str()])?;
+        let real_k = TagPath::new([TAG_PARENT, "Registration", real.as_str()])?;
+        if let Some(i) = o.keywords.iter().position(|x| *x == real_k) {
+            if !o.keywords.contains(&k) {
+                o.keywords.insert(i + 1, k.clone());
+            }
+            o.unticked.push(k);
+        }
+    }
+    Ok(o)
 }
 
 /// Photos taken this close (either side) are offered with a read, unless

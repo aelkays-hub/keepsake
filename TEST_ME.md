@@ -1,8 +1,39 @@
-# Manual Test Steps — Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
 Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsake.bat` on Windows. **Close any running Keepsake first.**
+
+---
+
+
+## National aircraft registers
+
+Automated: `cargo test -p keepsake-core --lib register` and `cargo test -p keepsake-core --test aircraft_tests national`
+
+Manual (both OSes):
+1. Settings → Read aircraft → **National aircraft registers** → Transport Canada → **Download (about 4.6 MB)**.
+   - **Expected:** "Downloading…", "Importing…", then "34,9xx aircraft, file of <date>" and "… aircraft imported."
+2. **Update now** again.
+   - **Expected:** "Already up to date." (nothing downloaded).
+3. FAA → **Download (about 73.0 MB)**.
+   - **Expected:** a minute or two; then about 320,000 aircraft.
+4. Select a photo of C-FJZS (or another Canadian or US registration).
+   - **Expected:** the inspector shows "Transport Canada — registered", Type "Boeing 777-300ER (777-333ER)", Owner "Air Canada", Serial, Transponder; Built "from Transport Canada's register".
+5. Read aircraft on a photo whose registration is misread one character off (for example C-FJ2S).
+   - **Expected:** C-FJZS offered ticked, C-FJ2S beside it unticked, with the type and airline from the register.
+6. **Remove**.
+   - **Expected:** "Not downloaded."; the inspector's register rows go.
+
+## Flightradar24: new registrations only, and on their own
+
+Manual (both OSes; needs the token):
+1. Settings → Read aircraft → Look up aircraft on Flightradar24.
+   - **Expected:** "N registrations: … found in the last 30 days, M new." and **Look up M new registrations**; **Look up a new registration on its own when it is tagged on a photo** ticked.
+2. Add the keyword `Aircraft|Registration|<one never asked>` to a photo and wait a minute.
+   - **Expected:** it is looked up (the inspector's Flightradar24 rows appear if it flew lately), and M goes down by one.
+3. Untick the setting, tag another new registration.
+   - **Expected:** nothing is asked until **Look up … new** is clicked.
 
 ---
 

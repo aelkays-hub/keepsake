@@ -32,9 +32,9 @@ pub use repo::{
     AircraftTotals, AircraftYear, Assets, Browse, BrowseRow, CalendarBucket, CalendarLevel,
     DayCount, DayItem, DriveRow, EditAdviceRow, EditFields, EventSpan, Events, FaceCounts, FaceRow,
     FaceScan, FaceState, Faces, Facet, FacetColumn, Files, Imports, Job, JobCounts, JobState, Jobs,
-    Labels, LibraryReport, Meta, NewFace, NewJob, Person, Priority, RangeItem, Recipes, Renditions,
-    Report, ReportRow, Search, SearchQuery, Sequences, Shared, Sidecars, Sort, SortField, Tags,
-    Volumes, UNKNOWN,
+    Labels, LibraryReport, Meta, NewFace, NewJob, Person, Priority, RangeItem, Recipes,
+    RegisterRow, RegisterSource, Renditions, Report, ReportRow, Search, SearchQuery, Sequences,
+    Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
