@@ -70,7 +70,7 @@
 ## The catalog's log is cut back after a checkpoint (2026-11-20)
 
 - **Asked:** a setting so the catalog's log does not stay large after big runs.
-- **Done by hand first (asked):** Keepsake closed; `catalog.db` and the 1.4 GB `catalog.db-wal` copied to `E:\Pictures‚6\catalog-backup-2026-11-20\`; `PRAGMA wal_checkpoint(TRUNCATE)`: the log written back and removed; `quick_check` ok, 129,127 assets. Keepsake had not written it back on closing.
+- **Done by hand first (asked):** Keepsake closed; `catalog.db` and the 1.4 GB `catalog.db-wal` copied to `E:\Pictures\2026\catalog-backup-2026-11-20\`; `PRAGMA wal_checkpoint(TRUNCATE)`: the log written back and removed; `quick_check` ok, 129,127 assets. Keepsake had not written it back on closing.
 - **Built:** every catalog connection sets `journal_size_limit` = 64 MB (`catalog::WAL_SIZE_LIMIT`): after a checkpoint SQLite cuts the log back to that, instead of keeping it at its largest. Not a schema change. `Catalog::journal_size_limit`.
 - **Tests:** catalog tests (the limit is set on a file catalog); core and app tests; fmt, clippy `-D warnings`.
 - **Not done:** Keepsake does not checkpoint on closing (it exits without closing its connections).
