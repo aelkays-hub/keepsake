@@ -391,7 +391,10 @@ export const api = {
   aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
   /** Fill in route keywords (in the background): the photos asked about. */
   aircraftRouteFill: (selection: Selection) =>
-    invoke<string[]>("aircraft_route_fill", { selection }),
+    invoke<RouteFillDto>("aircraft_route_fill", { selection }),
+  /** Tag a photo with the flight number chosen; returns the keyword. */
+  aircraftRouteFillChoose: (id: string, flight: string) =>
+    invoke<string>("aircraft_route_fill_choose", { id, flight }),
   aircraftRouteFillStatus: (ids: string[]) =>
     invoke<RouteFillDto>("aircraft_route_fill_status", { ids }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),

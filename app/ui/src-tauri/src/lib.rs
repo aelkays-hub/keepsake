@@ -224,6 +224,7 @@ pub fn run() {
             route::aircraft_route,
             route::aircraft_route_fill,
             route::aircraft_route_fill_status,
+            route::aircraft_route_fill_choose,
             route::aircraft_route_stop,
             route::aircraft_route_review,
             route::aircraft_route_accept,

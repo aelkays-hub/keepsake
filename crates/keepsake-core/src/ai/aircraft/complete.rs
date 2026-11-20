@@ -62,6 +62,50 @@ pub enum Filled {
     Added(Vec<TagPath>),
     /// Nothing to add, and why.
     Nothing(String),
+    /// Several flight numbers fly the photo's airports: the user chooses
+    /// (`why`, and the numbers).
+    Choose(String, Vec<String>),
+}
+
+/// Between a message and the flight numbers to choose from, as a job's
+/// error keeps them ([`choices_of`]).
+const CHOICES: &str = " | choose: ";
+
+/// A job's error with the flight numbers to choose from.
+pub fn with_choices(why: &str, numbers: &[String]) -> String {
+    format!("{why}{CHOICES}{}", numbers.join(","))
+}
+
+/// A job's error read back: the message and the flight numbers to choose
+/// from (none when it has none).
+pub fn choices_of(error: &str) -> (String, Vec<String>) {
+    match error.split_once(CHOICES) {
+        Some((why, list)) => (
+            why.to_owned(),
+            list.split(',')
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        ),
+        None => (error.to_owned(), Vec::new()),
+    }
+}
+
+/// Tag `asset` with the flight number the user chose (and nothing else).
+pub fn choose(
+    cat: &mut Catalog,
+    lib: &crate::library::Library,
+    asset: AssetId,
+    number: &str,
+) -> Result<TagPath, AiError> {
+    let n = number.trim().replace(['/', '|'], "-");
+    if n.is_empty() {
+        return Err(AiError::Image("no flight number".into()));
+    }
+    let path = TagPath::new([TAG_PARENT, "Flight", n.as_str()])?;
+    super::scan::add_to(cat, lib, &[asset], std::slice::from_ref(&path))?;
+    Ok(path)
 }
 
 /// The ICAO code of an airport as a keyword says it (`YYZ` or `CYYZ`).
@@ -131,17 +175,39 @@ pub fn neighbours(callsign: &str) -> Vec<String> {
         .collect()
 }
 
-/// The flight number of the photo's flight from the flight the other way
+/// The flight number of a leg the source did not see, from the flights
+/// either side of it: the one landing where the photo's flight left from
+/// (`dep`), and the next leaving where it landed (`arr`), with the same
+/// callsign (DAL8885 landed at PHL, next left YYZ: PHL → YYZ was DAL8885
+/// too, a flight of several legs).
+fn through(flights: &[Flight], photo_s: i64, dep: &str, arr: &str) -> Option<String> {
+    let seen: Vec<&Flight> = flights.iter().filter(|f| !f.inferred).collect();
+    let before = seen
+        .iter()
+        .filter(|f| f.last_seen <= photo_s)
+        .max_by_key(|f| f.last_seen)?;
+    let after = seen
+        .iter()
+        .filter(|f| f.first_seen >= photo_s)
+        .min_by_key(|f| f.first_seen)?;
+    let (a, b) = (before.callsign.as_deref()?, after.callsign.as_deref()?);
+    (a.eq_ignore_ascii_case(b)
+        && before.arrival.as_deref() == Some(dep)
+        && after.departure.as_deref() == Some(arr))
+    .then(|| route::flight_number(a))
+}
+
+/// The flight numbers of the photo's flight from the flight the other way
 /// that day (one leaving where the photo's flight lands, or landing where
 /// it left): the numbers one away from its callsign that adsbdb says fly
-/// `dep` → `arr`; only when exactly one does. Returns it and the requests
+/// `dep` → `arr` (shown as sold: `QK893`). Returns them and the requests
 /// sent.
 fn paired(
     flights: &[Flight],
     dep: Option<&str>,
     arr: Option<&str>,
     lookup: &dyn Lookup,
-) -> Result<(Option<String>, u32), AiError> {
+) -> Result<(Vec<String>, u32), AiError> {
     let mut asked: Vec<String> = Vec::new();
     let mut found: Vec<String> = Vec::new();
     for f in flights.iter().filter(|f| !f.inferred) {
@@ -164,10 +230,10 @@ fn paired(
         }
     }
     let requests = u32::try_from(asked.len()).unwrap_or(u32::MAX);
-    Ok(match found.as_slice() {
-        [one] => (Some(route::flight_number(one)), requests),
-        _ => (None, requests),
-    })
+    Ok((
+        found.iter().map(|n| route::flight_number(n)).collect(),
+        requests,
+    ))
 }
 
 /// Fill in `asset`'s route keywords from those it has. `lookup` (adsbdb)
@@ -242,11 +308,37 @@ pub fn fill(
                 number = f.shown_number();
                 dep = dep.or(f.departure.clone());
                 arr = arr.or(f.arrival.clone());
+            } else if let Some(n) = dep
+                .as_deref()
+                .zip(arr.as_deref())
+                .and_then(|(d, a)| through(&flights, t, d, a))
+            {
+                // Not seen, but the same flight number either side of it.
+                number = Some(n);
             } else if let Some(l) = lookup {
                 // Not seen: the number of the flight the other way, one away.
-                let (n, asked) = paired(&flights, dep.as_deref(), arr.as_deref(), l)?;
+                let (found, asked) = paired(&flights, dep.as_deref(), arr.as_deref(), l)?;
                 requests += asked;
-                number = n;
+                match found.as_slice() {
+                    [] => {}
+                    [one] => number = Some(one.clone()),
+                    several => {
+                        let (d, a) = (
+                            dep.as_deref().map_or("?".into(), |c| airports.place(c).0),
+                            arr.as_deref().map_or("?".into(), |c| airports.place(c).0),
+                        );
+                        return Ok((
+                            Filled::Choose(
+                                format!(
+                                    "{} fly {d} → {a}: choose the one photographed",
+                                    several.join(" and ")
+                                ),
+                                several.to_vec(),
+                            ),
+                            requests,
+                        ));
+                    }
+                }
             }
         }
     }
@@ -312,8 +404,8 @@ pub enum State {
     Waiting,
     /// Done: its route keywords now.
     Done(Vec<TagPath>),
-    /// Nothing added, and why.
-    Nothing(String),
+    /// Nothing added, and why; the flight numbers to choose from, if any.
+    Nothing(String, Vec<String>),
 }
 
 /// Where filling in stands for `asset`.
@@ -323,7 +415,10 @@ pub fn state(cat: &Catalog, asset: AssetId) -> Result<State, AiError> {
         None => State::Waiting,
         Some(j) => match j.state {
             JobState::Queued | JobState::Running => State::Waiting,
-            JobState::Failed => State::Nothing(j.error.unwrap_or_default()),
+            JobState::Failed => {
+                let (why, choices) = choices_of(&j.error.unwrap_or_default());
+                State::Nothing(why, choices)
+            }
             _ => State::Done(
                 cat.read(|tx| tx.tags().for_asset(asset))?
                     .into_iter()

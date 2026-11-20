@@ -1265,6 +1265,21 @@ impl RenderService {
                         Self::sleep(cancel, lk::MIN_GAP);
                     }
                 }
+                Ok((complete::Filled::Choose(why, numbers), asked)) => {
+                    let e = RenderError::Refused(complete::with_choices(&why, &numbers));
+                    self.settle_err(
+                        cat,
+                        cancel,
+                        tx,
+                        shared,
+                        complete::JOB_AI_ROUTE_FILL,
+                        &job,
+                        e,
+                    )?;
+                    if asked > 0 {
+                        Self::sleep(cancel, lk::MIN_GAP);
+                    }
+                }
                 Err(e) => {
                     let e = Self::ai_error(cat, &job, e)?;
                     self.settle_err(

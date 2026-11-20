@@ -136,6 +136,8 @@ export interface MockState {
     registers: Set<string>;
     /** Fill in route keywords: how often each photo was looked at. */
     fill: Map<string, number>;
+    /** Flight numbers chosen, per photo. */
+    chosen: Map<string, string>;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -558,6 +560,7 @@ export function installMock(): void {
       fr24Auto: true,
       registers: new Set((params.get("registers") ?? "").split(",").filter(Boolean)),
       fill: new Map(),
+      chosen: new Map(),
       lookingUp: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
@@ -1949,7 +1952,27 @@ export function installMock(): void {
         case "aircraft_route_fill": {
           const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
           for (const id of ids) st.route.fill.set(id, 0);
-          return ids;
+          return {
+            pending: ids.length,
+            items: ids.map((id, i) => ({
+              id,
+              name: `${id}.ARW`,
+              state: "waiting",
+              added: [],
+              had:
+                i === 0
+                  ? ["Aircraft|Flight|AT210"]
+                  : i === 1
+                    ? ["Aircraft|From|YYZ", "Aircraft|To|IND"]
+                    : [],
+              message: null,
+              choices: [],
+            })),
+          };
+        }
+        case "aircraft_route_fill_choose": {
+          st.route.chosen.set(String(a.id), String(a.flight));
+          return `Aircraft|Flight|${String(a.flight)}`;
         }
         case "aircraft_route_fill_status": {
           // The first photo gets its airports; the others have no route
@@ -1960,31 +1983,39 @@ export function installMock(): void {
             const n = (st.route.fill.get(id) ?? 0) + 1;
             st.route.fill.set(id, n);
             const name = `${id}.ARW`;
+            const base = { id, name, had: [], choices: [] as string[] };
             if (n < 2) {
               pending += 1;
-              return { id, name, state: "waiting", added: [], message: null };
+              return { ...base, state: "waiting", added: [], message: null };
             }
-            return i === 0
-              ? {
-                  id,
-                  name,
-                  state: "done",
-                  added: [
-                    "Aircraft|From|CMN",
-                    "Aircraft|From country|Morocco",
-                    "Aircraft|To|YYZ",
-                    "Aircraft|To country|Canada",
-                  ],
-                  message: null,
-                }
-              : {
-                  id,
-                  name,
-                  state: "nothing",
-                  added: [],
-                  message:
-                    "no route keyword: add Aircraft|Flight|… (AT210), Aircraft|From|… or Aircraft|To|… first",
-                };
+            if (i === 0)
+              return {
+                ...base,
+                state: "done",
+                added: [
+                  "Aircraft|Flight|AT210",
+                  "Aircraft|From|CMN",
+                  "Aircraft|From country|Morocco",
+                  "Aircraft|To|YYZ",
+                  "Aircraft|To country|Canada",
+                ],
+                message: null,
+              };
+            if (i === 1)
+              return {
+                ...base,
+                state: "nothing",
+                added: [],
+                message: "QK893 and QK895 fly YYZ → IND: choose the one photographed",
+                choices: ["QK893", "QK895"],
+              };
+            return {
+              ...base,
+              state: "nothing",
+              added: [],
+              message:
+                "no route keyword: add Aircraft|Flight|…, Aircraft|From|… or Aircraft|To|… first",
+            };
           });
           return { pending, items };
         }

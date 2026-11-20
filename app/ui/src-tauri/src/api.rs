@@ -1192,10 +1192,15 @@ dto! {
         pub name: String,
         /// `waiting`, `done` or `nothing`.
         pub state: String,
-        /// The route keywords added (`Aircraft|To|YYZ`, …).
+        /// Its route keywords now (`Aircraft|To|YYZ`, …); what was added
+        /// is those not in `had`.
         pub added: Vec<String>,
+        /// Its route keywords before (from `aircraft_route_fill`).
+        pub had: Vec<String>,
         /// Why nothing was added.
         pub message: Option<String>,
+        /// Flight numbers to choose from (several fly its airports).
+        pub choices: Vec<String>,
     }
 
     /// Fill in route keywords: each photo, and how many are left.

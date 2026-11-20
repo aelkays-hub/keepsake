@@ -2012,7 +2012,8 @@ mod tests {
         assert_eq!(flight_number("WJA0012"), "WS12");
         // Not airline and number, or an airline not listed: as it is.
         assert_eq!(flight_number("BAW12AB"), "BAW12AB");
-        assert_eq!(flight_number("JZA8011"), "JZA8011");
+        assert_eq!(flight_number("JZA8011"), "QK8011");
+        assert_eq!(flight_number("XQZ8011"), "XQZ8011");
         assert_eq!(flight_number("CGBIJ"), "CGBIJ");
         assert_eq!(flight_number("ACA"), "ACA");
     }

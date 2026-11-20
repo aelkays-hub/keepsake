@@ -2256,6 +2256,8 @@ impl lookup::Lookup for FillRoutes {
         Ok(match cs {
             "AT210" | "RAM210" => Some(("GMMN".into(), "CYYZ".into())),
             "RAM212" => Some(("GMMN".into(), "KJFK".into())),
+            "JZA893" | "JZA895" => Some(("CYYZ".into(), "KIND".into())),
+            "DAL8885" => Some(("KSAN".into(), "KPHL".into())),
             _ => None,
         })
     }
@@ -2507,4 +2509,100 @@ fn fill_in_finds_the_flight_number_from_the_flight_the_other_way() {
     assert_eq!(complete::neighbours("RAM211B"), ["RAM210", "RAM212"]);
     assert_eq!(complete::neighbours("ACA1"), ["ACA2"]);
     assert!(complete::neighbours("N12345").is_empty());
+}
+
+/// OpenSky as it saw N698DL on 2026-06-07/08 and C-FEJC on 2026-06-12/13.
+struct LegsSky;
+
+impl route::Flights for LegsSky {
+    fn flights(&self, icao: &str, begin: i64, _: i64) -> Result<Vec<Flight>, AiError> {
+        let f = |first: i64, last: i64, dep: &str, arr: &str, cs: &str| Flight {
+            first_seen: first,
+            last_seen: last,
+            departure: Some(dep.into()),
+            arrival: Some(arr.into()),
+            callsign: Some(cs.into()),
+            ..Flight::default()
+        };
+        Ok(match (icao, begin) {
+            ("c04826", 1_780_790_400) => {
+                vec![f(1_780_851_600, 1_780_856_880, "KATL", "KPHL", "DAL8885")]
+            }
+            ("c04826", 1_780_876_800) => {
+                vec![f(1_780_881_900, 1_780_888_440, "CYYZ", "KMSP", "DAL8885")]
+            }
+            ("c04826", 1_781_222_400) => {
+                vec![f(1_781_282_760, 1_781_287_560, "KBOS", "CYYZ", "JZA693")]
+            }
+            ("c04826", 1_781_308_800) => {
+                vec![f(1_781_360_820, 1_781_364_840, "KIND", "CYYZ", "JZA894")]
+            }
+            _ => Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn fill_in_takes_a_through_flight_number_and_offers_a_choice_of_two() {
+    use keepsake_core::ai::aircraft::complete::{self, Filled};
+    let airports = Airports::builtin();
+    // N698DL, 2026-06-07 22:52 UTC: DAL8885 landed at PHL, next left YYZ;
+    // the photo PHL -> YYZ between.
+    let (mut w, ids) = route_world(&["a.jpg", "b.jpg"], &[1_780_872_720, 1_781_307_660]);
+    for id in &ids {
+        route::run_job(&mut w.cat, &LegsSky, None, *id, Clock::AsRecorded).unwrap();
+    }
+    tag(&mut w, ids[0], &["Aircraft|From|PHL", "Aircraft|To|YYZ"]);
+    let routes = FillRoutes(Mutex::new(Vec::new()));
+    let (f, _) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        Some(&routes),
+        ids[0],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    match f {
+        Filled::Added(v) => assert!(
+            v.iter()
+                .any(|k| k.to_lightroom() == "Aircraft|Flight|DL8885"),
+            "{v:?}"
+        ),
+        f => panic!("{f:?}"),
+    }
+    // C-FEJC, 2026-06-12 23:41 UTC, YYZ -> IND: QK893 and QK895 both fly it.
+    tag(&mut w, ids[1], &["Aircraft|From|YYZ", "Aircraft|To|IND"]);
+    let (f, _) = complete::fill(
+        &mut w.cat,
+        &w.lib,
+        &airports,
+        Some(&routes),
+        ids[1],
+        Clock::AsRecorded,
+    )
+    .unwrap();
+    let (why, numbers) = match f {
+        Filled::Choose(why, n) => (why, n),
+        f => panic!("{f:?}"),
+    };
+    assert_eq!(
+        why,
+        "QK893 and QK895 fly YYZ → IND: choose the one photographed"
+    );
+    assert_eq!(numbers, ["QK893", "QK895"]);
+    assert!(!w
+        .keywords(ids[1])
+        .iter()
+        .any(|k| k.starts_with("Aircraft|Flight|")));
+    // Kept in the job and read back.
+    let kept = complete::with_choices(&why, &numbers);
+    assert_eq!(complete::choices_of(&kept), (why.clone(), numbers.clone()));
+    assert_eq!(complete::choices_of("plain"), ("plain".into(), Vec::new()));
+    // Chosen: only the flight number added.
+    let k = complete::choose(&mut w.cat, &w.lib, ids[1], "QK895").unwrap();
+    assert_eq!(k.to_lightroom(), "Aircraft|Flight|QK895");
+    assert!(w
+        .keywords(ids[1])
+        .contains(&"Aircraft|Flight|QK895".to_owned()));
 }

@@ -9,10 +9,19 @@ export type RouteFillItemDto = { id: string, name: string,
  */
 state: string, 
 /**
- * The route keywords added (`Aircraft|To|YYZ`, …).
+ * Its route keywords now (`Aircraft|To|YYZ`, …); what was added
+ * is those not in `had`.
  */
 added: Array<string>, 
 /**
+ * Its route keywords before (from `aircraft_route_fill`).
+ */
+had: Array<string>, 
+/**
  * Why nothing was added.
  */
-message: string | null, };
+message: string | null, 
+/**
+ * Flight numbers to choose from (several fly its airports).
+ */
+choices: Array<string>, };

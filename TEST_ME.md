@@ -21,9 +21,12 @@ Manual (both OSes; Look registrations up online on):
    - **Expected:** the flight number and countries added from the flight found.
 3. A7402561_1.jpg (From CMN, To YYZ, no flight number) → Fill in route keywords.
    - **Expected:** "Added: Flight AT210" (RAM211 left YYZ that day; RAM210 flies CMN → YYZ).
-4. A photo with `Aircraft|Flight|AT210` and `Aircraft|From|LHR`.
+4. A7402749.ARW (C-FEJC, From YYZ, To IND) → Fill in route keywords.
+   - **Expected:** "QK893 and QK895 fly YYZ → IND: choose the one photographed" with **Tag QK893** and **Tag QK895**; clicking one adds it (Added: Flight QK8…).
+5. The window: each photo shows "Had: …" and only what it got under "Added"; no example flight number in the text.
+6. A photo with `Aircraft|Flight|AT210` and `Aircraft|From|LHR`.
    - **Expected:** nothing added: "AT210 flies CMN → YYZ, not what the photo says".
-5. A photo without route keywords.
+7. A photo without route keywords.
    - **Expected:** "no route keyword: add …".
 
 ## The flight report

@@ -531,14 +531,28 @@ pub fn aircraft_route_accept(
     route::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
 }
 
+/// The user's route keywords of `id`.
+fn route_keywords(cat: &keepsake_core::catalog::Catalog, id: AssetId) -> CmdResult<Vec<String>> {
+    Ok(cat
+        .read(|tx| tx.tags().for_asset(id))
+        .map_err(err)?
+        .into_iter()
+        .filter(|t| {
+            t.source == keepsake_core::catalog::TagSource::User && route::is_route_keyword(&t.path)
+        })
+        .map(|t| t.path.to_lightroom())
+        .collect())
+}
+
 /// Fill in route keywords of the selected photos, in the background: from
-/// the route keywords each has, the missing ones. Returns the photos.
+/// the route keywords each has, the missing ones. Returns the photos and
+/// their route keywords before.
 #[tauri::command(async)]
 pub fn aircraft_route_fill(
     app: AppHandle,
     state: State<'_, AppState>,
     selection: Selection,
-) -> CmdResult<Vec<String>> {
+) -> CmdResult<RouteFillDto> {
     let mut ids: Vec<AssetId> = Vec::new();
     for id in crate::edit::resolve(&state, &selection)? {
         if !ids.contains(&id) {
@@ -549,12 +563,44 @@ pub fn aircraft_route_fill(
         return Err("Select the photos first.".into());
     }
     let open = state.open()?;
+    let mut items = Vec::new();
     {
         let mut cat = open.writer()?;
+        for id in &ids {
+            let (name, _) = crate::aircraft::photo_of(&cat, &open.cache, *id)?;
+            items.push(RouteFillItemDto {
+                id: id.to_string(),
+                name: name.unwrap_or_default(),
+                state: "waiting".into(),
+                added: Vec::new(),
+                had: route_keywords(&cat, *id)?,
+                message: None,
+                choices: Vec::new(),
+            });
+        }
         keepsake_core::ai::aircraft::complete::enqueue(&mut cat, &ids).map_err(err)?;
     }
     crate::render::start_service(&app)?;
-    Ok(ids.iter().map(ToString::to_string).collect())
+    Ok(RouteFillDto {
+        pending: u32::try_from(items.len()).unwrap_or(u32::MAX),
+        items,
+    })
+}
+
+/// Tag photo `id` with the flight number chosen (Fill in route keywords,
+/// when several fly its airports).
+#[tauri::command(async)]
+pub fn aircraft_route_fill_choose(
+    state: State<'_, AppState>,
+    id: String,
+    flight: String,
+) -> CmdResult<String> {
+    let ids = convert::ids(&[id])?;
+    let open = state.open()?;
+    let mut cat = open.writer()?;
+    let path = keepsake_core::ai::aircraft::complete::choose(&mut cat, &open.lib, ids[0], &flight)
+        .map_err(err)?;
+    Ok(path.to_lightroom())
 }
 
 /// Where Fill in route keywords stands for `ids`.
@@ -572,24 +618,27 @@ pub fn aircraft_route_fill_status(
     for id in &ids {
         let (name, _) = crate::aircraft::photo_of(&cat, &open.cache, *id)?;
         let st = complete::state(&cat, *id).map_err(err)?;
-        let (state, added, message) = match st {
+        let (state, added, message, choices) = match st {
             Fill::Waiting => {
                 pending += 1;
-                ("waiting", Vec::new(), None)
+                ("waiting", Vec::new(), None, Vec::new())
             }
             Fill::Done(now) => (
                 "done",
                 now.iter().map(TagPath::to_lightroom).collect(),
                 None,
+                Vec::new(),
             ),
-            Fill::Nothing(why) => ("nothing", Vec::new(), Some(why)),
+            Fill::Nothing(why, choices) => ("nothing", Vec::new(), Some(why), choices),
         };
         items.push(RouteFillItemDto {
             id: id.to_string(),
             name: name.unwrap_or_default(),
             state: state.to_owned(),
             added,
+            had: Vec::new(),
             message,
+            choices,
         });
     }
     Ok(RouteFillDto { pending, items })

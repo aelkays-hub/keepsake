@@ -786,22 +786,37 @@ test("Flightradar24: new registrations only, and on their own when tagged", asyn
   await expect(box.getByTestId("fr24-auto")).not.toBeChecked();
 });
 
-test("Fill in route keywords: what each photo got, and why not", async ({ page }) => {
+test("Fill in route keywords: what each photo got, a choice of two, and why not", async ({
+  page,
+}) => {
   await open(page, "&aircraft=on&lookup=on");
   const tiles = page.getByTestId("tile");
   await tiles.nth(0).click();
-  await tiles.nth(1).click({ modifiers: ["Shift"] });
+  await tiles.nth(2).click({ modifiers: ["Shift"] });
   await tiles.nth(0).click({ button: "right" });
   await page.getByTestId("tile-menu-route-fill").click();
   const win = page.getByTestId("route-fill-window");
   await expect(win).toContainText("What a photo has is never changed.");
+  await expect(win).not.toContainText("AT210 or RAM210");
   expect(await calls(page, "aircraft_route_fill")).toHaveLength(1);
-  await expect(win.getByTestId("rf-progress")).toHaveText("Done: 1 of 2 photos got keywords.");
+  await expect(win.getByTestId("rf-progress")).toHaveText("Done: 1 of 3 photos got keywords.");
   const items = win.getByTestId("rf-item");
+  // Only what it did not have.
+  await expect(items.nth(0).getByTestId("rf-had")).toHaveText("Had: Flight AT210");
   await expect(items.nth(0).getByTestId("rf-added")).toHaveText(
     "Added: From CMNFrom country MoroccoTo YYZTo country Canada",
   );
-  await expect(items.nth(1).getByTestId("rf-message")).toContainText("no route keyword");
+  // Two flight numbers fly YYZ → IND: the user chooses.
+  await expect(items.nth(1).getByTestId("rf-message")).toHaveText(
+    "QK893 and QK895 fly YYZ → IND: choose the one photographed",
+  );
+  await items.nth(1).getByTestId("rf-choose").nth(1).click();
+  const chose = (await calls(page, "aircraft_route_fill_choose")) as { flight: string }[];
+  expect(chose.map((c) => c.flight)).toEqual(["QK895"]);
+  await expect(items.nth(1).getByTestId("rf-added")).toHaveText("Added: Flight QK895");
+  await expect(items.nth(1).getByTestId("rf-choices")).toBeHidden();
+  await expect(win.getByTestId("rf-progress")).toHaveText("Done: 2 of 3 photos got keywords.");
+  await expect(items.nth(2).getByTestId("rf-message")).toContainText("no route keyword");
   await win.getByTestId("rf-close").click();
   await expect(win).toBeHidden();
 });
