@@ -67,6 +67,12 @@
 
 ---
 
+## Look up aircraft: the airline from the livery (2026-11-20)
+
+- **Found** (reading what was kept: 1,453 asked, 974 found, 83 adsbdb did not know, 41 now with a transponder code, PH-BKO 485F82 B78X): Flightradar24 left `operated_as` empty for every aircraft, so no airline was offered; `painted_as` (the livery) was there.
+- **Fixed:** the airline comes from the operator, else the livery (`with_fr24`); `operating_as` is read too. Nothing needs asking again.
+- **Tests:** `aircraft_tests` flightradar24 (no operator: the livery's airline).
+
 ## The catalog's log is cut back after a checkpoint (2026-11-20)
 
 - **Asked:** a setting so the catalog's log does not stay large after big runs.

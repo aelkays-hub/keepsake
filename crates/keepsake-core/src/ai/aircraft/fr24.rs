@@ -119,9 +119,12 @@ pub fn with_fr24(f: &Found, now_ms: i64) -> Option<Found> {
     let mut out = f.clone();
     if let Some(a) = a {
         if out.airline.is_none() {
+            // Flightradar24 leaves the operator empty for most flights:
+            // the livery's airline then.
             out.airline = a
                 .operator
                 .as_deref()
+                .or(a.painted_as.as_deref())
                 .and_then(super::route::airline_of_code)
                 .map(str::to_owned);
         }

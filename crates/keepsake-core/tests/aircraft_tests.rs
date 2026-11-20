@@ -1911,6 +1911,15 @@ fn looking_aircraft_up_on_flightradar24_keeps_type_airline_and_code_for_30_days(
     let merged = fr24::with_fr24(&f, now).unwrap();
     assert_eq!(merged.airline.as_deref(), Some("KLM"));
     assert_eq!(merged.aircraft_type.as_deref(), Some("Boeing 787-10"));
+    // No operator (as Flightradar24 answers): the livery's airline.
+    let mut no_op = f.clone();
+    if let Some(a) = no_op.fr24.as_mut() {
+        a.operator = None;
+    }
+    assert_eq!(
+        fr24::with_fr24(&no_op, now).unwrap().airline.as_deref(),
+        Some("KLM")
+    );
     // C-GBIJ (adsbdb knows it): its own answer is kept.
     assert!(lookup::kept(&w.cat, "C-GBIJ").unwrap().unwrap().known);
 

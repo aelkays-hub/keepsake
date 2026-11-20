@@ -533,7 +533,7 @@ pub fn parse_fr24_aircraft(
         asked_ms,
         found: true,
         icao_type: up(&["type"]),
-        operator: up(&["operated_as"]),
+        operator: up(&["operated_as", "operating_as"]),
         painted_as: up(&["painted_as"]),
         hex: up(&["hex"]),
         seen: fr24_text(f, &["datetime_takeoff", "first_seen"])
