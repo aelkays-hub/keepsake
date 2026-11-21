@@ -1,3 +1,4 @@
+mod about;
 mod ai;
 mod aircraft;
 pub mod api;
@@ -95,6 +96,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_version,
             commands::app_info,
+            about::third_party_notices,
+            about::about_open,
             commands::library_create,
             commands::library_open,
             commands::view_open,

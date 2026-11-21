@@ -1436,6 +1436,30 @@ pre.report {
   white-space: pre-wrap;
 }
 
+/* Tools → About: credits and licences */
+.about-credits {
+  padding-left: 18px;
+}
+.about-credits li {
+  margin-bottom: 8px;
+}
+pre.licence-text {
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.licence-find {
+  width: min(320px, 100%);
+}
+.licence-table {
+  margin-top: 8px;
+}
+
 /* A right-click menu (the sidebar's folders) */
 .context-menu {
   position: fixed;

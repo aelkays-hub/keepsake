@@ -78,6 +78,13 @@
 - **Fixed:** `UreqHttp` verifies certificates with the operating system (ureq's `platform-verifier` feature, `rustls-platform-verifier`, MIT OR Apache-2.0, approved by the owner). Notices regenerated.
 - **Tests, run here (Windows, Avast on):** the new unit test; `https_reaches_a_real_site` (ignored by default) reached OpenSky and adsbdb; keepsake-core lib tests; app lib tests; fmt, clippy; `make-notices.py --check`.
 - **Not run:** in the installed app; CI; macOS. Branch `fix/os-certificate-store`.
+## Tools → About: credits and licences (ADR-047 addition) (2026-11-21)
+
+- **Asked:** "add the About → Licences page".
+- **Built:** Tools → **About** shows the version; the credits of the data and services (Flickr's required line, OpenSky, the Open Government Licence – Canada, FAA, OurAirports, adsbdb, Flightradar24), each opening its page; and the licences: the programs shipped beside Keepsake, then every crate and npm package with its licence, Find, and Show licence.
+  - App: `about::third_party_notices` (the notices built in), `about::about_open` (only the credits' pages). UI: `AboutScreen`, `licences.ts`.
+- **Tests, run here (Windows):** app lib tests (142, +2); Vitest (114, +4, including the real file); mocked Playwright `about` (2, new), `a11y` (About added), `report`, `keyboard`, `tree-place`, `folder-tree`, `calendar-tree`, `diagnostics`; fmt, clippy, ESLint, Prettier, tsc. Checked in the browser preview (mocked).
+- **Not run:** in the installed app; CI; macOS. Branch `feat/about-licences` (from `feat/third-party-notices`).
 
 ## Third-party notices in the installer (ADR-047) (2026-11-21)
 
