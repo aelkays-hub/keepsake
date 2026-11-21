@@ -240,6 +240,7 @@ pub fn run() {
             flickr::flickr_upload,
             flickr::flickr_upload_status,
             flickr::flickr_upload_stop,
+            flickr::flickr_report,
             suggest::edit_suggestions,
             suggest::edit_suggestions_ask,
             suggest::edit_suggestions_stop,

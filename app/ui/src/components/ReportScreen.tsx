@@ -24,9 +24,10 @@ import { sortRows, type SortValue, type TableSort } from "../tableSort";
 import { SortHeader } from "./SortHeader";
 import { AircraftReportView } from "./AircraftReportView";
 import { FlightReportView } from "./FlightReportView";
+import { FlickrReportView } from "./FlickrReportView";
 
-type Kind = "library" | "aircraft" | "flights";
-/** The report shown last (Library, Aircraft or Flights). */
+type Kind = "library" | "aircraft" | "flights" | "flickr";
+/** The report shown last (Library, Aircraft, Flights or Flickr). */
 let lastKind: Kind = "library";
 
 export function ReportScreen() {
@@ -60,13 +61,22 @@ export function ReportScreen() {
         >
           Flights
         </button>
+        <button
+          aria-pressed={kind === "flickr"}
+          onClick={() => setKind("flickr")}
+          data-testid="report-kind-flickr"
+        >
+          Flickr
+        </button>
       </div>
       {kind === "library" ? (
         <LibraryReportView />
       ) : kind === "aircraft" ? (
         <AircraftReportView />
-      ) : (
+      ) : kind === "flights" ? (
         <FlightReportView />
+      ) : (
+        <FlickrReportView />
       )}
     </section>
   );

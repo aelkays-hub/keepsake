@@ -2062,6 +2062,33 @@ export function installMock(): void {
             },
           };
         }
+        case "flickr_report": {
+          const uploaded = [...st.flickr.uploads.entries()].flatMap(([id, ups]) =>
+            ups.map((u) => ({
+              id,
+              name: `${id}.ARW`,
+              thumb: null,
+              url: u.url,
+              privacy: u.privacy,
+              date: u.date,
+              state: "done",
+              error: null,
+            })),
+          );
+          uploaded.sort((x, y) => (y.date ?? "").localeCompare(x.date ?? ""));
+          const current = [...st.flickr.queue.entries()].map(([id, q]) => ({
+            id,
+            name: `${id}.ARW`,
+            thumb: null,
+            url: null,
+            privacy: q.privacy,
+            date: null,
+            state: id === st.flickr.fail ? "failed" : "waiting",
+            error:
+              id === st.flickr.fail ? "Flickr said: User exceeded upload limit (error 6)." : null,
+          }));
+          return { uploaded, current };
+        }
         case "flickr_upload": {
           if (!st.flickr.signedIn) throw "Sign in to Flickr in Settings → Flickr first.";
           const items = (a.items as { id: string }[]) ?? [];

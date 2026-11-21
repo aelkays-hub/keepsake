@@ -186,3 +186,30 @@ test("Upload: several photos at once, with a tag for all", async ({ page }) => {
   for (const it of sent[0].items) expect(it.tags).toContain("Spotting");
   await expect(win.getByTestId("fl-progress")).toHaveText(`Done: ${ticked} of ${ticked} uploaded.`);
 });
+
+test("Report → Flickr: thumbnails of what is on Flickr open its page; what is under way", async ({
+  page,
+}) => {
+  await open(page, "&flickr=signed&flickrDone=a7");
+  const report = () =>
+    page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
+  await report();
+  const screen = page.getByTestId("report-screen");
+  await screen.getByTestId("report-kind-flickr").click();
+  const r = screen.getByTestId("flickr-report");
+  await expect(r.getByTestId("flickr-report-uploaded-title")).toHaveText("On Flickr (1 photo)");
+  await expect(r.getByTestId("flickr-report-current")).toHaveCount(0);
+  await r.getByTestId("fr-uploaded").getByRole("button", { name: "Open a7.ARW on Flickr" }).click();
+  const opened = (await calls(page, "flickr_open")) as { url: string }[];
+  expect(opened).toEqual([{ url: "https://www.flickr.com/photos/1%40N00/1/" }]);
+
+  // Uploads queued (the window closed at once) are under way.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  const win = await uploadWindow(page);
+  await win.getByTestId("fl-upload").click();
+  await win.getByTestId("fl-close").click();
+  await report();
+  await expect(screen.getByTestId("report-kind-flickr")).toHaveAttribute("aria-pressed", "true");
+  await expect(r.getByTestId("flickr-report-current-title")).toHaveText("Under way (1)");
+  await expect(r.getByTestId("fr-current")).toContainText("Waiting");
+});

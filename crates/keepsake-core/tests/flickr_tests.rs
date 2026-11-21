@@ -483,3 +483,41 @@ fn signing_in_takes_a_request_token_then_the_code() {
     // Debug output hides the secrets.
     assert!(!format!("{acc:?} {:?} {pending:?}", app()).contains("secret"));
 }
+
+#[test]
+fn the_report_lists_what_is_on_flickr_and_what_is_under_way() {
+    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg"]);
+    let (a, b, c) = (w.asset("a.jpg"), w.asset("b.jpg"), w.asset("c.jpg"));
+    assert_eq!(flickr::report(&w.cat).unwrap(), flickr::Report::default());
+    let req = |id| Request {
+        asset: id,
+        title: "x".into(),
+        description: String::new(),
+        tags: vec![],
+    };
+    flickr::enqueue(&mut w.cat, &[req(a), req(b)], Privacy::Public).unwrap();
+    // a is uploaded, b refused.
+    let http = FakeFlickr::new(vec![
+        Ok((200, OK_UPLOAD.into())),
+        Ok((
+            200,
+            "<rsp stat=\"fail\"><err code=\"5\" msg=\"Filetype was not recognised\" /></rsp>"
+                .into(),
+        )),
+    ]);
+    w.run(uploader(http, true));
+    // c waits.
+    flickr::enqueue(&mut w.cat, &[req(c)], Privacy::Private).unwrap();
+
+    let r = flickr::report(&w.cat).unwrap();
+    assert_eq!(r.uploaded.len(), 1);
+    assert_eq!(r.uploaded[0].asset_id, a);
+    assert_eq!(r.uploaded[0].photo_id, "53300000001");
+    let current: Vec<AssetId> = r.current.iter().map(|(id, _)| *id).collect();
+    assert_eq!(current, [b, c]);
+    assert!(matches!(r.current[0].1, State::Failed(_)));
+    assert!(matches!(r.current[1].1, State::Waiting { .. }));
+    // Stopped: no longer under way.
+    flickr::stop(&mut w.cat, &[c]).unwrap();
+    assert_eq!(flickr::report(&w.cat).unwrap().current.len(), 1);
+}

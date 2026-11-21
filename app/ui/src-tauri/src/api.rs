@@ -1655,3 +1655,30 @@ dto! {
         pub items: Vec<FlickrProgressItemDto>,
     }
 }
+
+dto! {
+    /// One photo of Report → Flickr: its thumbnail, and its Flickr page
+    /// once uploaded.
+    pub struct FlickrReportItemDto {
+        pub id: String,
+        pub name: String,
+        pub thumb: Option<String>,
+        /// The photo's Flickr page (uploaded ones).
+        pub url: Option<String>,
+        /// `public`, `friends_family`, `friends`, `family` or `private`.
+        pub privacy: Option<String>,
+        /// `YYYY-MM-DD` (uploaded ones).
+        pub date: Option<String>,
+        /// `done`, `waiting`, `retrying`, `uploading` or `failed`.
+        pub state: String,
+        /// Why it failed, or why the last try did.
+        pub error: Option<String>,
+    }
+
+    /// Report → Flickr: what is on Flickr (newest first) and what is under
+    /// way.
+    pub struct FlickrReportDto {
+        pub uploaded: Vec<FlickrReportItemDto>,
+        pub current: Vec<FlickrReportItemDto>,
+    }
+}

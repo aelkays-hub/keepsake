@@ -350,3 +350,30 @@ pub fn to_render_error(e: FlickrError) -> RenderError {
         e => RenderError::Refused(e.to_string()),
     }
 }
+
+/// Report → Flickr: what is on Flickr and what is under way.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Report {
+    /// Every upload, newest first.
+    pub uploaded: Vec<FlickrUpload>,
+    /// The photos waiting, uploading or failed, oldest first, with where
+    /// each stands.
+    pub current: Vec<(AssetId, State)>,
+}
+
+/// Report → Flickr.
+pub fn report(cat: &Catalog) -> Result<Report, FlickrError> {
+    let uploaded = cat.read(|tx| tx.flickr().all_uploads())?;
+    let mut current = Vec::new();
+    for id in cat.read(|tx| tx.flickr().all_queued())? {
+        let st = state(cat, id)?;
+        // A queued row whose job is gone (or done) is not under way.
+        if matches!(
+            st,
+            State::Waiting { .. } | State::Uploading | State::Failed(_)
+        ) {
+            current.push((id, st));
+        }
+    }
+    Ok(Report { uploaded, current })
+}

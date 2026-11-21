@@ -12,8 +12,8 @@ use keepsake_platform::secrets::{self, FLICKR_KEY, FLICKR_SECRET, FLICKR_SIGN_IN
 use tauri::{AppHandle, State};
 
 use crate::api::{
-    FlickrItemDto, FlickrPrepareDto, FlickrProgressDto, FlickrProgressItemDto, FlickrRequestDto,
-    FlickrStatusDto, FlickrUploadDto, Selection,
+    FlickrItemDto, FlickrPrepareDto, FlickrProgressDto, FlickrProgressItemDto, FlickrReportDto,
+    FlickrReportItemDto, FlickrRequestDto, FlickrStatusDto, FlickrUploadDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -311,6 +311,56 @@ pub fn flickr_upload_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdRe
     let mut cat = open.writer()?;
     flickr::stop(&mut cat, &ids).map_err(err)?;
     Ok(())
+}
+
+/// Report → Flickr: every photo uploaded (newest first, linking to its
+/// Flickr page) and those under way.
+#[tauri::command(async)]
+pub fn flickr_report(state: State<'_, AppState>) -> CmdResult<FlickrReportDto> {
+    use keepsake_core::flickr::State as Up;
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let r = flickr::report(&cat).map_err(err)?;
+    let mut uploaded = Vec::new();
+    for u in r.uploaded {
+        let (name, thumb) = crate::aircraft::photo_of(&cat, &open.cache, u.asset_id)?;
+        uploaded.push(FlickrReportItemDto {
+            id: u.asset_id.to_string(),
+            name: name.unwrap_or_default(),
+            thumb,
+            url: Some(u.url),
+            privacy: Some(u.privacy),
+            date: Some(date(u.uploaded_ms)),
+            state: "done".into(),
+            error: None,
+        });
+    }
+    let mut current = Vec::new();
+    for (id, st) in r.current {
+        let (name, thumb) = crate::aircraft::photo_of(&cat, &open.cache, id)?;
+        let privacy = cat
+            .read(|tx| tx.flickr().queued(id))
+            .map_err(err)?
+            .map(|q| q.privacy);
+        let (state, error) = match st {
+            Up::Waiting { retry: None } => ("waiting", None),
+            Up::Waiting { retry: Some(e) } => ("retrying", Some(e)),
+            Up::Uploading => ("uploading", None),
+            Up::Failed(e) => ("failed", Some(e)),
+            Up::Done(_) | Up::None => continue,
+        };
+        current.push(FlickrReportItemDto {
+            id: id.to_string(),
+            name: name.unwrap_or_default(),
+            thumb,
+            url: None,
+            privacy,
+            date: None,
+            state: state.into(),
+            error,
+        });
+    }
+    Ok(FlickrReportDto { uploaded, current })
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ import type { FlickrPrepareDto } from "./bindings/FlickrPrepareDto";
 import type { FlickrProgressDto } from "./bindings/FlickrProgressDto";
 import type { FlickrRequestDto } from "./bindings/FlickrRequestDto";
 import type { FlickrStatusDto } from "./bindings/FlickrStatusDto";
+import type { FlickrReportDto } from "./bindings/FlickrReportDto";
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
@@ -423,6 +424,8 @@ export const api = {
     invoke<number>("flickr_upload", { items, privacy }),
   flickrUploadStatus: (ids: string[]) => invoke<FlickrProgressDto>("flickr_upload_status", { ids }),
   flickrUploadStop: (ids: string[]) => invoke<void>("flickr_upload_stop", { ids }),
+  /** Report → Flickr: what is on Flickr and what is under way. */
+  flickrReport: () => invoke<FlickrReportDto>("flickr_report"),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>

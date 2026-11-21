@@ -1815,6 +1815,7 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
   - 105–106, and network failures: tried again later, with the queue's backoff.
 
   Other errors are final. With no key saved or no sign-in, the job fails at once and nothing is sent.
+- **Report → Flickr** (`flickr::report`, `FlickrRepo::all_uploads`/`all_queued`): thumbnails only. Every photo on Flickr is shown newest first, and clicking one opens its Flickr page; the photos under way (waiting, uploading, trying again or not uploaded) are shown above them, refreshed while uploads run.
 - **Catalog** (migration 0022). `flickr_uploads` has one row per upload: asset, account, photo id, page, privacy, tags and time. `flickr_queue` holds the waiting uploads: asset, privacy, title, description, tags and time. The original is never changed, and nothing is written to the sidecars.
 
 **Not done.** Albums (photosets), groups, a description field in the window (the photo's comment is sent), videos, replacing a photo on Flickr, and Flickr's asynchronous upload. If the connection drops after Flickr has received a photo, trying again uploads it a second time, because Flickr gives no way to ask whether it arrived. In that case the window still shows the photo as already on Flickr.

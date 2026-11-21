@@ -50,7 +50,11 @@ Manual (both OSes):
     - **Expected:** "Sign in to Flickr in Settings → Flickr first." with **Open Settings**; **Upload** is disabled.
 15. **Remove key.**
     - **Expected:** "No API key is saved yet." The Credential Manager / Keychain entries are gone.
-16. Search the log folder (Settings → **Open log folder**) for your key, secret or token.
+16. Tools → Report → **Flickr**.
+    - **Expected:** "On Flickr (N photos)" with a thumbnail of every photo uploaded, newest first. Hovering a thumbnail shows its name, privacy and date; clicking it opens its Flickr page in the browser.
+17. Start an upload of several photos, close the window and open Report → Flickr.
+    - **Expected:** "Under way (N)" above them, with Waiting / Uploading… under each thumbnail. As each one finishes it moves down to On Flickr by itself. A photo that failed shows "Not uploaded", and hovering it says why.
+18. Search the log folder (Settings → **Open log folder**) for your key, secret or token.
     - **Expected:** not found.
 
 ---

@@ -92,6 +92,25 @@ impl<M> FlickrRepo<'_, M> {
             .optional()?)
     }
 
+    /// Every upload, newest first (Report → Flickr).
+    pub fn all_uploads(&self) -> Result<Vec<FlickrUpload>, CatalogError> {
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT {UPLOAD_COLS} FROM flickr_uploads ORDER BY uploaded_ms DESC, id DESC"
+        ))?;
+        let rows = st.query_map([], upload_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The photos waiting to be uploaded (or whose upload failed), oldest
+    /// first.
+    pub fn all_queued(&self) -> Result<Vec<AssetId>, CatalogError> {
+        let mut st = self
+            .conn
+            .prepare_cached("SELECT asset_id FROM flickr_queue ORDER BY queued_ms, rowid")?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// How many photos have been uploaded (at least once).
     pub fn uploaded_count(&self) -> Result<u64, CatalogError> {
         let n: i64 = self.conn.query_row(

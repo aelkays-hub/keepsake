@@ -80,10 +80,11 @@
   - Catalog migration 0022 (`flickr_uploads`, `flickr_queue`, `FlickrRepo`); `external::open_url` (Flickr pages only); `keepsake_platform::secrets::{flickr, set_flickr}`.
   - App commands: `flickr_status`, `flickr_set_app`, `flickr_sign_in_start`/`_finish`, `flickr_sign_out`, `flickr_test`, `flickr_open`, `flickr_prepare`, `flickr_upload`, `flickr_upload_status`, `flickr_upload_stop`.
   - UI: Settings → Flickr; right-click → Upload to Flickr… (`FlickrWindow`); helpers in `src/flickr.ts`.
+- **Then:** Report → **Flickr**, as the owner asked ("see what I have uploaded to Flickr in the past and the current… just links to the thumbnails"): a thumbnail of every upload, newest first, each opening its Flickr page; the uploads under way above them (`flickr::report`, `flickr_report`, `FlickrReportView`).
 - **Tests, run here (Windows):**
-  - `flickr_tests` (6): an upload through the job queue with a stand-in Flickr and its signature checked; a refusal explained; a network failure retried; not signed in; Stop; signing in.
+  - `flickr_tests` (7, including the report): an upload through the job queue with a stand-in Flickr and its signature checked; a refusal explained; a network failure retried; not signed in; Stop; signing in.
   - Unit tests: OAuth test vectors, tags, Flickr's answers, the multipart body, scrubbing secrets from errors; secrets; external URLs; the app's key check.
-  - Vitest `flickr.test.ts` (5); mocked Playwright `flickr.spec.ts` (5) and the whole mocked suite.
+  - Vitest `flickr.test.ts` (5); mocked Playwright `flickr.spec.ts` (6, including the report) and the whole mocked suite.
   - fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
 - **Not run:** CI; macOS; a real upload to Flickr (needs the owner's key and sign-in).
 

@@ -2164,3 +2164,45 @@ button.link {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Report → Flickr (ADR-046) */
+.flickr-report h2 {
+  margin: 16px 0 8px;
+  font-size: 1.05em;
+}
+.flickr-report .fr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.flickr-report .fr-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.flickr-report .fr-link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.flickr-report .fr-link:hover .fr-thumb,
+.flickr-report .fr-link:focus-visible .fr-thumb {
+  outline: 2px solid var(--accent);
+}
+.flickr-report .fr-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.flickr-report .fr-cap {
+  font-size: 0.85em;
+}
