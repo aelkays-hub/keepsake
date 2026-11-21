@@ -1792,7 +1792,7 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 
 ## ADR-046 — Upload to Flickr
 
-**Status**: Built (2026-11-21), on `feat/flickr-upload`. The catalog change (migration 0022) was put to the owner when work started; their answer had not come back when this was written. Roadmap item 19.
+**Status**: Accepted and built (2026-11-21), on `feat/flickr-upload`. Catalog migration 0022 approved by the owner ("yes, approved"). Roadmap item 19.
 
 **Context.** The owner asked to select one or several photos and upload them to their own Flickr account, choosing public or private for each upload. They wanted to see and adjust the tags each photo goes with: its keywords (Lightroom-style `Aircraft|Registration|C-FEJC`, flattened for Flickr, with machine tags as an option), plus the camera make and model and the lens by default. Uploads should run on the job queue with progress and an explained result for each photo, and the Flickr photo id should be kept in the catalog so a photo is never uploaded twice without the owner knowing. Flickr's API uses OAuth 1.0a (not the OAuth 2.0 that SPEC.md first said). Each user registers their own app in Flickr's App Garden; a non-commercial key is free.
 
