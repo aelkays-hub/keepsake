@@ -72,6 +72,10 @@
 
 
 
+## Version 0.9.0 (2026-11-21)
+
+- Version 0.9.0 everywhere (Cargo.toml, both package.json files, tauri.conf.json, the mock) and its release notes: HTTPS through antivirus scanning (ADR-048), Tools → About (ADR-047 addition), third-party notices in the installer (ADR-047). No catalog change.
+
 ## HTTPS trusts the operating system's certificates (ADR-048) (2026-11-21)
 
 - **Reported:** Add route failed: "could not reach OpenSky: io: invalid peer certificate: UnknownIssuer". Cause: Avast's Web/Mail Shield re-signs HTTPS sites with its own root, which Windows trusts and Keepsake's built-in root list did not. Every online feature was affected.
