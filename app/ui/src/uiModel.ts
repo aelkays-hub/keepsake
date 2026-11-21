@@ -18,7 +18,8 @@ export type Section =
 export type Mode = "calendar" | "grid" | "details";
 
 /** The library, or one of the full-window screens. */
-export type Screen = "library" | "folders" | "backup" | "report" | "settings" | "duplicates";
+export type Screen =
+  "library" | "folders" | "backup" | "report" | "settings" | "duplicates" | "about";
 
 export type Dialog = "timeShift" | null;
 

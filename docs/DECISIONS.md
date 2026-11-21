@@ -1837,3 +1837,16 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 **Dependencies.** None added. The script uses Python's standard library, `cargo` and `pnpm`, which the build already needs. `cargo-about` was considered and not used, because it would be a new tool to approve.
 
 **Not done.** An About → Licences page in the app; the attribution lines the online services ask for (Flickr, OpenSky, Open Government Licence – Canada); a link to FFmpeg's exact source for the LGPL. These are listed in `docs/LICENCE_AUDIT.md`.
+
+### ADR-047 addition — Tools → About: credits and licences (2026-11-21)
+
+Asked: "add the About → Licences page".
+- **Tools → About** (`AboutScreen`, the last entry under Tools) shows:
+  - the version;
+  - **Data and services**: the credit each source asks for, each with a link to its page. Flickr's required line ("not endorsed or certified by SmugMug, Inc."), The OpenSky Network, the Open Government Licence – Canada (Transport Canada's register), the FAA register, OurAirports, adsbdb (PlaneBase) and Flightradar24;
+  - **Licences**: the programs shipped beside Keepsake, then every crate and npm package built into it (name, version, licence, Rust or JavaScript), with Find (name or licence) and **Show licence** for its text(s). A package without a licence file says its text is the standard one.
+- The notices are built into the app (`include_str!` of `licenses/THIRD-PARTY-NOTICES.txt`, `third_party_notices`), so the page works in development and does not depend on the installer's copy, which stays for people looking in the install folder. About 0.8 MB more in the binary.
+- `about_open` opens only the credits' own pages (`about::LINKS`); a unit test checks that every credit's URL in the UI (`CREDITS`) is on that list.
+- Parsing is in `licences.ts` (`parseNotices`, `findPackages`), tested against a sample and against the real file (every package has its licence text).
+- No new dependency.
+

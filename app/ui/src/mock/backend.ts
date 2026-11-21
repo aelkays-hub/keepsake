@@ -66,6 +66,33 @@ interface Item {
   event: string | null;
 }
 
+/** A small THIRD-PARTY-NOTICES.txt in the real file's format (make-notices.py). */
+const MOCK_NOTICES = (() => {
+  const rule = `\n\n${"=".repeat(76)}\n\n`;
+  const sub = `\n\n${"-".repeat(76)}\n\n`;
+  return (
+    [
+      "THIRD-PARTY NOTICES FOR KEEPSAKE\n\nKeepsake includes the software listed below.",
+      "1. PROGRAMS SHIPPED BESIDE KEEPSAKE\n\n" +
+        "FFmpeg and ffprobe (separate programs, not linked)\n  Licence: GNU LGPL 3.0.\n\n" +
+        "ExifTool 13.59 by Phil Harvey (separate program, not linked)",
+      "2. RUST CRATES BUILT INTO KEEPSAKE (2)\n\n" +
+        "rusqlite 0.40.0  —  MIT  https://github.com/rusqlite/rusqlite\n" +
+        "    Licence text: [aaaaaaaaaaaa]\n" +
+        "ts-rs 12.0.1  —  MIT  https://github.com/Aleph-Alpha/ts-rs\n" +
+        "    Licence text: [bbbbbbbbbbbb] (standard text of its licence; the package carries no licence file)",
+      "3. JAVASCRIPT PACKAGES IN KEEPSAKE'S WINDOW (1)\n\n" +
+        "react 18.3.1  —  MIT  https://react.dev/\n    Licence text: [cccccccccccc]",
+      [
+        "4. LICENCE TEXTS\n\nEach text is followed by the packages it comes with.",
+        "[aaaaaaaaaaaa] used by: rusqlite 0.40.0\n\nMIT License\n\nCopyright (c) 2014 The rusqlite developers",
+        "[bbbbbbbbbbbb] used by: ts-rs 12.0.1\n\nMIT License\n\nCopyright (c) the authors of ts-rs (see its repository)",
+        "[cccccccccccc] used by: react 18.3.1\n\nMIT License\n\nCopyright (c) Meta Platforms, Inc. and affiliates.",
+      ].join(sub),
+    ].join(rule) + "\n"
+  );
+})();
+
 export interface MockState {
   items: number;
   /** Upload to Flickr (ADR-046): `?flickr=app` (key saved) or
@@ -796,6 +823,10 @@ export function installMock(): void {
           const ms = Number(params.get("opening") ?? 0);
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
         }
+        case "third_party_notices":
+          return MOCK_NOTICES;
+        case "about_open":
+          return null;
         case "library_create":
         case "library_open":
           library = String(a.path);

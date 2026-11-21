@@ -209,6 +209,8 @@ export function fileUrl(path: string | null | undefined): string | null {
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
+  thirdPartyNotices: () => invoke<string>("third_party_notices"),
+  aboutOpen: (url: string) => invoke<void>("about_open", { url }),
   libraryCreate: (path: string) => invoke<AppInfo>("library_create", { path }),
   libraryOpen: (path: string) => invoke<AppInfo>("library_open", { path }),
 

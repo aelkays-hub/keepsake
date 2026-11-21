@@ -121,6 +121,11 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByTestId("settings-screen")).toBeVisible();
     all.push(...(await check(page, "settings")));
 
+    await page.getByTestId("sidebar").getByRole("button", { name: "About" }).click();
+    await page.getByTestId("licence-row").nth(1).getByTestId("licence-show").click();
+    await expect(page.getByTestId("licence-text-row")).toBeVisible();
+    all.push(...(await check(page, "about")));
+
     await page.goto(`/?items=100#/import?mount=${encodeURIComponent("E:\\")}`);
     await expect(page.getByTestId("card-tile").first().locator("img")).toBeVisible();
     all.push(...(await check(page, "import window")));
