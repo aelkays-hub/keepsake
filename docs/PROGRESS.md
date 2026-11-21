@@ -72,6 +72,13 @@
 
 
 
+## HTTPS trusts the operating system's certificates (ADR-048) (2026-11-21)
+
+- **Reported:** Add route failed: "could not reach OpenSky: io: invalid peer certificate: UnknownIssuer". Cause: Avast's Web/Mail Shield re-signs HTTPS sites with its own root, which Windows trusts and Keepsake's built-in root list did not. Every online feature was affected.
+- **Fixed:** `UreqHttp` verifies certificates with the operating system (ureq's `platform-verifier` feature, `rustls-platform-verifier`, MIT OR Apache-2.0, approved by the owner). Notices regenerated.
+- **Tests, run here (Windows, Avast on):** the new unit test; `https_reaches_a_real_site` (ignored by default) reached OpenSky and adsbdb; keepsake-core lib tests; app lib tests; fmt, clippy; `make-notices.py --check`.
+- **Not run:** in the installed app; CI; macOS. Branch `fix/os-certificate-store`.
+
 ## Third-party notices in the installer (ADR-047) (2026-11-21)
 
 - **Asked:** "add the missing third-party notices to the installer" (from the licence audit).

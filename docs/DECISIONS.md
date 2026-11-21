@@ -1837,3 +1837,22 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 **Dependencies.** None added. The script uses Python's standard library, `cargo` and `pnpm`, which the build already needs. `cargo-about` was considered and not used, because it would be a new tool to approve.
 
 **Not done.** An About → Licences page in the app; the attribution lines the online services ask for (Flickr, OpenSky, Open Government Licence – Canada); a link to FFmpeg's exact source for the LGPL. These are listed in `docs/LICENCE_AUDIT.md`.
+
+## ADR-048 — HTTPS trusts the operating system's certificates
+
+**Status**: Accepted (2026-11-21, product owner: "fix it in code", after Add route failed with "could not reach OpenSky: io: invalid peer certificate: UnknownIssuer").
+
+**Context.** Every online call (Tag with AI, edit suggestions, adsbdb, OpenSky, Flightradar24, Flickr, the aircraft registers' sign-in-free calls) goes through `ai::cloud::UreqHttp`, which used ureq's default: Mozilla's root certificates built into Keepsake (`webpki-roots`, ADR-036). On the owner's computer Avast's Web/Mail Shield inspects HTTPS and re-signs every site with "Avast Web/Mail Shield Root", which it adds to Windows' certificate store. Windows and browsers trust it; Keepsake did not, so every online feature failed with `UnknownIssuer`. Company proxies that inspect HTTPS do the same.
+
+**Decision.** `UreqHttp` checks certificates with the operating system's verifier (`RootCerts::PlatformVerifier`): Windows' certificate store (CryptoAPI) and the macOS Keychain (Security framework), as browsers do. A site is trusted when the computer trusts it; revocation and the system's own policies apply. Nothing else changes: the same hosts, the same requests, rustls for the connection.
+
+| Dependency | Version | Licence | Scope | Reason |
+|---|---|---|---|---|
+| `rustls-platform-verifier` (through ureq's `platform-verifier` feature) | 0.7.1 | MIT OR Apache-2.0 | runtime, keepsake-core | Verifies certificates with the operating system. On Windows and macOS it adds only `windows_x86_64_msvc` 0.52 (MIT OR Apache-2.0); `security-framework` and `windows-sys` were already in. Its Android (`jni`, `rustls-platform-verifier-android`) and Linux (`rustls-native-certs`, `openssl-probe`, `webpki-root-certs`) parts are in `Cargo.lock` but not built for Keepsake's targets. |
+
+Nothing GPL. The third-party notices are regenerated (366 crates).
+
+**Tests.** A unit test checks `UreqHttp` uses the platform verifier; an ignored test (`https_reaches_a_real_site`, run by hand) makes real HTTPS calls to OpenSky and adsbdb. Run on the owner's computer with Avast's HTTPS scanning on: it passed, where the app had failed with `UnknownIssuer`.
+
+**Not done.** Downloads made with `curl` (models, registers) already use the system's TLS (Schannel on Windows) and are unchanged.
+

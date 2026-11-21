@@ -1,4 +1,4 @@
-# Manual Test Steps — Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — HTTPS through an antivirus, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,22 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## HTTPS through an antivirus or a company proxy
+
+Automated:
+```
+cargo test -p keepsake-core --lib https_trusts
+cargo test -p keepsake-core --lib -- --ignored https_reaches   # needs the internet
+```
+
+Manual:
+1. **Windows** with an antivirus that scans HTTPS (Avast: Web Shield with HTTPS scanning on). Pick a photo with an accepted registration and right-click → **Add route**. **Expected:** it reaches OpenSky (a route, or "no flight near this time"), not "invalid peer certificate: UnknownIssuer".
+2. Also try a registration look-up (Read aircraft with Look up online on) and, if set up, Test the sign-in in Settings → Flickr. **Expected:** both work.
+3. **macOS:** the same steps; with no inspecting proxy they work as before.
+4. Turn Wi-Fi off and try again. **Expected:** a clear "could not reach" message, as before.
+
+---
 
 ## Third-party notices in the installer
 
