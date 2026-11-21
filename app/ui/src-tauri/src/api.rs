@@ -1657,28 +1657,65 @@ dto! {
 }
 
 dto! {
-    /// One photo of Report → Flickr: its thumbnail, and its Flickr page
-    /// once uploaded.
-    pub struct FlickrReportItemDto {
-        pub id: String,
-        pub name: String,
-        pub thumb: Option<String>,
-        /// The photo's Flickr page (uploaded ones).
-        pub url: Option<String>,
-        /// `public`, `friends_family`, `friends`, `family` or `private`.
-        pub privacy: Option<String>,
-        /// `YYYY-MM-DD` (uploaded ones).
-        pub date: Option<String>,
-        /// `done`, `waiting`, `retrying`, `uploading` or `failed`.
-        pub state: String,
-        /// Why it failed, or why the last try did.
-        pub error: Option<String>,
+    /// A day of Report → Flickr's tree: `2024-06-15`, photos uploaded.
+    pub struct FlickrDayDto {
+        pub date: String,
+        #[ts(type = "number")]
+        pub count: u64,
     }
 
-    /// Report → Flickr: what is on Flickr (newest first) and what is under
-    /// way.
-    pub struct FlickrReportDto {
-        pub uploaded: Vec<FlickrReportItemDto>,
-        pub current: Vec<FlickrReportItemDto>,
+    pub struct FlickrMonthDto {
+        /// `2024-06`.
+        pub month: String,
+        #[ts(type = "number")]
+        pub count: u64,
+        /// Newest first.
+        pub days: Vec<FlickrDayDto>,
+    }
+
+    pub struct FlickrYearDto {
+        pub year: i32,
+        #[ts(type = "number")]
+        pub count: u64,
+        /// Newest first.
+        pub months: Vec<FlickrMonthDto>,
+    }
+
+    /// Report → Flickr: what is on the Flickr account, read from Flickr,
+    /// as a tree by upload date (this computer's time zone).
+    pub struct FlickrAccountDto {
+        pub signed_in: bool,
+        pub username: Option<String>,
+        /// Being read from Flickr now.
+        pub reading: bool,
+        #[ts(type = "number")]
+        pub read: u64,
+        #[ts(type = "number")]
+        pub total: u64,
+        /// Why the last read failed.
+        pub error: Option<String>,
+        /// When it was read, `HH:MM` (null: not read yet).
+        pub read_at: Option<String>,
+        /// Newest first; empty until read.
+        pub years: Vec<FlickrYearDto>,
+        #[ts(type = "number")]
+        pub photos: u64,
+    }
+
+    /// One photo on the Flickr account.
+    pub struct FlickrAccountPhotoDto {
+        pub id: String,
+        pub title: String,
+        /// Flickr's 150-pixel thumbnail.
+        pub thumb: Option<String>,
+        /// Its Flickr page.
+        pub url: String,
+        /// `public`, `friends_family`, `friends`, `family` or `private`.
+        pub privacy: String,
+        /// When it was uploaded, `YYYY-MM-DD HH:MM` (this computer's time).
+        pub uploaded: String,
+        pub taken: Option<String>,
+        /// Uploaded with Keepsake.
+        pub keepsake: bool,
     }
 }

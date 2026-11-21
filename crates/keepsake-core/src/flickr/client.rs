@@ -346,7 +346,7 @@ impl Flickr {
     }
 
     /// A signed REST call (JSON); Flickr's `stat: fail` becomes an error.
-    fn rest(
+    pub(crate) fn rest(
         &self,
         app: &App,
         account: &Account,

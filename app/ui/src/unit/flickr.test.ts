@@ -13,6 +13,9 @@ import {
   PRIVACY,
   privacyLabel,
   removeTag,
+  newestOpen,
+  monthName,
+  dayName,
 } from "../flickr";
 
 describe("Upload to Flickr: privacy", () => {
@@ -56,5 +59,27 @@ describe("Upload to Flickr: tags", () => {
     expect(isMachineTag("aircraft:from_country=Canada")).toBe(true);
     expect(isMachineTag("C-FEJC")).toBe(false);
     expect(isMachineTag("12:30=x")).toBe(false);
+  });
+});
+
+describe("Report → Flickr: the tree", () => {
+  it("opens the newest year, month and day first", () => {
+    const years = [
+      {
+        year: 2024,
+        months: [
+          { month: "2024-06", days: [{ date: "2024-06-15" }, { date: "2024-06-02" }] },
+          { month: "2024-01", days: [{ date: "2024-01-03" }] },
+        ],
+      },
+      { year: 2023, months: [{ month: "2023-12", days: [{ date: "2023-12-31" }] }] },
+    ];
+    expect(newestOpen(years)).toEqual(["2024", "2024-06", "2024-06-15"]);
+    expect(newestOpen([])).toEqual([]);
+  });
+
+  it("names months and days", () => {
+    expect(monthName("2024-06")).toBe("June");
+    expect(dayName("2024-06-05")).toBe("5 June");
   });
 });

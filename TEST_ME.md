@@ -50,10 +50,13 @@ Manual (both OSes):
     - **Expected:** "Sign in to Flickr in Settings → Flickr first." with **Open Settings**; **Upload** is disabled.
 15. **Remove key.**
     - **Expected:** "No API key is saved yet." The Credential Manager / Keychain entries are gone.
-16. Tools → Report → **Flickr**.
-    - **Expected:** "On Flickr (N photos)" with a thumbnail of every photo uploaded, newest first. Hovering a thumbnail shows its name, privacy and date; clicking it opens its Flickr page in the browser.
-17. Start an upload of several photos, close the window and open Report → Flickr.
-    - **Expected:** "Under way (N)" above them, with Waiting / Uploading… under each thumbnail. As each one finishes it moves down to On Flickr by itself. A photo that failed shows "Not uploaded", and hovering it says why.
+16. Sign in again (steps 1–3), then Tools → Report → **Flickr**.
+    - **Expected:** "Reading <you> from Flickr… N of M photos", then "N photos on the Flickr account of <you>, by upload date (read from Flickr at HH:MM)". N matches the photo count on your Flickr photostream, including photos uploaded without Keepsake.
+    - The tree shows years, newest first, each with its count. The newest year, its newest month and that month's newest day are open. The day shows Flickr's thumbnails, and photos uploaded with Keepsake have a small blue **K**.
+    - Hovering a thumbnail shows its title, who can see it and when it was uploaded. Clicking it opens its Flickr page in the browser.
+    - Open an older year, then a month, then a day: that day's thumbnails show. The days are your computer's local dates.
+17. Leave the report and come back.
+    - **Expected:** the tree shows at once and is not read again. Upload a photo with Keepsake, then choose **Refresh from Flickr**: today's count goes up by one, and the new photo has a **K**. Quit and restart Keepsake, then open the report: it is read from Flickr again (nothing is kept in the catalog).
 18. Search the log folder (Settings → **Open log folder**) for your key, secret or token.
     - **Expected:** not found.
 

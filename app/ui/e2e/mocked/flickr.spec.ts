@@ -187,29 +187,61 @@ test("Upload: several photos at once, with a tag for all", async ({ page }) => {
   await expect(win.getByTestId("fl-progress")).toHaveText(`Done: ${ticked} of ${ticked} uploaded.`);
 });
 
-test("Report → Flickr: thumbnails of what is on Flickr open its page; what is under way", async ({
+test("Report → Flickr: the account read from Flickr, as a tree by upload date", async ({
   page,
 }) => {
-  await open(page, "&flickr=signed&flickrDone=a7");
-  const report = () =>
-    page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
-  await report();
+  await open(page, "&flickr=signed");
+  await page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
   const screen = page.getByTestId("report-screen");
   await screen.getByTestId("report-kind-flickr").click();
   const r = screen.getByTestId("flickr-report");
-  await expect(r.getByTestId("flickr-report-uploaded-title")).toHaveText("On Flickr (1 photo)");
-  await expect(r.getByTestId("flickr-report-current")).toHaveCount(0);
-  await r.getByTestId("fr-uploaded").getByRole("button", { name: "Open a7.ARW on Flickr" }).click();
-  const opened = (await calls(page, "flickr_open")) as { url: string }[];
-  expect(opened).toEqual([{ url: "https://www.flickr.com/photos/1%40N00/1/" }]);
+  await expect(r.getByTestId("flickr-report-status")).toHaveText(
+    "4 photos on the Flickr account of keepsake-tester, by upload date (read from Flickr at 14:02).",
+  );
+  // Read once (not again: even twice asked, as React's dev mode does).
+  const first = (await calls(page, "flickr_account_read")) as { again: boolean }[];
+  expect(first.length).toBeGreaterThan(0);
+  expect(first.every((c) => !c.again)).toBe(true);
+  // Years, newest first, with counts; the newest year, month and day open.
+  const years = r.getByTestId("fr-year");
+  await expect(years).toHaveText(["2026 (3)", "2019 (1)"]);
+  await expect(years.first()).toHaveAttribute("aria-expanded", "true");
+  await expect(years.nth(1)).toHaveAttribute("aria-expanded", "false");
+  await expect(r.getByTestId("fr-month")).toHaveText(["November (3)"]);
+  await expect(r.getByTestId("fr-day")).toHaveText(["21 November (2)", "2 November (1)"]);
+  const photos = r.getByTestId("fr-photo");
+  await expect(photos).toHaveCount(2);
+  // Uploaded with Keepsake: marked.
+  await expect(photos.first().getByTestId("fr-keepsake")).toBeVisible();
+  await expect(photos.nth(1).getByTestId("fr-keepsake")).toHaveCount(0);
+  await photos.first().getByRole("button", { name: "Open C-FEJC landing on Flickr" }).click();
+  expect(await calls(page, "flickr_open")).toEqual([
+    { url: "https://www.flickr.com/photos/1%40N00/501/" },
+  ]);
 
-  // Uploads queued (the window closed at once) are under way.
+  // Another year: open it, then its day.
+  await years.nth(1).click();
+  await r.getByTestId("fr-month").nth(1).click();
+  await r.getByTestId("fr-day").nth(2).click();
+  await expect(photos).toHaveCount(3);
+  await expect(r.getByRole("button", { name: "Open Fireworks on Flickr" })).toBeVisible();
+
+  // Coming back does not read it again; Refresh does.
   await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
-  const win = await uploadWindow(page);
-  await win.getByTestId("fl-upload").click();
-  await win.getByTestId("fl-close").click();
-  await report();
-  await expect(screen.getByTestId("report-kind-flickr")).toHaveAttribute("aria-pressed", "true");
-  await expect(r.getByTestId("flickr-report-current-title")).toHaveText("Under way (1)");
-  await expect(r.getByTestId("fr-current")).toContainText("Waiting");
+  await page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
+  await expect(r.getByTestId("fr-year")).toHaveText(["2026 (3)", "2019 (1)"]);
+  await r.getByTestId("flickr-report-refresh").click();
+  await expect(r.getByTestId("flickr-report-status")).toContainText("read from Flickr at 14:02");
+  const all = (await calls(page, "flickr_account_read")) as { again: boolean }[];
+  expect(all.filter((c) => c.again)).toHaveLength(1);
+  expect(all[all.length - 1]).toEqual({ again: true });
+});
+
+test("Report → Flickr: not signed in, it says so", async ({ page }) => {
+  await open(page, "&flickr=app");
+  await page.getByTestId("sidebar").getByRole("button", { name: "Report", exact: true }).click();
+  const screen = page.getByTestId("report-screen");
+  await screen.getByTestId("report-kind-flickr").click();
+  await expect(screen.getByTestId("flickr-report-signed-out")).toContainText("Sign in to Flickr");
+  expect(await calls(page, "flickr_account_read")).toEqual([]);
 });

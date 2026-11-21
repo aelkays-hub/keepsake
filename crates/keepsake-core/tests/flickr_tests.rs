@@ -484,40 +484,102 @@ fn signing_in_takes_a_request_token_then_the_code() {
     assert!(!format!("{acc:?} {:?} {pending:?}", app()).contains("secret"));
 }
 
+/// One page of `flickr.people.getPhotos` as Flickr answers it (numbers
+/// sometimes as strings).
+fn photos_page(page: u32, pages: u32, total: u64, ids: &[(&str, i64)]) -> String {
+    let photos: Vec<serde_json::Value> = ids
+        .iter()
+        .map(|(id, up)| {
+            serde_json::json!({
+                "id": id, "owner": "12345678@N00", "title": format!("T{id}"),
+                "ispublic": 0, "isfriend": 1, "isfamily": 1,
+                "dateupload": up.to_string(), "datetaken": "2024-06-15 09:00:00",
+                "url_q": format!("https://live.staticflickr.com/65535/{id}_abc_q.jpg"),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "photos": {"page": page, "pages": pages, "perpage": 500, "total": total.to_string(), "photo": photos},
+        "stat": "ok"
+    })
+    .to_string()
+}
+
 #[test]
-fn the_report_lists_what_is_on_flickr_and_what_is_under_way() {
-    let mut w = World::new(&["a.jpg", "b.jpg", "c.jpg"]);
-    let (a, b, c) = (w.asset("a.jpg"), w.asset("b.jpg"), w.asset("c.jpg"));
-    assert_eq!(flickr::report(&w.cat).unwrap(), flickr::Report::default());
-    let req = |id| Request {
-        asset: id,
-        title: "x".into(),
-        description: String::new(),
-        tags: vec![],
-    };
-    flickr::enqueue(&mut w.cat, &[req(a), req(b)], Privacy::Public).unwrap();
-    // a is uploaded, b refused.
+fn the_account_is_read_page_by_page() {
+    use keepsake_core::flickr::account;
     let http = FakeFlickr::new(vec![
-        Ok((200, OK_UPLOAD.into())),
         Ok((
             200,
-            "<rsp stat=\"fail\"><err code=\"5\" msg=\"Filetype was not recognised\" /></rsp>"
-                .into(),
+            photos_page(1, 2, 3, &[("30", 1_718_449_200), ("20", 1_718_445_600)]),
+        )),
+        // A photo uploaded while reading: 20 is on this page again.
+        Ok((
+            200,
+            photos_page(2, 2, 3, &[("20", 1_718_445_600), ("10", 1_704_024_000)]),
         )),
     ]);
-    w.run(uploader(http, true));
-    // c waits.
-    flickr::enqueue(&mut w.cat, &[req(c)], Privacy::Private).unwrap();
+    let f = Flickr::new(http.clone()).with_stamp(fixed_stamp());
+    let mut seen = Vec::new();
+    let photos = account::list(
+        &f,
+        &app(),
+        &account(),
+        &mut |done, total| seen.push((done, total)),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(
+        photos.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        ["30", "20", "10"]
+    );
+    assert_eq!(seen, [(2, 3), (3, 3)]);
+    let p = &photos[0];
+    assert_eq!(p.privacy, "friends_family");
+    assert_eq!(p.title, "T30");
+    assert_eq!(
+        p.thumb.as_deref(),
+        Some("https://live.staticflickr.com/65535/30_abc_q.jpg")
+    );
+    assert_eq!(p.url, "https://www.flickr.com/photos/12345678%40N00/30/");
+    let sent = http.sent();
+    assert_eq!(sent.len(), 2);
+    assert!(sent[0].url.contains("method=flickr.people.getPhotos"));
+    assert!(sent[0].url.contains("user_id=me"));
+    assert!(sent[0].url.contains("per_page=500"));
+    assert!(sent[1].url.contains("page=2"));
+    let t = account::tree(&photos, &chrono::Utc);
+    assert_eq!((t[0].year, t[0].count, t[1].year), (2024, 2, 2023));
+}
 
-    let r = flickr::report(&w.cat).unwrap();
-    assert_eq!(r.uploaded.len(), 1);
-    assert_eq!(r.uploaded[0].asset_id, a);
-    assert_eq!(r.uploaded[0].photo_id, "53300000001");
-    let current: Vec<AssetId> = r.current.iter().map(|(id, _)| *id).collect();
-    assert_eq!(current, [b, c]);
-    assert!(matches!(r.current[0].1, State::Failed(_)));
-    assert!(matches!(r.current[1].1, State::Waiting { .. }));
-    // Stopped: no longer under way.
-    flickr::stop(&mut w.cat, &[c]).unwrap();
-    assert_eq!(flickr::report(&w.cat).unwrap().current.len(), 1);
+#[test]
+fn reading_the_account_says_when_to_sign_in_again() {
+    use keepsake_core::flickr::account;
+    let http = FakeFlickr::new(vec![Ok((
+        200,
+        r#"{"stat":"fail","code":98,"message":"Invalid auth token"}"#.into(),
+    ))]);
+    let f = Flickr::new(http).with_stamp(fixed_stamp());
+    let e = account::list(
+        &f,
+        &app(),
+        &account(),
+        &mut |_, _| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap_err();
+    assert!(matches!(e, FlickrError::SignedOut(_)));
+    assert!(e.to_string().contains("Sign in to Flickr again"));
+    // Stopped before the first page: nothing asked.
+    let http = FakeFlickr::new(vec![]);
+    let f = Flickr::new(http.clone());
+    assert!(account::list(
+        &f,
+        &app(),
+        &account(),
+        &mut |_, _| {},
+        &AtomicBool::new(true)
+    )
+    .is_err());
+    assert!(http.sent().is_empty());
 }

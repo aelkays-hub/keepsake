@@ -101,16 +101,6 @@ impl<M> FlickrRepo<'_, M> {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// The photos waiting to be uploaded (or whose upload failed), oldest
-    /// first.
-    pub fn all_queued(&self) -> Result<Vec<AssetId>, CatalogError> {
-        let mut st = self
-            .conn
-            .prepare_cached("SELECT asset_id FROM flickr_queue ORDER BY queued_ms, rowid")?;
-        let rows = st.query_map([], |r| r.get(0))?;
-        Ok(rows.collect::<Result<_, _>>()?)
-    }
-
     /// How many photos have been uploaded (at least once).
     pub fn uploaded_count(&self) -> Result<u64, CatalogError> {
         let n: i64 = self.conn.query_row(

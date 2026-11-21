@@ -84,3 +84,40 @@ export function removeTag(e: TagEdits, tag: string): TagEdits {
 export function isMachineTag(t: string): boolean {
   return /^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*=.+/.test(t);
 }
+
+/** The tree's keys open at first: the newest year, its newest month and
+ * that month's newest day (`2024`, `2024-06`, `2024-06-15`). */
+export function newestOpen(
+  years: { year: number; months: { month: string; days: { date: string }[] }[] }[],
+): string[] {
+  const y = years[0];
+  if (!y) return [];
+  const m = y.months[0];
+  const d = m?.days[0];
+  return [String(y.year), ...(m ? [m.month] : []), ...(d ? [d.date] : [])];
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** `2024-06` → `June`. */
+export function monthName(month: string): string {
+  return MONTHS[Number(month.slice(5, 7)) - 1] ?? month;
+}
+
+/** `2024-06-15` → `15 June`. */
+export function dayName(date: string): string {
+  return `${Number(date.slice(8, 10))} ${monthName(date.slice(0, 7))}`;
+}

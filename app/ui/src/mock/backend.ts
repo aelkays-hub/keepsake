@@ -78,6 +78,9 @@ export interface MockState {
     /** Queued photos: how often their status was asked. */
     queue: Map<string, { polls: number; privacy: string }>;
     fail: string | null;
+    /** Report → Flickr: reads started, and looks since the last. */
+    accountReads: number;
+    accountPolls: number;
   };
   calls: { cmd: string; args: unknown }[];
   rating: Map<number, number>;
@@ -543,6 +546,8 @@ export function installMock(): void {
       ),
       queue: new Map(),
       fail: params.get("flickrFail"),
+      accountReads: 0,
+      accountPolls: 0,
     },
     calls: [],
     rating: new Map(),
@@ -2062,32 +2067,74 @@ export function installMock(): void {
             },
           };
         }
-        case "flickr_report": {
-          const uploaded = [...st.flickr.uploads.entries()].flatMap(([id, ups]) =>
-            ups.map((u) => ({
-              id,
-              name: `${id}.ARW`,
-              thumb: null,
-              url: u.url,
-              privacy: u.privacy,
-              date: u.date,
-              state: "done",
-              error: null,
-            })),
-          );
-          uploaded.sort((x, y) => (y.date ?? "").localeCompare(x.date ?? ""));
-          const current = [...st.flickr.queue.entries()].map(([id, q]) => ({
+        case "flickr_account_read":
+        case "flickr_account": {
+          // The account: four photos over two years; read on the second look.
+          const f = st.flickr;
+          if (!f.signedIn) {
+            if (cmd === "flickr_account_read")
+              throw "Sign in to Flickr in Settings → Flickr first.";
+          } else if (cmd === "flickr_account_read" && (a.again || f.accountReads === 0)) {
+            f.accountReads += 1;
+            f.accountPolls = 0;
+          } else if (cmd === "flickr_account") f.accountPolls += 1;
+          const done = f.accountReads > 0 && f.accountPolls > 0;
+          return {
+            signedIn: f.signedIn,
+            username: f.signedIn ? "keepsake-tester" : null,
+            reading: f.signedIn && !done,
+            read: done ? 4 : 0,
+            total: 4,
+            error: null,
+            readAt: done ? "14:02" : null,
+            photos: done ? 4 : 0,
+            years: done
+              ? [
+                  {
+                    year: 2026,
+                    count: 3,
+                    months: [
+                      {
+                        month: "2026-11",
+                        count: 3,
+                        days: [
+                          { date: "2026-11-21", count: 2 },
+                          { date: "2026-11-02", count: 1 },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    year: 2019,
+                    count: 1,
+                    months: [
+                      { month: "2019-07", count: 1, days: [{ date: "2019-07-04", count: 1 }] },
+                    ],
+                  },
+                ]
+              : [],
+          };
+        }
+        case "flickr_account_day": {
+          const photo = (id: string, title: string, uploaded: string, keepsake: boolean) => ({
             id,
-            name: `${id}.ARW`,
+            title,
             thumb: null,
-            url: null,
-            privacy: q.privacy,
-            date: null,
-            state: id === st.flickr.fail ? "failed" : "waiting",
-            error:
-              id === st.flickr.fail ? "Flickr said: User exceeded upload limit (error 6)." : null,
-          }));
-          return { uploaded, current };
+            url: `https://www.flickr.com/photos/1%40N00/${id}/`,
+            privacy: "public",
+            uploaded,
+            taken: null,
+            keepsake,
+          });
+          const byDay: Record<string, ReturnType<typeof photo>[]> = {
+            "2026-11-21": [
+              photo("501", "C-FEJC landing", "2026-11-21 14:01", true),
+              photo("502", "Sunset", "2026-11-21 09:30", false),
+            ],
+            "2026-11-02": [photo("401", "", "2026-11-02 08:00", false)],
+            "2019-07-04": [photo("101", "Fireworks", "2019-07-04 22:10", false)],
+          };
+          return byDay[String(a.date)] ?? [];
         }
         case "flickr_upload": {
           if (!st.flickr.signedIn) throw "Sign in to Flickr in Settings → Flickr first.";

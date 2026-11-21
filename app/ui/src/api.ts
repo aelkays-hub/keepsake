@@ -10,7 +10,8 @@ import type { FlickrPrepareDto } from "./bindings/FlickrPrepareDto";
 import type { FlickrProgressDto } from "./bindings/FlickrProgressDto";
 import type { FlickrRequestDto } from "./bindings/FlickrRequestDto";
 import type { FlickrStatusDto } from "./bindings/FlickrStatusDto";
-import type { FlickrReportDto } from "./bindings/FlickrReportDto";
+import type { FlickrAccountDto } from "./bindings/FlickrAccountDto";
+import type { FlickrAccountPhotoDto } from "./bindings/FlickrAccountPhotoDto";
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
@@ -424,8 +425,14 @@ export const api = {
     invoke<number>("flickr_upload", { items, privacy }),
   flickrUploadStatus: (ids: string[]) => invoke<FlickrProgressDto>("flickr_upload_status", { ids }),
   flickrUploadStop: (ids: string[]) => invoke<void>("flickr_upload_stop", { ids }),
-  /** Report → Flickr: what is on Flickr and what is under way. */
-  flickrReport: () => invoke<FlickrReportDto>("flickr_report"),
+  /** Report → Flickr: read the account from Flickr in the background
+   * (`again`: even when read already this session). */
+  flickrAccountRead: (again: boolean) => invoke<FlickrAccountDto>("flickr_account_read", { again }),
+  /** Where reading the account stands; the tree by upload date once read. */
+  flickrAccount: () => invoke<FlickrAccountDto>("flickr_account"),
+  /** The photos uploaded to Flickr on a day (`2024-06-15`). */
+  flickrAccountDay: (date: string) =>
+    invoke<FlickrAccountPhotoDto[]>("flickr_account_day", { date }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>

@@ -80,11 +80,11 @@
   - Catalog migration 0022 (`flickr_uploads`, `flickr_queue`, `FlickrRepo`); `external::open_url` (Flickr pages only); `keepsake_platform::secrets::{flickr, set_flickr}`.
   - App commands: `flickr_status`, `flickr_set_app`, `flickr_sign_in_start`/`_finish`, `flickr_sign_out`, `flickr_test`, `flickr_open`, `flickr_prepare`, `flickr_upload`, `flickr_upload_status`, `flickr_upload_stop`.
   - UI: Settings → Flickr; right-click → Upload to Flickr… (`FlickrWindow`); helpers in `src/flickr.ts`.
-- **Then:** Report → **Flickr**, as the owner asked ("see what I have uploaded to Flickr in the past and the current… just links to the thumbnails"): a thumbnail of every upload, newest first, each opening its Flickr page; the uploads under way above them (`flickr::report`, `flickr_report`, `FlickrReportView`).
+- **Then:** Report → **Flickr**, corrected by the owner: "show me what is already on Flickr organized as a tree by upload date. Not what was uploaded". It now reads the account from Flickr (`flickr::account::list`, `flickr.people.getPhotos`, 500 a page) on a background thread and keeps it in memory only, by the owner's choice: no catalog cache. It shows a tree by upload date, year › month › day with counts, the newest open (`account::tree`, `on_day`). Flickr's thumbnails open each photo's Flickr page, and photos uploaded with Keepsake are marked. App: `flickr_account_read`, `flickr_account`, `flickr_account_day`. The first version, a grid of what Keepsake uploaded with an under-way strip, is removed.
 - **Tests, run here (Windows):**
-  - `flickr_tests` (7, including the report): an upload through the job queue with a stand-in Flickr and its signature checked; a refusal explained; a network failure retried; not signed in; Stop; signing in.
+  - `flickr_tests` (8, including reading the account page by page and a sign-in that no longer works); `account` unit tests (the tree, time zones, privacy): an upload through the job queue with a stand-in Flickr and its signature checked; a refusal explained; a network failure retried; not signed in; Stop; signing in.
   - Unit tests: OAuth test vectors, tags, Flickr's answers, the multipart body, scrubbing secrets from errors; secrets; external URLs; the app's key check.
-  - Vitest `flickr.test.ts` (5); mocked Playwright `flickr.spec.ts` (6, including the report) and the whole mocked suite.
+  - Vitest `flickr.test.ts` (5); Vitest (+2, the tree), mocked Playwright `flickr.spec.ts` (7, including the tree) and the whole mocked suite.
   - fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
 - **Not run:** CI; macOS; a real upload to Flickr (needs the owner's key and sign-in).
 

@@ -12,8 +12,9 @@ use keepsake_platform::secrets::{self, FLICKR_KEY, FLICKR_SECRET, FLICKR_SIGN_IN
 use tauri::{AppHandle, State};
 
 use crate::api::{
-    FlickrItemDto, FlickrPrepareDto, FlickrProgressDto, FlickrProgressItemDto, FlickrReportDto,
-    FlickrReportItemDto, FlickrRequestDto, FlickrStatusDto, FlickrUploadDto, Selection,
+    FlickrAccountDto, FlickrAccountPhotoDto, FlickrDayDto, FlickrItemDto, FlickrMonthDto,
+    FlickrPrepareDto, FlickrProgressDto, FlickrProgressItemDto, FlickrRequestDto, FlickrStatusDto,
+    FlickrUploadDto, FlickrYearDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -105,6 +106,7 @@ pub fn flickr_set_app(
     if let Ok(mut p) = PENDING.lock() {
         *p = None;
     }
+    forget_account();
     status(&state)
 }
 
@@ -140,6 +142,7 @@ pub fn flickr_sign_in_finish(
     if let Ok(mut p) = PENDING.lock() {
         *p = None;
     }
+    forget_account();
     status(&state)
 }
 
@@ -151,6 +154,7 @@ pub fn flickr_sign_out(state: State<'_, AppState>) -> CmdResult<FlickrStatusDto>
     if let Ok(mut p) = PENDING.lock() {
         *p = None;
     }
+    forget_account();
     status(&state)
 }
 
@@ -313,54 +317,198 @@ pub fn flickr_upload_stop(state: State<'_, AppState>, ids: Vec<String>) -> CmdRe
     Ok(())
 }
 
-/// Report → Flickr: every photo uploaded (newest first, linking to its
-/// Flickr page) and those under way.
+/// Report → Flickr: the account's photos, read from Flickr and kept in
+/// memory only (never in the catalog) until read again.
+#[derive(Default)]
+struct AccountRead {
+    reading: bool,
+    read: u64,
+    total: u64,
+    error: Option<String>,
+    /// The account read, and when (Unix ms).
+    nsid: Option<String>,
+    read_ms: Option<i64>,
+    photos: Option<Arc<Vec<flickr::account::AccountPhoto>>>,
+}
+
+static ACCOUNT: Mutex<Option<AccountRead>> = Mutex::new(None);
+
+fn with_account<T>(f: impl FnOnce(&mut AccountRead) -> T) -> CmdResult<T> {
+    let mut g = ACCOUNT.lock().map_err(|_| "Flickr state poisoned")?;
+    Ok(f(g.get_or_insert_with(AccountRead::default)))
+}
+
+/// Forget what was read (signed out, or another account).
+fn forget_account() {
+    if let Ok(mut g) = ACCOUNT.lock() {
+        *g = None;
+    }
+}
+
+fn account_dto() -> CmdResult<FlickrAccountDto> {
+    let acc = account();
+    with_account(|a| {
+        // Read for another account: not shown.
+        if a.nsid.is_some() && a.nsid.as_deref() != acc.as_ref().map(|x| x.nsid.as_str()) {
+            *a = AccountRead::default();
+        }
+        let years = a
+            .photos
+            .as_deref()
+            .map(|p| flickr::account::tree(p, &chrono::Local))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|y| FlickrYearDto {
+                year: y.year,
+                count: y.count,
+                months: y
+                    .months
+                    .into_iter()
+                    .map(|m| FlickrMonthDto {
+                        month: m.month,
+                        count: m.count,
+                        days: m
+                            .days
+                            .into_iter()
+                            .map(|d| FlickrDayDto {
+                                date: d.date,
+                                count: d.count,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        FlickrAccountDto {
+            signed_in: acc.is_some(),
+            username: acc.as_ref().map(|x| x.username.clone()),
+            reading: a.reading,
+            read: a.read,
+            total: a.total,
+            error: a.error.clone(),
+            read_at: a.read_ms.and_then(|ms| {
+                chrono::DateTime::from_timestamp_millis(ms)
+                    .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+            }),
+            years,
+            photos: a.photos.as_ref().map_or(0, |p| p.len() as u64),
+        }
+    })
+}
+
+/// Read the account from Flickr in the background (`again`: even when
+/// read already this session). Returns where it stands.
 #[tauri::command(async)]
-pub fn flickr_report(state: State<'_, AppState>) -> CmdResult<FlickrReportDto> {
-    use keepsake_core::flickr::State as Up;
-    let open = state.open()?;
-    let cat = open.cat()?;
-    let r = flickr::report(&cat).map_err(err)?;
-    let mut uploaded = Vec::new();
-    for u in r.uploaded {
-        let (name, thumb) = crate::aircraft::photo_of(&cat, &open.cache, u.asset_id)?;
-        uploaded.push(FlickrReportItemDto {
-            id: u.asset_id.to_string(),
-            name: name.unwrap_or_default(),
-            thumb,
-            url: Some(u.url),
-            privacy: Some(u.privacy),
-            date: Some(date(u.uploaded_ms)),
-            state: "done".into(),
-            error: None,
-        });
+pub fn flickr_account_read(again: bool) -> CmdResult<FlickrAccountDto> {
+    let app = app_keys().ok_or("Add your Flickr API key and secret in Settings → Flickr first.")?;
+    let acc = account().ok_or("Sign in to Flickr in Settings → Flickr first.")?;
+    let start = with_account(|a| {
+        let same = a.nsid.as_deref() == Some(acc.nsid.as_str());
+        let have = same && a.photos.is_some();
+        if a.reading || (have && !again) {
+            return false;
+        }
+        a.reading = true;
+        a.read = 0;
+        a.total = 0;
+        a.error = None;
+        if !same {
+            a.photos = None;
+            a.read_ms = None;
+        }
+        a.nsid = Some(acc.nsid.clone());
+        true
+    })?;
+    if start {
+        let spawned = std::thread::Builder::new()
+            .name("flickr-account".into())
+            .spawn(move || {
+                let cancel = std::sync::atomic::AtomicBool::new(false);
+                let result = flickr::account::list(
+                    &client(),
+                    &app,
+                    &acc,
+                    &mut |read, total| {
+                        let _ = with_account(|a| {
+                            a.read = read;
+                            a.total = total;
+                        });
+                    },
+                    &cancel,
+                );
+                let _ = with_account(|a| {
+                    a.reading = false;
+                    match result {
+                        Ok(p) => {
+                            a.read = p.len() as u64;
+                            a.photos = Some(Arc::new(p));
+                            a.read_ms = Some(keepsake_core::jobs::now_ms());
+                        }
+                        Err(e) => {
+                            tracing::warn!("reading the Flickr account: {e}");
+                            a.error = Some(e.to_string());
+                        }
+                    }
+                });
+            });
+        if let Err(e) = spawned {
+            with_account(|a| {
+                a.reading = false;
+                a.error = Some(e.to_string());
+            })?;
+        }
     }
-    let mut current = Vec::new();
-    for (id, st) in r.current {
-        let (name, thumb) = crate::aircraft::photo_of(&cat, &open.cache, id)?;
-        let privacy = cat
-            .read(|tx| tx.flickr().queued(id))
-            .map_err(err)?
-            .map(|q| q.privacy);
-        let (state, error) = match st {
-            Up::Waiting { retry: None } => ("waiting", None),
-            Up::Waiting { retry: Some(e) } => ("retrying", Some(e)),
-            Up::Uploading => ("uploading", None),
-            Up::Failed(e) => ("failed", Some(e)),
-            Up::Done(_) | Up::None => continue,
-        };
-        current.push(FlickrReportItemDto {
-            id: id.to_string(),
-            name: name.unwrap_or_default(),
-            thumb,
-            url: None,
-            privacy,
-            date: None,
-            state: state.into(),
-            error,
-        });
-    }
-    Ok(FlickrReportDto { uploaded, current })
+    account_dto()
+}
+
+/// Where reading the account stands, and the tree once read.
+#[tauri::command(async)]
+pub fn flickr_account() -> CmdResult<FlickrAccountDto> {
+    account_dto()
+}
+
+/// The photos uploaded to Flickr on `date` (`2024-06-15`, this
+/// computer's time zone), newest first; those uploaded with Keepsake
+/// marked.
+#[tauri::command(async)]
+pub fn flickr_account_day(
+    state: State<'_, AppState>,
+    date: String,
+) -> CmdResult<Vec<FlickrAccountPhotoDto>> {
+    let photos =
+        with_account(|a| a.photos.clone())?.ok_or("Read the account from Flickr first.")?;
+    let ours: std::collections::HashSet<String> = match state.try_open() {
+        Some(open) => {
+            let cat = open.cat()?;
+            cat.read(|tx| tx.flickr().all_uploads())
+                .map_err(err)?
+                .into_iter()
+                .map(|u| u.photo_id)
+                .collect()
+        }
+        None => Default::default(),
+    };
+    Ok(
+        flickr::account::on_day(&photos, date.trim(), &chrono::Local)
+            .into_iter()
+            .map(|p| FlickrAccountPhotoDto {
+                id: p.id.clone(),
+                title: p.title.clone(),
+                thumb: p.thumb.clone(),
+                url: p.url.clone(),
+                privacy: p.privacy.clone(),
+                uploaded: chrono::DateTime::from_timestamp(p.uploaded_s, 0)
+                    .map(|t| {
+                        t.with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_default(),
+                taken: p.taken.clone(),
+                keepsake: ours.contains(&p.id),
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]

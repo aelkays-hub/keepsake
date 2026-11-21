@@ -17,6 +17,7 @@
 //! - Each upload is kept in `flickr_uploads` (Flickr's photo id and page),
 //!   so the window says a photo is on Flickr already, and does not tick it.
 
+pub mod account;
 pub mod client;
 pub mod oauth;
 pub mod tags;
@@ -349,31 +350,4 @@ pub fn to_render_error(e: FlickrError) -> RenderError {
         e if e.is_retryable() => RenderError::Failed(e.to_string()),
         e => RenderError::Refused(e.to_string()),
     }
-}
-
-/// Report → Flickr: what is on Flickr and what is under way.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Report {
-    /// Every upload, newest first.
-    pub uploaded: Vec<FlickrUpload>,
-    /// The photos waiting, uploading or failed, oldest first, with where
-    /// each stands.
-    pub current: Vec<(AssetId, State)>,
-}
-
-/// Report → Flickr.
-pub fn report(cat: &Catalog) -> Result<Report, FlickrError> {
-    let uploaded = cat.read(|tx| tx.flickr().all_uploads())?;
-    let mut current = Vec::new();
-    for id in cat.read(|tx| tx.flickr().all_queued())? {
-        let st = state(cat, id)?;
-        // A queued row whose job is gone (or done) is not under way.
-        if matches!(
-            st,
-            State::Waiting { .. } | State::Uploading | State::Failed(_)
-        ) {
-            current.push((id, st));
-        }
-    }
-    Ok(Report { uploaded, current })
 }

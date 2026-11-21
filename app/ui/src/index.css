@@ -2166,13 +2166,9 @@ button.link {
 }
 
 /* Report → Flickr (ADR-046) */
-.flickr-report h2 {
-  margin: 16px 0 8px;
-  font-size: 1.05em;
-}
 .flickr-report .fr-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(110px, 150px));
   gap: 8px;
   list-style: none;
   margin: 0;
@@ -2198,11 +2194,62 @@ button.link {
 .flickr-report .fr-thumb {
   display: block;
   width: 100%;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: 1;
   object-fit: cover;
   border-radius: 6px;
   background: var(--panel-2);
 }
-.flickr-report .fr-cap {
-  font-size: 0.85em;
+.flickr-report .fr-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.flickr-report .fr-bar p {
+  margin: 0;
+  flex: 1;
+}
+.flickr-report .fr-tree,
+.flickr-report .fr-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.flickr-report .fr-tree ul {
+  padding-left: 20px;
+}
+.flickr-report .fr-tree {
+  margin-top: 12px;
+}
+.flickr-report .fr-node {
+  border: 0;
+  background: transparent;
+  padding: 3px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+.flickr-report .fr-node::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+}
+.flickr-report .fr-node[aria-expanded="true"]::before {
+  content: "▾";
+}
+.flickr-report .fr-tree .fr-grid {
+  margin: 4px 0 10px 20px;
+}
+.flickr-report .fr-link {
+  position: relative;
+}
+.flickr-report .fr-mark {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.75em;
+  font-weight: 600;
 }
