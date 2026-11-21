@@ -111,12 +111,16 @@ pub struct Fr24Aircraft {
     /// The day of the flight seen (`2026-11-17`).
     #[serde(default)]
     pub seen: Option<String>,
+    /// Asked more than 30 days ago: what it said is deleted (its terms);
+    /// only when it was asked is kept, so it is not asked again unasked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expired: bool,
 }
 
 impl Fr24Aircraft {
     /// Still within the 30 days Flightradar24's terms allow it to be kept.
     pub fn fresh(&self, now_ms: i64) -> bool {
-        now_ms - self.asked_ms < super::route::FR24_KEEP_MS
+        !self.expired && now_ms - self.asked_ms < super::route::FR24_KEEP_MS
     }
 }
 
@@ -136,6 +140,48 @@ impl Found {
 /// Looks registrations up.
 pub trait Lookup: Send + Sync {
     fn lookup(&self, registration: &str) -> Result<Found, AiError>;
+
+    /// Where `callsign` usually flies (adsbdb's flight routes): its
+    /// departure and arrival ICAO codes (`CYYZ`, `GMMN`). `None` when not
+    /// known.
+    fn callsign_route(&self, _callsign: &str) -> Result<Option<(String, String)>, AiError> {
+        Ok(None)
+    }
+}
+
+/// adsbdb's flight routes by callsign.
+pub const CALLSIGN_BASE: &str = "https://api.adsbdb.com/v0/callsign/";
+
+/// adsbdb's answer for a callsign: its origin and destination ICAO codes.
+pub fn parse_callsign_route(status: u16, body: &str) -> Result<Option<(String, String)>, AiError> {
+    match status {
+        200 => {}
+        404 => return Ok(None),
+        429 => {
+            return Err(AiError::Cloud {
+                message: format!("{SERVICE} is busy: trying again later"),
+                retry: true,
+            })
+        }
+        s => {
+            return Err(AiError::Cloud {
+                message: format!("{SERVICE} answered {s}"),
+                retry: s >= 500,
+            })
+        }
+    }
+    let v: Value = serde_json::from_str(body).map_err(|e| AiError::Cloud {
+        message: format!("{SERVICE}'s answer could not be read: {e}"),
+        retry: true,
+    })?;
+    let r = &v["response"]["flightroute"];
+    let code = |end: &str| {
+        r[end]["icao_code"]
+            .as_str()
+            .map(|c| c.trim().to_ascii_uppercase())
+            .filter(|c| !c.is_empty())
+    };
+    Ok(code("origin").zip(code("destination")))
 }
 
 /// The type a designator names (`B77W` → `Boeing 777-300ER`).
@@ -266,6 +312,29 @@ impl AdsbDb {
 }
 
 impl Lookup for AdsbDb {
+    fn callsign_route(&self, callsign: &str) -> Result<Option<(String, String)>, AiError> {
+        // Callsigns are letters and digits only.
+        let cs: String = callsign
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_ascii_uppercase();
+        if cs.is_empty() {
+            return Ok(None);
+        }
+        let (status, body) = self
+            .http
+            .get(
+                &format!("{CALLSIGN_BASE}{cs}"),
+                &[("accept", "application/json")],
+            )
+            .map_err(|e| AiError::Cloud {
+                message: format!("could not reach {SERVICE}: {e}"),
+                retry: true,
+            })?;
+        parse_callsign_route(status, &body)
+    }
+
     fn lookup(&self, registration: &str) -> Result<Found, AiError> {
         // Registrations are letters, digits and hyphens only.
         let reg: String = registration
@@ -408,6 +477,26 @@ pub fn kept_at(cat: &Catalog, registration: &str) -> Result<Option<(Found, i64)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_callsign_route_is_read_and_an_unknown_callsign_is_none() {
+        let body = r#"{"response":{"flightroute":{"callsign":"RAM211","origin":{"iata_code":"YYZ","icao_code":"CYYZ"},"destination":{"iata_code":"CMN","icao_code":"gmmn"}}}}"#;
+        assert_eq!(
+            parse_callsign_route(200, body).unwrap(),
+            Some(("CYYZ".into(), "GMMN".into()))
+        );
+        assert_eq!(
+            parse_callsign_route(404, r#"{"response":"unknown callsign"}"#).unwrap(),
+            None
+        );
+        let half = r#"{"response":{"flightroute":{"origin":{"icao_code":"CYYZ"}}}}"#;
+        assert_eq!(parse_callsign_route(200, half).unwrap(), None);
+        assert!(matches!(
+            parse_callsign_route(429, ""),
+            Err(AiError::Cloud { retry: true, .. })
+        ));
+        assert!(parse_callsign_route(200, "not json").is_err());
+    }
 
     const C_FIUJ: &str = r#"{"response":{"aircraft":{"type":"777 233LR","icao_type":"B77L","manufacturer":"Boeing","mode_s":"C01732","registration":"C-FIUJ","registered_owner_country_iso_name":"CA","registered_owner_country_name":"Canada","registered_owner_operator_flag_code":"ACA","registered_owner":"Air Canada","url_photo":"https://image.airport-data.com/aircraft/001497074.jpg","url_photo_thumbnail":"https://airport-data.com/images/aircraft/thumbnails/001/497/001497074.jpg"}}}"#;
 

@@ -1,3 +1,32 @@
+# Keepsake 0.7.0
+
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.7.0 reads the Canadian and US aircraft registers, fills in a photo's missing route keywords, and lists every flight you photographed.
+
+## New in 0.7.0
+
+**National aircraft registers** (Settings → National aircraft registers)
+- Downloads Transport Canada's and the FAA's registers on demand (updated only when they change) and keeps them in the catalog. No owner name of a person and no address is kept.
+- Used to identify and tag aircraft: build year, type, maker and transponder code for C- and N- registrations; a misread registration (C-FJ2S) is put right (C-FJZS).
+- The inspector shows the register's rows for the photo's aircraft.
+
+**Flightradar24 for new registrations**
+- **Look up N new registrations** asks only registrations not looked up yet; optionally done by itself when a photo is tagged with a new registration.
+
+**Add route**
+- **The flight in or out the source did not see** (CN-RGY landing from Casablanca, when OpenSky saw only its take-off) is offered first, its other end filled in from the flight number's route (adsbdb).
+- **At OpenSky's limit, Add route waits** until OpenSky allows more and goes on by itself; the window says when.
+
+**Fill in route keywords** (right-click photos)
+- From a flight number, or from and to airports, adds what is missing: airports, countries and the flight number. What a photo has is never changed.
+- Finds the flight number from Add route's flights, from a flight with the same number before and after, or from the number next to the one it flew the other way (AT210 for RAM211B).
+- When two flight numbers fly the route (QK893 and QK895), you choose with one click.
+- Each photo shows what it had and only what it got.
+
+**Flight report** (Report → Flights)
+- Every flight photographed: date, registration, airline, flight, from and to, with its photo count; Find and CSV.
+
+**Airline codes:** Jazz (Air Canada Express, QK), Flair (F8) and WestJet Encore (WR).
+
 # Keepsake 0.6.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.6.0 tells you how old each aircraft is and which flight you photographed, from OpenSky or your own Flightradar24 subscription. It includes 0.5.4, which was not released on its own.

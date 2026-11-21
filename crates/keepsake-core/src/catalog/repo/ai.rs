@@ -16,6 +16,57 @@ define_repo!(
     Ai
 );
 
+/// One aircraft of a national register (ADR-045).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RegisterRow {
+    /// `C-FJZS`, `N492AS`.
+    pub registration: String,
+    /// `tc` or `faa`.
+    pub source: String,
+    pub maker: Option<String>,
+    pub model: Option<String>,
+    /// As Keepsake names it (`Boeing 777-300ER`).
+    pub aircraft_type: Option<String>,
+    pub serial: Option<String>,
+    /// `2016` or `2016-03-05`.
+    pub built: Option<String>,
+    /// Hex, upper case.
+    pub mode_s: Option<String>,
+    /// The owner when a company, and the airline it is.
+    pub owner: Option<String>,
+    pub airline: Option<String>,
+    pub current: bool,
+}
+
+/// When a register was last downloaded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisterSource {
+    pub source: String,
+    /// The file's date as the server gave it (`Last-Modified`).
+    pub file_modified: Option<String>,
+    pub imported_ms: i64,
+    pub rows: i64,
+}
+
+const REGISTER_COLS: &str = "registration, source, maker, model, aircraft_type, serial, built,
+    mode_s, owner, airline, current";
+
+fn register_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RegisterRow> {
+    Ok(RegisterRow {
+        registration: r.get(0)?,
+        source: r.get(1)?,
+        maker: r.get(2)?,
+        model: r.get(3)?,
+        aircraft_type: r.get(4)?,
+        serial: r.get(5)?,
+        built: r.get(6)?,
+        mode_s: r.get(7)?,
+        owner: r.get(8)?,
+        airline: r.get(9)?,
+        current: r.get::<_, i64>(10)? != 0,
+    })
+}
+
 /// One analysed asset of a day, for finding duplicates.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DayItem {
@@ -120,6 +171,54 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// The register's entry for `registration`, if any (ADR-045).
+    pub fn register_get(&self, registration: &str) -> Result<Option<RegisterRow>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {REGISTER_COLS} FROM aircraft_register WHERE registration = ?1"),
+                [registration],
+                register_row,
+            )
+            .optional()?)
+    }
+
+    /// The registrations matching `pattern` (SQL `LIKE`: `C-FJ_S`), at most
+    /// `limit`.
+    pub fn register_like(&self, pattern: &str, limit: i64) -> Result<Vec<String>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT registration FROM aircraft_register WHERE registration LIKE ?1 LIMIT ?2",
+        )?;
+        let rows = st.query_map(params![pattern, limit], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The registrations of `source` that are registered now.
+    pub fn register_current(&self, source: &str) -> Result<Vec<String>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT registration FROM aircraft_register WHERE source = ?1 AND current = 1",
+        )?;
+        let rows = st.query_map([source], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// When each register was last downloaded.
+    pub fn register_sources(&self) -> Result<Vec<RegisterSource>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT source, file_modified, imported_ms, rows FROM aircraft_register_sources
+             ORDER BY source",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(RegisterSource {
+                source: r.get(0)?,
+                file_modified: r.get(1)?,
+                imported_ms: r.get(2)?,
+                rows: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Every registration looked up and what was said (JSON), the longest
     /// ago first.
     pub fn aircraft_lookups(&self) -> Result<Vec<(String, String, i64)>, CatalogError> {
@@ -479,6 +578,58 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// Replace `source`'s register with `rows` (ADR-045).
+    pub fn register_replace(
+        &self,
+        source: &str,
+        rows: &[RegisterRow],
+        file_modified: Option<&str>,
+        now_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn
+            .execute("DELETE FROM aircraft_register WHERE source = ?1", [source])?;
+        {
+            let mut st = self.conn.prepare_cached(&format!(
+                "INSERT OR REPLACE INTO aircraft_register ({REGISTER_COLS})
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+            ))?;
+            for r in rows {
+                st.execute(params![
+                    r.registration,
+                    source,
+                    r.maker,
+                    r.model,
+                    r.aircraft_type,
+                    r.serial,
+                    r.built,
+                    r.mode_s,
+                    r.owner,
+                    r.airline,
+                    i64::from(r.current),
+                ])?;
+            }
+        }
+        self.conn.execute(
+            "INSERT INTO aircraft_register_sources (source, file_modified, imported_ms, rows)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(source) DO UPDATE SET file_modified = excluded.file_modified,
+               imported_ms = excluded.imported_ms, rows = excluded.rows",
+            params![source, file_modified, now_ms, rows.len() as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Delete `source`'s register.
+    pub fn register_remove(&self, source: &str) -> Result<(), CatalogError> {
+        self.conn
+            .execute("DELETE FROM aircraft_register WHERE source = ?1", [source])?;
+        self.conn.execute(
+            "DELETE FROM aircraft_register_sources WHERE source = ?1",
+            [source],
+        )?;
+        Ok(())
+    }
+
     /// Keep when `registration` was built. One the user typed is kept over
     /// one from OpenSky (`source` = `opensky` does not replace it).
     pub fn put_aircraft_built(

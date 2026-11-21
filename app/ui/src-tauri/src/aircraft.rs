@@ -387,7 +387,7 @@ pub fn aircraft_review(
             (name_of(&cat, it.asset)?, None)
         };
         let found = scan::found_for(&cat, &it, &conf).map_err(err)?;
-        let offer = scan::offer(&it, &conf, &found).map_err(err)?;
+        let offer = scan::offer_for(&cat, &it, &conf).map_err(err)?;
         let names = |v: &[TagPath]| v.iter().map(TagPath::to_lightroom).collect::<Vec<_>>();
         let mut neighbours = Vec::new();
         if on_screen && it.review == scan::Review::Waiting {

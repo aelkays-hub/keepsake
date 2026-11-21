@@ -172,6 +172,44 @@ pub fn write_aircraft_csv(r: &AircraftReport, path: &Path) -> std::io::Result<()
     std::fs::write(path, bytes)
 }
 
+/// The flight report's CSV columns.
+pub const FLIGHT_CSV_HEADER: &str =
+    "Date,Time,Flight,From,From country,To,To country,Airline,Registration,Type,Photos,First photo";
+
+/// The flight report as CSV, one line per flight, newest first (CRLF line
+/// ends).
+pub fn flights_to_csv(r: &crate::catalog::FlightReport) -> String {
+    let mut out = String::new();
+    out.push_str(FLIGHT_CSV_HEADER);
+    out.push_str("\r\n");
+    let f = |v: &Option<String>| field(v.as_deref().unwrap_or_default());
+    for x in &r.flights {
+        out.push_str(&format!(
+            "{},{},{},{},{},{},{},{},{},{},{},{}\r\n",
+            f(&x.date),
+            f(&x.time),
+            f(&x.flight),
+            f(&x.from),
+            f(&x.from_country),
+            f(&x.to),
+            f(&x.to_country),
+            f(&x.airline),
+            f(&x.registration),
+            f(&x.aircraft_type),
+            x.photos,
+            f(&x.first_photo),
+        ));
+    }
+    out
+}
+
+/// Write [`flights_to_csv`] to `path` (UTF-8 with a byte-order mark).
+pub fn write_flights_csv(r: &crate::catalog::FlightReport, path: &Path) -> std::io::Result<()> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(flights_to_csv(r).as_bytes());
+    std::fs::write(path, bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -259,6 +259,25 @@ pub trait Http: Send + Sync {
         let _ = (url, headers);
         Err("this client only posts".into())
     }
+
+    /// A GET, and how many seconds the server asks to wait before the
+    /// next (OpenSky's `X-Rate-Limit-Retry-After-Seconds`, else
+    /// `Retry-After` in seconds), when it says.
+    fn get_wait(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, String, Option<i64>), String> {
+        self.get(url, headers).map(|(s, b)| (s, b, None))
+    }
+}
+
+/// The seconds a response asks to wait (see [`Http::get_wait`]).
+pub fn wait_seconds(header: impl Fn(&str) -> Option<String>) -> Option<i64> {
+    ["x-rate-limit-retry-after-seconds", "retry-after"]
+        .iter()
+        .find_map(|h| header(h).and_then(|v| v.trim().parse::<i64>().ok()))
+        .filter(|s| *s >= 0)
 }
 
 /// [`Http`] over HTTPS with ureq.
@@ -305,17 +324,31 @@ impl Http for UreqHttp {
     }
 
     fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+        self.get_wait(url, headers).map(|(s, b, _)| (s, b))
+    }
+
+    fn get_wait(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, String, Option<i64>), String> {
         let mut req = self.agent.get(url);
         for (k, v) in headers {
             req = req.header(*k, *v);
         }
         let mut resp = req.call().map_err(|e| e.to_string())?;
         let status = resp.status().as_u16();
+        let wait = wait_seconds(|h| {
+            resp.headers()
+                .get(h)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        });
         let text = resp
             .body_mut()
             .read_to_string()
             .map_err(|e| e.to_string())?;
-        Ok((status, text))
+        Ok((status, text, wait))
     }
 }
 

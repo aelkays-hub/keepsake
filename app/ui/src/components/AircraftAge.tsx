@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { api, type Details } from "../api";
 import type { Fr24AircraftDto } from "../bindings/Fr24AircraftDto";
+import type { RegisterEntryDto } from "../bindings/RegisterEntryDto";
 import { builtSource } from "../aircraftAge";
 import { ageLines, usePhotoBuilt } from "../photoBuilt";
 import { useUi } from "../state";
@@ -16,6 +17,7 @@ export function AircraftAge({ d }: { d: Details }) {
   const { dispatch } = useUi();
   const b = usePhotoBuilt(d);
   const fr24 = useFr24(b?.registration ?? null);
+  const reg = useRegister(b?.registration ?? null);
   const [text, setText] = useState("");
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => {
@@ -51,6 +53,7 @@ export function AircraftAge({ d }: { d: Details }) {
           </div>
         )}
       </dl>
+      {reg && <RegisterRows r={reg} />}
       {fr24 && <Fr24Rows a={fr24} />}
       {!b.built && (
         <p className="muted" data-testid="aircraft-age-unknown">
@@ -146,6 +149,59 @@ function Fr24Rows({ a }: { a: Fr24AircraftDto }) {
           <div key={k} className="meta-row">
             <dt>{k}</dt>
             <dd data-testid={`fr24-${k.toLowerCase().replace(" ", "-")}`}>{v}</dd>
+          </div>
+        ))}
+    </dl>
+  );
+}
+
+/** What a national register says about `registration` (Settings → National
+ * aircraft registers). */
+function useRegister(registration: string | null): RegisterEntryDto | null {
+  const { s } = useUi();
+  const [r, setR] = useState<RegisterEntryDto | null>(null);
+  useEffect(() => {
+    let live = true;
+    setR(null);
+    if (!registration) return;
+    api
+      .aircraftRegister(registration)
+      .then((x) => live && setR(x))
+      .catch(console.error);
+    return () => {
+      live = false;
+    };
+  }, [registration, s.revision]);
+  return r;
+}
+
+/** The register's rows: type (and its model), owner, serial, code. */
+function RegisterRows({ r }: { r: RegisterEntryDto }) {
+  const type =
+    r.aircraftType && r.model && !r.aircraftType.endsWith(r.model)
+      ? `${r.aircraftType} (${r.model})`
+      : (r.aircraftType ?? r.model);
+  const rows: [string, string | null][] = [
+    ["Type", type],
+    [
+      "Owner",
+      r.airline && r.owner && r.airline !== r.owner ? `${r.owner} (${r.airline})` : r.owner,
+    ],
+    ["Serial", r.serial],
+    ["Transponder", r.modeS],
+  ];
+  return (
+    <dl className="meta" data-testid="register-entry">
+      <div className="meta-row">
+        <dt>{r.register}</dt>
+        <dd className="muted">{r.current ? "registered" : "no longer registered"}</dd>
+      </div>
+      {rows
+        .filter((x): x is [string, string] => Boolean(x[1]))
+        .map(([k, v]) => (
+          <div key={k} className="meta-row">
+            <dt>{k}</dt>
+            <dd data-testid={`register-${k.toLowerCase()}`}>{v}</dd>
           </div>
         ))}
     </dl>

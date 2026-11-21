@@ -218,6 +218,22 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
               }),
           },
           {
+            label: "Fill in route keywords",
+            title:
+              "From the route keywords these photos have (flight number, From or To), add the missing ones: a flight's airports (adsbdb), the flight number from the flights Add route found, and the countries",
+            testId: "tile-menu-route-fill",
+            disabled: rows.get(i)?.kind === "video",
+            run: () =>
+              dispatch({
+                t: "routeFill",
+                job: {
+                  selection: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                },
+              }),
+          },
+          {
             label: "Name and find…",
             title:
               "Name a person in this photo and find the other photos they are in (on this computer)",

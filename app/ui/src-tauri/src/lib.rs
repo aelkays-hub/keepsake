@@ -12,6 +12,7 @@ mod folders;
 mod import;
 mod maintenance;
 mod prefs;
+mod registers;
 mod render;
 mod report;
 mod reveal;
@@ -139,6 +140,8 @@ pub fn run() {
             report::library_report_csv,
             report::aircraft_report,
             report::aircraft_report_csv,
+            report::flight_report,
+            report::flight_report_csv,
             folders::folder_add,
             folders::folder_rescan,
             prefs::settings_get,
@@ -208,11 +211,20 @@ pub fn run() {
             route::flightradar_test,
             route::fr24_aircraft,
             route::fr24_aircraft_status,
+            route::fr24_set_auto,
+            registers::aircraft_registers,
+            registers::aircraft_register_update,
+            registers::aircraft_register_cancel,
+            registers::aircraft_register_remove,
+            registers::aircraft_register,
             route::fr24_aircraft_start,
             route::fr24_aircraft_stop,
             route::opensky_set_credentials,
             route::opensky_test,
             route::aircraft_route,
+            route::aircraft_route_fill,
+            route::aircraft_route_fill_status,
+            route::aircraft_route_fill_choose,
             route::aircraft_route_stop,
             route::aircraft_route_review,
             route::aircraft_route_accept,

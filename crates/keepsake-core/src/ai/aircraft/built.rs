@@ -394,9 +394,22 @@ pub struct Kept {
 
 /// What is kept about when `registration` was built.
 pub fn kept(cat: &Catalog, registration: &str) -> Result<Option<Kept>, AiError> {
-    Ok(cat
+    let kept = cat
         .read(|tx| tx.ai().aircraft_built(registration))?
-        .map(|(built, source)| Kept { built, source }))
+        .map(|(built, source)| Kept { built, source });
+    if kept.as_ref().is_some_and(|k| k.source == FROM_TYPED) {
+        return Ok(kept);
+    }
+    // A national register (ADR-045) before OpenSky's database.
+    if let Some(row) = super::register::get(cat, registration)? {
+        if let Some(built) = row.built {
+            return Ok(Some(Kept {
+                built,
+                source: row.source,
+            }));
+        }
+    }
+    Ok(kept)
 }
 
 /// Keep the build date a lookup found (a typed one stays).

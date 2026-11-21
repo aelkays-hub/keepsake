@@ -130,6 +130,14 @@ export interface MockState {
     /** Look up aircraft on Flightradar24: asked so far, running. */
     lookedUp: number;
     lookingUp: boolean;
+    /** Look new registrations up on their own. */
+    fr24Auto: boolean;
+    /** National registers downloaded (`?registers=tc,faa`). */
+    registers: Set<string>;
+    /** Fill in route keywords: how often each photo was looked at. */
+    fill: Map<string, number>;
+    /** Flight numbers chosen, per photo. */
+    chosen: Map<string, string>;
   };
   /** Name and find: the faces found so far (by id), the photos asked
    * about once (searched the next time they are asked about), people. */
@@ -549,6 +557,10 @@ export function installMock(): void {
       source: params.get("routesource") ?? "opensky",
       fr24: params.get("fr24") === "saved",
       lookedUp: 0,
+      fr24Auto: true,
+      registers: new Set((params.get("registers") ?? "").split(",").filter(Boolean)),
+      fill: new Map(),
+      chosen: new Map(),
       lookingUp: false,
       saved: params.get("opensky") === "saved",
       asked: new Map(),
@@ -740,7 +752,7 @@ export function installMock(): void {
       st.calls.push({ cmd, args: a });
       switch (cmd) {
         case "app_info": {
-          const reply = { version: "0.6.0-mock", library, uiTest: true };
+          const reply = { version: "0.7.0-mock", library, uiTest: true };
           // ?opening=<ms>: the library takes that long to open.
           const ms = Number(params.get("opening") ?? 0);
           return ms > 0 ? new Promise((r) => setTimeout(() => r(reply), ms)) : reply;
@@ -748,7 +760,7 @@ export function installMock(): void {
         case "library_create":
         case "library_open":
           library = String(a.path);
-          return { version: "0.6.0-mock", library, uiTest: true };
+          return { version: "0.7.0-mock", library, uiTest: true };
         case "view_open": {
           const q = a.query as Query;
           const s = a.sort as SortSpec;
@@ -1218,6 +1230,86 @@ export function installMock(): void {
           return "C:\\Users\\me\\Documents\\Keepsake report.csv";
         case "aircraft_report":
           return mockAircraftReport();
+        case "flight_report":
+          return {
+            withoutRoute: 12,
+            flights: (
+              [
+                [
+                  "2026-06-27",
+                  "12:56",
+                  "BG305",
+                  "YYZ",
+                  "Canada",
+                  "DAC",
+                  "Bangladesh",
+                  "Biman Bangladesh",
+                  "S2-AJY",
+                  "Boeing 787-9",
+                  14,
+                ],
+                [
+                  "2026-06-07",
+                  "20:00",
+                  null,
+                  "CMN",
+                  "Morocco",
+                  "YYZ",
+                  "Canada",
+                  "Royal Air Maroc",
+                  "CN-RGY",
+                  "Boeing 787-9",
+                  6,
+                ],
+                [
+                  "2026-05-31",
+                  "08:31",
+                  "RV2000",
+                  "YYZ",
+                  "Canada",
+                  null,
+                  null,
+                  "Air Canada Rouge",
+                  "C-GBIJ",
+                  "Airbus A321",
+                  3,
+                ],
+              ] as const
+            ).map(
+              ([
+                date,
+                time,
+                flight,
+                from,
+                fromCountry,
+                to,
+                toCountry,
+                airline,
+                registration,
+                aircraftType,
+                photos,
+              ]) => ({
+                date,
+                time,
+                flight,
+                from,
+                fromCountry,
+                to,
+                toCountry,
+                airline,
+                registration,
+                aircraftType,
+                photos,
+                firstPhoto: "A7402789.ARW",
+                tags: [`Aircraft|Registration|${registration}`],
+              }),
+            ),
+          };
+        case "flight_report_csv": {
+          const path = String(a.path ?? "").trim();
+          if (!path) throw new Error("choose where to save the report");
+          return /\.[^\\/.]+$/.test(path) ? path : `${path}.csv`;
+        }
         case "aircraft_report_csv": {
           const path = String(a.path ?? "").trim();
           if (!path) throw new Error("choose where to save the report");
@@ -1440,7 +1532,7 @@ export function installMock(): void {
           return [
             "Keepsake diagnostic report",
             "==========================",
-            "Program: keepsake-app 0.6.0-mock",
+            "Program: keepsake-app 0.7.0-mock",
             "Tools:",
             "  exiftool   13.59  [~\\AppData\\Local\\Keepsake\\exiftool\\exiftool.exe]",
             `Library: D:\\Keepsake`,
@@ -1748,8 +1840,70 @@ export function installMock(): void {
             registrations: 40,
             asked: st.route.lookedUp,
             found: Math.floor(st.route.lookedUp * 0.75),
+            new: 40 - st.route.lookedUp,
+            auto: st.route.fr24Auto,
             running: st.route.lookingUp,
             problem: null,
+          };
+        }
+        case "fr24_set_auto":
+          st.route.fr24Auto = Boolean(a.on);
+          return null;
+        case "aircraft_registers":
+          return [
+            ["tc", "Transport Canada", 4_600_000, 34919, "Thu, 19 Nov 2026 16:44:22 GMT"],
+            ["faa", "FAA", 73_000_000, 319530, "Fri, 20 Nov 2026 05:58:34 GMT"],
+          ].map(([id, name, bytes, rows, date]) => {
+            const on = st.route.registers.has(id as string);
+            return {
+              id,
+              name,
+              bytes,
+              downloaded: on,
+              fileModified: on ? date : null,
+              imported: on ? "2026-11-20 12:00 UTC" : null,
+              rows: on ? rows : 0,
+              running: false,
+              done: 0,
+              importing: false,
+            };
+          });
+        case "aircraft_register_update": {
+          // Downloaded and imported at once; a second time: unchanged.
+          const id = String(a.id);
+          const had = st.route.registers.has(id);
+          st.route.registers.add(id);
+          void emit("aircraft://register", {
+            id,
+            done: 0,
+            total: 0,
+            importing: false,
+            finished: true,
+            message: had ? "Already up to date." : "34919 aircraft imported.",
+            error: null,
+          });
+          return null;
+        }
+        case "aircraft_register_cancel":
+          return null;
+        case "aircraft_register_remove":
+          st.route.registers.delete(String(a.id));
+          return null;
+        case "aircraft_register": {
+          const reg = String(a.registration);
+          if (!st.route.registers.has("tc") || reg !== "C-FJZS") return null;
+          return {
+            registration: "C-FJZS",
+            register: "Transport Canada",
+            aircraftType: "Boeing 777-300ER",
+            maker: "Boeing",
+            model: "777-333ER",
+            serial: "62400",
+            built: "2016",
+            modeS: "C01A61",
+            owner: "Air Canada",
+            airline: "Air Canada",
+            current: true,
           };
         }
         case "fr24_aircraft_start":
@@ -1795,6 +1949,76 @@ export function installMock(): void {
           if (!st.route.saved)
             throw "No OpenSky client ID and secret: add them in Settings → Read aircraft";
           return "OpenSky accepted the client ID and secret.";
+        case "aircraft_route_fill": {
+          const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
+          for (const id of ids) st.route.fill.set(id, 0);
+          return {
+            pending: ids.length,
+            items: ids.map((id, i) => ({
+              id,
+              name: `${id}.ARW`,
+              state: "waiting",
+              added: [],
+              had:
+                i === 0
+                  ? ["Aircraft|Flight|AT210"]
+                  : i === 1
+                    ? ["Aircraft|From|YYZ", "Aircraft|To|IND"]
+                    : [],
+              message: null,
+              choices: [],
+            })),
+          };
+        }
+        case "aircraft_route_fill_choose": {
+          st.route.chosen.set(String(a.id), String(a.flight));
+          return `Aircraft|Flight|${String(a.flight)}`;
+        }
+        case "aircraft_route_fill_status": {
+          // The first photo gets its airports; the others have no route
+          // keyword. Done on the second look.
+          const ids = (a.ids as string[]) ?? [];
+          let pending = 0;
+          const items = ids.map((id, i) => {
+            const n = (st.route.fill.get(id) ?? 0) + 1;
+            st.route.fill.set(id, n);
+            const name = `${id}.ARW`;
+            const base = { id, name, had: [], choices: [] as string[] };
+            if (n < 2) {
+              pending += 1;
+              return { ...base, state: "waiting", added: [], message: null };
+            }
+            if (i === 0)
+              return {
+                ...base,
+                state: "done",
+                added: [
+                  "Aircraft|Flight|AT210",
+                  "Aircraft|From|CMN",
+                  "Aircraft|From country|Morocco",
+                  "Aircraft|To|YYZ",
+                  "Aircraft|To country|Canada",
+                ],
+                message: null,
+              };
+            if (i === 1)
+              return {
+                ...base,
+                state: "nothing",
+                added: [],
+                message: "QK893 and QK895 fly YYZ → IND: choose the one photographed",
+                choices: ["QK893", "QK895"],
+              };
+            return {
+              ...base,
+              state: "nothing",
+              added: [],
+              message:
+                "no route keyword: add Aircraft|Flight|…, Aircraft|From|… or Aircraft|To|… first",
+            };
+          });
+          return { pending, items };
+        }
         case "aircraft_route": {
           if (!st.route.enabled)
             throw "Turn on Find the route online in Settings → Read aircraft first.";
@@ -1841,6 +2065,7 @@ export function installMock(): void {
             at,
             gapMin,
             inferred: false,
+            byCallsign: false,
             keywords: [
               ...(from ? [`Aircraft|From|${from[0]}`, `Aircraft|From country|${from[2]}`] : []),
               ...(to ? [`Aircraft|To|${to[0]}`, `Aircraft|To country|${to[2]}`] : []),

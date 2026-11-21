@@ -33,6 +33,7 @@ const choice = (p: Partial<RouteChoiceDto>): RouteChoiceDto => ({
   gapMin: 15,
   keywords: ["Aircraft|From|YYZ", "Aircraft|To|LHR", "Aircraft|Flight|AC856"],
   inferred: false,
+  byCallsign: false,
   ...p,
 });
 
@@ -85,6 +86,46 @@ describe("Add route", () => {
     );
   });
 
+  it("says the flight in or out the source did not see, and an end from the callsign", () => {
+    // A7402578.ARW: CN-RGY landed at YYZ from Casablanca; OpenSky saw only
+    // its take-off for CMN at 02:30 UTC.
+    const inbound = choice({
+      inferred: true,
+      at: "inbound",
+      from: "CMN",
+      to: "YYZ",
+      flight: null,
+      callsign: null,
+      departed: "2026-06-08T02:30:06Z",
+      arrived: "2026-06-08T02:30:06Z",
+      gapMin: 0,
+    });
+    expect(flightLine(inbound)).toBe("Flight in not seen (worked out from the next take-off)");
+    expect(whenLine(inbound)).toBe(
+      "Landed at YYZ before the photo; next took off from there at 02:30 UTC for CMN, so most likely came from there",
+    );
+    expect(whenLine({ ...inbound, from: null })).toBe(
+      "Landed at YYZ before the photo; next took off from there at 02:30 UTC",
+    );
+    const outbound = choice({
+      inferred: true,
+      at: "outbound",
+      from: "YYZ",
+      to: "CMN",
+      flight: null,
+      callsign: null,
+      departed: "2026-06-07T22:10:00Z",
+      arrived: "2026-06-07T22:10:00Z",
+    });
+    expect(flightLine(outbound)).toBe("Flight out not seen (worked out from the landing before)");
+    expect(whenLine(outbound)).toBe(
+      "Took off from YYZ after the photo, having landed there at 22:10 UTC; it came from CMN, so most likely went back there",
+    );
+    expect(flightLine(choice({ byCallsign: true }))).toBe(
+      "Flight AC856 (callsign ACA856), where the source lost it from the callsign's usual route",
+    );
+  });
+
   it("says Not known for an airport OpenSky did not see, and keeps an ICAO code", () => {
     expect(routeLine(choice({ to: null, toCountry: null }))).toBe("YYZ (Canada) → Not known");
     expect(placeLabel("ZZZZ", null)).toBe("ZZZZ");
@@ -102,6 +143,10 @@ describe("Add route", () => {
       "OpenSky's daily limit is reached",
     );
     expect(stateLine(item("found"))).toBeNull();
+    const limit =
+      "OpenSky's limit is reached (it allows more at 2026-11-21 11:10 UTC); Add route goes on by itself then";
+    expect(stateLine(item("later", { error: limit }))).toBe(limit);
+    expect(stateLine(item("later"))).toContain("goes on by itself");
   });
 
   it("says when the photo was taken, in the camera's time and UTC", () => {

@@ -19,12 +19,14 @@
 //!   `Aircraft|…` keywords out. Originals are only read.
 
 pub mod built;
+pub mod complete;
 pub mod fr24;
 pub mod install;
 pub mod lookup;
 pub mod marks;
 pub mod ocr;
 pub mod planes;
+pub mod register;
 pub mod route;
 pub mod scan;
 pub mod types;

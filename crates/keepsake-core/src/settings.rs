@@ -228,6 +228,9 @@ pub struct AiSettings {
     /// code) or `flightradar` (the user's Flightradar24 API subscription,
     /// by registration; its token is in the OS's credential store).
     pub aircraft_route_source: String,
+    /// Look a registration up on Flightradar24 on its own when it first
+    /// appears on a photo (with a token saved). Each costs credits.
+    pub fr24_auto: bool,
     /// Photos taken this many seconds either side, by the same camera and
     /// lens, that look alike count as the same shot: Read aircraft offers
     /// them its keywords, Tag with AI gives them its tags. 1–60.
@@ -325,6 +328,7 @@ impl Default for AiSettings {
             aircraft_route: false,
             aircraft_route_eastern: false,
             aircraft_route_source: "opensky".to_owned(),
+            fr24_auto: true,
             same_shot_s: 10,
             claude_model: Provider::Claude.default_model().id().to_owned(),
             openai_model: Provider::OpenAi.default_model().id().to_owned(),

@@ -68,6 +68,49 @@
 ---
 
 
+
+
+
+
+## Version 0.7.0 (2026-11-20)
+
+- Version 0.7.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.7.0. `feat/aircraft-registers` with `main` merged in goes to `main` in one PR. Tried in the installed app by the owner: route fill choices (QK895), AT210, the flight in.
+- CI: the macOS mocked e2e failed a different test on each run (tree-place, then keyboard), each passing on the other run; Playwright now runs a failed test once more on CI (`retries: 1`).
+
+## Fill in route keywords; the flight report (2026-11-20)
+
+- **Asked:** a call that takes a flight number and/or from and/or to and adds the missing information as keywords; a report of every flight photographed (from, to, airline, date…).
+- **Built:** `ai::aircraft::complete` (`given`, `fill`, `enqueue`, `state`, job `ai.route.fill`, `RenderService::route_fill_worker`); `Airports::icao_of`; `route::kept_around`; `catalog::FlightReportRepo` (`flights`), `report::flights_to_csv`/`write_flights_csv`. App: `aircraft_route_fill`, `aircraft_route_fill_status`, `flight_report`, `flight_report_csv`. UI: the tile menu's Fill in route keywords and its window; Report → Flights.
+- **Then:** A7402561_1.jpg (CN-RGY, From CMN, To YYZ from the flight in) got no flight number: OpenSky saw only RAM211B the other way. Now the numbers one away (RAM210, RAM212) are asked of adsbdb and the one flying CMN → YYZ is added (AT210); the message when none is found says so plainly.
+- **Then:** "every flight says AT210": the window's text gave AT210 as its example and listed all a photo's route keywords as added. Now the text names no flight, each photo shows what it had and only what it got. C-FEJC (YYZ → IND): QK893 and QK895 both fly it: offered, one click tags it. N698DL (PHL → YYZ between two DAL8885 legs): DL8885 (`through`). JZA (Jazz, sold as QK), FLE (Flair), WEN (WestJet Encore) added to the airline codes.
+- **Real library (read only):** 112 flights from 1,186 photos; 21 with a flight number but an end missing, 11 with airports but no flight number; 21,558 photos with a registration and no route.
+- **Tests, run here (Windows):** `aircraft_tests` (+2: filling in each way, contradiction, nothing, the worker; the report and its CSV), Vitest (103), mocked Playwright aircraft and report (37), fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; adsbdb from the app.
+
+## Add route: OpenSky's limit waits instead of failing (2026-11-20)
+
+- **Asked:** Add route on A7402789.ARW (S2-AJY) took very long.
+- **Cause:** OpenSky's limit was reached (429; more in 61,899 s, about 11:10 UTC the next day). The job was retried every minute and then failed; the window said "Asking OpenSky…".
+- **Built:** `Http::get_wait`, `cloud::wait_seconds`; `AiError::Later`; `OpenSky` remembers the limit (`limited_until`) and asks nothing before; `route::limit_reached`; the route worker defers all queued route jobs (`JobsRepo::defer_kind`). App and window: state `later` with the time.
+- **Tests, run here (Windows):** route unit test (the limit, asked once), `aircraft_tests` (+1: jobs wait, none failed), whole workspace, clippy `-D warnings`, Vitest, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS. Photos failed at the limit before this need Add route again.
+
+## Add route: the flight in or out not seen; ends from the callsign (2026-11-20)
+
+- **Asked:** A7402578.ARW is CN-RGY landing at Toronto from Casablanca; Add route offered the opposite (its next take-off) and no missing leg.
+- **Cause:** OpenSky saw only RAM211B leave YYZ at 02:30 UTC (150 min after the photo), not where it went; nothing before the photo, so `missing_leg` (between a landing and a take-off) had nothing to work from.
+- **Built:** `route::missing_end` (the flight in before the first take-off seen, the flight out after the last landing; 40 min to 6 h), offered first beside the flight seen; `route::fill_ends` with `Lookup::callsign_route` (adsbdb's callsign routes, `lookup::parse_callsign_route`) fills the end OpenSky did not see; `Flight.half`, `by_callsign`, `route_asked`. Window: `at` `inbound`/`outbound`, `byCallsign`.
+- **Tests, run here (Windows):** route unit tests (+2), lookup (+1), `aircraft_tests` (+1, the CN-RGY day), app, Vitest (100), mocked Playwright aircraft (25); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; adsbdb from the app (its answer checked with curl: RAM211B → CYYZ–GMMN).
+
+## National aircraft registers; Flightradar24 for new registrations (2026-11-20)
+
+- **Asked:** download Transport Canada's and the FAA's aircraft registers with on-demand updates, in the schema, used to identify and tag aircraft; Flightradar24 on demand for registrations not processed, and called when a photo is tagged with a new registration. Approved: the `zip` crate, the new tables, downloading both files once to read their layout.
+- **Built:** ADR-045. Migration 0021 (`aircraft_register`, `aircraft_register_sources`); repo `register_get`, `register_like`, `register_current`, `register_sources`, `register_replace`, `register_remove`; `ai::install::download_if_newer` and `user_agent`; `ai::aircraft::register` (`Register`, `parse_tc`, `parse_faa`, `type_name`, `maker_name`, `airline_of_owner`, `read_zip`, `update`, `import`, `remove`, `get`, `near`, `with_register`); `built::kept` and `route::icao24_of` use it; `scan::found_for`, `scan::offer_for`; `fr24` asks new registrations only (`Fr24Aircraft.expired`, `Status.new`), on their own with `ai.fr24_auto` (`RenderService::with_fr24_auto`). App: `registers.rs` (`aircraft_registers`, `aircraft_register_update`, `aircraft_register_cancel`, `aircraft_register_remove`, `aircraft_register`), `fr24_set_auto`. UI: Settings → National aircraft registers; Flightradar24 **Look up N new registrations** and the automatic setting; the inspector's register rows.
+- **Checked on the real files:** Transport Canada 34,919 aircraft (34,848 with a build date) read in 1.9 s, imported in 0.2 s; FAA 319,530 read in 17 s (release), imported in 2.4 s; 39 MB in the catalog. Misreads: C-FJ2S → C-FJZS, C-FMX6 → C-FMXG, N492A5 → N492AS, N1O8UW → N108UW; C-F1UJ (C-FIUJ or C-FLUJ) none.
+- **Tests, run here (Windows):** register unit tests (type names, keys, both parsers without people or addresses), `install.rs` (downloaded only when changed, nothing left), `aircraft_tests` (+1: build year, code, offers, misread put right, removed; Flightradar24 remembered after 30 days and new ones only), safety audit; core and app tests; Vitest (99); mocked Playwright aircraft (+2); fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; the app's own download of the two files (done by curl here).
+
 ## Version 0.6.0 (2026-11-20)
 
 - Version 0.6.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.6.0, with 0.5.4 (not released on its own) included. Everything on `claude/aircraft-age-route-378472` goes to `main` in one PR; `fix/month-last-day` and `fix/thumbnail-retry-loop` were already in it under other commits.

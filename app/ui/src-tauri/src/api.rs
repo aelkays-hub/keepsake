@@ -170,6 +170,59 @@ dto! {
         pub eastern: bool,
     }
 
+    /// A national aircraft register (Settings → Read aircraft; ADR-045).
+    pub struct RegisterStatusDto {
+        /// `tc` or `faa`.
+        pub id: String,
+        pub name: String,
+        /// About how big the download is.
+        #[ts(type = "number")]
+        pub bytes: u64,
+        pub downloaded: bool,
+        /// The file's date (the server's), and when it was imported.
+        pub file_modified: Option<String>,
+        pub imported: Option<String>,
+        #[ts(type = "number")]
+        pub rows: u64,
+        /// Being updated: bytes so far, and whether it is being imported.
+        pub running: bool,
+        #[ts(type = "number")]
+        pub done: u64,
+        pub importing: bool,
+    }
+
+    /// `aircraft://register`: how an update is going.
+    pub struct RegisterProgress {
+        pub id: String,
+        #[ts(type = "number")]
+        pub done: u64,
+        #[ts(type = "number")]
+        pub total: u64,
+        pub importing: bool,
+        pub finished: bool,
+        /// When finished: what was done, or why not.
+        pub message: Option<String>,
+        pub error: Option<String>,
+    }
+
+    /// What a national register says about a registration (the inspector).
+    pub struct RegisterEntryDto {
+        pub registration: String,
+        /// `Transport Canada` or `FAA`.
+        pub register: String,
+        pub aircraft_type: Option<String>,
+        pub maker: Option<String>,
+        pub model: Option<String>,
+        pub serial: Option<String>,
+        pub built: Option<String>,
+        pub mode_s: Option<String>,
+        /// The owner when a company, and the airline it is.
+        pub owner: Option<String>,
+        pub airline: Option<String>,
+        /// Registered now.
+        pub current: bool,
+    }
+
     /// What Flightradar24 showed of a photo's aircraft (the inspector).
     pub struct Fr24AircraftDto {
         pub registration: String,
@@ -201,6 +254,11 @@ dto! {
         pub asked: u64,
         #[ts(type = "number")]
         pub found: u64,
+        /// Never asked about.
+        #[ts(type = "number")]
+        pub new: u64,
+        /// New registrations are looked up on their own.
+        pub auto: bool,
         /// The batch job is queued or running.
         pub running: bool,
         pub problem: Option<String>,
@@ -225,10 +283,17 @@ dto! {
         pub at: String,
         /// Minutes between the photo and that end (0: in the air).
         pub gap_min: u32,
-        /// Not seen by the source, worked out: it landed at `from` at
-        /// `departed` and next took off from `to` at `arrived` (`at` is
-        /// `between`).
+        /// Not seen by the source, worked out. `at` `between`: it landed
+        /// at `from` at `departed` and next took off from `to` at
+        /// `arrived`. `inbound`: the flight in, landed at `to` before the
+        /// photo; next seen taking off from there at `arrived` (`from`:
+        /// where that went, most likely where it came from). `outbound`:
+        /// the flight out, after landing at `from` at `departed` (`to`:
+        /// where that came from, most likely where it went back to).
         pub inferred: bool,
+        /// An end the source did not see is from where the callsign
+        /// usually flies (adsbdb).
+        pub by_callsign: bool,
         /// `Aircraft|From|YYZ`, …: what accepting it adds.
         pub keywords: Vec<String>,
     }
@@ -252,7 +317,7 @@ dto! {
         /// user typed it.
         pub code: Option<String>,
         pub code_typed: bool,
-        /// `no-registration`, `no-time`, `no-transponder`, `waiting`,
+        /// `no-registration`, `no-time`, `no-transponder`, `waiting`, `later` (at a source's limit: `error` says until when),
         /// `failed`, `nothing`, `none-near`, `found` or `several`.
         pub state: String,
         /// Why asking failed (or will be tried again).
@@ -1119,6 +1184,55 @@ dto! {
         pub photos: u64,
         /// The next step down, most photos first (none for a registration).
         pub children: Vec<AircraftReportGroup>,
+    }
+
+    /// One photo of Fill in route keywords.
+    pub struct RouteFillItemDto {
+        pub id: String,
+        pub name: String,
+        /// `waiting`, `done` or `nothing`.
+        pub state: String,
+        /// Its route keywords now (`Aircraft|To|YYZ`, …); what was added
+        /// is those not in `had`.
+        pub added: Vec<String>,
+        /// Its route keywords before (from `aircraft_route_fill`).
+        pub had: Vec<String>,
+        /// Why nothing was added.
+        pub message: Option<String>,
+        /// Flight numbers to choose from (several fly its airports).
+        pub choices: Vec<String>,
+    }
+
+    /// Fill in route keywords: each photo, and how many are left.
+    pub struct RouteFillDto {
+        pub pending: u32,
+        pub items: Vec<RouteFillItemDto>,
+    }
+
+    /// One flight of the flight report.
+    pub struct FlightReportRowDto {
+        pub date: Option<String>,
+        pub time: Option<String>,
+        pub flight: Option<String>,
+        pub from: Option<String>,
+        pub from_country: Option<String>,
+        pub to: Option<String>,
+        pub to_country: Option<String>,
+        pub airline: Option<String>,
+        pub registration: Option<String>,
+        pub aircraft_type: Option<String>,
+        pub photos: u32,
+        pub first_photo: Option<String>,
+        /// Its keywords that open its photos (`Aircraft|Registration|…`, …).
+        pub tags: Vec<String>,
+    }
+
+    /// Tools → Report → Flights.
+    pub struct FlightReportDto {
+        /// Newest first.
+        pub flights: Vec<FlightReportRowDto>,
+        /// Photos with a registration but no route keyword.
+        pub without_route: u32,
     }
 
     /// Tools → Report → Aircraft.

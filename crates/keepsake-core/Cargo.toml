@@ -23,6 +23,7 @@ image.workspace = true
 fast_image_resize.workspace = true
 ort.workspace = true
 ureq.workspace = true
+zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ort = { workspace = true, features = ["directml"] }

@@ -21,11 +21,15 @@ export function routeLine(c: RouteChoiceDto): string {
 
 /** `Flight AC856 (callsign ACA856)`, or just the callsign. */
 export function flightLine(c: RouteChoiceDto): string {
+  if (c.at === "inbound") return "Flight in not seen (worked out from the next take-off)";
+  if (c.at === "outbound") return "Flight out not seen (worked out from the landing before)";
   if (c.inferred) return "Flight not seen (worked out from the flights before and after)";
   if (!c.flight) return "Flight not known";
-  return c.callsign && c.callsign !== c.flight
-    ? `Flight ${c.flight} (callsign ${c.callsign})`
-    : `Flight ${c.flight}`;
+  const line =
+    c.callsign && c.callsign !== c.flight
+      ? `Flight ${c.flight} (callsign ${c.callsign})`
+      : `Flight ${c.flight}`;
+  return c.byCallsign ? `${line}, where the source lost it from the callsign's usual route` : line;
 }
 
 /** `14:02` UTC from an ISO time. */
@@ -35,6 +39,14 @@ function hm(iso: string): string {
 
 /** Where the photo is in the flight: `Taken 15 min before landing (22:36 UTC)`. */
 export function whenLine(c: RouteChoiceDto): string {
+  if (c.at === "inbound") {
+    const went = c.from ? ` for ${c.from}, so most likely came from there` : "";
+    return `Landed at ${c.to ?? "?"} before the photo; next took off from there at ${hm(c.arrived)} UTC${went}`;
+  }
+  if (c.at === "outbound") {
+    const came = c.to ? `; it came from ${c.to}, so most likely went back there` : "";
+    return `Took off from ${c.from ?? "?"} after the photo, having landed there at ${hm(c.departed)} UTC${came}`;
+  }
   if (c.inferred || c.at === "between") {
     const day = (iso: string) => iso.slice(0, 10);
     const next = day(c.arrived) !== day(c.departed) ? ", next day" : "";
@@ -68,6 +80,8 @@ export function stateLine(item: RouteItemDto, source?: string): string | null {
       return `The transponder code of ${item.registration ?? "this aircraft"} is not known: neither adsbdb nor OpenSky's aircraft database lists it. Type it below: a flight-tracking site shows it as Mode S or ICAO 24-bit address (six digits and letters A–F).`;
     case "waiting":
       return `Asking ${name}…`;
+    case "later":
+      return item.error ?? `${name} allows no more questions for now; Add route goes on by itself.`;
     case "failed":
       return item.error ?? `${name} could not be asked.`;
     case "nothing":

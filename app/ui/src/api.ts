@@ -4,6 +4,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { FlightReportDto } from "./bindings/FlightReportDto";
+import type { RouteFillDto } from "./bindings/RouteFillDto";
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
@@ -21,6 +23,9 @@ import type { AircraftConfidenceDto } from "./bindings/AircraftConfidenceDto";
 import type { AircraftBuiltDto } from "./bindings/AircraftBuiltDto";
 import type { RouteReviewDto } from "./bindings/RouteReviewDto";
 import type { Fr24AircraftDto } from "./bindings/Fr24AircraftDto";
+import type { RegisterEntryDto } from "./bindings/RegisterEntryDto";
+import type { RegisterProgress } from "./bindings/RegisterProgress";
+import type { RegisterStatusDto } from "./bindings/RegisterStatusDto";
 import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
@@ -273,6 +278,8 @@ export const api = {
   libraryReportCsv: (path: string) => invoke<string>("library_report_csv", { path }),
   aircraftReport: () => invoke<AircraftReport>("aircraft_report"),
   aircraftReportCsv: (path: string) => invoke<string>("aircraft_report_csv", { path }),
+  flightReport: () => invoke<FlightReportDto>("flight_report"),
+  flightReportCsv: (path: string) => invoke<string>("flight_report_csv", { path }),
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),
   verifyRun: (volume: string) => invoke<void>("verify_run", { volume }),
   maintCancel: () => invoke<void>("maint_cancel"),
@@ -371,10 +378,25 @@ export const api = {
   flightradarTest: () => invoke<string>("flightradar_test"),
   fr24Aircraft: (registration: string) =>
     invoke<Fr24AircraftDto | null>("fr24_aircraft", { registration }),
+  fr24SetAuto: (on: boolean) => invoke<void>("fr24_set_auto", { on }),
+  aircraftRegisters: () => invoke<RegisterStatusDto[]>("aircraft_registers"),
+  aircraftRegisterUpdate: (id: string) => invoke<void>("aircraft_register_update", { id }),
+  aircraftRegisterCancel: (id: string) => invoke<void>("aircraft_register_cancel", { id }),
+  aircraftRegisterRemove: (id: string) => invoke<void>("aircraft_register_remove", { id }),
+  aircraftRegister: (registration: string) =>
+    invoke<RegisterEntryDto | null>("aircraft_register", { registration }),
   fr24AircraftStatus: () => invoke<Fr24AircraftStatusDto>("fr24_aircraft_status"),
   fr24AircraftStart: () => invoke<boolean>("fr24_aircraft_start"),
   fr24AircraftStop: () => invoke<void>("fr24_aircraft_stop"),
   aircraftRoute: (selection: Selection) => invoke<CloudStarted>("aircraft_route", { selection }),
+  /** Fill in route keywords (in the background): the photos asked about. */
+  aircraftRouteFill: (selection: Selection) =>
+    invoke<RouteFillDto>("aircraft_route_fill", { selection }),
+  /** Tag a photo with the flight number chosen; returns the keyword. */
+  aircraftRouteFillChoose: (id: string, flight: string) =>
+    invoke<string>("aircraft_route_fill_choose", { id, flight }),
+  aircraftRouteFillStatus: (ids: string[]) =>
+    invoke<RouteFillDto>("aircraft_route_fill_status", { ids }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>
@@ -500,6 +522,8 @@ export const events = {
   aircraftStatus: (f: () => void): Promise<UnlistenFn> => listen("aircraft://status", () => f()),
   aircraftBuiltInstall: (f: (e: AiInstallProgress) => void): Promise<UnlistenFn> =>
     listen<AiInstallProgress>("aircraft://built-install", (e) => f(e.payload)),
+  aircraftRegister: (f: (e: RegisterProgress) => void): Promise<UnlistenFn> =>
+    listen<RegisterProgress>("aircraft://register", (e) => f(e.payload)),
 };
 
 /** Ask the native dialog for a file, e.g. an application (null if cancelled). */

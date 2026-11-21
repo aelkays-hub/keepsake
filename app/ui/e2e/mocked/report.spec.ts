@@ -316,3 +316,28 @@ test("the aircraft report's registrations say when built and how old, and sort b
   await screen.getByTestId("aircraft-by-airlines").click();
   await expect(table.locator("thead th")).not.toContainText(["Built"]);
 });
+
+test("the flight report: each flight, find, sort and export", async ({ page }) => {
+  const screen = await open(page, 200);
+  await screen.getByTestId("report-kind-flights").click();
+  await expect(screen.getByTestId("flight-count")).toHaveText("3 flights");
+  const rows = screen.getByTestId("flight-row");
+  await expect(rows.nth(0)).toContainText("2026-06-27 12:56");
+  await expect(rows.nth(0)).toContainText("YYZ (Canada)");
+  await expect(rows.nth(0)).toContainText("DAC (Bangladesh)");
+  await expect(rows.nth(0)).toContainText("Biman Bangladesh");
+  await expect(screen.getByTestId("flight-without-route")).toContainText(
+    "12 photos with a registration have no route yet",
+  );
+  await screen.getByTestId("flight-find").fill("maroc");
+  await expect(screen.getByTestId("flight-count")).toHaveText("1 flight");
+  await expect(rows.nth(0)).toContainText("CN-RGY");
+  await screen.getByTestId("flight-find").fill("");
+  await screen.getByTestId("flight-sort-photos").click();
+  await expect(rows.nth(0)).toContainText("S2-AJY");
+  await screen.getByTestId("flight-csv").click();
+  await expect(screen.getByTestId("flight-saved")).toBeVisible();
+  // A date opens the flight's photos.
+  await rows.nth(0).getByRole("button").click();
+  await expect(page.getByTestId("report-screen")).toBeHidden();
+});

@@ -8,6 +8,7 @@ mod browse;
 mod events;
 mod faces;
 mod files;
+mod flight_report;
 mod imports;
 mod jobs;
 mod labels;
@@ -21,7 +22,9 @@ mod sidecars;
 mod tags;
 mod volumes;
 
-pub use ai::{Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, RangeItem};
+pub use ai::{
+    Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, RangeItem, RegisterRow, RegisterSource,
+};
 pub use aircraft_report::{
     AircraftGroup, AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
 };
@@ -36,6 +39,7 @@ pub use faces::{
     RESTORED_MODEL, SAME_FACE_IOU,
 };
 pub use files::Files;
+pub use flight_report::{FlightReport, FlightReportRepo, FlightRow};
 pub use imports::Imports;
 pub use jobs::{Job, JobCounts, JobState, Jobs, NewJob, Priority};
 pub use labels::Labels;

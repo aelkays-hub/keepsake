@@ -13,7 +13,10 @@
 //!   year, owner or serial (Flightradar24 has no aircraft endpoint).
 //! - Its terms allow keeping its data 30 days: it is kept with the
 //!   registration's lookup (`Found::fr24`) and deleted 30 days after it was
-//!   asked ([`forget_expired`]); then the registration may be asked again.
+//!   asked ([`forget_expired`]), keeping only when it was asked: a
+//!   registration is asked about once, when new (never again unasked).
+//! - New registrations are looked up on their own when the setting is on
+//!   (`ai.fr24_auto`): the job's worker looks for some every minute.
 //!   The keywords the user accepts from it (type, airline) are theirs.
 //! - Its transponder code lets OpenSky find the aircraft's older routes
 //!   ([`super::route::icao24_of`]) while it is kept.
@@ -39,6 +42,8 @@ pub const BATCH: usize = 25;
 pub const GAP: Duration = Duration::from_millis(6_500);
 /// How long to wait when Flightradar24 asks to slow down.
 pub const SLOW_DOWN: Duration = Duration::from_secs(60);
+/// How often new registrations are looked for (`ai.fr24_auto`).
+pub const AUTO_EVERY: Duration = Duration::from_secs(60);
 /// One question covers this much (Flightradar24 allows 14 days).
 const WINDOW_S: i64 = 14 * 86_400;
 
@@ -77,13 +82,24 @@ fn all_kept(
         .collect())
 }
 
-/// The registrations not asked about in the last 30 days.
-pub fn due(cat: &Catalog, now_ms: i64) -> Result<Vec<String>, AiError> {
-    let kept = all_kept(cat, now_ms)?;
+/// The registrations asked about at any time (also those whose answer was
+/// deleted after 30 days).
+fn ever_asked(cat: &Catalog) -> Result<std::collections::HashSet<String>, AiError> {
+    Ok(cat
+        .read(|tx| tx.ai().aircraft_lookups())?
+        .into_iter()
+        .filter_map(|(reg, json, _)| serde_json::from_str::<Found>(&json).ok()?.fr24.map(|_| reg))
+        .collect())
+}
+
+/// The registrations never asked about: new ones (a registration asked
+/// about before is not asked again when its answer is deleted).
+pub fn due(cat: &Catalog, _now_ms: i64) -> Result<Vec<String>, AiError> {
+    let asked = ever_asked(cat)?;
     Ok(registrations(cat)?
         .into_iter()
         .map(|(reg, _)| reg)
-        .filter(|reg| !kept.contains_key(reg))
+        .filter(|reg| !asked.contains(reg))
         .collect())
 }
 
@@ -192,8 +208,16 @@ pub fn forget_expired(cat: &mut Catalog, now_ms: i64) -> Result<u64, AiError> {
         let Ok(mut f) = serde_json::from_str::<Found>(&json) else {
             continue;
         };
-        if f.fr24.as_ref().is_some_and(|a| !a.fresh(now_ms)) {
-            f.fr24 = None;
+        if f.fr24
+            .as_ref()
+            .is_some_and(|a| !a.expired && !a.fresh(now_ms))
+        {
+            // Only when it was asked stays.
+            f.fr24 = f.fr24.map(|a| Fr24Aircraft {
+                asked_ms: a.asked_ms,
+                expired: true,
+                ..Fr24Aircraft::default()
+            });
             let json = serde_json::to_string(&f)
                 .map_err(|e| AiError::Image(format!("the lookup could not be kept: {e}")))?;
             cat.write(|tx| tx.ai().put_aircraft_lookup(&reg, &json, at))?;
@@ -320,6 +344,8 @@ pub struct Status {
     /// Asked about in the last 30 days, and of them found.
     pub asked: u64,
     pub found: u64,
+    /// Never asked about.
+    pub new: u64,
     /// The job is queued or running.
     pub running: bool,
     /// Why it stopped, when it failed.
@@ -334,11 +360,13 @@ pub fn status(cat: &Catalog) -> Result<Status, AiError> {
         ..Status::default()
     };
     let kept = all_kept(cat, now)?;
+    let ever = ever_asked(cat)?;
     for (reg, _) in &regs {
         if let Some(a) = kept.get(reg) {
             st.asked += 1;
             st.found += u64::from(a.found);
         }
+        st.new += u64::from(!ever.contains(reg));
     }
     if let Some((_, anchor)) = regs.first() {
         if let Some(j) = cat.read(|tx| tx.jobs().find(JOB_FR24_AIRCRAFT, *anchor))? {
