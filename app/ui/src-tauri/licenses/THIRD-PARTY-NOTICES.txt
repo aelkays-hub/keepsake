@@ -38,7 +38,7 @@ YOLOX-s and SFace: Apache-2.0; YuNet: MIT).
 
 ============================================================================
 
-2. RUST CRATES BUILT INTO KEEPSAKE (364)
+2. RUST CRATES BUILT INTO KEEPSAKE (366)
 
 adler2 2.0.1  —  0BSD OR MIT OR Apache-2.0  https://github.com/oyvindln/adler2
     Licence text: [a21c914647d3] [3c160092b803] [30fefc3a7d6a]
@@ -452,6 +452,8 @@ rustls 0.23.46  —  Apache-2.0 OR ISC OR MIT  https://github.com/rustls/rustls
     Licence text: [769f80b5bcb4] [af6da3f3f6b4] [a3320aa8d192]
 rustls-pki-types 1.15.1  —  MIT OR Apache-2.0  https://github.com/rustls/pki-types
     Licence text: [925e846006fd] [c5e7f780f961]
+rustls-platform-verifier 0.7.1  —  MIT OR Apache-2.0  https://github.com/rustls/rustls-platform-verifier
+    Licence text: [43070e2d4e53] [6205904d5539]
 rustls-webpki 0.103.16  —  ISC  https://github.com/rustls/webpki
     Licence text: [3ac27594ed56]
 rustversion 1.0.23  —  MIT OR Apache-2.0  https://github.com/dtolnay/rustversion
@@ -721,6 +723,8 @@ windows_aarch64_msvc 0.52.6  —  MIT OR Apache-2.0  https://github.com/microsof
 windows_aarch64_msvc 0.53.1  —  MIT OR Apache-2.0  https://github.com/microsoft/windows-rs
     Licence text: [72de958052e4] [d9a1b1e30d63]
 windows_x86_64_msvc 0.48.5  —  MIT OR Apache-2.0  https://github.com/microsoft/windows-rs
+    Licence text: [72de958052e4] [d9a1b1e30d63]
+windows_x86_64_msvc 0.52.6  —  MIT OR Apache-2.0  https://github.com/microsoft/windows-rs
     Licence text: [72de958052e4] [d9a1b1e30d63]
 windows_x86_64_msvc 0.53.1  —  MIT OR Apache-2.0  https://github.com/microsoft/windows-rs
     Licence text: [72de958052e4] [d9a1b1e30d63]
@@ -6390,7 +6394,7 @@ SOFTWARE.
 
 ----------------------------------------------------------------------------
 
-[43070e2d4e53] used by: embed_plist 1.2.2, ort 2.0.0-rc.15, ort-sys 2.0.0-rc.15, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, siphasher 1.0.4, tinyvec 1.13.3, ureq 3.5.1, ureq-proto 0.7.1, utf8_iter 1.0.4, zeroize 1.9.1, zeroize_derive 1.5.0, zune-core 0.5.3, zune-jpeg 0.5.15
+[43070e2d4e53] used by: embed_plist 1.2.2, ort 2.0.0-rc.15, ort-sys 2.0.0-rc.15, rustls-platform-verifier 0.7.1, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, siphasher 1.0.4, tinyvec 1.13.3, ureq 3.5.1, ureq-proto 0.7.1, utf8_iter 1.0.4, zeroize 1.9.1, zeroize_derive 1.5.0, zune-core 0.5.3, zune-jpeg 0.5.15
 
                                  Apache License
                            Version 2.0, January 2004
@@ -11455,6 +11459,32 @@ DEALINGS IN THE SOFTWARE.
 
 ----------------------------------------------------------------------------
 
+[6205904d5539] used by: rustls-platform-verifier 0.7.1
+
+MIT License
+
+Copyright (c) 2022 1Password
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------------
+
 [3ac27594ed56] used by: rustls-webpki 0.103.16
 
 Except as otherwise noted, this project is licensed under the following
@@ -13942,7 +13972,7 @@ Creator: Person: Daniel Thompson-Yvetot
 
 ----------------------------------------------------------------------------
 
-[72de958052e4] used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.48.0, windows-sys 0.52.0, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.48.5, windows-targets 0.52.6, windows-targets 0.53.5, windows-threading 0.2.1, windows-version 0.1.7, windows_aarch64_msvc 0.48.5, windows_aarch64_msvc 0.52.6, windows_aarch64_msvc 0.53.1, windows_x86_64_msvc 0.48.5, windows_x86_64_msvc 0.53.1
+[72de958052e4] used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.48.0, windows-sys 0.52.0, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.48.5, windows-targets 0.52.6, windows-targets 0.53.5, windows-threading 0.2.1, windows-version 0.1.7, windows_aarch64_msvc 0.48.5, windows_aarch64_msvc 0.52.6, windows_aarch64_msvc 0.53.1, windows_x86_64_msvc 0.48.5, windows_x86_64_msvc 0.52.6, windows_x86_64_msvc 0.53.1
 
                                  Apache License
                            Version 2.0, January 2004
@@ -14148,7 +14178,7 @@ Creator: Person: Daniel Thompson-Yvetot
 
 ----------------------------------------------------------------------------
 
-[d9a1b1e30d63] used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.48.0, windows-sys 0.52.0, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.48.5, windows-targets 0.52.6, windows-targets 0.53.5, windows-threading 0.2.1, windows-version 0.1.7, windows_aarch64_msvc 0.48.5, windows_aarch64_msvc 0.52.6, windows_aarch64_msvc 0.53.1, windows_x86_64_msvc 0.48.5, windows_x86_64_msvc 0.53.1
+[d9a1b1e30d63] used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.48.0, windows-sys 0.52.0, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.48.5, windows-targets 0.52.6, windows-targets 0.53.5, windows-threading 0.2.1, windows-version 0.1.7, windows_aarch64_msvc 0.48.5, windows_aarch64_msvc 0.52.6, windows_aarch64_msvc 0.53.1, windows_x86_64_msvc 0.48.5, windows_x86_64_msvc 0.52.6, windows_x86_64_msvc 0.53.1
 
     MIT License
 
