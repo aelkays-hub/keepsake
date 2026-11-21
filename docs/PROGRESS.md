@@ -60,7 +60,7 @@
 | 16 | Lossless trim (keyframe-cut and smart-cut) | ⬜ Pending |
 | 17 | Combine, rotate, frame grab, MP4 conversion | ⬜ Pending |
 | 18 | Image adjustments (crop, resize, red-eye, auto-levels) | ⬜ Pending |
-| 19 | Flickr export connector | ⬜ Pending |
+| 19 | Flickr export connector | 🟡 Upload built (ADR-046): sign-in, privacy, tags, job queue; albums pending |
 | 20 | Map view (OpenStreetMap + GPX) | ⬜ Pending |
 | 21 | On-device AI: tagging, face clustering, semantic search | 🟡 Tagging and same-day duplicates done (ADR-035); faces and semantic search pending |
 | 22 | Multi-view player and time-lapse | ⬜ Pending |
@@ -71,6 +71,21 @@
 
 
 
+
+## Upload to Flickr (ADR-046) (2026-11-21)
+
+- **Asked:** upload one or several photos to the owner's own Flickr account, public or private for each upload; see and adjust each photo's tags (keywords flattened, machine tags as an option), with camera and lens by default; run on the job queue with progress, per-photo results and errors; keep the Flickr id so a photo is not uploaded twice unknowingly.
+- **Built:**
+  - Core `keepsake_core::flickr`: `oauth` (HMAC-SHA1 signing, no new dependency); `client` (request token, access token, `flickr.test.login`, upload); `tags` (flattening, machine tags, parents, camera and lens); `enqueue`, `upload_one`, `state` and `stop`; job `flickr.upload` run by `RenderService::flickr_worker`.
+  - Catalog migration 0022 (`flickr_uploads`, `flickr_queue`, `FlickrRepo`); `external::open_url` (Flickr pages only); `keepsake_platform::secrets::{flickr, set_flickr}`.
+  - App commands: `flickr_status`, `flickr_set_app`, `flickr_sign_in_start`/`_finish`, `flickr_sign_out`, `flickr_test`, `flickr_open`, `flickr_prepare`, `flickr_upload`, `flickr_upload_status`, `flickr_upload_stop`.
+  - UI: Settings → Flickr; right-click → Upload to Flickr… (`FlickrWindow`); helpers in `src/flickr.ts`.
+- **Tests, run here (Windows):**
+  - `flickr_tests` (6): an upload through the job queue with a stand-in Flickr and its signature checked; a refusal explained; a network failure retried; not signed in; Stop; signing in.
+  - Unit tests: OAuth test vectors, tags, Flickr's answers, the multipart body, scrubbing secrets from errors; secrets; external URLs; the app's key check.
+  - Vitest `flickr.test.ts` (5); mocked Playwright `flickr.spec.ts` (5) and the whole mocked suite.
+  - fmt, clippy `-D warnings`, ESLint, Prettier, tsc.
+- **Not run:** CI; macOS; a real upload to Flickr (needs the owner's key and sign-in).
 
 ## Version 0.7.0 (2026-11-20)
 

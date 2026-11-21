@@ -19,6 +19,7 @@ import * as fmt from "../format";
 import { AircraftSettings } from "./AircraftSettings";
 import { AiSettings } from "./AiSettings";
 import { CloudSettings } from "./CloudSettings";
+import { FlickrSettings } from "./FlickrSettings";
 import { FacesSettings } from "./FacesSettings";
 
 const GB = 1024 ** 3;
@@ -388,6 +389,7 @@ export function SettingsScreen() {
       <FacesSettings />
       <AircraftSettings />
       <CloudSettings />
+      <FlickrSettings />
       <CardImport value={imp} onChange={setImp} />
 
       <div className="card">

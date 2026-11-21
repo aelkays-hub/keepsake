@@ -8,6 +8,7 @@ mod convert;
 mod diagnostics;
 mod edit;
 mod faces;
+mod flickr;
 mod folders;
 mod import;
 mod maintenance;
@@ -228,6 +229,17 @@ pub fn run() {
             route::aircraft_route_stop,
             route::aircraft_route_review,
             route::aircraft_route_accept,
+            flickr::flickr_status,
+            flickr::flickr_set_app,
+            flickr::flickr_sign_in_start,
+            flickr::flickr_sign_in_finish,
+            flickr::flickr_sign_out,
+            flickr::flickr_test,
+            flickr::flickr_open,
+            flickr::flickr_prepare,
+            flickr::flickr_upload,
+            flickr::flickr_upload_status,
+            flickr::flickr_upload_stop,
             suggest::edit_suggestions,
             suggest::edit_suggestions_ask,
             suggest::edit_suggestions_stop,

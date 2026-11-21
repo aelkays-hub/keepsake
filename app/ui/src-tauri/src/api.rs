@@ -1584,3 +1584,74 @@ pub enum MemberDto {
     Primary,
     Raw,
 }
+
+dto! {
+    /// Settings → Flickr (ADR-046): whether the API key is saved and who
+    /// is signed in. The key, secret and tokens never travel to the UI.
+    pub struct FlickrStatusDto {
+        pub has_app: bool,
+        pub signed_in: bool,
+        pub username: Option<String>,
+        /// A sign-in is under way: the code Flickr shows is awaited.
+        pub awaiting_code: bool,
+        /// Photos uploaded so far (at least once).
+        #[ts(type = "number")]
+        pub uploaded: u64,
+    }
+
+    /// One earlier upload of a photo.
+    pub struct FlickrUploadDto {
+        pub url: String,
+        /// `public`, `friends_family`, `friends`, `family` or `private`.
+        pub privacy: String,
+        /// `YYYY-MM-DD`.
+        pub date: String,
+    }
+
+    /// One photo of the Upload to Flickr window.
+    pub struct FlickrItemDto {
+        pub id: String,
+        pub name: String,
+        pub thumb: Option<String>,
+        pub title: String,
+        pub description: String,
+        /// The tags suggested: its keywords, flattened, and its camera.
+        pub tags: Vec<String>,
+        /// Videos are not uploaded.
+        pub video: bool,
+        /// Its uploads so far, newest first.
+        pub uploads: Vec<FlickrUploadDto>,
+    }
+
+    /// The Upload to Flickr window: the photos, and the account.
+    pub struct FlickrPrepareDto {
+        pub items: Vec<FlickrItemDto>,
+        pub status: FlickrStatusDto,
+    }
+
+    /// One photo to upload, as the user left it.
+    pub struct FlickrRequestDto {
+        pub id: String,
+        pub title: String,
+        pub description: String,
+        pub tags: Vec<String>,
+    }
+
+    /// Where one photo's upload stands.
+    pub struct FlickrProgressItemDto {
+        pub id: String,
+        /// `waiting`, `retrying`, `uploading`, `done`, `failed` or `none`.
+        pub state: String,
+        /// The photo's Flickr page, when uploaded.
+        pub url: Option<String>,
+        /// Why it failed, or why the last try did.
+        pub error: Option<String>,
+    }
+
+    /// Where the uploads of the window's photos stand.
+    pub struct FlickrProgressDto {
+        /// Not done or failed yet.
+        pub pending: u32,
+        pub items: Vec<FlickrProgressItemDto>,
+    }
+}

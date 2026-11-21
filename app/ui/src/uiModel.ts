@@ -66,6 +66,8 @@ export interface UiState {
   route: RouteJob | null;
   /** Fill in route keywords' window: the photos picked. */
   routeFill: RouteJob | null;
+  /** Upload to Flickr's window (ADR-046): the photos picked. */
+  flickr: RouteJob | null;
 }
 
 /** What Add route is asked for: the photos picked. */
@@ -146,7 +148,8 @@ export type Msg =
   | { t: "editAdvice"; photo: { photo: string; title: string } | null }
   | { t: "aircraftReview"; job: AircraftJob | null }
   | { t: "route"; job: RouteJob | null }
-  | { t: "routeFill"; job: RouteJob | null };
+  | { t: "routeFill"; job: RouteJob | null }
+  | { t: "flickr"; job: RouteJob | null };
 
 export const initial: UiState = {
   section: { kind: "all" },
@@ -168,6 +171,7 @@ export const initial: UiState = {
   aircraftReview: null,
   route: null,
   routeFill: null,
+  flickr: null,
 };
 
 export function reduce(s: UiState, m: Msg): UiState {
@@ -233,6 +237,8 @@ export function reduce(s: UiState, m: Msg): UiState {
       return { ...s, route: m.job };
     case "routeFill":
       return { ...s, routeFill: m.job };
+    case "flickr":
+      return { ...s, flickr: m.job };
   }
 }
 

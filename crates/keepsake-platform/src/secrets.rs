@@ -128,6 +128,50 @@ pub fn set_opensky(client: Option<(&str, &str)>) -> Result<(), PlatformError> {
     Ok(())
 }
 
+/// Flickr upload (ADR-046): the user's own API key and secret, and the
+/// sign-in (access token and its secret, the account's id and name, as
+/// one entry). Never in a file or the log.
+pub const FLICKR_KEY: &str = "flickr-api-key";
+pub const FLICKR_SECRET: &str = "flickr-api-secret";
+pub const FLICKR_SIGN_IN: &str = "flickr-oauth";
+
+/// The Flickr entries Keepsake keeps.
+fn flickr_account_name(account: &str) -> Result<(), PlatformError> {
+    if [FLICKR_KEY, FLICKR_SECRET, FLICKR_SIGN_IN].contains(&account) {
+        Ok(())
+    } else {
+        Err(PlatformError::Os(format!(
+            "not a Flickr entry: {account:?}"
+        )))
+    }
+}
+
+/// A Flickr entry (`FLICKR_KEY`, `FLICKR_SECRET` or `FLICKR_SIGN_IN`).
+pub fn flickr(account: &str) -> Result<Option<String>, PlatformError> {
+    flickr_account_name(account)?;
+    let e = keyring::Entry::new(SERVICE, account).map_err(|e| PlatformError::Os(e.to_string()))?;
+    match e.get_password() {
+        Ok(k) => Ok(Some(k)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(PlatformError::Os(e.to_string())),
+    }
+}
+
+/// Save a Flickr entry (`None`: remove it).
+pub fn set_flickr(account: &str, value: Option<&str>) -> Result<(), PlatformError> {
+    flickr_account_name(account)?;
+    let e = keyring::Entry::new(SERVICE, account).map_err(|e| PlatformError::Os(e.to_string()))?;
+    match value {
+        Some(v) => e
+            .set_password(v.trim())
+            .map_err(|e| PlatformError::Os(e.to_string())),
+        None => match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(PlatformError::Os(e.to_string())),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +187,12 @@ mod tests {
         assert_eq!(env_var("openai"), "KEEPSAKE_OPENAI_KEY");
         assert!(api_key("Open AI").is_err());
         assert!(set_api_key("", None).is_err());
+    }
+
+    #[test]
+    fn only_the_flickr_entries_are_touched() {
+        assert!(flickr("claude-api-key").is_err());
+        assert!(set_flickr("opensky-client-id", None).is_err());
     }
 
     #[test]

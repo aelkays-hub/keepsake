@@ -288,6 +288,9 @@ pub struct RenderService {
     /// Look new registrations up on their own.
     fr24_auto: bool,
     route_clock: crate::ai::aircraft::route::Clock,
+    /// Upload to Flickr (ADR-046), when set: a worker then takes
+    /// `flickr.upload` jobs.
+    flickr: Option<Arc<crate::flickr::Uploader>>,
     /// The same-shot window (`ai.same_shot_s`): Tag with AI gives a photo's
     /// tags to the alike photos taken this close by the same camera and lens.
     same_shot_ms: i64,
@@ -335,8 +338,15 @@ impl RenderService {
             fr24_gap: crate::ai::aircraft::fr24::GAP,
             fr24_auto: false,
             route_clock: crate::ai::aircraft::route::Clock::default(),
+            flickr: None,
             same_shot_ms: crate::ai::aircraft::scan::NEIGHBOUR_MS,
         }
+    }
+
+    /// Upload to Flickr with this (ADR-046).
+    pub fn with_flickr(mut self, uploader: Arc<crate::flickr::Uploader>) -> Self {
+        self.flickr = Some(uploader);
+        self
     }
 
     /// Load the aircraft worker's reader with this (tests use a stand-in).
@@ -476,6 +486,11 @@ impl RenderService {
                     (self.opts.aircraft || self.lookup.is_some() || self.flights.is_some())
                         .then_some(crate::ai::aircraft::complete::JOB_AI_ROUTE_FILL),
                 )
+                .chain(
+                    self.flickr
+                        .is_some()
+                        .then_some(crate::flickr::JOB_FLICKR_UPLOAD),
+                )
                 // One worker sends the photos of every provider.
                 .chain((self.cloud.is_some() || self.adviser.is_some()).then_some(JOB_AI_CLAUDE));
             for kind in plan {
@@ -598,6 +613,9 @@ impl RenderService {
         }
         if kind == crate::ai::aircraft::complete::JOB_AI_ROUTE_FILL {
             return self.route_fill_worker(&mut cat, cancel, tx, shared);
+        }
+        if kind == crate::flickr::JOB_FLICKR_UPLOAD {
+            return self.flickr_worker(&mut cat, cancel, tx, shared);
         }
         // The cloud worker sends the photos of every provider: tagging and
         // edit suggestions.
@@ -1292,6 +1310,68 @@ impl RenderService {
                         e,
                     )?;
                     Self::sleep(cancel, lk::MIN_GAP);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Upload to Flickr: one photo at a time.
+    fn flickr_worker(
+        &self,
+        cat: &mut Catalog,
+        cancel: &AtomicBool,
+        tx: &Sender<RenderEvent>,
+        shared: &Shared,
+    ) -> Result<(), RenderError> {
+        use crate::flickr;
+        let Some(up) = self.flickr.as_deref() else {
+            return Ok(());
+        };
+        while !cancel.load(Ordering::SeqCst) {
+            let claimed =
+                match cat.write(|t| t.jobs().claim(&[flickr::JOB_FLICKR_UPLOAD], now_ms())) {
+                    Err(e) if e.is_busy() => {
+                        Self::sleep(cancel, BUSY_RETRY);
+                        continue;
+                    }
+                    r => r?,
+                };
+            let Some(job) = claimed else {
+                if self.opts.until_empty {
+                    break;
+                }
+                Self::sleep(cancel, Duration::from_secs(1));
+                continue;
+            };
+            let _ = tx.send(RenderEvent::Started {
+                job: job.id,
+                kind: job.kind.clone(),
+                asset: job.asset_id,
+            });
+            let t0 = Instant::now();
+            let result =
+                flickr::upload_one(cat, &self.lib, &self.cache, &self.tools, up, job.asset_id);
+            match result {
+                Ok(upload) => {
+                    let now = now_ms();
+                    Self::write_busy(cat, cancel, |t| {
+                        t.flickr().record(&upload)?;
+                        t.jobs().complete(job.id, now)
+                    })?;
+                    shared.done.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(RenderEvent::Done {
+                        job: job.id,
+                        kind: job.kind.clone(),
+                        asset: job.asset_id,
+                        ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        made: Vec::new(),
+                        encoder: None,
+                    });
+                }
+                Err(e) => {
+                    let e = flickr::to_render_error(e);
+                    self.settle_err(cat, cancel, tx, shared, flickr::JOB_FLICKR_UPLOAD, &job, e)?;
                 }
             }
         }
