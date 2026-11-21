@@ -72,6 +72,10 @@
 
 
 
+## Version 0.8.0 (2026-11-21)
+
+- Version 0.8.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.8.0: Flickr upload and Report → Flickr. The owner asked for it after the Flickr PR (aelkays-hub/keepsake#50).
+
 ## Upload to Flickr (ADR-046) (2026-11-21)
 
 - **Asked:** upload one or several photos to the owner's own Flickr account, public or private for each upload; see and adjust each photo's tags (keywords flattened, machine tags as an option), with camera and lens by default; run on the job queue with progress, per-photo results and errors; keep the Flickr id so a photo is not uploaded twice unknowingly.
