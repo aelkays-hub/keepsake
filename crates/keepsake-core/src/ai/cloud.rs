@@ -281,15 +281,25 @@ pub fn wait_seconds(header: impl Fn(&str) -> Option<String>) -> Option<i64> {
 }
 
 /// [`Http`] over HTTPS with ureq.
+///
+/// Certificates are checked against the operating system's trust store
+/// (Windows' certificate store, the macOS Keychain), as a browser does, not
+/// against a list built into Keepsake. So an antivirus that inspects HTTPS
+/// (Avast's Web Shield, say) or a company proxy whose root the computer
+/// trusts does not make every online feature fail with "UnknownIssuer".
 pub struct UreqHttp {
     agent: ureq::Agent,
 }
 
 impl UreqHttp {
     pub fn new() -> Self {
+        let tls = ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+            .build();
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(Duration::from_secs(180)))
+            .tls_config(tls)
             .build();
         Self {
             agent: config.into(),
@@ -756,6 +766,33 @@ pub fn stop(cat: &mut Catalog, provider: Provider, ids: &[AssetId]) -> Result<u6
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// Every online call goes through `UreqHttp`; it must trust what the
+    /// operating system trusts (an antivirus or company proxy that
+    /// inspects HTTPS), not only a built-in list.
+    #[test]
+    fn https_trusts_the_operating_systems_certificates() {
+        let http = UreqHttp::new();
+        assert!(matches!(
+            http.agent.config().tls_config().root_certs(),
+            ureq::tls::RootCerts::PlatformVerifier
+        ));
+    }
+
+    /// A real HTTPS call, through whatever inspects HTTPS on this computer.
+    /// Run by hand: `cargo test -p keepsake-core --lib -- --ignored https_reaches`.
+    #[test]
+    #[ignore = "needs the internet"]
+    fn https_reaches_a_real_site() {
+        let http = UreqHttp::new();
+        for url in [
+            "https://opensky-network.org/",
+            "https://api.adsbdb.com/v0/aircraft/C-FIUJ",
+        ] {
+            let (status, _) = http.get(url, &[]).unwrap_or_else(|e| panic!("{url}: {e}"));
+            assert!(status < 500, "{url}: {status}");
+        }
+    }
 
     pub(super) fn names() -> Vec<String> {
         ["People", "Beach", "Dog", "Portrait"]

@@ -42,7 +42,7 @@ twox-hash = { version = "2", default-features = false, features = ["xxhash3_64",
 # On-device AI (ADR-035): ONNX Runtime loaded at run time from vendor/, never linked.
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "tracing", "load-dynamic"] }
 # Tag with Claude (ADR-036): HTTPS to the Claude API (rustls, no OpenSSL).
-ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+ureq = { version = "3.5", default-features = false, features = ["rustls", "platform-verifier"] }
 # The Claude API key, in Windows Credential Manager / the macOS Keychain.
 keyring = { version = "3.6", features = ["windows-native", "apple-native"] }
 # National aircraft registers (Transport Canada, FAA) come as ZIP files:
