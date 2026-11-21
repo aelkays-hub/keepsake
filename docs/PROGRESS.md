@@ -72,6 +72,14 @@
 
 
 
+## Third-party notices in the installer (ADR-047) (2026-11-21)
+
+- **Asked:** "add the missing third-party notices to the installer" (from the licence audit).
+- **Built:** `scripts/make-notices.py` writes `licenses/THIRD-PARTY-NOTICES.txt` (about 780 KB): the 364 Rust crates built into the app on Windows and macOS, the 9 npm packages, the licence texts they carry (each text once), the standard text for the 20 that carry none, and the programs shipped beside the app with their licences and sources. The installer ships it on both OSes.
+- **Checks:** CI fails when the file is out of date (`--check`); the CI resource check and the release smoke test look for it.
+- **Tests, run here (Windows):** `make-notices.py --check`; the CI resource check (PowerShell) run locally; a release build, with the file found in the bundle.
+- **Not run:** CI; macOS. Branch `feat/third-party-notices`.
+
 ## Version 0.8.0 (2026-11-21)
 
 - Version 0.8.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.8.0: Flickr upload and Report → Flickr. The owner asked for it after the Flickr PR (aelkays-hub/keepsake#50).

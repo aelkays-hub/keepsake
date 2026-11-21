@@ -106,6 +106,13 @@ jobs:
         shell: bash
         run: git diff --exit-code -- app/ui/src/bindings
 
+      # The installer ships the licence texts of every crate and npm package
+      # in the app (scripts/make-notices.py); a dependency change must
+      # regenerate them.
+      - name: Third-party notices are up to date
+        shell: bash
+        run: python scripts/make-notices.py --check
+
       # ── UI checks ───────────────────────────────────────────────────────────
       - name: UI lint
         working-directory: app/ui
@@ -179,6 +186,11 @@ jobs:
             "ffmpeg.exe", "ffprobe.exe", "exiftool/exiftool.exe", "exiftool/exiftool_files/",
             "libraw/dcraw_emu.exe", "libraw/libraw.dll", "libraw/LICENSE.LGPL",
             "licenses/FFmpeg-LICENSE.txt"
+          )
+          $base = (Get-Content app/ui/src-tauri/tauri.conf.json | ConvertFrom-Json).bundle.resources
+          $targets += $base.PSObject.Properties.Value
+          $want += @(
+            "licenses/THIRD-PARTY-NOTICES.txt"
           )
           $failed = $false
           foreach ($t in $want) {
