@@ -36,6 +36,7 @@ pub use repo::{
     RegisterRow, RegisterSource, Renditions, Report, ReportRow, Search, SearchQuery, Sequences,
     Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
+pub use repo::{FlickrQueued, FlickrRepo, FlickrUpload};
 pub use repo::{FlightReport, FlightReportRepo, FlightRow};
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
@@ -84,6 +85,7 @@ impl<M> Tx<'_, M> {
     repo_accessor!(flight_report, FlightReportRepo);
     repo_accessor!(ai, Ai);
     repo_accessor!(faces, Faces);
+    repo_accessor!(flickr, FlickrRepo);
 
     /// The raw connection, for bulk paths inside the crate (seeding).
     pub(crate) fn conn(&self) -> &rusqlite::Connection {

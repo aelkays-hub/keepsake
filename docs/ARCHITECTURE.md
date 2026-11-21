@@ -138,7 +138,7 @@ Failures retry after 30 s, then 60 s, then stay failed. Jobs whose media is offl
 Wraps FFmpeg for all video operations: trim (stream copy or smart-cut re-encode), combine, rotate, frame grab, MP4 conversion, proxy generation, time-lapse assembly, deflicker. Every operation produces a new file; no in-place modification.
 
 ### ShareConnectors
-Pluggable connectors: Flickr (OAuth 2.0), OpenTimelineIO export. Each connector implements a `Connector` trait in `keepsake-core` with send/cancel/progress.
+Pluggable connectors: Flickr, and OpenTimelineIO export (pending). Flickr upload (`keepsake_core::flickr`, ADR-046) uses OAuth 1.0a with the user's own API key, and all its secrets stay in the OS credential store. Each photo is one `flickr.upload` job, run by the render service's Flickr worker over the `Http` trait; results go to `flickr_uploads`.
 
 ### AIWorker
 On-device inference (`keepsake_core::ai`, ADR-035). One extra worker in the render service takes `ai.analyze` jobs when AI is on (`RenderOptions::ai`). Jobs are queued only for dates the user asks about (`ai::analyze::enqueue_range`, from the calendar tree's right-click menu) or by `keepsake ai run`; the worker drops queued background-class AI jobs when it starts. It has the same pauses (battery, import) and waits while requested thumbnail jobs are ready or running.

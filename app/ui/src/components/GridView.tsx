@@ -234,6 +234,22 @@ export function GridView({ onOpen }: { onOpen: (i: number) => void }) {
               }),
           },
           {
+            label: "Upload to Flickr…",
+            title:
+              "Upload these photos to your Flickr account: choose who may see them and check their tags first",
+            testId: "tile-menu-flickr",
+            disabled: rows.get(i)?.kind === "video",
+            run: () =>
+              dispatch({
+                t: "flickr",
+                job: {
+                  selection: selectionPayload(view?.view ?? null, cur),
+                  count: n,
+                  title: one?.name ?? fmt.plural(n, "photo"),
+                },
+              }),
+          },
+          {
             label: "Name and find…",
             title:
               "Name a person in this photo and find the other photos they are in (on this computer)",

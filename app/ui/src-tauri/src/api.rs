@@ -1584,3 +1584,138 @@ pub enum MemberDto {
     Primary,
     Raw,
 }
+
+dto! {
+    /// Settings → Flickr (ADR-046): whether the API key is saved and who
+    /// is signed in. The key, secret and tokens never travel to the UI.
+    pub struct FlickrStatusDto {
+        pub has_app: bool,
+        pub signed_in: bool,
+        pub username: Option<String>,
+        /// A sign-in is under way: the code Flickr shows is awaited.
+        pub awaiting_code: bool,
+        /// Photos uploaded so far (at least once).
+        #[ts(type = "number")]
+        pub uploaded: u64,
+    }
+
+    /// One earlier upload of a photo.
+    pub struct FlickrUploadDto {
+        pub url: String,
+        /// `public`, `friends_family`, `friends`, `family` or `private`.
+        pub privacy: String,
+        /// `YYYY-MM-DD`.
+        pub date: String,
+    }
+
+    /// One photo of the Upload to Flickr window.
+    pub struct FlickrItemDto {
+        pub id: String,
+        pub name: String,
+        pub thumb: Option<String>,
+        pub title: String,
+        pub description: String,
+        /// The tags suggested: its keywords, flattened, and its camera.
+        pub tags: Vec<String>,
+        /// Videos are not uploaded.
+        pub video: bool,
+        /// Its uploads so far, newest first.
+        pub uploads: Vec<FlickrUploadDto>,
+    }
+
+    /// The Upload to Flickr window: the photos, and the account.
+    pub struct FlickrPrepareDto {
+        pub items: Vec<FlickrItemDto>,
+        pub status: FlickrStatusDto,
+    }
+
+    /// One photo to upload, as the user left it.
+    pub struct FlickrRequestDto {
+        pub id: String,
+        pub title: String,
+        pub description: String,
+        pub tags: Vec<String>,
+    }
+
+    /// Where one photo's upload stands.
+    pub struct FlickrProgressItemDto {
+        pub id: String,
+        /// `waiting`, `retrying`, `uploading`, `done`, `failed` or `none`.
+        pub state: String,
+        /// The photo's Flickr page, when uploaded.
+        pub url: Option<String>,
+        /// Why it failed, or why the last try did.
+        pub error: Option<String>,
+    }
+
+    /// Where the uploads of the window's photos stand.
+    pub struct FlickrProgressDto {
+        /// Not done or failed yet.
+        pub pending: u32,
+        pub items: Vec<FlickrProgressItemDto>,
+    }
+}
+
+dto! {
+    /// A day of Report → Flickr's tree: `2024-06-15`, photos uploaded.
+    pub struct FlickrDayDto {
+        pub date: String,
+        #[ts(type = "number")]
+        pub count: u64,
+    }
+
+    pub struct FlickrMonthDto {
+        /// `2024-06`.
+        pub month: String,
+        #[ts(type = "number")]
+        pub count: u64,
+        /// Newest first.
+        pub days: Vec<FlickrDayDto>,
+    }
+
+    pub struct FlickrYearDto {
+        pub year: i32,
+        #[ts(type = "number")]
+        pub count: u64,
+        /// Newest first.
+        pub months: Vec<FlickrMonthDto>,
+    }
+
+    /// Report → Flickr: what is on the Flickr account, read from Flickr,
+    /// as a tree by upload date (this computer's time zone).
+    pub struct FlickrAccountDto {
+        pub signed_in: bool,
+        pub username: Option<String>,
+        /// Being read from Flickr now.
+        pub reading: bool,
+        #[ts(type = "number")]
+        pub read: u64,
+        #[ts(type = "number")]
+        pub total: u64,
+        /// Why the last read failed.
+        pub error: Option<String>,
+        /// When it was read, `HH:MM` (null: not read yet).
+        pub read_at: Option<String>,
+        /// Newest first; empty until read.
+        pub years: Vec<FlickrYearDto>,
+        #[ts(type = "number")]
+        pub photos: u64,
+    }
+
+    /// One photo on the Flickr account.
+    pub struct FlickrAccountPhotoDto {
+        pub id: String,
+        pub title: String,
+        /// Flickr's 150-pixel thumbnail.
+        pub thumb: Option<String>,
+        /// Its Flickr page.
+        pub url: String,
+        /// `public`, `friends_family`, `friends`, `family` or `private`.
+        pub privacy: String,
+        /// When it was uploaded, `YYYY-MM-DD HH:MM` (this computer's time).
+        pub uploaded: String,
+        pub taken: Option<String>,
+        /// Uploaded with Keepsake.
+        pub keepsake: bool,
+    }
+}

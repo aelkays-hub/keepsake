@@ -115,6 +115,30 @@ pub fn open(path: &Path, app: Option<&str>) -> Result<(), LibraryError> {
     launch(command_for(path, app))
 }
 
+/// Web pages Keepsake may open in the browser (Flickr's sign-in and photo
+/// pages, ADR-046).
+pub fn openable_url(url: &str) -> bool {
+    let ok_chars = url
+        .bytes()
+        .all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\'' | b'<' | b'>' | b'\\'));
+    ok_chars && url.starts_with("https://www.flickr.com/")
+}
+
+/// Open a web page in the default browser (only [`openable_url`] ones).
+pub fn open_url(url: &str) -> Result<(), LibraryError> {
+    if !openable_url(url) {
+        return Err(LibraryError::Invalid("not a page Keepsake opens".into()));
+    }
+    let program = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    launch((program.into(), vec![url.into()]))
+}
+
 /// Show a folder in Explorer or Finder (e.g. the log folder).
 pub fn open_folder(dir: &Path) -> Result<(), LibraryError> {
     if !dir.is_dir() {
@@ -165,6 +189,20 @@ fn outlive_app(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_flickr_pages_are_opened() {
+        assert!(openable_url(
+            "https://www.flickr.com/services/oauth/authorize?oauth_token=72157-x&perms=write"
+        ));
+        assert!(openable_url("https://www.flickr.com/photos/1%40N00/5/"));
+        assert!(!openable_url("http://www.flickr.com/"));
+        assert!(!openable_url("https://www.flickr.com.evil.example/"));
+        assert!(!openable_url("https://www.flickr.com/a b"));
+        assert!(!openable_url("https://www.flickr.com/\"x"));
+        assert!(!openable_url("file:///C:/x"));
+        assert!(open_url("https://example.com/").is_err());
+    }
 
     #[test]
     fn topaz_is_said_to_ignore_files_while_open_and_photoshop_is_not() {

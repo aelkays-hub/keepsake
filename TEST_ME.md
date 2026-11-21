@@ -1,4 +1,4 @@
-# Manual Test Steps — Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,58 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## Upload to Flickr
+
+Automated: `cargo test -p keepsake-core --test flickr_tests` and `cargo test -p keepsake-core --lib flickr`; UI: `pnpm test` (flickr.test.ts) and `pnpm test:e2e -- flickr`.
+
+**Before the first run of this build, back up the catalog.** This build adds catalog tables (migration 0022), and Keepsake does not back up the catalog before migrating it. Close Keepsake and copy your library's `catalog.db` to `catalog.pre-0022.db` beside it (Windows and macOS alike).
+
+You need your own Flickr API key. On flickr.com, go to **The App Garden** → **Create an App** → **Apply for a Non-Commercial Key**. Give it any name (for example "Keepsake, my photos") and copy the **Key** and the **Secret**.
+
+Manual (both OSes):
+1. Settings → **Flickr**. Paste the key and the secret, then **Save key**.
+   - **Expected:** "The API key is saved. Sign in to Flickr next." Both boxes are empty again, and the key is never shown again.
+   - Windows: Credential Manager → Windows Credentials lists `flickr-api-key@Keepsake` and `flickr-api-secret@Keepsake`. macOS: Keychain Access lists them under `Keepsake`.
+2. **Sign in to Flickr…**
+   - **Expected:** your browser opens Flickr's "Keepsake wants to…" page, and the card shows the page's address in case the browser did not open.
+3. On Flickr, choose **OK, I'll authorize it**. Type the code Flickr shows (`123-456-789`) into Keepsake, then **Finish signing in**.
+   - **Expected:** "Signed in as <your Flickr name>." A wrong code gives an explained error instead.
+4. **Test the sign-in.**
+   - **Expected:** "Flickr says you are signed in as <your name>."
+5. In the library, right-click one JPEG photo that has keywords such as `Aircraft|Registration|C-FEJC` → **Upload to Flickr…**
+   - **Expected:** the window says "To the Flickr account of <you>". **Private** is selected. The photo is ticked, and its tags show `C-FEJC` plus the camera (`Sony`, `Sony ILCE-…`) and the lens.
+6. Tick **Machine tags too**.
+   - **Expected:** `aircraft:registration=C-FEJC` is added to the tags. Tick **Parent keywords too** and `Aircraft` and `Registration` are added too.
+7. Remove a tag (×), add `Test upload` in the photo's box, and leave **Private** selected. **Upload 1 photo.**
+   - **Expected:** "Uploading… 0 of 1 done", then "Done: 1 of 1 uploaded." with **Open on Flickr**. On Flickr the photo is private (only you see it) and has exactly the tags shown in the window. Its original file on disk is unchanged (same size and modified time).
+8. Right-click the same photo → **Upload to Flickr…** again.
+   - **Expected:** "On Flickr already (private, <today>): open it. Tick it to upload it again." The photo is not ticked, and **Upload** is disabled.
+9. Select three photos, one of them a RAW (.ARW) file. Choose **Public**, type `Spotting` in **Tags for every ticked photo** and choose **Add to all**, then **Upload 3 photos**.
+   - **Expected:** each photo shows its own progress. The RAW goes up as a full-size JPEG, `DSC0xxxx.jpg`. All three are public on Flickr with `Spotting`.
+10. Try a choice of **Friends and family**.
+    - **Expected:** on Flickr the photo is visible to friends and family only.
+11. Unplug the network, then upload a photo.
+    - **Expected:** "Trying again shortly: …". When the network is back, it uploads by itself.
+12. While several uploads are waiting, choose **Stop**.
+    - **Expected:** those not started say "Stopped."; the one under way finishes.
+13. A video in the selection.
+    - **Expected:** "Videos are not uploaded to Flickr." It cannot be ticked. **Upload to Flickr…** is greyed out when you right-click a video.
+14. **Sign out**, then right-click a photo → Upload to Flickr….
+    - **Expected:** "Sign in to Flickr in Settings → Flickr first." with **Open Settings**; **Upload** is disabled.
+15. **Remove key.**
+    - **Expected:** "No API key is saved yet." The Credential Manager / Keychain entries are gone.
+16. Sign in again (steps 1–3), then Tools → Report → **Flickr**.
+    - **Expected:** "Reading <you> from Flickr… N of M photos", then "N photos on the Flickr account of <you>, by upload date (read from Flickr at HH:MM)". N matches the photo count on your Flickr photostream, including photos uploaded without Keepsake.
+    - The tree shows years, newest first, each with its count. The newest year, its newest month and that month's newest day are open. The day shows Flickr's thumbnails, and photos uploaded with Keepsake have a small blue **K**.
+    - Hovering a thumbnail shows its title, who can see it and when it was uploaded. Clicking it opens its Flickr page in the browser.
+    - Open an older year, then a month, then a day: that day's thumbnails show. The days are your computer's local dates.
+17. Leave the report and come back.
+    - **Expected:** the tree shows at once and is not read again. Upload a photo with Keepsake, then choose **Refresh from Flickr**: today's count goes up by one, and the new photo has a **K**. Quit and restart Keepsake, then open the report: it is read from Flickr again (nothing is kept in the catalog).
+18. Search the log folder (Settings → **Open log folder**) for your key, secret or token.
+    - **Expected:** not found.
+
+---
 
 ## Fill in route keywords
 

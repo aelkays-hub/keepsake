@@ -6,6 +6,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { FlightReportDto } from "./bindings/FlightReportDto";
 import type { RouteFillDto } from "./bindings/RouteFillDto";
+import type { FlickrPrepareDto } from "./bindings/FlickrPrepareDto";
+import type { FlickrProgressDto } from "./bindings/FlickrProgressDto";
+import type { FlickrRequestDto } from "./bindings/FlickrRequestDto";
+import type { FlickrStatusDto } from "./bindings/FlickrStatusDto";
+import type { FlickrAccountDto } from "./bindings/FlickrAccountDto";
+import type { FlickrAccountPhotoDto } from "./bindings/FlickrAccountPhotoDto";
 import type { AiInstallProgress } from "./bindings/AiInstallProgress";
 import type { AircraftStatus } from "./bindings/AircraftStatus";
 import type { AiFolderStatus } from "./bindings/AiFolderStatus";
@@ -397,6 +403,36 @@ export const api = {
     invoke<string>("aircraft_route_fill_choose", { id, flight }),
   aircraftRouteFillStatus: (ids: string[]) =>
     invoke<RouteFillDto>("aircraft_route_fill_status", { ids }),
+  /** Upload to Flickr (ADR-046): the account, never its key or tokens. */
+  flickrStatus: () => invoke<FlickrStatusDto>("flickr_status"),
+  /** Save the Flickr API key and secret (both blank: remove them). */
+  flickrSetApp: (key: string, secret: string) =>
+    invoke<FlickrStatusDto>("flickr_set_app", { key, secret }),
+  /** Start signing in: opens Flickr's page; returns its address. */
+  flickrSignInStart: () => invoke<string>("flickr_sign_in_start"),
+  /** Finish signing in with the code Flickr showed. */
+  flickrSignInFinish: (code: string) => invoke<FlickrStatusDto>("flickr_sign_in_finish", { code }),
+  flickrSignOut: () => invoke<FlickrStatusDto>("flickr_sign_out"),
+  flickrTest: () => invoke<string>("flickr_test"),
+  /** Open a photo's Flickr page in the browser. */
+  flickrOpen: (url: string) => invoke<void>("flickr_open", { url }),
+  flickrPrepare: (
+    selection: Selection,
+    opts: { camera: boolean; machine: boolean; parents: boolean },
+  ) => invoke<FlickrPrepareDto>("flickr_prepare", { selection, ...opts }),
+  /** Upload these photos in the background; returns how many were queued. */
+  flickrUpload: (items: FlickrRequestDto[], privacy: string) =>
+    invoke<number>("flickr_upload", { items, privacy }),
+  flickrUploadStatus: (ids: string[]) => invoke<FlickrProgressDto>("flickr_upload_status", { ids }),
+  flickrUploadStop: (ids: string[]) => invoke<void>("flickr_upload_stop", { ids }),
+  /** Report → Flickr: read the account from Flickr in the background
+   * (`again`: even when read already this session). */
+  flickrAccountRead: (again: boolean) => invoke<FlickrAccountDto>("flickr_account_read", { again }),
+  /** Where reading the account stands; the tree by upload date once read. */
+  flickrAccount: () => invoke<FlickrAccountDto>("flickr_account"),
+  /** The photos uploaded to Flickr on a day (`2024-06-15`). */
+  flickrAccountDay: (date: string) =>
+    invoke<FlickrAccountPhotoDto[]>("flickr_account_day", { date }),
   aircraftRouteStop: (ids: string[]) => invoke<void>("aircraft_route_stop", { ids }),
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>

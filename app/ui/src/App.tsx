@@ -6,6 +6,7 @@ import { api, type AppInfo } from "./api";
 import { AiJobWindow } from "./components/AiJobWindow";
 import { AircraftReviewWindow } from "./components/AircraftReviewWindow";
 import { RouteFillWindow } from "./components/RouteFillWindow";
+import { FlickrWindow } from "./components/FlickrWindow";
 import { RouteWindow } from "./components/RouteWindow";
 import { EditAdviceWindow } from "./components/EditAdviceWindow";
 import { NameFindWindow } from "./components/NameFindWindow";
@@ -180,6 +181,7 @@ function Shell() {
       <AircraftReviewWindow />
       <RouteWindow />
       <RouteFillWindow />
+      <FlickrWindow />
     </div>
   );
 }

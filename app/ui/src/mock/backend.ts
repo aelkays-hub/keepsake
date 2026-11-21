@@ -68,6 +68,20 @@ interface Item {
 
 export interface MockState {
   items: number;
+  /** Upload to Flickr (ADR-046): `?flickr=app` (key saved) or
+   * `?flickr=signed` (signed in); `?flickrFail=a1` fails that photo. */
+  flickr: {
+    hasApp: boolean;
+    signedIn: boolean;
+    awaiting: boolean;
+    uploads: Map<string, { url: string; privacy: string; date: string }[]>;
+    /** Queued photos: how often their status was asked. */
+    queue: Map<string, { polls: number; privacy: string }>;
+    fail: string | null;
+    /** Report → Flickr: reads started, and looks since the last. */
+    accountReads: number;
+    accountPolls: number;
+  };
   calls: { cmd: string; args: unknown }[];
   rating: Map<number, number>;
   label: Map<number, string | null>;
@@ -510,6 +524,31 @@ export function installMock(): void {
   const noLibrary = params.get("library") === "none";
   const st: MockState = {
     items: n,
+    flickr: {
+      hasApp: ["app", "signed"].includes(params.get("flickr") ?? ""),
+      signedIn: params.get("flickr") === "signed",
+      awaiting: false,
+      uploads: new Map(
+        params.get("flickrDone")
+          ? [
+              [
+                String(params.get("flickrDone")),
+                [
+                  {
+                    url: "https://www.flickr.com/photos/1%40N00/1/",
+                    privacy: "public",
+                    date: "2026-11-01",
+                  },
+                ],
+              ],
+            ]
+          : [],
+      ),
+      queue: new Map(),
+      fail: params.get("flickrFail"),
+      accountReads: 0,
+      accountPolls: 0,
+    },
     calls: [],
     rating: new Map(),
     label: new Map(),
@@ -1949,6 +1988,200 @@ export function installMock(): void {
           if (!st.route.saved)
             throw "No OpenSky client ID and secret: add them in Settings → Read aircraft";
           return "OpenSky accepted the client ID and secret.";
+        case "flickr_status":
+        case "flickr_set_app":
+        case "flickr_sign_in_finish":
+        case "flickr_sign_out": {
+          const f = st.flickr;
+          if (cmd === "flickr_set_app") {
+            const k = String(a.key ?? "").trim();
+            const sec = String(a.secret ?? "").trim();
+            if (Boolean(k) !== Boolean(sec)) throw "Fill in both the key and the secret.";
+            f.hasApp = Boolean(k);
+            f.signedIn = false;
+            f.awaiting = false;
+          }
+          if (cmd === "flickr_sign_in_finish") {
+            if (!f.awaiting) throw "Choose Sign in to Flickr first.";
+            if (String(a.code ?? "").trim() !== "123-456-789")
+              throw "Flickr did not accept the sign-in (token_rejected). Check the API key and secret, and sign in again.";
+            f.signedIn = true;
+            f.awaiting = false;
+          }
+          if (cmd === "flickr_sign_out") f.signedIn = false;
+          return {
+            hasApp: f.hasApp,
+            signedIn: f.signedIn,
+            username: f.signedIn ? "keepsake-tester" : null,
+            awaitingCode: f.awaiting,
+            uploaded: f.uploads.size,
+          };
+        }
+        case "flickr_sign_in_start":
+          if (!st.flickr.hasApp) throw "Add your Flickr API key and secret first.";
+          st.flickr.awaiting = true;
+          return "https://www.flickr.com/services/oauth/authorize?oauth_token=72157-mock&perms=write";
+        case "flickr_test":
+          if (!st.flickr.signedIn) throw "Sign in to Flickr first.";
+          return "Flickr says you are signed in as keepsake-tester.";
+        case "flickr_open":
+          return null;
+        case "flickr_prepare": {
+          const ids = [...new Set(resolve(a.selection as Selection))];
+          const camera = Boolean(a.camera);
+          const machine = Boolean(a.machine);
+          const parents = Boolean(a.parents);
+          return {
+            items: ids.map((i) => {
+              const id = `a${i}`;
+              const it = all[i];
+              const kw = [...(st.keywords.get(i) ?? []), "Aircraft|Registration|C-FEJC"];
+              const tags: string[] = [];
+              for (const k of kw) {
+                const segs = k.split("|");
+                if (parents) tags.push(...segs.slice(0, -1));
+                tags.push(segs[segs.length - 1]);
+                if (machine && segs.length >= 3)
+                  tags.push(
+                    `${segs[0].toLowerCase()}:${segs[1].toLowerCase().replace(/ /g, "_")}=${segs.slice(2).join(" ")}`,
+                  );
+              }
+              if (camera) tags.push("Sony", "Sony ILCE-1", "FE 200-600mm F5.6-6.3 G OSS");
+              return {
+                id,
+                name: `${id}.ARW`,
+                thumb: null,
+                title: id,
+                description: "",
+                tags: [...new Set(tags)],
+                video: it?.kind === "video",
+                uploads: st.flickr.uploads.get(id) ?? [],
+              };
+            }),
+            status: {
+              hasApp: st.flickr.hasApp,
+              signedIn: st.flickr.signedIn,
+              username: st.flickr.signedIn ? "keepsake-tester" : null,
+              awaitingCode: false,
+              uploaded: st.flickr.uploads.size,
+            },
+          };
+        }
+        case "flickr_account_read":
+        case "flickr_account": {
+          // The account: four photos over two years; read on the second look.
+          const f = st.flickr;
+          if (!f.signedIn) {
+            if (cmd === "flickr_account_read")
+              throw "Sign in to Flickr in Settings → Flickr first.";
+          } else if (cmd === "flickr_account_read" && (a.again || f.accountReads === 0)) {
+            f.accountReads += 1;
+            f.accountPolls = 0;
+          } else if (cmd === "flickr_account") f.accountPolls += 1;
+          const done = f.accountReads > 0 && f.accountPolls > 0;
+          return {
+            signedIn: f.signedIn,
+            username: f.signedIn ? "keepsake-tester" : null,
+            reading: f.signedIn && !done,
+            read: done ? 4 : 0,
+            total: 4,
+            error: null,
+            readAt: done ? "14:02" : null,
+            photos: done ? 4 : 0,
+            years: done
+              ? [
+                  {
+                    year: 2026,
+                    count: 3,
+                    months: [
+                      {
+                        month: "2026-11",
+                        count: 3,
+                        days: [
+                          { date: "2026-11-21", count: 2 },
+                          { date: "2026-11-02", count: 1 },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    year: 2019,
+                    count: 1,
+                    months: [
+                      { month: "2019-07", count: 1, days: [{ date: "2019-07-04", count: 1 }] },
+                    ],
+                  },
+                ]
+              : [],
+          };
+        }
+        case "flickr_account_day": {
+          const photo = (id: string, title: string, uploaded: string, keepsake: boolean) => ({
+            id,
+            title,
+            thumb: null,
+            url: `https://www.flickr.com/photos/1%40N00/${id}/`,
+            privacy: "public",
+            uploaded,
+            taken: null,
+            keepsake,
+          });
+          const byDay: Record<string, ReturnType<typeof photo>[]> = {
+            "2026-11-21": [
+              photo("501", "C-FEJC landing", "2026-11-21 14:01", true),
+              photo("502", "Sunset", "2026-11-21 09:30", false),
+            ],
+            "2026-11-02": [photo("401", "", "2026-11-02 08:00", false)],
+            "2019-07-04": [photo("101", "Fireworks", "2019-07-04 22:10", false)],
+          };
+          return byDay[String(a.date)] ?? [];
+        }
+        case "flickr_upload": {
+          if (!st.flickr.signedIn) throw "Sign in to Flickr in Settings → Flickr first.";
+          const items = (a.items as { id: string }[]) ?? [];
+          for (const it of items)
+            st.flickr.queue.set(it.id, { polls: 0, privacy: String(a.privacy) });
+          return items.length;
+        }
+        case "flickr_upload_stop": {
+          for (const id of (a.ids as string[]) ?? []) st.flickr.queue.delete(id);
+          return null;
+        }
+        case "flickr_upload_status": {
+          // Uploading on the first look, done (or failed) on the second.
+          const ids = (a.ids as string[]) ?? [];
+          let pending = 0;
+          const items = ids.map((id) => {
+            const q = st.flickr.queue.get(id);
+            if (!q) {
+              const done = st.flickr.uploads.get(id)?.[0];
+              return done
+                ? { id, state: "done", url: done.url, error: null }
+                : { id, state: "none", url: null, error: null };
+            }
+            q.polls += 1;
+            if (q.polls < 2) {
+              pending += 1;
+              return { id, state: "uploading", url: null, error: null };
+            }
+            st.flickr.queue.delete(id);
+            if (id === st.flickr.fail)
+              return {
+                id,
+                state: "failed",
+                url: null,
+                error:
+                  "Flickr said: User exceeded upload limit (error 6). Your Flickr account's upload limit is reached (a free account keeps 1,000 photos and videos).",
+              };
+            const url = `https://www.flickr.com/photos/1%40N00/${id.slice(1)}/`;
+            st.flickr.uploads.set(id, [
+              { url, privacy: q.privacy, date: "2026-11-21" },
+              ...(st.flickr.uploads.get(id) ?? []),
+            ]);
+            return { id, state: "done", url, error: null };
+          });
+          return { pending, items };
+        }
         case "aircraft_route_fill": {
           const ids = [...new Set(resolve(a.selection as Selection))].map((i) => `a${i}`);
           for (const id of ids) st.route.fill.set(id, 0);

@@ -111,7 +111,7 @@ Builds on MVP. Adds lossless video tools and basic image adjustments.
 - Sony face and highlight markers imported from XML sidecar.
 
 ### Export
-- **Flickr export**: OAuth 2.0, batch upload, album mapping, title/description/tags from metadata.
+- **Flickr export**: OAuth 1.0a with the user's own API key; batch upload on the job queue; public, friends, family or private for each upload; title and tags from metadata (keywords flattened, optional machine tags, camera and lens); each upload kept in the catalog (ADR-046). Album mapping pending.
 
 ### Additional import
 - MTP import for cameras that do not expose a card filesystem.
