@@ -1849,6 +1849,7 @@ Asked: "add the About → Licences page".
 - `about_open` opens only the credits' own pages (`about::LINKS`); a unit test checks that every credit's URL in the UI (`CREDITS`) is on that list.
 - Parsing is in `licences.ts` (`parseNotices`, `findPackages`), tested against a sample and against the real file (every package has its licence text).
 - No new dependency.
+
 ## ADR-048 — HTTPS trusts the operating system's certificates
 
 **Status**: Accepted (2026-11-21, product owner: "fix it in code", after Add route failed with "could not reach OpenSky: io: invalid peer certificate: UnknownIssuer").

@@ -23,6 +23,9 @@ Manual:
 2. Also try a registration look-up (Read aircraft with Look up online on) and, if set up, Test the sign-in in Settings → Flickr. **Expected:** both work.
 3. **macOS:** the same steps; with no inspecting proxy they work as before.
 4. Turn Wi-Fi off and try again. **Expected:** a clear "could not reach" message, as before.
+
+---
+
 ## Tools → About: credits and licences
 
 Automated (run here and in CI):
