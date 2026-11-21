@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type AppInfo } from "./api";
+import { AboutScreen } from "./components/AboutScreen";
 import { AiJobWindow } from "./components/AiJobWindow";
 import { AircraftReviewWindow } from "./components/AircraftReviewWindow";
 import { RouteFillWindow } from "./components/RouteFillWindow";
@@ -108,6 +109,12 @@ function Main() {
     return (
       <main className="main screen-main" aria-label="Settings">
         <SettingsScreen />
+      </main>
+    );
+  if (s.screen === "about")
+    return (
+      <main className="main screen-main" aria-label="About">
+        <AboutScreen />
       </main>
     );
   return (
