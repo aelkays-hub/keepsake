@@ -1,3 +1,31 @@
+# Keepsake 0.8.0
+
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.8.0 uploads your photos to your own Flickr account and shows what is on that account.
+
+**Before installing, back up your catalog.** 0.8.0 adds two catalog tables, and Keepsake does not back up the catalog before upgrading it. Close Keepsake and copy `catalog.db` to `catalog.pre-0.8.0.db` beside it.
+
+## New in 0.8.0
+
+**Flickr account** (Settings → Flickr)
+- Uses your own Flickr API key (a free non-commercial key from Flickr's App Garden).
+- **Sign in to Flickr…** opens Flickr's page in your browser; you type back the code it shows. There are also **Test the sign-in**, **Sign out** and **Remove key**.
+- The key, secret and sign-in are kept only in Windows Credential Manager or the macOS Keychain, never in a file or the log.
+
+**Upload to Flickr…** (right-click one or several photos)
+- Choose who can see them: Public, Friends and family, Friends, Family or Private (the default).
+- Check each photo's tags before anything is sent:
+  - keywords flattened to their last part (`Aircraft|Registration|C-FEJC` → `C-FEJC`);
+  - the camera and lens by default;
+  - optional machine tags (`aircraft:registration=C-FEJC`) and parent keywords.
+- Remove or add tags for one photo or for all of them.
+- Uploads run in the background, one photo at a time. Each photo shows its result, Flickr's errors are explained in plain words, and failed network tries are retried by themselves.
+- A photo already on Flickr says so and is not ticked again. JPEG, PNG and TIFF originals go up as they are; RAW and HEIF go up as a full-size JPEG. Originals are never changed.
+
+**Report → Flickr**
+- Everything on your Flickr account, read from Flickr (photos uploaded any other way too), as a tree by upload date: year › month › day with counts.
+- Each day shows Flickr's thumbnails, each opening its Flickr page; photos uploaded with Keepsake are marked **K**.
+- Read when you first open it after starting Keepsake and on **Refresh from Flickr**; nothing about it is kept in the catalog.
+
 # Keepsake 0.7.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.7.0 reads the Canadian and US aircraft registers, fills in a photo's missing route keywords, and lists every flight you photographed.
