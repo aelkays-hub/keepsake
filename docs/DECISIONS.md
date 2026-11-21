@@ -1819,3 +1819,21 @@ Nothing GPL is linked. Tried and not kept: PP-OCRv4 mobile detector (`SWHL/Rapid
 - **Catalog** (migration 0022). `flickr_uploads` has one row per upload: asset, account, photo id, page, privacy, tags and time. `flickr_queue` holds the waiting uploads: asset, privacy, title, description, tags and time. The original is never changed, and nothing is written to the sidecars.
 
 **Not done.** Albums (photosets), groups, a description field in the window (the photo's comment is sent), videos, replacing a photo on Flickr, and Flickr's asynchronous upload. If the connection drops after Flickr has received a photo, trying again uploads it a second time, because Flickr gives no way to ask whether it arrived. In that case the window still shows the photo as already on Flickr.
+
+## ADR-047 — Third-party notices in the installer
+
+**Status**: Accepted (2026-11-21, product owner: "add the missing third-party notices to the installer", after the licence audit for a subscription version).
+
+**Context.** The installer shipped the licence files of FFmpeg, LibRaw, ONNX Runtime, DirectML and ExifTool (inside `exiftool/exiftool_files/`), but not those of the Rust crates and npm packages built into the app. MIT, Apache-2.0, BSD, Zlib and MPL-2.0 all ask for their licence text or notice to go with copies of the software, binaries included.
+
+**Decision.**
+- `scripts/make-notices.py` writes `app/ui/src-tauri/licenses/THIRD-PARTY-NOTICES.txt`, which the installer puts at `licenses/THIRD-PARTY-NOTICES.txt` on both OSes (`bundle.resources` in `tauri.conf.json`).
+- **Rust:** the normal and build dependencies of `keepsake-app`, for Windows x64, Windows ARM64 and macOS Apple Silicon together (`cargo metadata --locked --filter-platform`; 364 crates). Dev-only crates and the CLI are not shipped, so they are not listed.
+- **npm:** the UI's production packages (`pnpm licenses list --prod`; 9).
+- **Texts:** every `LICENSE*`, `LICENCE*`, `COPYING*`, `COPYRIGHT*`, `NOTICE*` and `UNLICENSE*` file each package carries, plus its `license-file`. Identical texts are printed once, with the packages that use them. A package that carries no licence file (20, such as `objc2`, `ts-rs` and `webview2-com`) gets the standard text of the licence it declares, marked as such. The MIT and BSD-3-Clause templates name "the authors of <crate>" rather than inventing a copyright line.
+- **Programs beside the app** (section 1): FFmpeg, ExifTool (the same terms as Perl, with Strawberry Perl), LibRaw, ONNX Runtime and DirectML are named with their licences, their sources and where their own licence files are in the installer.
+- The output has no machine paths and LF line endings, so it is the same on every computer. CI runs `python scripts/make-notices.py --check`, which fails when `Cargo.lock` or the UI's dependencies change without the file being regenerated. The CI resource check and the release smoke test also check the file is in the installer.
+
+**Dependencies.** None added. The script uses Python's standard library, `cargo` and `pnpm`, which the build already needs. `cargo-about` was considered and not used, because it would be a new tool to approve.
+
+**Not done.** An About → Licences page in the app; the attribution lines the online services ask for (Flickr, OpenSky, Open Government Licence – Canada); a link to FFmpeg's exact source for the LGPL. These are listed in `docs/LICENCE_AUDIT.md`.

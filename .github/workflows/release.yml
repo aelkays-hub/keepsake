@@ -308,7 +308,7 @@ jobs:
           $files = @(
             "ffmpeg.exe", "ffprobe.exe", "exiftool\exiftool.exe",
             "libraw\dcraw_emu.exe", "libraw\libraw.dll", "libraw\LICENSE.LGPL",
-            "licenses\FFmpeg-LICENSE.txt"
+            "licenses\FFmpeg-LICENSE.txt", "licenses\THIRD-PARTY-NOTICES.txt"
           )
           foreach ($f in $files) {
             if (-not (Test-Path (Join-Path $dir $f))) {
