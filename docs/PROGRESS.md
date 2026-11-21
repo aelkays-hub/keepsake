@@ -78,6 +78,7 @@
 - **Fixed:** `UreqHttp` verifies certificates with the operating system (ureq's `platform-verifier` feature, `rustls-platform-verifier`, MIT OR Apache-2.0, approved by the owner). Notices regenerated.
 - **Tests, run here (Windows, Avast on):** the new unit test; `https_reaches_a_real_site` (ignored by default) reached OpenSky and adsbdb; keepsake-core lib tests; app lib tests; fmt, clippy; `make-notices.py --check`.
 - **Not run:** in the installed app; CI; macOS. Branch `fix/os-certificate-store`.
+
 ## Tools → About: credits and licences (ADR-047 addition) (2026-11-21)
 
 - **Asked:** "add the About → Licences page".
