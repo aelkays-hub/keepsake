@@ -1,3 +1,22 @@
+# Keepsake 0.9.0
+
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.9.0 makes the online features work behind antivirus HTTPS scanning, and shows the licences and credits of everything Keepsake uses.
+
+No catalog change: 0.9.0 opens a 0.8.0 library as it is.
+
+## New in 0.9.0
+
+**Online features work with antivirus HTTPS scanning**
+- Keepsake now checks secure connections against the computer's own trusted certificates (the Windows certificate store, the macOS Keychain), as a browser does.
+- An antivirus that scans HTTPS (Avast's Web Shield, for example) or a company network that inspects it no longer makes Add route, registration look-ups, Flightradar24, Flickr or Tag with AI fail with "invalid peer certificate: UnknownIssuer".
+
+**Tools → About**
+- The version, and the credit each data source and service asks for: Flickr, The OpenSky Network, Transport Canada's register (Open Government Licence – Canada), the FAA register, OurAirports, adsbdb and Flightradar24, each with a link to its page.
+- **Licences:** the programs shipped beside Keepsake (FFmpeg, ExifTool, LibRaw, ONNX Runtime, DirectML), then every component built into Keepsake with its licence. Find narrows the list; Show licence opens its text. Works offline.
+
+**Third-party notices in the installer**
+- `licenses/THIRD-PARTY-NOTICES.txt` in the install folder lists every component built into Keepsake with its licence text, and the programs shipped beside it.
+
 # Keepsake 0.8.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.8.0 uploads your photos to your own Flickr account and shows what is on that account.
