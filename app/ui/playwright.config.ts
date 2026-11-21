@@ -19,6 +19,10 @@ export default defineConfig({
   // waits for it (failed twice on main after 0.6.0: edit-advice, then
   // auto-import, each passing elsewhere).
   expect: { timeout: process.env.CI ? 20_000 : 10_000 },
+  // On CI a test that fails is run once more: the macOS runner fails a
+  // different mocked test on each run (tree-place, then keyboard on 0.7.0's
+  // PR, each passing on the other run); a real failure fails both times.
+  retries: process.env.CI ? 1 : 0,
   fullyParallel: false,
   workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",

@@ -75,6 +75,7 @@
 ## Version 0.7.0 (2026-11-20)
 
 - Version 0.7.0 (`Cargo.toml`, `tauri.conf.json`, both `package.json`, the mock); release notes for 0.7.0. `feat/aircraft-registers` with `main` merged in goes to `main` in one PR. Tried in the installed app by the owner: route fill choices (QK895), AT210, the flight in.
+- CI: the macOS mocked e2e failed a different test on each run (tree-place, then keyboard), each passing on the other run; Playwright now runs a failed test once more on CI (`retries: 1`).
 
 ## Fill in route keywords; the flight report (2026-11-20)
 
