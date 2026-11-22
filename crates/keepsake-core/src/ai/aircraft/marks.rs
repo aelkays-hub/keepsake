@@ -281,6 +281,9 @@ fn shaped(word: &str) -> Option<String> {
     if !w.chars().any(|c| c.is_ascii_alphabetic()) {
         return None;
     }
+    if !w.contains('-') {
+        return plain_digits_again(w);
+    }
     let (prefix, rest) = w.split_once('-')?;
     [
         format!("{}-{rest}", letters_again(prefix)),
@@ -289,6 +292,30 @@ fn shaped(word: &str) -> Option<String> {
     ]
     .into_iter()
     .find(|c| c != w && DASHED.iter().any(|p| fits(p, c)))
+}
+
+/// A mark without a hyphen ([`PLAIN`]) with letters read where it has
+/// digits, read as digits there: `JAO2WJ` → `JA02WJ` (A7405081). After `JA`
+/// the next two are digits in every pattern, after `HL` all four; so only
+/// those places are changed, never the letters that end a Japanese mark.
+fn plain_digits_again(w: &str) -> Option<String> {
+    let digits = if w.starts_with("JA") {
+        2..4
+    } else if w.starts_with("HL") {
+        2..6
+    } else {
+        return None;
+    };
+    if w.len() != 6 || !w.is_ascii() {
+        return None;
+    }
+    let fixed = format!(
+        "{}{}{}",
+        &w[..digits.start],
+        digits_again(&w[digits.clone()]),
+        &w[digits.end..]
+    );
+    (fixed != w && PLAIN.iter().any(|p| fits(p, &fixed))).then_some(fixed)
 }
 
 /// Digits that look like letters, read as letters: `0O` → `OO`.
@@ -865,7 +892,16 @@ mod tests {
             ("N731", Some("N731")),
             ("JA801A", Some("JA801A")),
             ("HL7402", Some("HL7402")),
+            ("JA02WJ", Some("JA02WJ")),
+            // O read for a zero in a Japanese or Korean mark's digits
+            // (A7405081); its closing letters stay letters.
+            ("JAO2WJ", Some("JA02WJ")),
+            ("JAOIAN", Some("JA01AN")),
+            ("HL74O2", Some("HL7402")),
             // Not marks.
+            ("JAO2N", None),
+            ("JAPAN", None),
+            ("JAOLWAYS", None),
             ("C-ABCD", None),
             ("CFJZS", None),
             ("DELTA", None),

@@ -61,6 +61,13 @@ pub const TEXT_MIN: f32 = 0.5;
 /// upside down (a registration painted along the wing, read from below),
 /// and the recogniser reads only upright text.
 pub const TURN_BELOW: f32 = 0.95;
+/// A line less high than this (picture pixels) is also read lengthened by
+/// [`LENGTHEN`] at each end: around small letters the detector's box can
+/// stop short of the last one (`JA02WJ` read `JAO2N` under the wing of a
+/// plane high overhead, A7405081), and a mark missing a letter is no mark.
+pub const SMALL_LINE: f32 = 48.0;
+/// How much longer, as a share of the line's length, at each end.
+pub const LENGTHEN: f32 = 0.1;
 
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
@@ -366,6 +373,18 @@ pub fn turned(quad: &Quad) -> Quad {
     [quad[2], quad[3], quad[0], quad[1]]
 }
 
+/// The same rectangle `share` of its length longer at each end, along the
+/// text: its height as it was.
+pub fn lengthened(quad: &Quad, share: f32) -> Quad {
+    let along = [
+        (quad[1][0] - quad[0][0]) * share,
+        (quad[1][1] - quad[0][1]) * share,
+    ];
+    let back = |p: [f32; 2]| [p[0] - along[0], p[1] - along[1]];
+    let on = |p: [f32; 2]| [p[0] + along[0], p[1] + along[1]];
+    [back(quad[0]), on(quad[1]), on(quad[2]), back(quad[3])]
+}
+
 /// The better of two readings of one line: the more confident.
 pub fn better(a: (String, f32), b: (String, f32)) -> (String, f32) {
     if b.1 > a.1 && !b.0.is_empty() {
@@ -598,29 +617,61 @@ impl TextReader {
         let rgb = img.to_rgb8();
         let mut out = Vec::new();
         for (quad, _) in self.find(&rgb)? {
-            let Some(line) = crop(&rgb, &quad) else {
-                continue;
-            };
-            let mut read = self.read_line(&line)?;
-            let mut quad = quad;
-            if read.1 < TURN_BELOW {
-                let other = turned(&quad);
-                if let Some(line) = crop(&rgb, &other) {
-                    let again = self.read_line(&line)?;
-                    if again.1 > read.1 && !again.0.is_empty() {
-                        quad = other;
-                    }
-                    read = better(read, again);
-                }
-            }
-            let (text, score) = read;
-            if !text.is_empty() && score >= TEXT_MIN {
-                out.push(TextLine { text, score, quad });
-            }
+            out.extend(read_box(&rgb, quad, &mut |l| self.read_line(l))?);
         }
         out.sort_by(|a, b| b.height().total_cmp(&a.height()));
         Ok(out)
     }
+}
+
+/// Reads one straightened line: its text and confidence (the recogniser,
+/// [`TextReader::read_line`]; a stand-in in tests).
+pub type LineReader<'a> = dyn FnMut(&RgbImage) -> Result<(String, f32), AiError> + 'a;
+
+/// The readings of one box the detector found in `rgb`, by `read_line`
+/// (the recogniser): the box either way up ([`turned`]), the more
+/// confident kept; and, for small letters, the box lengthened
+/// ([`lengthened`]) read too, as a line of its own when it says something
+/// else. Each kept only when read with at least [`TEXT_MIN`] confidence.
+pub fn read_box(
+    rgb: &RgbImage,
+    quad: Quad,
+    read_line: &mut LineReader<'_>,
+) -> Result<Vec<TextLine>, AiError> {
+    let Some(line) = crop(rgb, &quad) else {
+        return Ok(Vec::new());
+    };
+    let mut read = read_line(&line)?;
+    let mut quad = quad;
+    if read.1 < TURN_BELOW {
+        let other = turned(&quad);
+        if let Some(line) = crop(rgb, &other) {
+            let again = read_line(&line)?;
+            if again.1 > read.1 && !again.0.is_empty() {
+                quad = other;
+            }
+            read = better(read, again);
+        }
+    }
+    let mut out = Vec::new();
+    if dist(quad[0], quad[3]) < SMALL_LINE {
+        let longer = lengthened(&quad, LENGTHEN);
+        if let Some(line) = crop(rgb, &longer) {
+            let (text, score) = read_line(&line)?;
+            if !text.is_empty() && text != read.0 && score >= TEXT_MIN {
+                out.push(TextLine {
+                    text,
+                    score,
+                    quad: longer,
+                });
+            }
+        }
+    }
+    let (text, score) = read;
+    if !text.is_empty() && score >= TEXT_MIN {
+        out.insert(0, TextLine { text, score, quad });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -726,6 +777,66 @@ mod tests {
         prob[55 * 100 + 80] = 0.95;
         assert_eq!(boxes(&prob, 100, 60).len(), 2);
         assert!(boxes(&prob, 10, 10).is_empty(), "wrong size");
+    }
+
+    /// A box along `u` (unit), `len` × `high`, from `o`.
+    fn slanted(o: [f32; 2], u: [f32; 2], len: f32, high: f32) -> Quad {
+        let v = [-u[1], u[0]];
+        let at = |a: f32, b: f32| [o[0] + u[0] * a + v[0] * b, o[1] + u[1] * a + v[1] * b];
+        [at(0.0, 0.0), at(len, 0.0), at(len, high), at(0.0, high)]
+    }
+
+    #[test]
+    fn a_box_is_lengthened_along_its_text() {
+        let q = slanted([10.0, 50.0], [0.6, -0.8], 35.0, 14.0);
+        let l = lengthened(&q, 0.1);
+        assert!((dist(l[0], l[1]) - 42.0).abs() < 1e-3);
+        assert!((dist(l[0], l[3]) - 14.0).abs() < 1e-3);
+        // Its middle stays.
+        let mid = |q: &Quad| [(q[0][0] + q[2][0]) / 2.0, (q[0][1] + q[2][1]) / 2.0];
+        assert!(dist(mid(&q), mid(&l)) < 1e-3);
+    }
+
+    #[test]
+    fn small_letters_cut_short_are_read_again_lengthened() {
+        // A7405081: JA02WJ under the wing, letters about 10 px high at a
+        // slant; the detector's box stops before the last J, and what the
+        // recogniser reads in it, JAO2N, is no mark.
+        let img = RgbImage::from_pixel(200, 120, Rgb([230, 235, 245]));
+        let q = slanted([60.0, 90.0], [0.34, -0.94], 35.0, 14.0);
+        let mut widths = Vec::new();
+        let mut recogniser = |line: &RgbImage| {
+            widths.push(line.width());
+            Ok(if line.width() >= 40 {
+                ("JA02WJ".to_owned(), 0.93)
+            } else {
+                ("JAO2N".to_owned(), 0.85)
+            })
+        };
+        let lines = read_box(&img, q, &mut recogniser).unwrap();
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["JAO2N", "JA02WJ"]);
+        assert!(lines[1].width() > lines[0].width());
+        let marks = super::super::marks::candidates(
+            &lines,
+            &super::super::marks::Airlines::parse("Japan Airlines\tJAL"),
+        );
+        assert_eq!(marks.registrations, [("JA02WJ".to_owned(), 0.93)]);
+        // Read upright, turned (unsure), then lengthened.
+        assert_eq!(widths, [35, 35, 42]);
+
+        // Big letters are not read again; nor a lengthened read that says
+        // the same.
+        let big = slanted([10.0, 60.0], [1.0, 0.0], 150.0, 50.0);
+        let mut n = 0;
+        let lines = read_box(&img, big, &mut |_| {
+            n += 1;
+            Ok(("KLM".to_owned(), 0.99))
+        })
+        .unwrap();
+        assert_eq!((lines.len(), n), (1, 1));
+        let mut same = |_: &RgbImage| Ok(("JA02WJ".to_owned(), 0.97));
+        assert_eq!(read_box(&img, q, &mut same).unwrap().len(), 1);
     }
 
     #[test]

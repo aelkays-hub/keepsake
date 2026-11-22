@@ -35,4 +35,4 @@ pub use scan::{JOB_AI_AIRCRAFT, SOURCE, SOURCE_NAME};
 
 /// The reader's id, logged with each item read. Bump the version after
 /// `@` when the models, the lists or the rules change.
-pub const MODEL_ID: &str = "ppocr-v5-server-det+en-rec@1";
+pub const MODEL_ID: &str = "ppocr-v5-server-det+en-rec@2";
