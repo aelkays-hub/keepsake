@@ -232,6 +232,7 @@ pub fn run() {
             route::aircraft_route_stop,
             route::aircraft_route_review,
             route::aircraft_route_accept,
+            route::aircraft_route_suggest,
             flickr::flickr_status,
             flickr::flickr_set_app,
             flickr::flickr_sign_in_start,

@@ -4,6 +4,7 @@
 
 import type { RouteChoiceDto } from "./bindings/RouteChoiceDto";
 import type { RouteItemDto } from "./bindings/RouteItemDto";
+import type { RouteSuggestionDto } from "./bindings/RouteSuggestionDto";
 
 /** OpenSky's flight history goes back about this far (checked 2026-11). */
 export const HISTORY_FROM = "2023";
@@ -169,4 +170,25 @@ export function cleanCode(typed: string): string | null | undefined {
   const t = typed.trim().replace(/^0x/i, "");
   if (!t) return null;
   return /^[0-9a-f]{6}$/i.test(t) ? t.toUpperCase() : undefined;
+}
+
+/** A flight number as typed: no spaces, upper case (`ac 856` → `AC856`);
+ * `null` when blank. */
+export function cleanFlight(typed: string): string | null {
+  const t = typed.replace(/\s+/g, "").replace(/[/|]/g, "-").toUpperCase();
+  return t ? t : null;
+}
+
+/** A route other photos of the flight show, as offered:
+ * `YYZ (Canada) → LHR (United Kingdom): 3 photos, latest 2026-05-31`. */
+export function suggestionLine(s: RouteSuggestionDto): string {
+  const photos = `${s.photos} ${s.photos === 1 ? "photo" : "photos"}`;
+  const latest = s.latest ? `, latest ${s.latest}` : "";
+  return `${placeLabel(s.from, s.fromCountry)} → ${placeLabel(s.to, s.toCountry)}: ${photos}${latest}`;
+}
+
+/** Accepting only a typed flight number: the route keywords the photo has
+ * other than its flight number, and the one typed. */
+export function flightOnlyKeywords(has: string[], flight: string): string[] {
+  return [...has.filter((k) => !k.startsWith("Aircraft|Flight|")), `Aircraft|Flight|${flight}`];
 }

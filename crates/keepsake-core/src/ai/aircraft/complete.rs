@@ -374,6 +374,173 @@ pub fn fill(
     Ok((Filled::Added(add), requests))
 }
 
+/// A flight number as it is compared: letters and digits, upper case, as
+/// the flight is sold (`aca 856` → `AC856`, [`route::flight_number`]).
+pub fn flight_key(flight: &str) -> String {
+    let clean: String = flight
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if clean.is_empty() {
+        return clean;
+    }
+    route::flight_number(&clean)
+}
+
+/// A route that other photos tagged with the same flight number show
+/// (ADR-049): offered in the Add route window when the user types a flight
+/// number; nothing is added until they accept it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    /// As written on those photos (`YYZ`, or an ICAO code); `None`: not said.
+    pub from: Option<String>,
+    pub from_country: Option<String>,
+    pub to: Option<String>,
+    pub to_country: Option<String>,
+    /// The flight number as those photos have it.
+    pub flight: String,
+    /// How many photos show it.
+    pub photos: u64,
+    /// The latest of their capture times (Unix ms, UTC), when known.
+    pub latest_ms: Option<i64>,
+    /// What accepting it adds: `Aircraft|From|YYZ`, its country, `To`, its
+    /// country and `Aircraft|Flight|…`.
+    pub keywords: Vec<TagPath>,
+}
+
+/// One photo's route keywords, with the countries' names.
+#[derive(Default)]
+struct Written {
+    flight: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    from_country: Option<String>,
+    to_country: Option<String>,
+}
+
+fn written(cat: &Catalog, asset: AssetId) -> Result<Written, AiError> {
+    let mut w = Written::default();
+    for t in cat.read(|tx| tx.tags().for_asset(asset))? {
+        if t.source != TagSource::User {
+            continue;
+        }
+        let s = t.path.segments();
+        if s.len() != 3 || s[0] != TAG_PARENT {
+            continue;
+        }
+        let v = Some(s[2].trim().to_owned()).filter(|v| !v.is_empty());
+        let slot = match s[1].as_str() {
+            "Flight" => &mut w.flight,
+            "From" => &mut w.from,
+            "To" => &mut w.to,
+            "From country" => &mut w.from_country,
+            "To country" => &mut w.to_country,
+            _ => continue,
+        };
+        if slot.is_none() {
+            *slot = v;
+        }
+    }
+    Ok(w)
+}
+
+/// The routes the photos tagged `Aircraft|Flight|<flight>` (as the user's
+/// keyword; `ac856`, `AC 856` and `ACA856` are the same flight) show, other
+/// than `except`: their from and to airports and countries (a country not
+/// written is the airport list's). Those with the most photos first, then
+/// the most recent. Nothing is asked online and nothing is changed.
+pub fn suggest(
+    cat: &Catalog,
+    airports: &Airports,
+    flight: &str,
+    except: &[AssetId],
+) -> Result<Vec<Suggestion>, AiError> {
+    let want = flight_key(flight);
+    if want.is_empty() {
+        return Ok(Vec::new());
+    }
+    let parent = TagPath::new([TAG_PARENT, "Flight"])?;
+    let names = cat.read(|tx| tx.tags().user_children(&parent))?;
+    let mut seen: Vec<AssetId> = Vec::new();
+    let mut out: Vec<Suggestion> = Vec::new();
+    for (name, _) in names.into_iter().filter(|(n, _)| flight_key(n) == want) {
+        let path = TagPath::new([TAG_PARENT, "Flight", name.as_str()])?;
+        for id in cat.read(|tx| tx.tags().assets_with(&path))? {
+            if except.contains(&id) || seen.contains(&id) {
+                continue;
+            }
+            seen.push(id);
+            let w = written(cat, id)?;
+            let Some(number) = w.flight.filter(|f| flight_key(f) == want) else {
+                continue;
+            };
+            if w.from.is_none() && w.to.is_none() {
+                continue;
+            }
+            let country = |code: &Option<String>, given: Option<String>| {
+                given.or_else(|| {
+                    code.as_deref()
+                        .and_then(|c| airports.icao_of(c))
+                        .and_then(|i| airports.place(&i).1)
+                })
+            };
+            let from_country = country(&w.from, w.from_country);
+            let to_country = country(&w.to, w.to_country);
+            let at = cat
+                .read(|tx| tx.assets().get(id))?
+                .and_then(|a| a.capture)
+                .map(|c| c.utc_ms);
+            let up = |c: &Option<String>| c.as_deref().map(str::to_ascii_uppercase);
+            match out
+                .iter_mut()
+                .find(|s| up(&s.from) == up(&w.from) && up(&s.to) == up(&w.to))
+            {
+                Some(s) => {
+                    s.photos += 1;
+                    s.latest_ms = s.latest_ms.max(at);
+                    s.from_country = s.from_country.take().or(from_country);
+                    s.to_country = s.to_country.take().or(to_country);
+                }
+                None => out.push(Suggestion {
+                    from: w.from,
+                    from_country,
+                    to: w.to,
+                    to_country,
+                    flight: number,
+                    photos: 1,
+                    latest_ms: at,
+                    keywords: Vec::new(),
+                }),
+            }
+        }
+    }
+    for s in &mut out {
+        let mut k = Vec::new();
+        for (kind, v) in [
+            ("From", &s.from),
+            ("From country", &s.from_country),
+            ("To", &s.to),
+            ("To country", &s.to_country),
+            ("Flight", &Some(s.flight.clone())),
+        ] {
+            if let Some(v) = v {
+                let v = v.replace(['/', '|'], "-");
+                k.push(TagPath::new([TAG_PARENT, kind, v.trim()])?);
+            }
+        }
+        s.keywords = k;
+    }
+    out.sort_by(|a, b| {
+        b.photos
+            .cmp(&a.photos)
+            .then(b.latest_ms.cmp(&a.latest_ms))
+            .then(a.from.cmp(&b.from))
+            .then(a.to.cmp(&b.to))
+    });
+    Ok(out)
+}
+
 /// Queue filling in for `ids` (again for those done before).
 pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     let now = crate::jobs::now_ms();

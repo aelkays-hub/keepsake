@@ -1,4 +1,4 @@
-# Manual Test Steps — HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,48 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## Add route: one OpenSky question per aircraft
+
+Automated:
+```
+cargo test -p keepsake-core --test aircraft_tests opensky_request
+cargo test -p keepsake-core --test aircraft_tests aircraft_make
+cargo test -p keepsake-core --lib days_are_asked
+```
+
+Manual (both OSes; Find the route online on, OpenSky client saved, Flights from: OpenSky):
+1. Pick 20 or more photos of **one** aircraft taken within a few hours (one with an accepted registration), on a day not asked about before; right-click → **Add route**.
+   - **Expected:** every photo gets its flight (or "no flight near"); the log shows **one** line "Add route asked OpenSky" for that transponder code (days=1), not one per photo.
+2. Photos of that aircraft from 22:00 to 02:00 UTC (both sides of midnight).
+   - **Expected:** two log lines (one per UTC day, days=1 each), not one per photo; each photo still offered its own flight.
+3. Photos of **two** aircraft in one selection.
+   - **Expected:** two questions, one per transponder code.
+4. Photos of one aircraft on three days in a row and a week later.
+   - **Expected:** four questions, one per day.
+5. At OpenSky's limit (or with no credits left): the window says when it goes on; later every photo is answered, the questions not repeated.
+
+## Add route typed by hand: routes from photos already tagged
+
+Automated:
+```
+cargo test -p keepsake-core --test aircraft_tests typed_flight_number
+cd app/ui; pnpm exec vitest run src/unit/aircraftRoute.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts -g "typed by hand"
+```
+
+Manual (both OSes):
+1. Tag two or three photos `Aircraft|Flight|AC856`, `Aircraft|From|YYZ`, `Aircraft|To|LHR`, and one `Aircraft|Flight|AC856`, `Aircraft|From|YVR`, `Aircraft|To|LHR`.
+2. Right-click another aircraft photo → **Add route**; open **Type the flight number** and type `ac 856`.
+   - **Expected:** two buttons: "YYZ (Canada) → LHR (United Kingdom): 3 photos, latest …" first, then the YVR one. Nothing is added yet (the inspector shows no new keyword).
+3. Click the first button.
+   - **Expected:** "Added: From YYZ, From country Canada, To LHR, To country United Kingdom, Flight AC856"; the inspector shows them; the photo file is unchanged (only the sidecar).
+4. On another photo type `ACA856`.
+   - **Expected:** the same suggestions (the callsign is the same flight).
+5. Type a flight no photo has (`XX1`).
+   - **Expected:** "No other photo has the flight XX1 with its airports." and **Add only Flight XX1**, which adds only that keyword and keeps any From/To the photo has.
+
+---
 
 ## HTTPS through an antivirus or a company proxy
 

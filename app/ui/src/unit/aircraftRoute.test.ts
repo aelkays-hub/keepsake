@@ -14,7 +14,11 @@ import {
   stateLine,
   tickedKeywords,
   whenLine,
+  cleanFlight,
+  suggestionLine,
+  flightOnlyKeywords,
 } from "../aircraftRoute";
+import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { RouteChoiceDto } from "../bindings/RouteChoiceDto";
 import type { RouteItemDto } from "../bindings/RouteItemDto";
 
@@ -189,5 +193,42 @@ describe("Add route", () => {
     );
     expect(stateLine(item("waiting"), "flightradar")).toBe("Asking Flightradar24…");
     expect(stateLine(item("nothing"), "flightradar")).toContain("depends on your API plan");
+  });
+});
+
+describe("a route typed by hand", () => {
+  const sg = (p: Partial<RouteSuggestionDto>): RouteSuggestionDto => ({
+    from: "YYZ",
+    fromCountry: "Canada",
+    to: "LHR",
+    toCountry: "United Kingdom",
+    flight: "AC856",
+    photos: 3,
+    latest: "2026-05-31",
+    keywords: [],
+    ...p,
+  });
+
+  it("cleans the flight number typed", () => {
+    expect(cleanFlight(" ac 856 ")).toBe("AC856");
+    expect(cleanFlight("AC/85|6")).toBe("AC-85-6");
+    expect(cleanFlight("   ")).toBeNull();
+  });
+
+  it("says each route offered, with its photos and the latest day", () => {
+    expect(suggestionLine(sg({}))).toBe(
+      "YYZ (Canada) → LHR (United Kingdom): 3 photos, latest 2026-05-31",
+    );
+    expect(suggestionLine(sg({ photos: 1, latest: null, to: null, toCountry: null }))).toBe(
+      "YYZ (Canada) → Not known: 1 photo",
+    );
+  });
+
+  it("adds only the flight number, keeping the airports the photo has", () => {
+    expect(flightOnlyKeywords(["Aircraft|From|YYZ", "Aircraft|Flight|AC855"], "AC856")).toEqual([
+      "Aircraft|From|YYZ",
+      "Aircraft|Flight|AC856",
+    ]);
+    expect(flightOnlyKeywords([], "XX1")).toEqual(["Aircraft|Flight|XX1"]);
   });
 });
