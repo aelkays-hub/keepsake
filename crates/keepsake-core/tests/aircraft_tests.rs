@@ -1942,21 +1942,20 @@ fn flightradar24_finds_the_flight_by_registration_and_forgets_it_after_30_days()
         }
         s => panic!("{s:?}"),
     }
-    // Kept: not asked again; OpenSky's answers are apart.
+    // Kept: not asked again. OpenSky's answers are apart, but with OpenSky
+    // chosen the photo keeps Flightradar24's answer (ADR-050).
     route::run_job(&mut w.cat, &fr, None, ids[0], Clock::AsRecorded).unwrap();
     assert_eq!(fr.asked.lock().unwrap().len(), 1);
-    assert_eq!(
-        route::review(
-            &w.cat,
-            &airports,
-            ids[0],
-            Clock::AsRecorded,
-            Source::OpenSky
-        )
-        .unwrap()
-        .state,
-        route::State::NoTransponder
-    );
+    let it = route::review(
+        &w.cat,
+        &airports,
+        ids[0],
+        Clock::AsRecorded,
+        Source::OpenSky,
+    )
+    .unwrap();
+    assert_eq!(it.source, Some(Source::Flightradar));
+    assert!(matches!(it.state, route::State::Found(Pick::One(_))));
 
     // Ask again: asked once more.
     route::again(&mut w.cat, &ids, Clock::AsRecorded, Source::Flightradar).unwrap();
@@ -2925,4 +2924,179 @@ fn flight_numbers_are_compared_as_sold() {
     assert_eq!(flight_key("AC-856"), "AC856");
     assert_eq!(flight_key("ACA856"), flight_key("AC856"));
     assert_eq!(flight_key(" "), "");
+}
+
+// ---- Add route chooses OpenSky or Flightradar24 by the photo's date (ADR-050) ----
+
+/// Flightradar24 with a plan that gives flights from `from` (Unix s):
+/// earlier questions are refused, saying so, as the real API does.
+struct PlanFr24 {
+    from: i64,
+    asked: Mutex<Vec<(i64, i64)>>,
+    said: Mutex<Option<i64>>,
+}
+
+impl PlanFr24 {
+    fn new(from: i64) -> Self {
+        Self {
+            from,
+            asked: Mutex::new(Vec::new()),
+            said: Mutex::new(None),
+        }
+    }
+}
+
+impl route::Flights for PlanFr24 {
+    fn flights(&self, _: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        self.asked.lock().unwrap().push((begin, end));
+        if begin < self.from {
+            *self.said.lock().unwrap() = Some(self.from);
+            return Err(AiError::Cloud {
+                message: "Flightradar24: your API plan gives flights from a later date".into(),
+                retry: false,
+            });
+        }
+        Ok(Vec::new())
+    }
+    fn source(&self) -> Source {
+        Source::Flightradar
+    }
+    fn take_history_from(&self) -> Option<i64> {
+        self.said.lock().unwrap().take()
+    }
+}
+
+const DAY: i64 = 86_400;
+
+#[test]
+fn automatic_asks_flightradar24_for_recent_photos_and_opensky_for_older_ones() {
+    use keepsake_core::ai::aircraft::route::{Mode, Sources};
+    let now = PHOTO_S + 10 * DAY;
+    let (mut w, ids) = route_world(&["recent.jpg", "old.jpg"], &[PHOTO_S, now - 60 * DAY]);
+    let sky = Arc::new(FakeSky {
+        asked: Mutex::new(Vec::new()),
+    });
+    let fr = Arc::new(PlanFr24::new(now - 30 * DAY));
+    let sources = Sources::new(Mode::Auto, Some(sky.clone()), Some(fr.clone()), 30);
+
+    // Ten days old: within the plan's 30 days, Flightradar24.
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[0], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::Flightradar));
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+    assert!(sky.asked.lock().unwrap().is_empty());
+    // Sixty days old: before it, OpenSky; Flightradar24 is not asked.
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[1], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::OpenSky));
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+    assert_eq!(sky.asked.lock().unwrap().len(), 1);
+
+    // The window says where each photo's flights come from.
+    let airports = Airports::builtin();
+    let choose = sources.choose(now);
+    let r = route::review_with(&w.cat, &airports, ids[0], Clock::AsRecorded, &choose).unwrap();
+    assert_eq!(r.source, Some(Source::Flightradar));
+    assert!(
+        matches!(r.state, route::State::Found(Pick::Nothing)),
+        "{r:?}"
+    );
+    let r = route::review_with(&w.cat, &airports, ids[1], Clock::AsRecorded, &choose).unwrap();
+    assert_eq!(r.source, Some(Source::OpenSky));
+    assert!(matches!(r.state, route::State::Found(_)), "{r:?}");
+
+    // Forced to one: only it, whatever the date.
+    let only = Sources::new(
+        Mode::Only(Source::OpenSky),
+        Some(sky.clone()),
+        Some(fr.clone()),
+        30,
+    );
+    route::again(&mut w.cat, &ids[..1], Clock::AsRecorded, Source::OpenSky).unwrap();
+    let a = route::run_job_auto(&mut w.cat, &only, None, ids[0], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::OpenSky));
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn flightradar24_s_plan_is_learnt_from_its_answer_and_older_photos_go_to_opensky() {
+    use keepsake_core::ai::aircraft::route::{Mode, Sources};
+    let now = PHOTO_S + 10 * DAY;
+    // The plan gives five days, not the thirty assumed.
+    let (mut w, ids) = route_world(
+        &["a.jpg", "b.jpg", "c.jpg"],
+        &[PHOTO_S, PHOTO_S + DAY, now - 2 * DAY],
+    );
+    let sky = Arc::new(FakeSky {
+        asked: Mutex::new(Vec::new()),
+    });
+    let fr = Arc::new(PlanFr24::new(now - 5 * DAY));
+    let learnt = Arc::new(Mutex::new(Vec::new()));
+    let keep = learnt.clone();
+    let sources = Sources::new(Mode::Auto, Some(sky.clone()), Some(fr.clone()), 30)
+        .on_learn(Arc::new(move |d| keep.lock().unwrap().push(d)));
+
+    // Ten days old: Flightradar24 refuses it; its plan's days are learnt
+    // and kept, and OpenSky answers instead (not failed).
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[0], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::OpenSky));
+    assert_eq!(a.fr24_days, Some(5));
+    assert_eq!(sources.fr24_days(), 5);
+    assert_eq!(*learnt.lock().unwrap(), [5]);
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+    assert_eq!(sky.asked.lock().unwrap().len(), 1);
+    // Nine days old: straight to OpenSky now.
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[1], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::OpenSky));
+    assert_eq!(fr.asked.lock().unwrap().len(), 1);
+    // Two days old: still Flightradar24's.
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[2], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::Flightradar));
+    assert_eq!(*learnt.lock().unwrap(), [5]);
+
+    // Forced to Flightradar24: its refusal is the job's error.
+    let forced = Sources::new(
+        Mode::Only(Source::Flightradar),
+        Some(sky.clone()),
+        Some(fr.clone()),
+        30,
+    );
+    let (mut w2, ids2) = route_world(&["d.jpg"], &[PHOTO_S]);
+    assert!(matches!(
+        route::run_job_auto(&mut w2.cat, &forced, None, ids2[0], Clock::AsRecorded, now),
+        Err(AiError::Cloud { retry: false, .. })
+    ));
+}
+
+#[test]
+fn automatic_uses_the_one_set_up_and_says_when_neither_can_be_asked() {
+    use keepsake_core::ai::aircraft::route::{Mode, Sources};
+    let now = PHOTO_S + 10 * DAY;
+    let (mut w, ids) = route_world(&["recent.jpg", "old.jpg"], &[PHOTO_S, now - 60 * DAY]);
+    let sky = Arc::new(FakeSky {
+        asked: Mutex::new(Vec::new()),
+    });
+    // No Flightradar24 token: OpenSky for the recent photo too.
+    let sources = Sources::new(Mode::Auto, Some(sky.clone()), None, 30);
+    let a =
+        route::run_job_auto(&mut w.cat, &sources, None, ids[0], Clock::AsRecorded, now).unwrap();
+    assert_eq!(a.source, Some(Source::OpenSky));
+
+    // No OpenSky client: the old photo cannot be asked, and it says why.
+    let fr = Arc::new(PlanFr24::new(now - 30 * DAY));
+    let sources = Sources::new(Mode::Auto, None, Some(fr.clone()), 30);
+    match route::run_job_auto(&mut w.cat, &sources, None, ids[1], Clock::AsRecorded, now) {
+        Err(AiError::Cloud { message, retry }) => {
+            assert!(!retry);
+            assert!(
+                message.contains("older than your Flightradar24 plan's 30 days"),
+                "{message}"
+            );
+        }
+        r => panic!("{r:?}"),
+    }
+    assert!(fr.asked.lock().unwrap().is_empty());
 }
