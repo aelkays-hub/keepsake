@@ -73,6 +73,10 @@
 
 
 
+## Version 0.10.0 (2026-11-22)
+
+- Version 0.10.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Add route asks OpenSky once per aircraft and day, and a typed flight number offers the routes other photos of it have (ADR-049). No catalog change.
+
 ## Add route: one OpenSky question per aircraft; routes typed by hand (ADR-049) (2026-11-22)
 
 - **Asked:** (1) photos sharing a transponder code and registration make one OpenSky request for the time they cover, not one per photo, in as few windows as OpenSky allows, keeping the wait at its limit; (2) a flight number typed in the Add route window offers the from and to (and countries) of other photos tagged with it, most photos then most recent, applied only when accepted.

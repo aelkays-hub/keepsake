@@ -1,3 +1,21 @@
+# Keepsake 0.10.0
+
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.10.0 makes Add route ask OpenSky far less often, and lets you type a flight number to reuse the route your other photos of that flight already have.
+
+No catalog change: 0.10.0 opens a 0.9.0 library as it is.
+
+## New in 0.10.0
+
+**Add route asks OpenSky once per aircraft and day**
+- When you pick many photos of the same aircraft, Add route asks OpenSky once for each day they were taken, not once per photo, and finds each photo's flight in that one answer.
+- Each question covers one UTC day, the cheapest kind (4 of OpenSky's daily credits): photos either side of midnight make two.
+- At OpenSky's daily limit, Add route still waits and then carries on by itself.
+
+**Type a flight number: routes from your other photos**
+- In the Add route window, open **Type the flight number** under a photo and type it (`AC856`; `ac 856` and the callsign `ACA856` work too).
+- The from and to airports, with their countries, of your other photos tagged with that flight are offered, the route on the most photos first, then the most recent.
+- One click adds that route. **Add only Flight …** adds just the flight number and keeps the airports the photo has. Nothing is added until you click, and nothing is looked up online.
+
 # Keepsake 0.9.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.9.0 makes the online features work behind antivirus HTTPS scanning, and shows the licences and credits of everything Keepsake uses.
