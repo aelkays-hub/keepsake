@@ -44,6 +44,7 @@
 | — | Add route: the flight a photo shows, from OpenSky's flight history (from, to, countries, flight number; ADR-044, part 2) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route: one OpenSky question per aircraft; a typed flight number offers the routes other photos of it have (ADR-049) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: small registrations cut short by the text finder are read again lengthened; O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -73,6 +74,15 @@
 
 
 
+
+## Read aircraft: small registrations cut short, and O for zero in JA marks (2026-11-22)
+
+- **Asked:** A7405081.ARW shows JA0AWJ under the plain wing, but Read aircraft found nothing. Why, and fix it.
+- **Found:** the catalog's read for it was full size, ran without error, and had no candidates at all. The paint reads **JA02WJ** (a JAL A350-1000; JA02WJ, not JA0AWJ). The aircraft finder found the plane (622 × 492 px in a 7028 × 4688 RAW), and the text finder found the registration, a line only 14 px high with letters about 8 px. But the box stopped short of the last J, so the recogniser read `JAO2N` (0.85): 5 characters, and O for the zero, so it had no mark's shape. The JA patterns (`JA####`, `JA###@`, `JA##@@`) were right; no confidence level dropped it; the wing was searched, and turning the line over did not help. A larger picture, more contrast or sharpening read it no better (tried on a scratch copy, outside the repo).
+- **Built:** `ocr::read_box` (one box's readings, testable with a stand-in recogniser) and `ocr::lengthened`. A line under `SMALL_LINE` (48 px) is also read with its box `LENGTHEN` (10 %) longer at each end, kept as a line of its own when it says something else. `marks::plain_digits_again`: O, D, Q, I or L in the digit places of a plain mark (the two after `JA`, the four after `HL`) are read as digits; the letters that end a JA mark stay letters.
+- **Result on the photo** (scratch harness against this branch): `JAO2N` and now `JA02NJ` (0.95), a candidate where there was none. **Still one letter wrong:** at about 8 px the W is read as N in every variant tried. This is the limit of the English mobile recogniser at that size; a larger recogniser model would need the owner's approval.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (76, 2 new, 1 extended: `small_letters_cut_short_are_read_again_lengthened`, `a_box_is_lengthened_along_its_text`, `registrations_are_recognised_by_their_shape`); `aircraft_tests` (44); cargo fmt, clippy `-D warnings` (keepsake-core).
+- **Not run:** in the installed app; CI; macOS. Branch `fix/aircraft-ja-registration`.
 
 ## Add route chooses OpenSky or Flightradar24 by the photo's date (ADR-050) (2026-11-22)
 
