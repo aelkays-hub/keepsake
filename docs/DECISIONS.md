@@ -1868,3 +1868,23 @@ Nothing GPL. The third-party notices are regenerated (366 crates).
 
 **Not done.** Downloads made with `curl` (models, registers) already use the system's TLS (Schannel on Windows) and are unchanged.
 
+## ADR-049 — Add route: one OpenSky question per aircraft; routes typed by hand
+
+**Status**: Accepted (2026-11-22, product owner's request).
+
+**Context.** Add route (ADR-044) asked OpenSky once per aircraft and UTC day, and kept each answer (`aircraft_flights`). Photos of one aircraft on one day already shared one question, but a photo within three hours of midnight needed two (one per day), and a selection over consecutive days needed one per day. The owner asked: when many photos share a transponder code and registration, ask once for the time they cover and match each photo from that one answer. Separately, when a route is typed by hand, the flight number alone should offer the from and to that other photos of that flight already have.
+
+**Decision 1: one question per aircraft.**
+- A route job, before asking, gathers the days not kept yet of its own photo and of every other queued Add route photo (up to 1,000) whose registration has the same transponder code (`route::peer_days`), and asks for them in as few questions as OpenSky allows (`route::windows`): consecutive UTC days joined, at most **two days** per question (OpenSky: the interval "must not be larger than 2 days"), days far apart asked apart. A question runs from its first day's start to its last day's end.
+- The answer is kept under **each** day it covers (no schema change), so each photo still reads its own days; the same flight read from two days is one (`merge_flights`, the copy with its ends filled in wins). The callsigns' routes (`fill_ends`) are asked once per answer, before it is kept.
+- The other photos' jobs then find their days kept and ask nothing.
+- OpenSky's limit: unchanged. A 429 defers this job and the queued ones until the time OpenSky says (`AiError::Later`); nothing is kept for the question that failed, and the next job asks it again.
+- Flightradar24 (by registration, charged per flight returned) is unchanged: one day per question.
+
+**Cost.** OpenSky charges `/flights/*` by the calendar days a question crosses: under 24 hours (one day) 4 credits; 1–2 days 30 credits (its credit table, checked 2026-11-22). So a two-day question is **one request instead of two but 30 credits instead of 8**. Standard accounts have 4,000 credits a day. Where credits matter more than requests, `MAX_WINDOW_DAYS = 1` gives back the old one-day questions while still sharing one question among the photos of a day.
+
+**Decision 2: routes from photos already tagged.** In the Add route window, each photo has **Type the flight number**. As the user types, `aircraft_route_suggest` (thin) calls `complete::suggest`: the photos (other than this one) whose user keyword `Aircraft|Flight|…` is that flight (compared as sold: `ac 856`, `AC856` and `ACA856` are one, `complete::flight_key`), grouped by their `From` and `To` keywords, with their countries (as written on the photos, else from the airport list), **most photos first, then the most recent**. Each is a button; one click accepts its keywords (`Aircraft|From|…`, `From country`, `To`, `To country`, `Flight`) through the existing `aircraft_route_accept`. **Add only Flight …** adds the number alone and keeps the airports the photo has. Nothing is added before a click; nothing is asked online.
+
+**Dependencies.** None. No schema change; a new read in the job repository (`queued_assets`).
+
+**Tests.** Integration (fake OpenSky counting questions): 30 photos of one aircraft from 22:00 to 01:50 UTC make 1 request covering both days; two aircraft make 2; days 1, 2, 3 and 10 make 3 (two days at most each); at the limit the job waits and then one question covers all five photos; the suggestions' order, countries, flight-number matching, and that nothing is changed. Unit: `windows`, `merge_flights`. Vitest: the window's helpers. Mocked Playwright: suggestions offered, accepted with one click, nothing sent before; a flight no other photo has.

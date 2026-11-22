@@ -42,6 +42,7 @@
 | — | Read aircraft: online registration lookup (adsbdb), the same plane's other photos, and its burst | 🟡 Built and tested on Windows; CI not run yet |
 | — | The aircraft's age: build year from OpenSky's database or typed, age worked out when shown (ADR-044, part 1) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route: the flight a photo shows, from OpenSky's flight history (from, to, countries, flight number; ADR-044, part 2) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Add route: one OpenSky question per aircraft; a typed flight number offers the routes other photos of it have (ADR-049) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -71,6 +72,14 @@
 
 
 
+
+## Add route: one OpenSky question per aircraft; routes typed by hand (ADR-049) (2026-11-22)
+
+- **Asked:** (1) photos sharing a transponder code and registration make one OpenSky request for the time they cover, not one per photo, in as few windows as OpenSky allows, keeping the wait at its limit; (2) a flight number typed in the Add route window offers the from and to (and countries) of other photos tagged with it, most photos then most recent, applied only when accepted.
+- **Built:** `route::run_job` gathers the queued photos of the same aircraft (`peer_days`) and asks for their days together (`windows`: consecutive UTC days, two at most per question); the answer is kept under each day (`merge_flights` reads a flight kept under two days once). `JobsRepo::queued_assets`. `complete::suggest` and `flight_key`; Tauri `aircraft_route_suggest` (thin); `RouteSuggestionDto`. UI: **Type the flight number** in each photo of the Add route window, suggestions as one-click buttons, **Add only Flight …**; the mock backend answers it.
+- **Cost to know:** a two-day OpenSky question is 30 credits, two one-day questions 8 (OpenSky's credit table). One request instead of two, as asked; `MAX_WINDOW_DAYS = 1` goes back to day-sized questions.
+- **Tests, run here (Windows):** `aircraft_tests` (all 41, 5 new, 3 changed fakes now answer every day of the window, the midnight test now expects 1 request); keepsake-core lib `aircraft` (73, 2 new) and `jobs`; keepsake-app tests (bindings); Vitest `aircraftRoute` (11, 3 new); mocked Playwright `Add route` (7, 1 new); cargo fmt, clippy `-D warnings` (core and app), tsc, ESLint, Prettier.
+- **Not run:** against the real OpenSky; in the installed app; CI; macOS. Branch `feat/route-batch-suggest`.
 
 ## Version 0.9.0 (2026-11-21)
 
