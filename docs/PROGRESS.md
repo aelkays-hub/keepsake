@@ -75,6 +75,10 @@
 
 
 
+## Version 0.11.1 (2026-11-22)
+
+- Version 0.11.1 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft reads small registrations cut short again, and O for zero in JA marks (PR #61). No catalog change. v0.11.0 stays tagged as built (without that fix).
+
 ## Read aircraft: small registrations cut short, and O for zero in JA marks (2026-11-22)
 
 - **Asked:** A7405081.ARW shows JA0AWJ under the plain wing, but Read aircraft found nothing. Why, and fix it.
