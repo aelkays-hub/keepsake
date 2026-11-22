@@ -13,6 +13,8 @@
 //!   downloading them.
 //! - [`built`]: when an aircraft was built (OpenSky's database, or typed),
 //!   for its age.
+//! - [`near`]: a registration read one look-alike letter off a known
+//!   aircraft, offered as that one.
 //! - [`route`]: the flight a photo shows (OpenSky's flight history), for
 //!   Add route.
 //! - [`scan`]: the `ai.aircraft` job: one item's picture in, its
@@ -24,6 +26,7 @@ pub mod fr24;
 pub mod install;
 pub mod lookup;
 pub mod marks;
+pub mod near;
 pub mod ocr;
 pub mod planes;
 pub mod register;
