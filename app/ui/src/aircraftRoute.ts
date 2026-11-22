@@ -64,13 +64,26 @@ export function whenLine(c: RouteChoiceDto): string {
   return `Taken ${c.gapMin} min ${dep ? "before" : "after"} ${end} (${time} UTC)`;
 }
 
-/** The source's name for people (`opensky`, `flightradar`). */
-export function serviceName(source: string | undefined): string {
-  return source === "flightradar" ? "Flightradar24" : "OpenSky";
+/** The source's name for people (`opensky`, `flightradar`; `auto`: either). */
+export function serviceName(source: string | undefined | null): string {
+  if (source === "flightradar") return "Flightradar24";
+  if (source === "opensky") return "OpenSky";
+  return source === "auto" ? "OpenSky or Flightradar24" : "OpenSky";
+}
+
+/** What Automatic does with the clients saved (Settings). */
+export function fr24ReachLine(days: number, fr24: boolean, opensky: boolean): string {
+  const plan = `Photos from the last ${days} days go to Flightradar24 (how far back your plan goes, as Flightradar24 last said; 30 until it says), older ones to OpenSky.`;
+  if (fr24 && opensky) return plan;
+  if (fr24) return `${plan} Add an OpenSky client for older photos.`;
+  if (opensky) return "Without a Flightradar24 token, every photo goes to OpenSky.";
+  return "Add an OpenSky client or a Flightradar24 token below.";
 }
 
 /** What the window says for a photo without a flight to offer. */
-export function stateLine(item: RouteItemDto, source?: string): string | null {
+export function stateLine(item: RouteItemDto, setting?: string): string | null {
+  // The photo's own source (chosen by its date when automatic).
+  const source = item.source ?? setting;
   const name = serviceName(source);
   switch (item.state) {
     case "no-registration":

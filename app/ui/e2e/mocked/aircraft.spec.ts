@@ -739,6 +739,39 @@ test("Add route from Flightradar24: chosen in Settings, its token saved and test
   await expect(win).toContainText("kept 30 days");
 });
 
+test("Add route automatic: Flightradar24 within the plan's history, OpenSky before it", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved&fr24=saved&fr24days=5");
+  await settings(page);
+  // Automatic is the default, and says how far back the plan goes.
+  await expect(page.getByTestId("route-source-auto")).toBeChecked();
+  await expect(page.getByTestId("route-source-auto-note")).toContainText(
+    "Photos from the last 5 days go to Flightradar24",
+  );
+  // Both clients are offered.
+  await expect(page.getByTestId("opensky-client")).toBeVisible();
+  await expect(page.getByTestId("fr24-client")).toBeVisible();
+  // One can still be forced, and Automatic chosen again.
+  await page.getByTestId("route-source-opensky").check();
+  await expect(page.getByTestId("route-source-auto-note")).toHaveCount(0);
+  await page.getByTestId("route-source-auto").check();
+  expect(await calls(page, "aircraft_set_route_source")).toEqual([
+    { source: "opensky" },
+    { source: "auto" },
+  ]);
+
+  // The window says where each photo's flights come from.
+  await page.getByTestId("sidebar").getByRole("button", { name: "All items" }).click();
+  const win = await addRoute(page, 20);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  await expect(
+    win.getByTestId("rt-source").filter({ hasText: "Flightradar24" }).first(),
+  ).toBeVisible();
+  await expect(win.getByTestId("rt-source").filter({ hasText: "OpenSky" }).first()).toBeVisible();
+  await expect(win).toContainText("Each photo is asked where its date fits");
+});
+
 test("Look up aircraft on Flightradar24: one batch job over every registration", async ({
   page,
 }) => {

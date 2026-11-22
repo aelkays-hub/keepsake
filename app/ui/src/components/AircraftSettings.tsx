@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { aircraftProgress } from "../aircraft";
+import { fr24ReachLine } from "../aircraftRoute";
 import { api, events, type AircraftStatus } from "../api";
 import type { Fr24AircraftStatusDto } from "../bindings/Fr24AircraftStatusDto";
 import { AircraftRegisters } from "./AircraftRegisters";
@@ -231,11 +232,27 @@ export function AircraftSettings() {
             <input
               type="radio"
               name="route-source"
-              checked={route.source !== "flightradar"}
+              checked={route.source !== "flightradar" && route.source !== "opensky"}
+              onChange={() => run(api.aircraftSetRouteSource("auto"))}
+              data-testid="route-source-auto"
+            />
+            Automatic, by the photo&apos;s date: Flightradar24 within your plan&apos;s history,
+            OpenSky for older photos
+          </label>
+          {route.source !== "flightradar" && route.source !== "opensky" && (
+            <p className="muted" data-testid="route-source-auto-note">
+              {fr24ReachLine(route.fr24Days, route.flightradar, route.opensky)}
+            </p>
+          )}
+          <label className="check">
+            <input
+              type="radio"
+              name="route-source"
+              checked={route.source === "opensky"}
               onChange={() => run(api.aircraftSetRouteSource("opensky"))}
               data-testid="route-source-opensky"
             />
-            OpenSky (free; by transponder code, from about 2023)
+            OpenSky only (free; by transponder code, from about 2023)
           </label>
           <label className="check">
             <input
@@ -245,7 +262,8 @@ export function AircraftSettings() {
               onChange={() => run(api.aircraftSetRouteSource("flightradar"))}
               data-testid="route-source-flightradar"
             />
-            Flightradar24 (your API subscription; by registration; how far back depends on the plan)
+            Flightradar24 only (your API subscription; by registration; how far back depends on the
+            plan)
           </label>
         </fieldset>
       )}
@@ -253,12 +271,12 @@ export function AircraftSettings() {
         <div className="block" data-testid="fr24-client">
           <strong>Flightradar24 API token</strong>
           <p className="muted">
-            For your Flightradar24 API subscription: Add route (when chosen above) and looking up
-            aircraft. Sends the registration and the photo's UTC day to fr24api.flightradar24.com.
-            No photo is sent. Each flight it returns costs 3 credits of your plan (a day with no
-            flights costs none). Its terms allow keeping its answers 30 days: they are deleted then;
-            the keywords you accept stay on your photos. Create the token in Key management on
-            fr24api.flightradar24.com. It is kept in{" "}
+            For your Flightradar24 API subscription: Add route (when chosen above, or automatic) and
+            looking up aircraft. Sends the registration and the photo's UTC day to
+            fr24api.flightradar24.com. No photo is sent. Each flight it returns costs 3 credits of
+            your plan (a day with no flights costs none). Its terms allow keeping its answers 30
+            days: they are deleted then; the keywords you accept stay on your photos. Create the
+            token in Key management on fr24api.flightradar24.com. It is kept in{" "}
             {navigator.userAgent.includes("Mac") ? "the Keychain" : "Windows Credential Manager"},
             never in a file.
           </p>

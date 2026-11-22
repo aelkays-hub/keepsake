@@ -17,6 +17,8 @@ import {
   cleanFlight,
   suggestionLine,
   flightOnlyKeywords,
+  serviceName,
+  fr24ReachLine,
 } from "../aircraftRoute";
 import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { RouteChoiceDto } from "../bindings/RouteChoiceDto";
@@ -53,6 +55,7 @@ const item = (state: string, p: Partial<RouteItemDto> = {}): RouteItemDto => ({
   code: "C04826",
   codeTyped: false,
   state,
+  source: null,
   error: null,
   choices: [],
   has: [],
@@ -230,5 +233,34 @@ describe("a route typed by hand", () => {
       "Aircraft|Flight|AC856",
     ]);
     expect(flightOnlyKeywords([], "XX1")).toEqual(["Aircraft|Flight|XX1"]);
+  });
+});
+
+describe("flights from OpenSky or Flightradar24 by the photo's date", () => {
+  it("names the source, either when automatic", () => {
+    expect(serviceName("opensky")).toBe("OpenSky");
+    expect(serviceName("flightradar")).toBe("Flightradar24");
+    expect(serviceName("auto")).toBe("OpenSky or Flightradar24");
+    expect(serviceName(undefined)).toBe("OpenSky");
+  });
+
+  it("speaks of the photo's own source when automatic", () => {
+    const fr = item("nothing", { source: "flightradar" });
+    expect(stateLine(fr, "auto")).toContain("Flightradar24 knows no flights of C-GBIJ");
+    expect(stateLine(item("nothing", { source: "opensky" }), "auto")).toContain(
+      "back to about 2023",
+    );
+    expect(stateLine(item("waiting", { source: "flightradar" }), "auto")).toBe(
+      "Asking Flightradar24…",
+    );
+  });
+
+  it("says how far back the plan goes, and what is missing", () => {
+    expect(fr24ReachLine(5, true, true)).toContain("last 5 days go to Flightradar24");
+    expect(fr24ReachLine(30, true, false)).toContain("Add an OpenSky client for older photos");
+    expect(fr24ReachLine(30, false, true)).toBe(
+      "Without a Flightradar24 token, every photo goes to OpenSky.",
+    );
+    expect(fr24ReachLine(30, false, false)).toContain("Add an OpenSky client or");
   });
 });
