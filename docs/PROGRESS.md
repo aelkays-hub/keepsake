@@ -74,6 +74,10 @@
 
 
 
+## Version 0.11.0 (2026-11-22)
+
+- Version 0.11.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050). No catalog change.
+
 ## Add route chooses OpenSky or Flightradar24 by the photo's date (ADR-050) (2026-11-22)
 
 - **Asked:** "the application will determine automatically which api to use … based on the timestamp of the picture", aligned to "how much history I am allowed to access in flight radar". Owner's choices: Flightradar24 for photos within the plan's history, OpenSky for older ones; the other when one can't be used; keep a way to force one.
