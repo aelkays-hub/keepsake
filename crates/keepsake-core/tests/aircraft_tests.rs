@@ -1327,16 +1327,16 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
     let sky = FakeSky {
         asked: Mutex::new(Vec::new()),
     };
-    // Both days in one question (OpenSky allows two days).
+    // One question per day (4 credits each; two days in one would be 30).
     assert_eq!(
         route::run_job(&mut w.cat, &sky, None, ids[0], Clock::AsRecorded)
             .unwrap()
             .requests,
-        1
+        2
     );
     {
         let a = sky.asked.lock().unwrap();
-        assert_eq!(a[0].2 - a[0].1, 2 * 86_400 - 1);
+        assert!(a.iter().all(|q| q.2 - q.1 == 86_399));
         assert_eq!(a[0].1, night - (night % 86_400) - 86_400);
     }
 
@@ -1396,21 +1396,32 @@ fn names(n: usize) -> Vec<String> {
 }
 
 #[test]
-fn thirty_photos_of_one_aircraft_over_midnight_make_one_opensky_request() {
-    // 22:00 to 01:50 UTC, every 8 minutes: two UTC days, one question.
-    let midnight = PHOTO_S - (PHOTO_S % 86_400) + 86_400;
+fn thirty_photos_of_one_aircraft_make_one_opensky_request_per_day() {
+    // 13:00 to 16:50 UTC, every 8 minutes: one question for all 30.
+    let day = PHOTO_S - (PHOTO_S % 86_400);
     let n = names(30);
     let refs: Vec<&str> = n.iter().map(String::as_str).collect();
-    let times: Vec<i64> = (0..30).map(|i| midnight - 7_200 + i * 480).collect();
+    let times: Vec<i64> = (0..30).map(|i| day + 46_800 + i * 480).collect();
     let (mut w, ids) = route_world(&refs, &times);
     let sky = FakeSky {
         asked: Mutex::new(Vec::new()),
     };
     assert_eq!(run_all(&mut w, &sky, &ids), 1);
+    assert_eq!(sky.asked.lock().unwrap()[0].1, day);
+
+    // 22:00 to 01:50 UTC: two UTC days, one question each, not 30.
+    let midnight = day + 86_400;
+    let times: Vec<i64> = (0..30).map(|i| midnight - 7_200 + i * 480).collect();
+    let (mut w, ids) = route_world(&refs, &times);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    assert_eq!(run_all(&mut w, &sky, &ids), 2);
     let a = sky.asked.lock().unwrap();
-    assert_eq!(a.len(), 1);
-    assert_eq!(a[0].1, midnight - 86_400);
-    assert_eq!(a[0].2, midnight + 86_399);
+    let mut starts: Vec<i64> = a.iter().map(|q| q.1).collect();
+    starts.sort_unstable();
+    assert_eq!(starts, [midnight - 86_400, midnight]);
+    assert!(a.iter().all(|q| q.2 - q.1 == 86_399));
     drop(a);
     // Every photo reads the one answer.
     let airports = Airports::builtin();
@@ -1443,8 +1454,8 @@ fn two_aircraft_make_two_requests_and_days_far_apart_are_asked_apart() {
     codes.sort();
     assert_eq!(codes, ["3c4ad9", "c04826"]);
 
-    // One aircraft on three days in a row and a week later: days 1-2, day
-    // 3, and the week after (two days at most per question).
+    // One aircraft on three days in a row and a week later: one question
+    // per day.
     let day = PHOTO_S - (PHOTO_S % 86_400);
     let noon = |d: i64| day + d * 86_400 + 43_200;
     let (mut w, ids) = route_world(
@@ -1454,13 +1465,12 @@ fn two_aircraft_make_two_requests_and_days_far_apart_are_asked_apart() {
     let sky = FakeSky {
         asked: Mutex::new(Vec::new()),
     };
-    assert_eq!(run_all(&mut w, &sky, &ids), 3);
+    assert_eq!(run_all(&mut w, &sky, &ids), 4);
     let a = sky.asked.lock().unwrap();
-    let spans: Vec<(i64, i64)> = a.iter().map(|q| (q.1 - day, q.2 - day)).collect();
-    assert!(spans.contains(&(0, 2 * 86_400 - 1)), "{spans:?}");
-    assert!(spans.contains(&(2 * 86_400, 3 * 86_400 - 1)), "{spans:?}");
-    assert!(spans.contains(&(9 * 86_400, 10 * 86_400 - 1)), "{spans:?}");
-    assert!(a.iter().all(|q| q.2 - q.1 < 2 * 86_400));
+    let mut spans: Vec<(i64, i64)> = a.iter().map(|q| (q.1 - day, q.2 - day)).collect();
+    spans.sort_unstable();
+    let one = |d: i64| (d * 86_400, (d + 1) * 86_400 - 1);
+    assert_eq!(spans, [one(0), one(1), one(2), one(9)]);
 }
 
 /// OpenSky at its limit for the first question, then answering.
@@ -2337,8 +2347,8 @@ fn a_flight_in_from_over_the_ocean_is_offered_from_the_next_take_off_and_its_cal
     let routes = RgyRoutes(Mutex::new(0));
     let airports = Airports::builtin();
     let asked = route::run_job(&mut w.cat, &sky, Some(&routes), ids[0], Clock::AsRecorded).unwrap();
-    // Both days in one question, and RAM211B's route.
-    assert_eq!(asked.requests, 2);
+    // Two days asked, and RAM211B's route once.
+    assert_eq!(asked.requests, 3);
     assert_eq!(*routes.0.lock().unwrap(), 1);
     let kept = route::kept_day(&w.cat, "c04826", "2026-06-08")
         .unwrap()

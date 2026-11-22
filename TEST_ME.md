@@ -23,11 +23,11 @@ Manual (both OSes; Find the route online on, OpenSky client saved, Flights from:
 1. Pick 20 or more photos of **one** aircraft taken within a few hours (one with an accepted registration), on a day not asked about before; right-click → **Add route**.
    - **Expected:** every photo gets its flight (or "no flight near"); the log shows **one** line "Add route asked OpenSky" for that transponder code (days=1), not one per photo.
 2. Photos of that aircraft from 22:00 to 02:00 UTC (both sides of midnight).
-   - **Expected:** one log line with days=2; each photo still offered its own flight.
+   - **Expected:** two log lines (one per UTC day, days=1 each), not one per photo; each photo still offered its own flight.
 3. Photos of **two** aircraft in one selection.
    - **Expected:** two questions, one per transponder code.
 4. Photos of one aircraft on three days in a row and a week later.
-   - **Expected:** three questions (two days, one day, the week after).
+   - **Expected:** four questions, one per day.
 5. At OpenSky's limit (or with no credits left): the window says when it goes on; later every photo is answered, the questions not repeated.
 
 ## Add route typed by hand: routes from photos already tagged

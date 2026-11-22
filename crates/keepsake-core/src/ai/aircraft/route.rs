@@ -13,9 +13,10 @@
 //!   it use the same answer.
 //! - One question per aircraft (ADR-049): a job asks, with its own photo's
 //!   days, the days of every other queued photo of the same transponder
-//!   code, in as few questions as OpenSky allows (consecutive days, at most
-//!   [`MAX_WINDOW_DAYS`] each: [`windows`]). A two-day question costs 30
-//!   credits where two one-day ones cost 8; it is one request instead of two.
+//!   code, one question per UTC day ([`MAX_WINDOW_DAYS`], [`windows`]): a
+//!   day is 4 credits, where a two-day question (which OpenSky allows)
+//!   would be 30, so many photos of a day share one question and a night
+//!   across midnight is two.
 //! - OpenSky's history goes back to about 2023 (checked on the owner's
 //!   photos: September 2023 found, August 2022 and 2018 not), and only where
 //!   its receivers are; an airport it did not see is "not known".
@@ -1206,24 +1207,31 @@ pub fn days_for(photo_s: i64) -> Vec<(String, i64)> {
     out
 }
 
-/// The most UTC days one OpenSky question covers: its by-aircraft history
-/// takes "a time interval … not larger than 2 days".
-pub const MAX_WINDOW_DAYS: usize = 2;
+/// The most UTC days one OpenSky question covers. OpenSky allows two ("a
+/// time interval … not larger than 2 days") but charges a question under
+/// 24 hours 4 credits and one of one to two days 30: one day at a time
+/// saves credits (the owner's choice, ADR-049).
+pub const MAX_WINDOW_DAYS: usize = 1;
 /// How many queued photos one job looks through for others of its
 /// aircraft.
 const PEERS: u32 = 1000;
 
-/// The questions to ask for `days` (UTC day starts, any order): runs of
-/// consecutive days, each cut into at most [`MAX_WINDOW_DAYS`]. Days far
-/// apart are separate questions; each is asked from the first day's start
-/// to the last day's end.
-pub fn windows(mut days: Vec<i64>) -> Vec<Vec<i64>> {
+/// The questions to ask for `days` (UTC day starts, any order), at most
+/// [`MAX_WINDOW_DAYS`] each ([`windows_up_to`]).
+pub fn windows(days: Vec<i64>) -> Vec<Vec<i64>> {
+    windows_up_to(days, MAX_WINDOW_DAYS)
+}
+
+/// The questions to ask for `days`: runs of consecutive days, each cut into
+/// at most `max` days. Days far apart are separate questions; each is asked
+/// from the first day's start to the last day's end.
+pub fn windows_up_to(mut days: Vec<i64>, max: usize) -> Vec<Vec<i64>> {
     days.sort_unstable();
     days.dedup();
     let mut out: Vec<Vec<i64>> = Vec::new();
     for d in days {
         match out.last_mut() {
-            Some(w) if w.len() < MAX_WINDOW_DAYS && w.last() == Some(&(d - DAY_S)) => w.push(d),
+            Some(w) if w.len() < max && w.last() == Some(&(d - DAY_S)) => w.push(d),
             _ => out.push(vec![d]),
         }
     }
@@ -1748,15 +1756,18 @@ mod tests {
     }
 
     #[test]
-    fn days_are_asked_in_runs_of_at_most_two() {
+    fn days_are_asked_one_at_a_time_or_in_runs_of_up_to_two() {
         let d = |n: i64| n * DAY_S;
+        assert_eq!(MAX_WINDOW_DAYS, 1);
         assert!(windows(Vec::new()).is_empty());
-        assert_eq!(windows(vec![d(5)]), [vec![d(5)]]);
-        // Out of order and repeated: one run of two.
-        assert_eq!(windows(vec![d(6), d(5), d(6)]), [vec![d(5), d(6)]]);
+        // One day per question; repeated days once.
+        assert_eq!(windows(vec![d(6), d(5), d(6)]), [vec![d(5)], vec![d(6)]]);
+        // Up to two: out of order and repeated, one run of two.
+        assert_eq!(windows_up_to(vec![d(5)], 2), [vec![d(5)]]);
+        assert_eq!(windows_up_to(vec![d(6), d(5), d(6)], 2), [vec![d(5), d(6)]]);
         // Three in a row: two and one; far apart: apart.
         assert_eq!(
-            windows(vec![d(1), d(2), d(3), d(10)]),
+            windows_up_to(vec![d(1), d(2), d(3), d(10)], 2),
             [vec![d(1), d(2)], vec![d(3)], vec![d(10)]]
         );
     }
