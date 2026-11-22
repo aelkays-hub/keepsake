@@ -1888,3 +1888,23 @@ Nothing GPL. The third-party notices are regenerated (366 crates).
 **Dependencies.** None. No schema change; a new read in the job repository (`queued_assets`).
 
 **Tests.** Integration (fake OpenSky counting questions): 30 photos of one aircraft in one afternoon make 1 request, from 22:00 to 01:50 UTC 2 (one per day); two aircraft make 2; days 1, 2, 3 and 10 make 4; at the limit the job waits and then one question covers all five photos; the suggestions' order, countries, flight-number matching, and that nothing is changed. Unit: `windows` (one day) and `windows_up_to` (two), `merge_flights`. Vitest: the window's helpers. Mocked Playwright: suggestions offered, accepted with one click, nothing sent before; a flight no other photo has.
+
+## ADR-050 — Add route chooses OpenSky or Flightradar24 by the photo's date
+
+**Status**: Accepted (2026-11-22, product owner: "the application will determine automatically which api to use … based on the timestamp of the picture", and "this also has to align to how much history I am allowed to access in flight radar"; the rule, fallback and setting below were chosen by the owner).
+
+**Context.** Add route had one source at a time (Settings → Flights from: OpenSky or Flightradar24, ADR-044). Each has a reach: OpenSky's flight history is free, goes back to about 2023, and has a day's flights only from the next day on; the owner's Flightradar24 plan gives only the last 30 days, and charges credits per flight returned. A selection mixing recent and older photos needed the setting changed between them.
+
+**Decision.**
+- **Flights from: Automatic** (new default, `ai.aircraft_route_source = "auto"`; `route::Mode::Auto`). For each photo, `route::Choose::source`: **Flightradar24** when its plan covers every UTC day asked about for the photo (`fr24_covers`: the first day starts at least a day after the plan's first day); else **OpenSky**. **OpenSky only** and **Flightradar24 only** stay (`Mode::Only`).
+- **The plan's reach is learnt.** Until Flightradar24 says otherwise, 30 days (`ai.fr24_history_days`, `route::FR24_DAYS`). When it refuses a date ("… Your plan provides data from '2026-10-20 13:51:39' onward."), the client keeps that time once (`Flights::take_history_from`, `route::plan_from`); the job works out the plan's whole days back from now (`Sources::learn`), uses them for the next photos, and the app saves them in the settings, so a bigger or smaller plan is followed without a setting to type. Settings shows "Photos from the last N days go to Flightradar24".
+- **Fallback.** Automatic: a photo Flightradar24 refuses as before the plan is asked of OpenSky in the same job (not failed); a recent photo with no Flightradar24 token goes to OpenSky; an older photo with no OpenSky client fails with "older than your Flightradar24 plan's N days: add an OpenSky client …". Forced: only that source, as before.
+- **The window.** Each photo reads the chosen source's answers kept, else the other's (`route::review_with`), so an answer kept before the choice changed (the photo's date left the plan, or the setting changed) stays; each photo shows **Flights from OpenSky / Flightradar24** when automatic (`RouteItemDto.source`). Ask again forgets both sources' answers for the photo.
+- The render service takes `route::Sources` (both clients, those saved, the mode and the plan's days) and runs `route::run_job_auto`; `with_flights` (one client) stays for tests.
+
+**Not done.** Flightradar24's "Look up aircraft" batch (ADR-045 addition) is unchanged; it asks the last 14 days only.
+
+**Dependencies.** None. No schema change; one new setting (`ai.fr24_history_days`). A setting saved before keeps its value: a user who had `opensky` saved keeps OpenSky only until they choose Automatic.
+
+**Tests.** Unit: the rule (dates, what is set up, forced), `plan_from`, the real Flightradar24 client keeping the plan's start once from a refusal. Integration (fake OpenSky and a fake Flightradar24 with a plan): recent photo → Flightradar24, older → OpenSky, the window says which; a plan of 5 days learnt from the refusal (kept through `on_learn`), that photo answered by OpenSky, the next older one straight to OpenSky, a 2-day-old one still Flightradar24; forced Flightradar24 fails as before; only one set up; neither. An existing test now expects a photo with Flightradar24's answer kept to show it when OpenSky is chosen. Vitest: the names, the photo's own source in the window's lines, the Settings line. Mocked Playwright: Automatic by default with the plan's days, forcing one and back, the window's per-photo source.
+

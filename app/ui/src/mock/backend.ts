@@ -165,9 +165,11 @@ export interface MockState {
     zone: Map<string, number>;
     codes: Map<string, string>;
     noCode: boolean;
-    /** `opensky` or `flightradar` (`?routesource=flightradar`); the
-     * Flightradar24 token saved (`?fr24=saved`). */
+    /** `auto` (the default), `opensky` or `flightradar`
+     * (`?routesource=flightradar`); the Flightradar24 token saved
+     * (`?fr24=saved`); how far back its plan goes (`?fr24days=5`). */
     source: string;
+    fr24Days: number;
     fr24: boolean;
     /** Look up aircraft on Flightradar24: asked so far, running. */
     lookedUp: number;
@@ -621,7 +623,8 @@ export function installMock(): void {
       zone: new Map(),
       codes: new Map(),
       noCode: params.get("nocode") === "on",
-      source: params.get("routesource") ?? "opensky",
+      source: params.get("routesource") ?? "auto",
+      fr24Days: Number(params.get("fr24days") ?? 30),
       fr24: params.get("fr24") === "saved",
       lookedUp: 0,
       fr24Auto: true,
@@ -1863,8 +1866,14 @@ export function installMock(): void {
         case "aircraft_route_status":
           return {
             enabled: st.route.enabled,
-            credentials: st.route.source === "flightradar" ? st.route.fr24 : st.route.saved,
+            credentials:
+              st.route.source === "flightradar"
+                ? st.route.fr24
+                : st.route.source === "opensky"
+                  ? st.route.saved
+                  : st.route.saved || st.route.fr24,
             source: st.route.source,
+            fr24Days: st.route.fr24Days,
             opensky: st.route.saved,
             flightradar: st.route.fr24,
             lookup: st.aircraftLookup,
@@ -1875,7 +1884,9 @@ export function installMock(): void {
           void emit("aircraft://status", null);
           return null;
         case "aircraft_set_route_source":
-          st.route.source = String(a.source) === "flightradar" ? "flightradar" : "opensky";
+          st.route.source = ["opensky", "flightradar"].includes(String(a.source))
+            ? String(a.source)
+            : "auto";
           void emit("aircraft://status", null);
           return null;
         case "flightradar_set_token":
@@ -2352,6 +2363,14 @@ export function installMock(): void {
             if (n >= 0) st.route.asked.set(id, n + 1);
             const offset = st.route.zone.get(id) ?? (st.route.eastern ? -240 : -300);
             const code = (reg && st.route.codes.get(reg)) ?? (st.route.noCode ? null : "C04826");
+            // Automatic: by the photo's date; here every other photo is
+            // within the Flightradar24 plan, when a token is saved.
+            const source =
+              st.route.source !== "auto"
+                ? st.route.source
+                : st.route.fr24 && (i % 2 === 1 || !st.route.saved)
+                  ? "flightradar"
+                  : "opensky";
             const base = {
               id,
               name: it?.name ?? null,
@@ -2367,6 +2386,7 @@ export function installMock(): void {
               zoneSet: st.route.zone.has(id),
               code: reg ? code : null,
               codeTyped: reg !== null && st.route.codes.has(reg),
+              source: reg ? source : null,
               error: null,
               choices: [] as ReturnType<typeof choice>[],
               has: kws.filter((k) =>
@@ -2374,8 +2394,7 @@ export function installMock(): void {
               ),
             };
             if (!reg) return { ...base, state: "no-registration" };
-            if (!code && st.route.source !== "flightradar")
-              return { ...base, state: "no-transponder" };
+            if (!code && source !== "flightradar") return { ...base, state: "no-transponder" };
             if (n === 0) {
               pending += 1;
               return { ...base, state: "waiting" };

@@ -280,9 +280,9 @@ pub struct RenderService {
     aircraft: Option<ReaderLoader>,
     /// Looks read registrations up online (ADR-041), when set.
     lookup: Option<Arc<dyn crate::ai::aircraft::lookup::Lookup>>,
-    /// Finds the flights of Add route (ADR-044), when set: a route worker
-    /// then takes `ai.route` jobs.
-    flights: Option<Arc<dyn crate::ai::aircraft::route::Flights>>,
+    /// Finds the flights of Add route (ADR-044, ADR-050), when set: a
+    /// route worker then takes `ai.route` jobs.
+    flights: Option<crate::ai::aircraft::route::Sources>,
     fr24: Option<Arc<dyn crate::ai::aircraft::route::Fr24Aircrafts>>,
     fr24_gap: Duration,
     /// Look new registrations up on their own.
@@ -361,9 +361,16 @@ impl RenderService {
         self
     }
 
-    /// Find the flights of Add route with this (ADR-044).
+    /// Find the flights of Add route with this one client only (ADR-044).
     pub fn with_flights(mut self, flights: Arc<dyn crate::ai::aircraft::route::Flights>) -> Self {
-        self.flights = Some(flights);
+        self.flights = Some(crate::ai::aircraft::route::Sources::only(flights));
+        self
+    }
+
+    /// Find the flights of Add route where `sources` chooses for each
+    /// photo's date (ADR-050).
+    pub fn with_route_sources(mut self, sources: crate::ai::aircraft::route::Sources) -> Self {
+        self.flights = Some(sources);
         self
     }
 
@@ -1386,7 +1393,7 @@ impl RenderService {
         shared: &Shared,
     ) -> Result<(), RenderError> {
         use crate::ai::aircraft::{lookup as lk, route};
-        let Some(flights) = self.flights.as_deref() else {
+        let Some(sources) = self.flights.as_ref() else {
             return Ok(());
         };
         while !cancel.load(Ordering::SeqCst) {
@@ -1410,12 +1417,13 @@ impl RenderService {
                 asset: job.asset_id,
             });
             let t0 = Instant::now();
-            match route::run_job(
+            match route::run_job_auto(
                 cat,
-                flights,
+                sources,
                 self.lookup.as_deref(),
                 job.asset_id,
                 self.route_clock,
+                now_ms() / 1000,
             ) {
                 Ok(asked) => {
                     let now = now_ms();

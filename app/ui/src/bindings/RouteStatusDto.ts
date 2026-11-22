@@ -13,9 +13,15 @@ enabled: boolean,
  */
 credentials: boolean, 
 /**
- * Where flights are found: `opensky` or `flightradar`.
+ * Where flights are found: `auto` (by the photo's date, ADR-050),
+ * `opensky` or `flightradar`.
  */
 source: string, 
+/**
+ * How many days back the Flightradar24 plan gives flights (learnt
+ * from its answers; 30 until it says).
+ */
+fr24Days: number, 
 /**
  * An OpenSky client ID and secret are saved.
  */

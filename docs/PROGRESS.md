@@ -43,6 +43,7 @@
 | — | The aircraft's age: build year from OpenSky's database or typed, age worked out when shown (ADR-044, part 1) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route: the flight a photo shows, from OpenSky's flight history (from, to, countries, flight number; ADR-044, part 2) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route: one OpenSky question per aircraft; a typed flight number offers the routes other photos of it have (ADR-049) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -72,6 +73,14 @@
 
 
 
+
+## Add route chooses OpenSky or Flightradar24 by the photo's date (ADR-050) (2026-11-22)
+
+- **Asked:** "the application will determine automatically which api to use … based on the timestamp of the picture", aligned to "how much history I am allowed to access in flight radar". Owner's choices: Flightradar24 for photos within the plan's history, OpenSky for older ones; the other when one can't be used; keep a way to force one.
+- **Built:** `route::{Mode, Choose, Sources, run_job_auto, review_with, plan_from}`; `Flights::take_history_from` (Flightradar24 keeps the plan's start from its refusal); the render service runs `run_job_auto` with both clients; setting `ai.fr24_history_days` (30 until Flightradar24 says, then saved by the app); `aircraft_route_source` defaults to `auto`. Tauri: `route::sources`, `choose`, `RouteStatusDto.fr24Days`, `RouteItemDto.source`. UI: Settings → Flights from: **Automatic** (with "Photos from the last N days go to Flightradar24"), OpenSky only, Flightradar24 only; the Add route window shows each photo's source. Mock backend follows.
+- **Tests, run here (Windows):** keepsake-core lib `aircraft::route` (22, 2 new); `aircraft_tests` (44, 3 new, 1 changed); keepsake-app tests (bindings); Vitest (120, 3 new); mocked Playwright `aircraft` and `a11y` (30, 1 new); cargo fmt, clippy `-D warnings`, tsc, ESLint, Prettier.
+- **Note:** a settings file that already says `aircraft_route_source = "opensky"` (as the owner's does) keeps OpenSky only: choose Automatic in Settings once.
+- **Not run:** against the real APIs; in the installed app; CI; macOS. The worktree's `vite.cmd` and `playwright.cmd` shims could not be written (Access is denied, likely the antivirus), so the mocked tests were run with `node` directly. Branch `feat/route-auto-source`.
 
 ## Version 0.10.0 (2026-11-22)
 

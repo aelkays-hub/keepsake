@@ -224,10 +224,15 @@ pub struct AiSettings {
     /// Add route: the camera's clock showed Eastern time, changed for
     /// daylight saving, though its photos say UTC−05:00 (or no time zone).
     pub aircraft_route_eastern: bool,
-    /// Add route: where flights are found, `opensky` (free, by transponder
-    /// code) or `flightradar` (the user's Flightradar24 API subscription,
-    /// by registration; its token is in the OS's credential store).
+    /// Add route: where flights are found, `auto` (by the photo's date:
+    /// Flightradar24 within the plan's history, OpenSky before; ADR-050),
+    /// `opensky` (free, by transponder code) or `flightradar` (the user's
+    /// Flightradar24 API subscription, by registration; its token is in the
+    /// OS's credential store).
     pub aircraft_route_source: String,
+    /// Add route: how many days back the user's Flightradar24 plan gives
+    /// flights; learnt from its answers (30 until it says).
+    pub fr24_history_days: u32,
     /// Look a registration up on Flightradar24 on its own when it first
     /// appears on a photo (with a token saved). Each costs credits.
     pub fr24_auto: bool,
@@ -327,7 +332,8 @@ impl Default for AiSettings {
             aircraft_lookup: false,
             aircraft_route: false,
             aircraft_route_eastern: false,
-            aircraft_route_source: "opensky".to_owned(),
+            aircraft_route_source: "auto".to_owned(),
+            fr24_history_days: 30,
             fr24_auto: true,
             same_shot_s: 10,
             claude_model: Provider::Claude.default_model().id().to_owned(),

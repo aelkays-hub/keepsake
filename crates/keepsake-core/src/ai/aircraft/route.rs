@@ -86,6 +86,111 @@ impl Source {
         }
     }
 }
+/// How Add route chooses where to ask (Settings → Read aircraft → Flights
+/// from, ADR-050).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// By the photo's date: Flightradar24 within the user's plan's history,
+    /// OpenSky before it; the other when one cannot be asked.
+    #[default]
+    Auto,
+    /// Only this one.
+    Only(Source),
+}
+
+impl Mode {
+    /// As kept in the settings (`auto`, `opensky`, `flightradar`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Only(s) => s.id(),
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "opensky" => Self::Only(Source::OpenSky),
+            "flightradar" => Self::Only(Source::Flightradar),
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "OpenSky or Flightradar24",
+            Self::Only(s) => s.name(),
+        }
+    }
+}
+
+/// How far back Flightradar24 is used until its answer says how far the
+/// user's plan goes (days).
+pub const FR24_DAYS: i64 = 30;
+
+/// What Add route chooses a photo's source with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Choose {
+    pub mode: Mode,
+    /// How many days back the user's Flightradar24 plan gives flights.
+    pub fr24_days: i64,
+    /// An OpenSky client and a Flightradar24 token are saved.
+    pub opensky: bool,
+    pub fr24: bool,
+    /// Unix seconds.
+    pub now_s: i64,
+}
+
+impl Choose {
+    /// Whether Flightradar24's plan covers a photo taken at `taken_s`: every
+    /// UTC day asked about for it ([`days_for`]) starts inside the plan's
+    /// history, with a day to spare (it moves on while the job waits).
+    pub fn fr24_covers(&self, taken_s: i64) -> bool {
+        let first = days_for(taken_s).first().map_or(taken_s, |d| d.1);
+        first >= self.now_s - self.fr24_days.max(0) * DAY_S + DAY_S
+    }
+
+    /// The source to ask about a photo taken at `taken_s`, or why none can
+    /// be. Automatic: Flightradar24 while its plan covers the photo, OpenSky
+    /// before; the other when one is not set up.
+    pub fn source(&self, taken_s: i64) -> Result<Source, String> {
+        let none = |s: Source| match s {
+            Source::OpenSky => {
+                "No OpenSky client ID and secret: add them in Settings → Read aircraft".to_owned()
+            }
+            Source::Flightradar => {
+                "No Flightradar24 API token: add it in Settings → Read aircraft".to_owned()
+            }
+        };
+        match self.mode {
+            Mode::Only(s) => {
+                let have = match s {
+                    Source::OpenSky => self.opensky,
+                    Source::Flightradar => self.fr24,
+                };
+                if have {
+                    Ok(s)
+                } else {
+                    Err(none(s))
+                }
+            }
+            Mode::Auto => {
+                if self.fr24 && self.fr24_covers(taken_s) {
+                    Ok(Source::Flightradar)
+                } else if self.opensky {
+                    Ok(Source::OpenSky)
+                } else if self.fr24 {
+                    Err(format!(
+                        "this photo is older than your Flightradar24 plan's {} days: add an OpenSky client ID and secret in Settings → Read aircraft for older photos",
+                        self.fr24_days
+                    ))
+                } else {
+                    Err("Add an OpenSky client or a Flightradar24 token in Settings → Read aircraft".to_owned())
+                }
+            }
+        }
+    }
+}
+
 pub const API_BASE: &str = "https://opensky-network.org/api/flights/aircraft";
 pub const TOKEN_URL: &str =
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
@@ -216,6 +321,23 @@ pub trait Flights: Send + Sync {
     fn source(&self) -> Source {
         Source::OpenSky
     }
+
+    /// Since when (Unix seconds) the source last said it gives flights to
+    /// this account (Flightradar24's plan), once: `None` when it has not
+    /// said so since last asked.
+    fn take_history_from(&self) -> Option<i64> {
+        None
+    }
+}
+
+/// When Flightradar24 says the user's plan starts, from its refusal
+/// ("… Your plan provides data from '2026-10-20 13:51:38' onward."), in
+/// Unix seconds.
+pub fn plan_from(message: &str) -> Option<i64> {
+    let at = message.split("data from '").nth(1)?.get(..19)?;
+    chrono::NaiveDateTime::parse_from_str(at, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|d| d.and_utc().timestamp())
 }
 
 /// The user's OpenSky API client: its id and secret.
@@ -440,6 +562,8 @@ pub type Token = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 pub struct Flightradar {
     http: Arc<dyn Http>,
     token: Token,
+    /// Since when the user's plan gives flights, when it said so.
+    plan_from: Mutex<Option<i64>>,
 }
 
 /// `2025-04-01T00:00:00` (UTC) of a Unix second.
@@ -617,7 +741,11 @@ pub trait Fr24Aircrafts: Send + Sync {
 
 impl Flightradar {
     pub fn new(http: Arc<dyn Http>, token: Token) -> Self {
-        Self { http, token }
+        Self {
+            http,
+            token,
+            plan_from: Mutex::new(None),
+        }
     }
 
     /// GET the flight summary (light) with `query`.
@@ -666,11 +794,23 @@ impl Flights for Flightradar {
             ("registrations", &reg),
             ("limit", "100"),
         ])?;
+        if status == 400 {
+            // Too far back for the plan: it says from when it gives flights.
+            if let Some(from) = plan_from(&body) {
+                if let Ok(mut p) = self.plan_from.lock() {
+                    *p = Some(from);
+                }
+            }
+        }
         parse_fr24(status, &body)
     }
 
     fn source(&self) -> Source {
         Source::Flightradar
+    }
+
+    fn take_history_from(&self) -> Option<i64> {
+        self.plan_from.lock().ok().and_then(|mut p| p.take())
     }
 }
 
@@ -1453,6 +1593,155 @@ pub struct Asked {
     /// Requests sent (OpenSky and the registration lookup): the worker
     /// waits between each.
     pub requests: u32,
+    /// Where the photo's flights were asked for ([`run_job_auto`]).
+    pub source: Option<Source>,
+    /// How many days back Flightradar24 said the user's plan goes, when it
+    /// said so: kept for the next photos ([`Sources::learn`]).
+    pub fr24_days: Option<i64>,
+}
+
+/// Where Add route asks (ADR-050): OpenSky's and Flightradar24's clients,
+/// those set up, and how it chooses between them.
+#[derive(Clone)]
+pub struct Sources {
+    pub mode: Mode,
+    pub opensky: Option<Arc<dyn Flights>>,
+    pub fr24: Option<Arc<dyn Flights>>,
+    /// How many days back the user's Flightradar24 plan goes (learnt from
+    /// its answers, [`Self::learn`]).
+    fr24_days: Arc<std::sync::atomic::AtomicI64>,
+    /// Told when Flightradar24 says how far back the plan goes (days), to
+    /// keep it in the settings.
+    on_learn: Option<Arc<dyn Fn(i64) + Send + Sync>>,
+}
+
+impl Sources {
+    pub fn new(
+        mode: Mode,
+        opensky: Option<Arc<dyn Flights>>,
+        fr24: Option<Arc<dyn Flights>>,
+        fr24_days: i64,
+    ) -> Self {
+        Self {
+            mode,
+            opensky,
+            fr24,
+            fr24_days: Arc::new(std::sync::atomic::AtomicI64::new(fr24_days)),
+            on_learn: None,
+        }
+    }
+
+    /// One client, as before: only it is asked.
+    pub fn only(flights: Arc<dyn Flights>) -> Self {
+        let s = flights.source();
+        let (opensky, fr24) = match s {
+            Source::OpenSky => (Some(flights), None),
+            Source::Flightradar => (None, Some(flights)),
+        };
+        Self::new(Mode::Only(s), opensky, fr24, FR24_DAYS)
+    }
+
+    /// Call `f` with the plan's days when Flightradar24 says them.
+    pub fn on_learn(mut self, f: Arc<dyn Fn(i64) + Send + Sync>) -> Self {
+        self.on_learn = Some(f);
+        self
+    }
+
+    pub fn fr24_days(&self) -> i64 {
+        self.fr24_days.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Flightradar24 said its plan gives flights from `from_s`: the plan
+    /// goes back that many whole days from `now_s`. Returns the days.
+    pub fn learn(&self, from_s: i64, now_s: i64) -> i64 {
+        let days = ((now_s - from_s) / DAY_S).max(0);
+        let was = self
+            .fr24_days
+            .swap(days, std::sync::atomic::Ordering::SeqCst);
+        if was != days {
+            tracing::info!(
+                days,
+                "Flightradar24's plan gives flights this many days back"
+            );
+            if let Some(f) = &self.on_learn {
+                f(days);
+            }
+        }
+        days
+    }
+
+    /// What a photo's source is chosen with, at `now_s`.
+    pub fn choose(&self, now_s: i64) -> Choose {
+        Choose {
+            mode: self.mode,
+            fr24_days: self.fr24_days(),
+            opensky: self.opensky.is_some(),
+            fr24: self.fr24.is_some(),
+            now_s,
+        }
+    }
+
+    fn client(&self, s: Source) -> Option<&dyn Flights> {
+        match s {
+            Source::OpenSky => self.opensky.as_deref(),
+            Source::Flightradar => self.fr24.as_deref(),
+        }
+    }
+}
+
+/// One `ai.route` job, asking where [`Sources`] says for the photo's date
+/// ([`Choose::source`]). Automatic: when Flightradar24 refuses the photo as
+/// older than the user's plan, the plan's days are learnt and OpenSky is
+/// asked instead (if set up).
+pub fn run_job_auto(
+    cat: &mut Catalog,
+    sources: &Sources,
+    lookup: Option<&dyn Lookup>,
+    asset: AssetId,
+    clock: Clock,
+    now_s: i64,
+) -> Result<Asked, AiError> {
+    let p = photo(cat, asset, clock)?;
+    // No capture time: any client says so.
+    let Some(t) = p.taken_s else {
+        let any = sources.opensky.as_deref().or(sources.fr24.as_deref());
+        return match any {
+            Some(f) => run_job(cat, f, lookup, asset, clock),
+            None => Err(cloud("the photo has no capture time", false)),
+        };
+    };
+    let src = sources
+        .choose(now_s)
+        .source(t)
+        .map_err(|why| cloud(why, false))?;
+    let Some(client) = sources.client(src) else {
+        return Err(cloud(format!("{} is not set up", src.name()), false));
+    };
+    let first = run_job(cat, client, lookup, asset, clock);
+    let learnt = (src == Source::Flightradar)
+        .then(|| client.take_history_from())
+        .flatten()
+        .map(|from| sources.learn(from, now_s));
+    let mut asked = match first {
+        Ok(a) => a,
+        Err(e) => {
+            // Before the plan: OpenSky, when automatic and set up.
+            let refused = learnt.is_some() && !sources.choose(now_s).fr24_covers(t);
+            match (sources.mode, sources.opensky.as_deref()) {
+                (Mode::Auto, Some(sky)) if refused => {
+                    let mut a = run_job(cat, sky, lookup, asset, clock)?;
+                    a.requests += 1;
+                    a.source = Some(Source::OpenSky);
+                    a.fr24_days = learnt;
+                    return Ok(a);
+                }
+                _ => return Err(e),
+            }
+        }
+    };
+    asked.source = Some(src);
+    asked.fr24_days = learnt;
+    Ok(asked)
 }
 
 /// One `ai.route` job: make sure the flights of `asset`'s aircraft on the
@@ -1602,16 +1891,41 @@ pub struct RouteItem {
     pub state: State,
     /// The route keywords it has already.
     pub has: Vec<TagPath>,
+    /// Where its flights come from (or are asked for); `None` when it is
+    /// not asked (no registration or capture time).
+    pub source: Option<Source>,
 }
 
-/// Where `asset`'s route stands: worked out from what is kept (nothing is
-/// asked here).
+/// Where `asset`'s route stands, from `source`'s answers kept (else the
+/// other's): nothing is asked here.
 pub fn review(
     cat: &Catalog,
     airports: &Airports,
     asset: AssetId,
     clock: Clock,
     source: Source,
+) -> Result<RouteItem, AiError> {
+    let choose = Choose {
+        mode: Mode::Only(source),
+        fr24_days: FR24_DAYS,
+        opensky: true,
+        fr24: true,
+        now_s: crate::jobs::now_ms() / 1000,
+    };
+    review_with(cat, airports, asset, clock, &choose)
+}
+
+/// Where `asset`'s route stands: worked out from what is kept (nothing is
+/// asked here). The answers of the source chosen for its date
+/// ([`Choose::source`]) are read first, then the other's: a photo answered
+/// before the choice changed (its date left Flightradar24's plan, or the
+/// setting changed) keeps its answer.
+pub fn review_with(
+    cat: &Catalog,
+    airports: &Airports,
+    asset: AssetId,
+    clock: Clock,
+    choose: &Choose,
 ) -> Result<RouteItem, AiError> {
     let p = photo(cat, asset, clock)?;
     let has = cat
@@ -1620,44 +1934,59 @@ pub fn review(
         .filter(|t| t.source == TagSource::User && is_route_keyword(&t.path))
         .map(|t| t.path)
         .collect();
-    let item = |state| RouteItem {
+    let item = |state, source| RouteItem {
         asset,
         registration: p.registration.clone(),
         taken_s: p.taken_s,
         offset_min: p.offset_min,
         state,
         has,
+        source,
     };
     let Some(reg) = p.registration.as_deref() else {
-        return Ok(item(State::NoRegistration));
+        return Ok(item(State::NoRegistration, None));
     };
     let Some(t) = p.taken_s else {
-        return Ok(item(State::NoCaptureTime));
+        return Ok(item(State::NoCaptureTime, None));
     };
-    let key = match source {
-        Source::Flightradar => reg_key(reg),
-        Source::OpenSky => match icao24_of(cat, reg)? {
-            Some(i) => Key::Icao(i),
-            None => {
-                let waiting = cat
-                    .read(|tx| tx.jobs().find(JOB_AI_ROUTE, asset))?
-                    .is_some_and(|j| matches!(j.state, JobState::Queued | JobState::Running));
-                return Ok(item(if waiting {
-                    State::Waiting
-                } else {
-                    State::NoTransponder
-                }));
+    let chosen = choose.source(t).unwrap_or(match choose.mode {
+        Mode::Only(s) => s,
+        Mode::Auto => Source::OpenSky,
+    });
+    let icao = icao24_of(cat, reg)?;
+    let key_of = |s: Source| match s {
+        Source::Flightradar => Some(reg_key(reg)),
+        Source::OpenSky => icao.clone().map(Key::Icao),
+    };
+    let other = match chosen {
+        Source::OpenSky => Source::Flightradar,
+        Source::Flightradar => Source::OpenSky,
+    };
+    for s in [chosen, other] {
+        let Some(key) = key_of(s) else {
+            continue;
+        };
+        let mut all: Vec<Flight> = Vec::new();
+        let mut kept = true;
+        for (day, _) in days_for(t) {
+            match kept_at_key(cat, &key, &day)? {
+                Some(v) => merge_flights(&mut all, v),
+                None => kept = false,
             }
-        },
-    };
-    let mut all: Vec<Flight> = Vec::new();
-    for (day, _) in days_for(t) {
-        match kept_at_key(cat, &key, &day)? {
-            Some(v) => merge_flights(&mut all, v),
-            None => return Ok(item(State::Waiting)),
+        }
+        if kept {
+            return Ok(item(State::Found(pick(t, p.gps, &all, airports)), Some(s)));
         }
     }
-    Ok(item(State::Found(pick(t, p.gps, &all, airports))))
+    let waiting = cat
+        .read(|tx| tx.jobs().find(JOB_AI_ROUTE, asset))?
+        .is_some_and(|j| matches!(j.state, JobState::Queued | JobState::Running));
+    let state = if chosen == Source::OpenSky && icao.is_none() && !waiting {
+        State::NoTransponder
+    } else {
+        State::Waiting
+    };
+    Ok(item(state, Some(chosen)))
 }
 
 /// Queue Add route for `ids` (again for those done before).
@@ -1700,18 +2029,19 @@ pub fn again(
         let Some(reg) = p.registration else {
             continue;
         };
-        let key = match source {
-            Source::Flightradar => Some(reg_key(&reg)),
-            Source::OpenSky => {
-                if lookup::kept(cat, &reg)?.is_some_and(|f| !f.known && f.typed_mode_s.is_none()) {
-                    cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
+        if source != Source::Flightradar
+            && lookup::kept(cat, &reg)?.is_some_and(|f| !f.known && f.typed_mode_s.is_none())
+        {
+            cat.write(|tx| tx.ai().forget_aircraft_lookup(&reg))?;
+        }
+        // Both sources' answers: either may be asked now (ADR-050).
+        let mut keys = vec![reg_key(&reg)];
+        keys.extend(icao24_of(cat, &reg)?.map(Key::Icao));
+        if let Some(t) = p.taken_s {
+            for key in &keys {
+                for (day, _) in days_for(t) {
+                    forget_at_key(cat, key, &day)?;
                 }
-                icao24_of(cat, &reg)?.map(Key::Icao)
-            }
-        };
-        if let (Some(key), Some(t)) = (key, p.taken_s) {
-            for (day, _) in days_for(t) {
-                forget_at_key(cat, &key, &day)?;
             }
         }
         ask.push(*id);
@@ -2325,6 +2655,79 @@ mod tests {
             }
             x => panic!("{x:?}"),
         }
+    }
+
+    /// Flightradar24 refusing a date before the plan, as it answered.
+    struct PlanRefuses;
+
+    impl Http for PlanRefuses {
+        fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<(u16, String), String> {
+            Err("no posts".into())
+        }
+        fn get(&self, _: &str, _: &[(&str, &str)]) -> Result<(u16, String), String> {
+            Ok((400, r#"{"message":"Validation failed","details":"The requested date '2025-04-01T00:00:00' is earlier than your subscription plan allows. Your plan provides data from '2026-10-20 13:51:39' onward."}"#.into()))
+        }
+    }
+
+    #[test]
+    fn flightradar24_s_refusal_says_from_when_the_plan_gives_flights_once() {
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 20)
+            .and_then(|d| d.and_hms_opt(13, 51, 39))
+            .map(|d| d.and_utc().timestamp());
+        assert_eq!(
+            plan_from("… Your plan provides data from '2026-10-20 13:51:39' onward."),
+            at
+        );
+        assert_eq!(plan_from("Validation failed"), None);
+        let fr = Flightradar::new(Arc::new(PlanRefuses), Arc::new(|| Some("tok".into())));
+        assert_eq!(fr.take_history_from(), None);
+        assert!(fr.flights("PH-BKO", 0, 1).is_err());
+        assert_eq!(fr.take_history_from(), at);
+        // Said once: a later look does not see an old date.
+        assert_eq!(fr.take_history_from(), None);
+    }
+
+    #[test]
+    fn the_source_is_chosen_by_the_photo_s_date_and_what_is_set_up() {
+        let now = 100 * DAY_S;
+        let c = |mode, opensky, fr24| Choose {
+            mode,
+            fr24_days: 30,
+            opensky,
+            fr24,
+            now_s: now,
+        };
+        let auto = c(Mode::Auto, true, true);
+        // Within the plan (with a day to spare): Flightradar24.
+        assert_eq!(auto.source(now - 3600), Ok(Source::Flightradar));
+        assert_eq!(auto.source(now - 28 * DAY_S), Ok(Source::Flightradar));
+        // Near or past its start: OpenSky.
+        assert_eq!(auto.source(now - 29 * DAY_S - 3600), Ok(Source::OpenSky));
+        assert_eq!(auto.source(now - 400 * DAY_S), Ok(Source::OpenSky));
+        // Only one set up: that one where it can.
+        assert_eq!(
+            c(Mode::Auto, false, true).source(now - 3600),
+            Ok(Source::Flightradar)
+        );
+        assert_eq!(
+            c(Mode::Auto, true, false).source(now - 3600),
+            Ok(Source::OpenSky)
+        );
+        assert!(c(Mode::Auto, false, true)
+            .source(now - 60 * DAY_S)
+            .unwrap_err()
+            .contains("older than your Flightradar24 plan's 30 days"));
+        assert!(c(Mode::Auto, false, false).source(now).is_err());
+        // Forced: that one, whatever the date; none without it.
+        let fr = c(Mode::Only(Source::Flightradar), true, true);
+        assert_eq!(fr.source(now - 400 * DAY_S), Ok(Source::Flightradar));
+        assert!(c(Mode::Only(Source::OpenSky), false, true)
+            .source(now)
+            .is_err());
+        assert_eq!(Mode::parse("auto"), Mode::Auto);
+        assert_eq!(Mode::parse(""), Mode::Auto);
+        assert_eq!(Mode::parse("opensky"), Mode::Only(Source::OpenSky));
+        assert_eq!(Mode::parse("flightradar").id(), "flightradar");
     }
 
     #[test]

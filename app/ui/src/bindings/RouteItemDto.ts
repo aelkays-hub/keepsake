@@ -30,6 +30,11 @@ code: string | null, codeTyped: boolean,
  */
 state: string, 
 /**
+ * Where its flights come from or are asked for (`opensky`,
+ * `flightradar`), chosen by its date when automatic (ADR-050).
+ */
+source: string | null, 
+/**
  * Why asking failed (or will be tried again).
  */
 error: string | null, choices: Array<RouteChoiceDto>, 

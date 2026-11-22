@@ -362,6 +362,11 @@ export function RouteWindow() {
                       {taken}
                     </p>
                   )}
+                  {source === "auto" && item.source && (
+                    <p className="muted" data-testid="rt-source">
+                      Flights from {serviceName(item.source)}
+                    </p>
+                  )}
                   <div className="rt-tools">
                     {item.taken && (
                       <label className="rt-field">
@@ -382,7 +387,7 @@ export function RouteWindow() {
                         {item.zoneSet && <span className="muted">kept in the sidecar</span>}
                       </label>
                     )}
-                    {item.registration && source !== "flightradar" && (
+                    {item.registration && (item.source ?? source) !== "flightradar" && (
                       <span className="rt-field">
                         Transponder code
                         {drafts.has(item.id) || !item.code ? (
@@ -514,8 +519,10 @@ export function RouteWindow() {
         <p className="muted rt-note">
           Times are in UTC. A flight is offered when it took off or landed within three hours of the
           photo; an airport {serviceName(source)} did not see is "Not known".
-          {source === "flightradar" &&
+          {source !== "opensky" &&
             " Flightradar24's answers are kept 30 days (its terms); the keywords you accept stay."}
+          {source === "auto" &&
+            " Each photo is asked where its date fits: Flightradar24 within your plan's history, OpenSky before it."}
         </p>
         <div className="modal-foot">
           <span className="grow" />

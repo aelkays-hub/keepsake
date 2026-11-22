@@ -156,8 +156,12 @@ dto! {
         pub enabled: bool,
         /// The chosen source can be asked: its client or token is saved.
         pub credentials: bool,
-        /// Where flights are found: `opensky` or `flightradar`.
+        /// Where flights are found: `auto` (by the photo's date, ADR-050),
+        /// `opensky` or `flightradar`.
         pub source: String,
+        /// How many days back the Flightradar24 plan gives flights (learnt
+        /// from its answers; 30 until it says).
+        pub fr24_days: u32,
         /// An OpenSky client ID and secret are saved.
         pub opensky: bool,
         /// A Flightradar24 API token is saved.
@@ -320,6 +324,9 @@ dto! {
         /// `no-registration`, `no-time`, `no-transponder`, `waiting`, `later` (at a source's limit: `error` says until when),
         /// `failed`, `nothing`, `none-near`, `found` or `several`.
         pub state: String,
+        /// Where its flights come from or are asked for (`opensky`,
+        /// `flightradar`), chosen by its date when automatic (ADR-050).
+        pub source: Option<String>,
         /// Why asking failed (or will be tried again).
         pub error: Option<String>,
         pub choices: Vec<RouteChoiceDto>,
