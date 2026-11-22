@@ -11,6 +11,11 @@
 //! - Every answer is kept per aircraft and UTC day (`aircraft_flights`), so
 //!   the same aircraft and day is asked about once, and photos taken beside
 //!   it use the same answer.
+//! - One question per aircraft (ADR-049): a job asks, with its own photo's
+//!   days, the days of every other queued photo of the same transponder
+//!   code, in as few questions as OpenSky allows (consecutive days, at most
+//!   [`MAX_WINDOW_DAYS`] each: [`windows`]). A two-day question costs 30
+//!   credits where two one-day ones cost 8; it is one request instead of two.
 //! - OpenSky's history goes back to about 2023 (checked on the owner's
 //!   photos: September 2023 found, August 2022 and 2018 not), and only where
 //!   its receivers are; an airport it did not see is "not known".
@@ -1201,6 +1206,84 @@ pub fn days_for(photo_s: i64) -> Vec<(String, i64)> {
     out
 }
 
+/// The most UTC days one OpenSky question covers: its by-aircraft history
+/// takes "a time interval … not larger than 2 days".
+pub const MAX_WINDOW_DAYS: usize = 2;
+/// How many queued photos one job looks through for others of its
+/// aircraft.
+const PEERS: u32 = 1000;
+
+/// The questions to ask for `days` (UTC day starts, any order): runs of
+/// consecutive days, each cut into at most [`MAX_WINDOW_DAYS`]. Days far
+/// apart are separate questions; each is asked from the first day's start
+/// to the last day's end.
+pub fn windows(mut days: Vec<i64>) -> Vec<Vec<i64>> {
+    days.sort_unstable();
+    days.dedup();
+    let mut out: Vec<Vec<i64>> = Vec::new();
+    for d in days {
+        match out.last_mut() {
+            Some(w) if w.len() < MAX_WINDOW_DAYS && w.last() == Some(&(d - DAY_S)) => w.push(d),
+            _ => out.push(vec![d]),
+        }
+    }
+    out
+}
+
+/// The UTC days (starts) of the other photos waiting for Add route whose
+/// aircraft has transponder code `icao24`: asked about with `asset`'s.
+fn peer_days(
+    cat: &Catalog,
+    asset: AssetId,
+    icao24: &str,
+    clock: Clock,
+) -> Result<Vec<i64>, AiError> {
+    let queued = cat.read(|tx| tx.jobs().queued_assets(JOB_AI_ROUTE, PEERS))?;
+    // A registration's code, looked up once.
+    let mut codes: HashMap<String, Option<String>> = HashMap::new();
+    let mut out = Vec::new();
+    for id in queued.into_iter().filter(|id| *id != asset) {
+        let p = photo(cat, id, clock)?;
+        let (Some(reg), Some(t)) = (p.registration, p.taken_s) else {
+            continue;
+        };
+        let code = match codes.get(&reg) {
+            Some(c) => c.clone(),
+            None => {
+                let c = icao24_of(cat, &reg)?;
+                codes.insert(reg, c.clone());
+                c
+            }
+        };
+        if code.as_deref() == Some(icao24) {
+            out.extend(days_for(t).into_iter().map(|(_, start)| start));
+        }
+    }
+    Ok(out)
+}
+
+/// Add `more` to `all`, once each: the same flight kept under two days (one
+/// answer covering both) is one flight; the copy with its ends filled in
+/// ([`fill_ends`]) wins.
+fn merge_flights(all: &mut Vec<Flight>, more: Vec<Flight>) {
+    let same = |a: &Flight, b: &Flight| {
+        a.first_seen == b.first_seen
+            && a.last_seen == b.last_seen
+            && a.callsign == b.callsign
+            && a.inferred == b.inferred
+    };
+    for f in more {
+        match all.iter_mut().find(|g| same(g, &f)) {
+            Some(g) => {
+                if f.route_asked && !g.route_asked {
+                    *g = f;
+                }
+            }
+            None => all.push(f),
+        }
+    }
+}
+
 /// How Add route reads the camera's clock (Settings → Read aircraft).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Clock {
@@ -1343,11 +1426,7 @@ pub fn kept_around(
     let mut all: Vec<Flight> = Vec::new();
     for key in &keys {
         for (day, _) in days_for(photo_s) {
-            for f in kept_at_key(cat, key, &day)?.unwrap_or_default() {
-                if !all.contains(&f) {
-                    all.push(f);
-                }
-            }
+            merge_flights(&mut all, kept_at_key(cat, key, &day)?.unwrap_or_default());
         }
     }
     Ok(all)
@@ -1429,8 +1508,46 @@ pub fn run_job(
             false,
         ));
     };
-    let key = Key::Icao(icao);
+    let key = Key::Icao(icao.clone());
     let mut routes = HashMap::new();
+    // The days not kept yet: this photo's, and those of the other photos of
+    // this aircraft waiting to be asked about, so that one question covers
+    // them all (as few as OpenSky allows, [`windows`]).
+    let mut need: Vec<i64> = Vec::new();
+    for (day, start) in days_for(t) {
+        if kept_at_key(cat, &key, &day)?.is_none() {
+            need.push(start);
+        }
+    }
+    if !need.is_empty() {
+        for start in peer_days(cat, asset, &icao, clock)? {
+            if !need.contains(&start) && kept_at_key(cat, &key, &utc_day(start).0)?.is_none() {
+                need.push(start);
+            }
+        }
+    }
+    for w in windows(need) {
+        let (Some(first), Some(last)) = (w.first(), w.last()) else {
+            continue;
+        };
+        let mut found = flights.flights(key.id(), *first, *last + DAY_S - 1)?;
+        asked.requests += 1;
+        tracing::info!(
+            icao24 = key.id(),
+            from = %utc_day(*first).0,
+            days = w.len(),
+            flights = found.len(),
+            "Add route asked OpenSky"
+        );
+        // The ends OpenSky did not see, once for the whole answer.
+        if let Some(l) = lookup {
+            asked.requests += fill_ends(&mut found, l, &mut routes).0;
+        }
+        // Kept under each day it covers: a photo reads its days' answers.
+        for start in &w {
+            keep_at_key(cat, &key, &utc_day(*start).0, &found)?;
+        }
+    }
     for (day, start) in days_for(t) {
         let (mut found, mut changed) = match kept_at_key(cat, &key, &day)? {
             Some(v) => (v, false),
@@ -1528,13 +1645,7 @@ pub fn review(
     let mut all: Vec<Flight> = Vec::new();
     for (day, _) in days_for(t) {
         match kept_at_key(cat, &key, &day)? {
-            Some(v) => {
-                for f in v {
-                    if !all.contains(&f) {
-                        all.push(f);
-                    }
-                }
-            }
+            Some(v) => merge_flights(&mut all, v),
             None => return Ok(item(State::Waiting)),
         }
     }
@@ -1634,6 +1745,40 @@ mod tests {
 
     fn airports() -> Airports {
         Airports::builtin()
+    }
+
+    #[test]
+    fn days_are_asked_in_runs_of_at_most_two() {
+        let d = |n: i64| n * DAY_S;
+        assert!(windows(Vec::new()).is_empty());
+        assert_eq!(windows(vec![d(5)]), [vec![d(5)]]);
+        // Out of order and repeated: one run of two.
+        assert_eq!(windows(vec![d(6), d(5), d(6)]), [vec![d(5), d(6)]]);
+        // Three in a row: two and one; far apart: apart.
+        assert_eq!(
+            windows(vec![d(1), d(2), d(3), d(10)]),
+            [vec![d(1), d(2)], vec![d(3)], vec![d(10)]]
+        );
+    }
+
+    #[test]
+    fn the_same_flight_kept_under_two_days_is_one() {
+        let a = f(10, 20, Some("CYYZ"), None, "ACA1");
+        let filled = Flight {
+            arrival: Some("EGLL".into()),
+            route_asked: true,
+            by_callsign: true,
+            ..a.clone()
+        };
+        let mut all = vec![a.clone()];
+        merge_flights(
+            &mut all,
+            vec![filled.clone(), f(30, 40, None, None, "ACA2")],
+        );
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0], filled);
+        merge_flights(&mut all, vec![a]);
+        assert_eq!(all[0], filled);
     }
 
     #[test]

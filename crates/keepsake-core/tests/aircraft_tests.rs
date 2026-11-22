@@ -51,7 +51,7 @@ impl World {
         for (i, name) in names.iter().enumerate() {
             let file = media.join(name);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(file, jpeg(&photo(i as u8 * 40, 800, 600))).unwrap();
+            std::fs::write(file, jpeg(&photo((i as u8).wrapping_mul(40), 800, 600))).unwrap();
         }
         Self::of(tmp, media)
     }
@@ -1327,12 +1327,18 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
     let sky = FakeSky {
         asked: Mutex::new(Vec::new()),
     };
+    // Both days in one question (OpenSky allows two days).
     assert_eq!(
         route::run_job(&mut w.cat, &sky, None, ids[0], Clock::AsRecorded)
             .unwrap()
             .requests,
-        2
+        1
     );
+    {
+        let a = sky.asked.lock().unwrap();
+        assert_eq!(a[0].2 - a[0].1, 2 * 86_400 - 1);
+        assert_eq!(a[0].1, night - (night % 86_400) - 86_400);
+    }
 
     let mut w2 = World::new(&["c.jpg"]);
     let c = w2.asset("c.jpg");
@@ -1347,6 +1353,174 @@ fn a_photo_near_midnight_looks_at_both_days_and_one_without_a_registration_is_no
             .state,
         route::State::NoRegistration
     );
+}
+
+/// Give photo `id` the registration `reg`, and `reg` the transponder code
+/// `code` (as the lookup keeps it).
+fn set_aircraft(w: &mut World, id: AssetId, reg: &str, code: &str) {
+    let path = TagPath::parse_lightroom(&format!("Aircraft|Registration|{reg}")).unwrap();
+    MetadataService::new(&w.lib, &mut w.cat)
+        .set_user_tags(id, std::slice::from_ref(&path))
+        .unwrap();
+    let found = lookup::Found {
+        registration: reg.into(),
+        known: true,
+        mode_s: Some(code.into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup(reg, &json, 1))
+        .unwrap();
+}
+
+/// Queue Add route for `ids` and run each job as the worker does, counting
+/// OpenSky's questions.
+fn run_all(w: &mut World, sky: &FakeSky, ids: &[AssetId]) -> u32 {
+    route::enqueue(&mut w.cat, ids).unwrap();
+    let mut requests = 0;
+    for id in ids {
+        requests += route::run_job(&mut w.cat, sky, None, *id, Clock::AsRecorded)
+            .unwrap()
+            .requests;
+        w.cat
+            .write(|tx| tx.jobs().remove_queued_for(route::JOB_AI_ROUTE, &[*id]))
+            .unwrap();
+    }
+    requests
+}
+
+fn names(n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("p{i:02}.jpg")).collect()
+}
+
+#[test]
+fn thirty_photos_of_one_aircraft_over_midnight_make_one_opensky_request() {
+    // 22:00 to 01:50 UTC, every 8 minutes: two UTC days, one question.
+    let midnight = PHOTO_S - (PHOTO_S % 86_400) + 86_400;
+    let n = names(30);
+    let refs: Vec<&str> = n.iter().map(String::as_str).collect();
+    let times: Vec<i64> = (0..30).map(|i| midnight - 7_200 + i * 480).collect();
+    let (mut w, ids) = route_world(&refs, &times);
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    assert_eq!(run_all(&mut w, &sky, &ids), 1);
+    let a = sky.asked.lock().unwrap();
+    assert_eq!(a.len(), 1);
+    assert_eq!(a[0].1, midnight - 86_400);
+    assert_eq!(a[0].2, midnight + 86_399);
+    drop(a);
+    // Every photo reads the one answer.
+    let airports = Airports::builtin();
+    for id in &ids {
+        let it = route::review(&w.cat, &airports, *id, Clock::AsRecorded, Source::OpenSky).unwrap();
+        assert!(matches!(it.state, route::State::Found(_)), "{it:?}");
+    }
+}
+
+#[test]
+fn two_aircraft_make_two_requests_and_days_far_apart_are_asked_apart() {
+    let n = names(20);
+    let refs: Vec<&str> = n.iter().map(String::as_str).collect();
+    let times: Vec<i64> = (0..20).map(|i| PHOTO_S + i * 300).collect();
+    let (mut w, ids) = route_world(&refs, &times);
+    for id in &ids[10..] {
+        set_aircraft(&mut w, *id, "D-ABVY", "3C4AD9");
+    }
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    assert_eq!(run_all(&mut w, &sky, &ids), 2);
+    let mut codes: Vec<String> = sky
+        .asked
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|a| a.0.clone())
+        .collect();
+    codes.sort();
+    assert_eq!(codes, ["3c4ad9", "c04826"]);
+
+    // One aircraft on three days in a row and a week later: days 1-2, day
+    // 3, and the week after (two days at most per question).
+    let day = PHOTO_S - (PHOTO_S % 86_400);
+    let noon = |d: i64| day + d * 86_400 + 43_200;
+    let (mut w, ids) = route_world(
+        &["a.jpg", "b.jpg", "c.jpg", "d.jpg"],
+        &[noon(0), noon(1), noon(2), noon(9)],
+    );
+    let sky = FakeSky {
+        asked: Mutex::new(Vec::new()),
+    };
+    assert_eq!(run_all(&mut w, &sky, &ids), 3);
+    let a = sky.asked.lock().unwrap();
+    let spans: Vec<(i64, i64)> = a.iter().map(|q| (q.1 - day, q.2 - day)).collect();
+    assert!(spans.contains(&(0, 2 * 86_400 - 1)), "{spans:?}");
+    assert!(spans.contains(&(2 * 86_400, 3 * 86_400 - 1)), "{spans:?}");
+    assert!(spans.contains(&(9 * 86_400, 10 * 86_400 - 1)), "{spans:?}");
+    assert!(a.iter().all(|q| q.2 - q.1 < 2 * 86_400));
+}
+
+/// OpenSky at its limit for the first question, then answering.
+struct LimitThenSky {
+    inner: FakeSky,
+    limited: Mutex<bool>,
+}
+
+impl route::Flights for LimitThenSky {
+    fn flights(&self, icao24: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        let mut l = self.limited.lock().unwrap();
+        if *l {
+            *l = false;
+            return Err(route::limit_reached(1_000));
+        }
+        drop(l);
+        self.inner.flights(icao24, begin, end)
+    }
+}
+
+#[test]
+fn at_opensky_s_limit_the_batch_waits_and_then_asks_once() {
+    let n = names(5);
+    let refs: Vec<&str> = n.iter().map(String::as_str).collect();
+    let times: Vec<i64> = (0..5).map(|i| PHOTO_S + i * 600).collect();
+    let (mut w, ids) = route_world(&refs, &times);
+    route::enqueue(&mut w.cat, &ids).unwrap();
+    let sky = LimitThenSky {
+        inner: FakeSky {
+            asked: Mutex::new(Vec::new()),
+        },
+        limited: Mutex::new(true),
+    };
+    // At the limit: the job is to wait (not failed), nothing is kept.
+    assert!(matches!(
+        route::run_job(&mut w.cat, &sky, None, ids[0], Clock::AsRecorded),
+        Err(AiError::Later { .. })
+    ));
+    let airports = Airports::builtin();
+    assert_eq!(
+        route::review(
+            &w.cat,
+            &airports,
+            ids[1],
+            Clock::AsRecorded,
+            Source::OpenSky
+        )
+        .unwrap()
+        .state,
+        route::State::Waiting
+    );
+    // Later: one question for all five.
+    let mut requests = 0;
+    for id in &ids {
+        requests += route::run_job(&mut w.cat, &sky, None, *id, Clock::AsRecorded)
+            .unwrap()
+            .requests;
+    }
+    assert_eq!(requests, 1);
+    assert_eq!(sky.inner.asked.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -2125,8 +2299,9 @@ fn a_national_register_gives_build_year_code_type_and_airline_and_puts_misreads_
 struct RgySky;
 
 impl route::Flights for RgySky {
-    fn flights(&self, _: &str, begin: i64, _: i64) -> Result<Vec<Flight>, AiError> {
-        Ok(if begin == 1_780_876_800 {
+    fn flights(&self, _: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        // The day 2026-06-08, when the question covers it.
+        Ok(if (begin..=end).contains(&1_780_876_800) {
             vec![Flight {
                 first_seen: 1_780_885_806,
                 last_seen: 1_780_909_269,
@@ -2162,8 +2337,8 @@ fn a_flight_in_from_over_the_ocean_is_offered_from_the_next_take_off_and_its_cal
     let routes = RgyRoutes(Mutex::new(0));
     let airports = Airports::builtin();
     let asked = route::run_job(&mut w.cat, &sky, Some(&routes), ids[0], Clock::AsRecorded).unwrap();
-    // Two days asked, and RAM211B's route.
-    assert_eq!(asked.requests, 3);
+    // Both days in one question, and RAM211B's route.
+    assert_eq!(asked.requests, 2);
     assert_eq!(*routes.0.lock().unwrap(), 1);
     let kept = route::kept_day(&w.cat, "c04826", "2026-06-08")
         .unwrap()
@@ -2515,7 +2690,16 @@ fn fill_in_finds_the_flight_number_from_the_flight_the_other_way() {
 struct LegsSky;
 
 impl route::Flights for LegsSky {
-    fn flights(&self, icao: &str, begin: i64, _: i64) -> Result<Vec<Flight>, AiError> {
+    fn flights(&self, icao: &str, begin: i64, end: i64) -> Result<Vec<Flight>, AiError> {
+        // Each day's flights, for every day the question covers.
+        Ok((0..=(end - begin) / 86_400)
+            .flat_map(|d| self.day(icao, begin + d * 86_400))
+            .collect())
+    }
+}
+
+impl LegsSky {
+    fn day(&self, icao: &str, begin: i64) -> Vec<Flight> {
         let f = |first: i64, last: i64, dep: &str, arr: &str, cs: &str| Flight {
             first_seen: first,
             last_seen: last,
@@ -2524,7 +2708,7 @@ impl route::Flights for LegsSky {
             callsign: Some(cs.into()),
             ..Flight::default()
         };
-        Ok(match (icao, begin) {
+        match (icao, begin) {
             ("c04826", 1_780_790_400) => {
                 vec![f(1_780_851_600, 1_780_856_880, "KATL", "KPHL", "DAL8885")]
             }
@@ -2538,7 +2722,7 @@ impl route::Flights for LegsSky {
                 vec![f(1_781_360_820, 1_781_364_840, "KIND", "CYYZ", "JZA894")]
             }
             _ => Vec::new(),
-        })
+        }
     }
 }
 
@@ -2605,4 +2789,130 @@ fn fill_in_takes_a_through_flight_number_and_offers_a_choice_of_two() {
     assert!(w
         .keywords(ids[1])
         .contains(&"Aircraft|Flight|QK895".to_owned()));
+}
+
+#[test]
+fn a_typed_flight_number_suggests_the_routes_other_photos_have() {
+    use keepsake_core::ai::aircraft::complete;
+    let n = names(7);
+    let refs: Vec<&str> = n.iter().map(String::as_str).collect();
+    // Older photos first: the last two are the most recent.
+    let times: Vec<i64> = (0..7).map(|i| PHOTO_S + i * 86_400).collect();
+    let (mut w, ids) = route_world(&refs, &times);
+    let airports = Airports::builtin();
+    // Two photos of AC856 YYZ to LHR (countries from the airport list);
+    // one of AC856 YVR to LHR, the most recent; one written ACA856 the
+    // same as YYZ to LHR; one of another flight; one with no airports.
+    tag(
+        &mut w,
+        ids[0],
+        &[
+            "Aircraft|Flight|AC856",
+            "Aircraft|From|YYZ",
+            "Aircraft|To|LHR",
+        ],
+    );
+    tag(
+        &mut w,
+        ids[1],
+        &[
+            "Aircraft|Flight|AC856",
+            "Aircraft|From|YYZ",
+            "Aircraft|From country|Canada",
+            "Aircraft|To|LHR",
+        ],
+    );
+    tag(
+        &mut w,
+        ids[2],
+        &[
+            "Aircraft|Flight|ACA856",
+            "Aircraft|From|YYZ",
+            "Aircraft|To|LHR",
+        ],
+    );
+    tag(
+        &mut w,
+        ids[3],
+        &[
+            "Aircraft|Flight|AC857",
+            "Aircraft|From|LHR",
+            "Aircraft|To|YYZ",
+        ],
+    );
+    tag(&mut w, ids[4], &["Aircraft|Flight|AC856"]);
+    tag(
+        &mut w,
+        ids[5],
+        &[
+            "Aircraft|Flight|AC856",
+            "Aircraft|From|YVR",
+            "Aircraft|To|LHR",
+        ],
+    );
+    let before = hashes(&w.media);
+    let tags_before: Vec<_> = ids
+        .iter()
+        .map(|id| w.cat.read(|tx| tx.tags().for_asset(*id)).unwrap())
+        .collect();
+
+    let s = complete::suggest(&w.cat, &airports, "ac 856", &[ids[6]]).unwrap();
+    assert_eq!(s.len(), 2, "{s:?}");
+    // Most photos first.
+    assert_eq!(s[0].from.as_deref(), Some("YYZ"));
+    assert_eq!(s[0].to.as_deref(), Some("LHR"));
+    assert_eq!(s[0].photos, 3);
+    assert_eq!(s[0].latest_ms, Some(times[2] * 1000));
+    let k: Vec<String> = s[0].keywords.iter().map(TagPath::to_lightroom).collect();
+    assert_eq!(
+        k,
+        [
+            "Aircraft|From|YYZ",
+            "Aircraft|From country|Canada",
+            "Aircraft|To|LHR",
+            "Aircraft|To country|United Kingdom",
+            "Aircraft|Flight|AC856"
+        ]
+    );
+    assert_eq!(s[1].from.as_deref(), Some("YVR"));
+    assert_eq!(s[1].photos, 1);
+
+    // Equal counts: the most recent first.
+    tag(
+        &mut w,
+        ids[6],
+        &[
+            "Aircraft|Flight|AC856",
+            "Aircraft|From|YVR",
+            "Aircraft|To|LHR",
+        ],
+    );
+    let s = complete::suggest(&w.cat, &airports, "AC856", &[ids[0]]).unwrap();
+    assert_eq!((s[0].photos, s[1].photos), (2, 2));
+    assert_eq!(s[0].from.as_deref(), Some("YVR"));
+
+    // A photo is not its own suggestion; an unknown or blank number: none.
+    assert!(complete::suggest(&w.cat, &airports, "AC857", &[ids[3]])
+        .unwrap()
+        .is_empty());
+    assert!(complete::suggest(&w.cat, &airports, "ZZ1", &[])
+        .unwrap()
+        .is_empty());
+    assert!(complete::suggest(&w.cat, &airports, "  ", &[])
+        .unwrap()
+        .is_empty());
+    // Nothing changed: no keyword, no file.
+    for (id, had) in ids.iter().zip(&tags_before).take(6) {
+        assert_eq!(&w.cat.read(|tx| tx.tags().for_asset(*id)).unwrap(), had);
+    }
+    assert_eq!(hashes(&w.media), before);
+}
+
+#[test]
+fn flight_numbers_are_compared_as_sold() {
+    use keepsake_core::ai::aircraft::complete::flight_key;
+    assert_eq!(flight_key("aca 856"), "AC856");
+    assert_eq!(flight_key("AC-856"), "AC856");
+    assert_eq!(flight_key("ACA856"), flight_key("AC856"));
+    assert_eq!(flight_key(" "), "");
 }

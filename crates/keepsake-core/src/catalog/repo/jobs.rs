@@ -165,6 +165,19 @@ impl<M> Jobs<'_, M> {
             .optional()?)
     }
 
+    /// The assets of the queued jobs of `kind` (deferred ones too), in
+    /// claim order, at most `limit`.
+    pub fn queued_assets(&self, kind: &str, limit: u32) -> Result<Vec<AssetId>, CatalogError> {
+        let mut st = self.conn.prepare(
+            "SELECT asset_id FROM jobs WHERE kind = ?1 AND state = 'queued'
+             ORDER BY priority, rank, sort_key, id LIMIT ?2",
+        )?;
+        let rows = st
+            .query_map(params![kind, limit], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// Jobs in a state, in claim order.
     pub fn list(&self, state: JobState, limit: u32) -> Result<Vec<Job>, CatalogError> {
         let mut st = self.conn.prepare(&format!(
