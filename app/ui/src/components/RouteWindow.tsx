@@ -1,22 +1,28 @@
 // Add route (ADR-044): right-click photos → Add route. Asks OpenSky (in
 // the background) for the flights of each photo's aircraft that day, and
 // offers the one nearest the photo: from and to (IATA codes and countries)
-// and the flight number. Nothing becomes a keyword until accepted.
+// and the flight number. Nothing becomes a keyword until accepted. A route
+// can also be typed by hand: a flight number, and the routes other photos
+// of that flight have, offered to accept with one click (ADR-049).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, fileUrl } from "../api";
 import type { RouteItemDto } from "../bindings/RouteItemDto";
 import type { RouteReviewDto } from "../bindings/RouteReviewDto";
+import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import {
   cleanCode,
+  cleanFlight,
   flightLine,
+  flightOnlyKeywords,
   keywordLabel,
   offsetLabel,
   routeLine,
   routeProgress,
   serviceName,
   stateLine,
+  suggestionLine,
   takenLine,
   tickedKeywords,
   whenLine,
@@ -25,6 +31,89 @@ import {
 import { useUi } from "../state";
 
 const POLL_MS = 1000;
+/** Wait this long after typing before looking the flight number up. */
+const TYPE_MS = 250;
+
+/** A route typed by hand: the flight number, and the routes the catalog's
+ * other photos of that flight show, each accepted with one click. */
+function TypedRoute({
+  item,
+  onAccept,
+}: {
+  item: RouteItemDto;
+  onAccept: (keep: string[]) => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const [found, setFound] = useState<RouteSuggestionDto[] | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const flight = cleanFlight(typed);
+  useEffect(() => {
+    setFound(null);
+    setProblem(null);
+    if (!flight) return;
+    let live = true;
+    const t = window.setTimeout(() => {
+      api
+        .aircraftRouteSuggest(item.id, flight)
+        .then((r) => live && setFound(r))
+        .catch((e) => live && setProblem(String(e)));
+    }, TYPE_MS);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [flight, item.id]);
+  return (
+    <details className="rt-typed" data-testid="rt-typed">
+      <summary>Type the flight number</summary>
+      <label className="rt-field">
+        Flight
+        <input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder="AC856"
+          size={10}
+          maxLength={12}
+          aria-label="Flight number"
+          data-testid="rt-type-flight"
+        />
+      </label>
+      {problem && (
+        <p className="error" role="alert">
+          {problem}
+        </p>
+      )}
+      {flight && found && found.length === 0 && (
+        <p className="muted" data-testid="rt-suggest-none">
+          No other photo has the flight {flight} with its airports.
+        </p>
+      )}
+      {flight && found && found.length > 0 && (
+        <ul className="rt-suggest" aria-label={`Routes of ${flight} on other photos`}>
+          {found.map((sg) => (
+            <li key={sg.keywords.join(" ")}>
+              <button
+                onClick={() => onAccept(sg.keywords)}
+                title={`Adds ${sg.keywords.map(keywordLabel).join(", ")}`}
+                data-testid="rt-suggestion"
+              >
+                {suggestionLine(sg)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {flight && (
+        <button
+          onClick={() => onAccept(flightOnlyKeywords(item.has, flight))}
+          data-testid="rt-type-flight-only"
+        >
+          Add only Flight {flight}
+        </button>
+      )}
+    </details>
+  );
+}
 
 export function RouteWindow() {
   const { s, dispatch } = useUi();
@@ -94,18 +183,20 @@ export function RouteWindow() {
 
   if (!job) return null;
 
-  const accept = (item: RouteItemDto) => {
-    const c = item.choices[chosen.get(item.id) ?? (item.state === "several" ? -1 : 0)];
-    if (!c) return;
-    const keep = tickedKeywords(c, unticked.get(item.id));
+  const save = (id: string, keep: string[]) => {
     setProblem(null);
     api
-      .aircraftRouteAccept(item.id, keep)
+      .aircraftRouteAccept(id, keep)
       .then(() => {
-        setAdded((m) => new Map(m).set(item.id, keep));
+        setAdded((m) => new Map(m).set(id, keep));
         dispatch({ t: "edited" });
       })
       .catch((e) => setProblem(String(e)));
+  };
+  const accept = (item: RouteItemDto) => {
+    const c = item.choices[chosen.get(item.id) ?? (item.state === "several" ? -1 : 0)];
+    if (!c) return;
+    save(item.id, tickedKeywords(c, unticked.get(item.id)));
   };
   const refresh = () => {
     setStopped(false);
@@ -389,6 +480,7 @@ export function RouteWindow() {
                       Has already: {item.has.map(keywordLabel).join(", ")}
                     </p>
                   )}
+                  {!done && <TypedRoute item={item} onAccept={(keep) => save(item.id, keep)} />}
                   {done && (
                     <p className="rt-added" data-testid="rt-added">
                       Added: {done.map(keywordLabel).join(", ")}

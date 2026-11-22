@@ -10,6 +10,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 
 import type { AiAdviceDto } from "../bindings/AiAdviceDto";
 import type { Bucket } from "../bindings/Bucket";
+import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
 import type { HistoryRun } from "../bindings/HistoryRun";
@@ -2412,6 +2413,66 @@ export function installMock(): void {
           const next = [...new Set([...cur, ...keep])];
           st.keywords.set(i, next);
           return next.length > cur.length ? 1 : 0;
+        }
+        case "aircraft_route_suggest": {
+          // The routes of the other photos with this flight number, most
+          // photos first, then the most recent (as keepsake-core's suggest).
+          const sold: Record<string, string> = { ACA: "AC", DLH: "LH", ROU: "RV" };
+          const key = (f: string) => {
+            const c = f.replace(/[^0-9a-z]/gi, "").toUpperCase();
+            const m = /^([A-Z]{3})(\d{1,4})$/.exec(c);
+            return m && sold[m[1]] ? `${sold[m[1]]}${Number(m[2])}` : c;
+          };
+          const countries: Record<string, string> = {
+            YYZ: "Canada",
+            YUL: "Canada",
+            YVR: "Canada",
+            LHR: "United Kingdom",
+          };
+          const want = key(String(a.flight ?? ""));
+          const self = Number(String(a.id).slice(1));
+          const out: RouteSuggestionDto[] = [];
+          const at: number[] = [];
+          if (!want) return out;
+          for (const [i, kws] of st.keywords) {
+            if (i === self) continue;
+            const get = (kind: string) =>
+              kws.find((k) => k.startsWith(`Aircraft|${kind}|`))?.slice(kind.length + 10) ?? null;
+            const flight = get("Flight");
+            const from = get("From");
+            const to = get("To");
+            if (!flight || key(flight) !== want || (!from && !to)) continue;
+            const fromCountry = get("From country") ?? (from ? (countries[from] ?? null) : null);
+            const toCountry = get("To country") ?? (to ? (countries[to] ?? null) : null);
+            const t = all[i] ? (time(all[i]) ?? 0) : 0;
+            const j = out.findIndex((s) => s.from === from && s.to === to);
+            if (j >= 0) {
+              out[j].photos += 1;
+              at[j] = Math.max(at[j], t);
+              continue;
+            }
+            const keywords = [
+              ...(from ? [`Aircraft|From|${from}`] : []),
+              ...(fromCountry ? [`Aircraft|From country|${fromCountry}`] : []),
+              ...(to ? [`Aircraft|To|${to}`] : []),
+              ...(toCountry ? [`Aircraft|To country|${toCountry}`] : []),
+              `Aircraft|Flight|${flight}`,
+            ];
+            out.push({
+              from,
+              fromCountry,
+              to,
+              toCountry,
+              flight,
+              photos: 1,
+              latest: null,
+              keywords,
+            });
+            at.push(t);
+          }
+          const order = out.map((s, j) => ({ s: { ...s, latest: day(at[j]) }, t: at[j] }));
+          order.sort((x, y) => y.s.photos - x.s.photos || y.t - x.t);
+          return order.map((o) => o.s);
         }
         case "aircraft_built_remove": {
           const had = st.aircraftBuiltDb;

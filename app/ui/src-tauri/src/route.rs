@@ -15,7 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
     CloudStarted, CloudStatusDto, Fr24AircraftDto, Fr24AircraftStatusDto, RouteChoiceDto,
-    RouteFillDto, RouteFillItemDto, RouteItemDto, RouteReviewDto, RouteStatusDto, Selection,
+    RouteFillDto, RouteFillItemDto, RouteItemDto, RouteReviewDto, RouteStatusDto,
+    RouteSuggestionDto, Selection,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -529,6 +530,43 @@ pub fn aircraft_route_accept(
     let open = state.open()?;
     let mut cat = open.writer()?;
     route::accept(&mut cat, &open.lib, asset, &paths).map_err(err)
+}
+
+/// The routes other photos tagged with `flight` show (not `id` itself),
+/// most photos first, then the most recent: offered when a route is typed
+/// by hand. Nothing is changed.
+#[tauri::command(async)]
+pub fn aircraft_route_suggest(
+    state: State<'_, AppState>,
+    id: String,
+    flight: String,
+) -> CmdResult<Vec<RouteSuggestionDto>> {
+    let asset: AssetId = convert::id(&id, "asset")?;
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let found = keepsake_core::ai::aircraft::complete::suggest(
+        &cat,
+        &Airports::builtin(),
+        &flight,
+        &[asset],
+    )
+    .map_err(err)?;
+    Ok(found
+        .into_iter()
+        .map(|s| RouteSuggestionDto {
+            from: s.from,
+            from_country: s.from_country,
+            to: s.to,
+            to_country: s.to_country,
+            flight: s.flight,
+            photos: s.photos,
+            latest: s
+                .latest_ms
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|d| d.format("%Y-%m-%d").to_string()),
+            keywords: s.keywords.iter().map(TagPath::to_lightroom).collect(),
+        })
+        .collect())
 }
 
 /// The user's route keywords of `id`.

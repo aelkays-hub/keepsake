@@ -562,6 +562,57 @@ test("Add route: the flight found, two as near, none near, nothing known; only w
   expect(id).toMatch(/^a\d+$/);
 });
 
+test("Add route typed by hand: a flight number offers the routes other photos of it have", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&route=on&opensky=saved");
+  const win = await addRoute(page, 20);
+  await expect(win.getByTestId("rt-progress")).toHaveText("20 photos.");
+  const photos = win.getByTestId("rt-photo");
+  // One photo gets AC856 YYZ → LHR.
+  const found = photos.filter({ hasText: "YYZ (Canada) → LHR (United Kingdom)" });
+  await found.getByTestId("rt-accept").click();
+  await expect(found.getByTestId("rt-added")).toContainText("Flight AC856");
+  expect(await calls(page, "aircraft_route_accept")).toHaveLength(1);
+
+  // Another photo, with no flight found: type the flight number.
+  const other = photos.filter({ hasText: "back to about 2023" });
+  await other.getByTestId("rt-typed").locator("summary").click();
+  await other.getByTestId("rt-type-flight").fill("aca 856");
+  const offered = other.getByTestId("rt-suggestion");
+  await expect(offered).toHaveCount(1);
+  await expect(offered).toHaveText(
+    /^YYZ \(Canada\) → LHR \(United Kingdom\): 1 photo, latest \d{4}-\d\d-\d\d$/,
+  );
+  expect(await calls(page, "aircraft_route_suggest")).toContainEqual({
+    id: expect.any(String),
+    flight: "ACA856",
+  });
+  // Offered only: nothing is added until it is clicked.
+  expect(await calls(page, "aircraft_route_accept")).toHaveLength(1);
+  await offered.click();
+  const sent = (await calls(page, "aircraft_route_accept"))[1] as { keywords: string[] };
+  expect(sent.keywords).toEqual([
+    "Aircraft|From|YYZ",
+    "Aircraft|From country|Canada",
+    "Aircraft|To|LHR",
+    "Aircraft|To country|United Kingdom",
+    "Aircraft|Flight|AC856",
+  ]);
+  await expect(other.getByTestId("rt-added")).toContainText("From YYZ");
+
+  // A flight no other photo has: said, and the number alone can be added.
+  const third = photos.filter({ hasText: "Shift time" });
+  await third.getByTestId("rt-typed").locator("summary").click();
+  await third.getByTestId("rt-type-flight").fill("XX1");
+  await expect(third.getByTestId("rt-suggest-none")).toHaveText(
+    "No other photo has the flight XX1 with its airports.",
+  );
+  await third.getByTestId("rt-type-flight-only").click();
+  const only = (await calls(page, "aircraft_route_accept"))[2] as { keywords: string[] };
+  expect(only.keywords).toEqual(["Aircraft|Flight|XX1"]);
+});
+
 test("Add route: turned on but without the setting the window says so", async ({ page }) => {
   // Saved client, setting off: the menu item is disabled; the command
   // refuses too (checked through the mock).

@@ -327,6 +327,24 @@ dto! {
         pub has: Vec<String>,
     }
 
+    /// A route other photos of a flight number show (Add route, typed by
+    /// hand): offered, added only when accepted.
+    pub struct RouteSuggestionDto {
+        /// As those photos have it (`YYZ`), and the country.
+        pub from: Option<String>,
+        pub from_country: Option<String>,
+        pub to: Option<String>,
+        pub to_country: Option<String>,
+        pub flight: String,
+        /// How many photos show it.
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// The latest of their capture days (UTC, `YYYY-MM-DD`), if known.
+        pub latest: Option<String>,
+        /// `Aircraft|From|YYZ`, …: what accepting it adds.
+        pub keywords: Vec<String>,
+    }
+
     /// The Add route window: its photos and how far asking has got.
     pub struct RouteReviewDto {
         pub items: Vec<RouteItemDto>,

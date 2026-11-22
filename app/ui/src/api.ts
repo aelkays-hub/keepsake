@@ -34,6 +34,7 @@ import type { RegisterProgress } from "./bindings/RegisterProgress";
 import type { RegisterStatusDto } from "./bindings/RegisterStatusDto";
 import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "./bindings/RouteStatusDto";
+import type { RouteSuggestionDto } from "./bindings/RouteSuggestionDto";
 import type { AircraftLookupDto } from "./bindings/AircraftLookupDto";
 import type { AircraftNeighbourDto } from "./bindings/AircraftNeighbourDto";
 import type { SamePlaneDto } from "./bindings/SamePlaneDto";
@@ -439,6 +440,10 @@ export const api = {
   aircraftRouteReview: (ids: string[]) => invoke<RouteReviewDto>("aircraft_route_review", { ids }),
   aircraftRouteAccept: (id: string, keywords: string[]) =>
     invoke<number>("aircraft_route_accept", { id, keywords }),
+  /** The routes other photos tagged with `flight` show (most photos, then
+   * most recent first): offered when a route is typed by hand. */
+  aircraftRouteSuggest: (id: string, flight: string) =>
+    invoke<RouteSuggestionDto[]>("aircraft_route_suggest", { id, flight }),
   /** Recognise faces (ADR-040): on downloads the face models first. */
   facesStatus: () => invoke<FacesStatus>("faces_status"),
   facesEnable: (enabled: boolean) => invoke<void>("faces_enable", { enabled }),
