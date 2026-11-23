@@ -3,14 +3,16 @@
 //! 8 px the W is read as N). When what was read is not a known aircraft,
 //! the marks one look-alike letter away ([`variants`]) that keep a
 //! country's shape are checked against what is known: the national
-//! registers ([`super::register::near`]) and the online lookup's answers
-//! (adsbdb). One known one is offered in place of what was read, which is
+//! registers ([`super::register::near`]) and the online lookups' answers
+//! (adsbdb, then Flightradar24). One known one is offered in place of what was read, which is
 //! offered beside it unticked ([`fix`]).
 //!
 //! - The aircraft worker asks the lookup about those marks after a read
 //!   ([`ask_variants`]): only when what was read is not known, at most
 //!   [`MAX_ASKS`] of them (more and the guess says too little), each answer
-//!   kept like any lookup.
+//!   kept like any lookup. When adsbdb knows none of them (nor what was
+//!   read), Flightradar24's lookup asks about them all
+//!   ([`super::fr24::near_due`]); one it saw fly counts as known.
 //! - When more than one is known, the one whose type or airline agrees with
 //!   what the photo shows is offered; otherwise none.
 
@@ -115,17 +117,32 @@ impl Hints {
     }
 }
 
+/// Who knows `registration`, from the answers kept: adsbdb, else
+/// Flightradar24 (it saw it fly, in the last 30 days of answers kept), with
+/// what they say of it.
+fn kept_known(cat: &Catalog, registration: &str) -> Result<Option<(Found, &'static str)>, AiError> {
+    let Some(f) = lookup::kept(cat, registration)? else {
+        return Ok(None);
+    };
+    let by = if f.known {
+        lookup::SERVICE
+    } else {
+        super::fr24::FR24_NAME
+    };
+    Ok(super::fr24::with_fr24(&f, crate::jobs::now_ms()).map(|f| (f, by)))
+}
+
 /// Is `registration` a known aircraft: in a national register, or known
-/// to the lookup?
+/// to adsbdb or Flightradar24?
 fn known(cat: &Catalog, registration: &str) -> Result<bool, AiError> {
     if super::register::get(cat, registration)?.is_some() {
         return Ok(true);
     }
-    Ok(lookup::kept(cat, registration)?.is_some_and(|f| f.known))
+    Ok(kept_known(cat, registration)?.is_some())
 }
 
 /// The known aircraft `registration` was most likely read off, with who
-/// knows it (`register` or the lookup's [`lookup::SERVICE`]); `None` when
+/// knows it (`register`, [`lookup::SERVICE`] or Flightradar24); `None` when
 /// what was read is known itself, or no one mark stands out.
 pub fn fix(
     cat: &Catalog,
@@ -138,16 +155,19 @@ pub fn fix(
     if let Some(real) = super::register::near(cat, registration)? {
         return Ok(Some((real, "register")));
     }
-    let mut found: Vec<Found> = Vec::new();
+    let mut found: Vec<(Found, &'static str)> = Vec::new();
     for v in variants(registration) {
-        if let Some(f) = lookup::kept(cat, &v)?.filter(|f| f.known) {
-            found.push(f);
+        if let Some(k) = kept_known(cat, &v)? {
+            found.push(k);
         }
     }
     if found.len() > 1 {
-        found.retain(|f| hints.agree(f));
+        found.retain(|(f, _)| hints.agree(f));
     }
-    Ok((found.len() == 1).then(|| (found.remove(0).registration, lookup::SERVICE)))
+    Ok((found.len() == 1).then(|| {
+        let (f, by) = found.remove(0);
+        (f.registration, by)
+    }))
 }
 
 /// After a read: when `registration` is not known (the lookup was asked
@@ -161,8 +181,7 @@ pub fn ask_variants(
     registration: &str,
     pause: &mut dyn FnMut() -> bool,
 ) -> Result<usize, AiError> {
-    let asked = lookup::kept(cat, registration)?;
-    if asked.is_none_or(|f| f.known) || super::register::get(cat, registration)?.is_some() {
+    if lookup::kept(cat, registration)?.is_none() || known(cat, registration)? {
         return Ok(0);
     }
     if super::register::near(cat, registration)?.is_some() {

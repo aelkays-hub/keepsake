@@ -62,7 +62,8 @@ export function ordered(items: AircraftReviewItemDto[]): AircraftReviewItemDto[]
 
 /** Who knows an aircraft a registration was read one letter off. */
 function knownBy(by: string): string {
-  return by === "register" ? "the register" : "adsbdb";
+  if (by === "register") return "the register";
+  return by === "flightradar24" ? "Flightradar24" : "adsbdb";
 }
 
 /** Where an offered keyword comes from, for its label. */

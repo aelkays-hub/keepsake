@@ -251,6 +251,15 @@ describe("Read aircraft review", () => {
         "Aircraft|Registration|C-FJZS",
       ),
     ).toBe("(read C-FJ2S; the register knows C-FJZS)");
+    expect(
+      sourceOf(
+        item({
+          registrations: [{ name: "JA02NJ", pct: 95 }],
+          near: [{ read: "JA02NJ", real: "JA02WJ", by: "flightradar24" }],
+        }),
+        "Aircraft|Registration|JA02WJ",
+      ),
+    ).toBe("(read JA02NJ 95%; Flightradar24 knows JA02WJ)");
     expect(shotLine(x)).toBe("Registration read on 3 of 21 photos (JA02NJ) of this shot.");
     // No shot, or nothing read on it: no line.
     expect(shotLine(item())).toBe("");

@@ -34,6 +34,8 @@ use super::scan::TAG_PARENT;
 use crate::ai::AiError;
 use crate::catalog::{AssetId, Catalog, JobState, NewJob, Priority, TagPath};
 
+/// Flightradar24, as named where an answer says who knows an aircraft.
+pub const FR24_NAME: &str = "flightradar24";
 /// The job kind: look a batch of registrations up.
 pub const JOB_FR24_AIRCRAFT: &str = "ai.fr24.aircraft";
 /// Registrations asked about per job.
@@ -93,14 +95,74 @@ fn ever_asked(cat: &Catalog) -> Result<std::collections::HashSet<String>, AiErro
 }
 
 /// The registrations never asked about: new ones (a registration asked
-/// about before is not asked again when its answer is deleted).
+/// about before is not asked again when its answer is deleted), then
+/// those read that no one knows ([`near_due`]).
 pub fn due(cat: &Catalog, _now_ms: i64) -> Result<Vec<String>, AiError> {
     let asked = ever_asked(cat)?;
-    Ok(registrations(cat)?
+    let mut out: Vec<String> = registrations(cat)?
         .into_iter()
         .map(|(reg, _)| reg)
         .filter(|reg| !asked.contains(reg))
-        .collect())
+        .collect();
+    for (reg, _) in near_due(cat)? {
+        if !out.contains(&reg) {
+            out.push(reg);
+        }
+    }
+    Ok(out)
+}
+
+/// Read, but known to no one (ADR-051): a registration read on a photo
+/// waiting for review that adsbdb was asked about and does not know (nor
+/// a register), and the marks one look-alike letter off it
+/// ([`super::near::variants`]) once adsbdb has said it knows none of them
+/// either. Flightradar24 may know one: it saw it fly. Each with its photo;
+/// none asked of Flightradar24 before. Costs nothing for one not found.
+pub fn near_due(cat: &Catalog) -> Result<Vec<(String, AssetId)>, AiError> {
+    use super::near;
+    let asked = ever_asked(cat)?;
+    let mut out: Vec<(String, AssetId)> = Vec::new();
+    for (asset, json) in cat.read(|tx| tx.ai().waiting_aircraft_reads())? {
+        let Ok(c) = serde_json::from_str::<super::marks::Candidates>(&json) else {
+            continue;
+        };
+        for (reg, score) in c.registrations.iter().take(lookup::MAX_PER_PHOTO) {
+            if *score < lookup::LOOKUP_MIN {
+                continue;
+            }
+            // adsbdb asked and does not know it; no register has it.
+            if !lookup::kept(cat, reg)?.is_some_and(|f| !f.known)
+                || super::register::get(cat, reg)?.is_some()
+            {
+                continue;
+            }
+            let vs = near::variants(reg);
+            if vs.len() > near::MAX_ASKS {
+                continue;
+            }
+            // Each variant asked of adsbdb, none known: else nothing to ask.
+            let mut ask = vec![reg.clone()];
+            let mut all_unknown = true;
+            for v in vs {
+                match lookup::kept(cat, &v)? {
+                    Some(f) if !f.known => ask.push(v),
+                    _ => {
+                        all_unknown = false;
+                        break;
+                    }
+                }
+            }
+            if !all_unknown {
+                continue;
+            }
+            for r in ask {
+                if !asked.contains(&r) && !out.iter().any(|(o, _)| *o == r) {
+                    out.push((r, asset));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Keep what Flightradar24 said about `registration`, with what the lookup
@@ -309,7 +371,11 @@ pub fn run_batch(
 /// Queue the batch job (on the first registered photo). `false`: no
 /// registration to ask about.
 pub fn enqueue(cat: &mut Catalog) -> Result<bool, AiError> {
-    let Some((_, anchor)) = registrations(cat)?.into_iter().next() else {
+    let first = match registrations(cat)?.into_iter().next() {
+        Some(r) => Some(r),
+        None => near_due(cat)?.into_iter().next(),
+    };
+    let Some((_, anchor)) = first else {
         return Ok(false);
     };
     let now = crate::jobs::now_ms();
