@@ -76,6 +76,10 @@
 
 
 
+## Version 0.11.2 (2026-11-22)
+
+- Version 0.11.2 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft treats a burst as one shot, and checks a registration one look-alike letter off with adsbdb and Flightradar24 (ADR-051, PR #63). No catalog change.
+
 ## Read aircraft: a burst is one shot, and a registration one letter off is checked (ADR-051) (2026-11-22)
 
 - **Asked:** A7405080 to A7405100 all show JA02WJ under the wing; Read aircraft gave JA02NJ on three and nothing on 18. "What can we do to improve this identification process?" Owner chose: read a burst as one plane, and check near-misses against real registrations.
