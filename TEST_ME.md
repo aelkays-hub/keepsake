@@ -18,11 +18,13 @@ cargo test -p keepsake-core --lib near::
 cargo test -p keepsake-core --lib a_shot_follows_a_burst
 cargo test -p keepsake-core --test aircraft_tests one_letter_off
 cargo test -p keepsake-core --test aircraft_tests a_burst_is_one_shot
+cargo test -p keepsake-core --test aircraft_tests flightradar24_is_asked_about_a_mark
 ```
 
-Manual (both OSes; Read aircraft on, with **Look registrations up online** on):
+Manual (both OSes; Read aircraft on, with **Look registrations up online** on; a Flightradar24 token saved and **Look up a new registration on its own when it is tagged on a photo** on):
 1. Pick A7405080 to A7405082 (or any photos where a registration was read one letter off). Right-click → **Read again**. Wait for reading to finish (a few seconds more: adsbdb is asked about the marks one letter off).
-   - **Expected:** the photo offers **Registration JA02WJ** ticked, labelled "(read JA02NJ 95%; adsbdb knows JA02WJ)", and JA02NJ beside it unticked "(95%, as read)". The registry line says JA02WJ: Airbus A350-1000, Japan Airlines, Japan.
+   - **Expected:** adsbdb knows none of them, so within about a minute Flightradar24 is asked (Settings → Flightradar24 shows it running; about 2 credits). Close and open the review window: the photo offers **Registration JA02WJ** ticked, labelled "(read JA02NJ 95%; Flightradar24 knows JA02WJ)", with Type Airbus A350-1000 and the airline, and JA02NJ beside it unticked "(95%, as read)".
+   - **Also:** where adsbdb knows the right one (a C- or N- registration read one letter off), the label says "adsbdb knows …" at once, with no Flightradar24 question.
 2. In the same photo, look at **The same shot**.
    - **Expected:** every photo of the burst is listed (A7405080 to A7405100, not only those within 10 s), the alike ones ticked; a line says "Registration read on 3 of 21 photos (JA02NJ) of this shot."
 3. Click **Accept (and 20 more)**.
