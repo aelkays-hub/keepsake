@@ -3100,3 +3100,305 @@ fn automatic_uses_the_one_set_up_and_says_when_neither_can_be_asked() {
     }
     assert!(fr.asked.lock().unwrap().is_empty());
 }
+
+/// Stands in for adsbdb: knows JA02WJ (a JAL A350-1000) and JA02MJ (a
+/// 787-9, to choose between); counts what it is asked.
+struct JalLookup {
+    asked: Mutex<Vec<String>>,
+}
+
+impl lookup::Lookup for JalLookup {
+    fn lookup(&self, registration: &str) -> Result<lookup::Found, AiError> {
+        self.asked.lock().unwrap().push(registration.to_owned());
+        let (status, body) = match registration {
+            "JA02WJ" => (
+                200,
+                r#"{"response":{"aircraft":{"type":"A350 1041","icao_type":"A35K","manufacturer":"Airbus","registered_owner":"Japan Airlines","registered_owner_country_name":"Japan"}}}"#,
+            ),
+            "JA02MJ" => (
+                200,
+                r#"{"response":{"aircraft":{"type":"787 9","icao_type":"B789","manufacturer":"Boeing","registered_owner":"Someone Else","registered_owner_country_name":"Japan"}}}"#,
+            ),
+            _ => (404, r#"{"response":"unknown aircraft"}"#),
+        };
+        lookup::parse(
+            registration,
+            status,
+            body,
+            &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+        )
+    }
+}
+
+#[test]
+fn a_registration_read_one_letter_off_is_asked_about_and_offered_as_the_known_aircraft() {
+    use keepsake_core::ai::aircraft::near;
+    let mut w = World::new(&["a.jpg"]);
+    let a = w.asset("a.jpg");
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    let registry = Arc::new(JalLookup {
+        asked: Mutex::new(Vec::new()),
+    });
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    // A7405081: the W of JA02WJ read as N.
+    w.service(fake(&["JA02NJ"], &seen))
+        .with_lookup(registry.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    let asked = registry.asked.lock().unwrap().clone();
+    assert_eq!(asked[0], "JA02NJ", "{asked:?}");
+    assert!(asked.contains(&"JA02WJ".to_owned()), "{asked:?}");
+    assert!(asked.len() <= 1 + near::MAX_ASKS, "{asked:?}");
+    assert!(
+        asked.iter().all(|r| r.starts_with("JA02")),
+        "the country and the digits stay: {asked:?}"
+    );
+
+    // Two known aircraft are one letter off: with nothing else to go by,
+    // neither is offered.
+    let conf = Confidence::default();
+    let item = scan::review_items(&w.cat, &[a]).unwrap().remove(0);
+    let (offer, _) = scan::offer_full(&w.cat, &item, &conf).unwrap();
+    assert!(offer.near.is_empty(), "{:?}", offer.near);
+    // The photo looks like an A350-1000: that one is offered, ticked, with
+    // what was read beside it unticked, and what adsbdb says of it.
+    let mut item = item;
+    item.looks_like = Some("Airbus A350-1000".into());
+    let (offer, found) = scan::offer_full(&w.cat, &item, &conf).unwrap();
+    let names = |v: &[TagPath]| -> Vec<String> { v.iter().map(TagPath::to_lightroom).collect() };
+    assert_eq!(
+        offer.near,
+        [scan::Near {
+            read: "JA02NJ".into(),
+            real: "JA02WJ".into(),
+            by: lookup::SERVICE,
+        }]
+    );
+    let kw = names(&offer.keywords);
+    assert_eq!(kw[0], "Aircraft|Registration|JA02WJ", "{kw:?}");
+    assert_eq!(kw[1], "Aircraft|Registration|JA02NJ", "{kw:?}");
+    assert!(
+        kw.contains(&"Aircraft|Type|Airbus A350-1000".to_owned()),
+        "{kw:?}"
+    );
+    assert_eq!(names(&offer.unticked), ["Aircraft|Registration|JA02NJ"]);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].registration, "JA02WJ");
+
+    // Read again: nothing asked again.
+    let before = registry.asked.lock().unwrap().len();
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    w.service(fake(&["JA02NJ"], &seen))
+        .with_lookup(registry.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(registry.asked.lock().unwrap().len(), before);
+    // A registration adsbdb knows is not changed.
+    assert_eq!(
+        near::fix(&w.cat, "JA02WJ", &near::Hints::default()).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_burst_is_one_shot_and_what_its_photos_read_is_offered_together() {
+    use keepsake_core::catalog::AiAnalysis;
+    let files = ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"];
+    let mut w = World::new(&files);
+    let [a, b, c, d, e] = files.map(|n| w.asset(n));
+    // A burst 3 s apart at most, 10.2 s long (like A7405080 to A7405100).
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, t) in [(a, 0i64), (b, 2_100), (c, 4_600), (d, 7_400), (e, 10_200)] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2, camera_make = 'SONY', camera_model = 'ILCE-7M4' WHERE id = ?1",
+            rusqlite::params![id, 1_000_000 + t],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let v = Embedding::new((0..64).map(|i| ((i as f32) * 0.3).sin()).collect()).unwrap();
+    let (q, scale) = v.quantize();
+    for id in [a, b, c, d, e] {
+        w.cat
+            .write(|tx| {
+                tx.ai().put_analysis(&AiAnalysis {
+                    asset_id: id,
+                    model: keepsake_core::ai::MODEL_ID.to_owned(),
+                    embedding: q.clone(),
+                    emb_scale: scale,
+                    dhash: 0,
+                    made_ms: 0,
+                    tag_list: 0,
+                })
+            })
+            .unwrap();
+    }
+    // The shot reaches e, 10.2 s after a: each photo is 3 s or less after
+    // the one before (10 s either side of a alone did not reach it).
+    let n = scan::neighbours(&w.cat, a, scan::NEIGHBOUR_MS).unwrap();
+    let ids: Vec<AssetId> = n.iter().map(|x| x.asset).collect();
+    assert_eq!(ids, [b, c, d, e]);
+    assert!(n.iter().all(|x| x.alike));
+    // From the middle, both ways.
+    assert_eq!(
+        scan::neighbours(&w.cat, c, scan::NEIGHBOUR_MS)
+            .unwrap()
+            .len(),
+        4
+    );
+    // A gap of 2.5 s: the 2.8 s from c to d ends the shot there.
+    let n = scan::neighbours(&w.cat, a, 2_500).unwrap();
+    let ids: Vec<AssetId> = n.iter().map(|x| x.asset).collect();
+    assert_eq!(ids, [b, c]);
+
+    // a and c read the registration, c also a slip; b reads only the
+    // airline; d and e nothing.
+    let put = |w: &mut World, id: AssetId, json: &str| {
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, json, None, true, 10))
+            .unwrap();
+    };
+    put(
+        &mut w,
+        a,
+        r#"{"registrations":[["JA02WJ",0.82]],"airlines":[],"types":[]}"#,
+    );
+    put(
+        &mut w,
+        b,
+        r#"{"registrations":[],"airlines":[["Japan Airlines",0.9]],"types":[]}"#,
+    );
+    put(
+        &mut w,
+        c,
+        r#"{"registrations":[["JA02NJ",0.95],["JA02WJ",0.9]],"airlines":[],"types":[]}"#,
+    );
+    put(
+        &mut w,
+        d,
+        r#"{"registrations":[],"airlines":[],"types":[]}"#,
+    );
+    let item = scan::review_items(&w.cat, &[a]).unwrap().remove(0);
+    let (it, support) = scan::with_shot(&w.cat, &item, &[b, c, d, e]).unwrap();
+    // Read on two photos, JA02WJ comes first, at the surest it was read.
+    assert_eq!(
+        support,
+        [("JA02WJ".to_owned(), 2), ("JA02NJ".to_owned(), 1)]
+    );
+    assert_eq!(it.candidates.registrations[0], ("JA02WJ".to_owned(), 0.9));
+    assert_eq!(it.candidates.airlines, [("Japan Airlines".to_owned(), 0.9)]);
+    let offer = scan::offer_for(&w.cat, &it, &Confidence::default()).unwrap();
+    let kw: Vec<String> = offer.keywords.iter().map(TagPath::to_lightroom).collect();
+    assert_eq!(kw[0], "Aircraft|Registration|JA02WJ", "{kw:?}");
+    assert!(
+        kw.contains(&"Aircraft|Airline|Japan Airlines".to_owned()),
+        "{kw:?}"
+    );
+    // With no shot, the read is as it was.
+    let (alone, support) = scan::with_shot(&w.cat, &item, &[]).unwrap();
+    assert_eq!(alone, item);
+    assert_eq!(support, [("JA02WJ".to_owned(), 1)]);
+}
+
+/// Stands in for Flightradar24: saw JA02WJ (a JAL A350-1000) fly; counts
+/// what it is asked.
+struct JalFr24 {
+    asked: Mutex<Vec<String>>,
+}
+
+impl route::Fr24Aircrafts for JalFr24 {
+    fn aircraft(
+        &self,
+        registration: &str,
+        _begin: i64,
+        _end: i64,
+    ) -> Result<Option<lookup::Fr24Aircraft>, AiError> {
+        self.asked.lock().unwrap().push(registration.to_owned());
+        Ok((registration == "JA02WJ").then(|| lookup::Fr24Aircraft {
+            asked_ms: keepsake_core::jobs::now_ms(),
+            found: true,
+            icao_type: Some("A35K".into()),
+            operator: Some("JAL".into()),
+            painted_as: Some("JAL".into()),
+            hex: Some("840A8E".into()),
+            seen: Some("2026-11-22".into()),
+            expired: false,
+        }))
+    }
+}
+
+#[test]
+fn flightradar24_is_asked_about_a_mark_one_letter_off_when_adsbdb_knows_none() {
+    use keepsake_core::ai::aircraft::{fr24, near};
+    let mut w = World::new(&["a.jpg"]);
+    let a = w.asset("a.jpg");
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    // adsbdb knows none of JA02NJ and the marks one letter off it.
+    let registry = Arc::new(FakeLookup {
+        asked: Mutex::new(Vec::new()),
+    });
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&["JA02NJ"], &seen))
+        .with_lookup(registry.clone())
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    let variants = near::variants("JA02NJ");
+    assert_eq!(registry.asked.lock().unwrap().len(), 1 + variants.len());
+
+    // Flightradar24 is asked about what was read and each mark, nothing
+    // accepted yet: the read photo anchors the job.
+    let due: Vec<String> = fr24::near_due(&w.cat)
+        .unwrap()
+        .into_iter()
+        .map(|(r, id)| {
+            assert_eq!(id, a);
+            r
+        })
+        .collect();
+    let mut want = vec!["JA02NJ".to_owned()];
+    want.extend(variants.iter().cloned());
+    assert_eq!(due, want);
+    assert!(fr24::enqueue(&mut w.cat).unwrap());
+    fr24::stop(&mut w.cat).unwrap();
+    let client = JalFr24 {
+        asked: Mutex::new(Vec::new()),
+    };
+    let b = fr24::run_batch(
+        &mut w.cat,
+        &client,
+        &AtomicBool::new(false),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
+    assert_eq!((b.found, b.left), (1, 0));
+
+    // It saw JA02WJ fly: offered for JA02NJ, with its type and airline.
+    let item = scan::review_items(&w.cat, &[a]).unwrap().remove(0);
+    let (offer, _) = scan::offer_full(&w.cat, &item, &Confidence::default()).unwrap();
+    assert_eq!(
+        offer.near,
+        [scan::Near {
+            read: "JA02NJ".into(),
+            real: "JA02WJ".into(),
+            by: fr24::FR24_NAME,
+        }]
+    );
+    let kw: Vec<String> = offer.keywords.iter().map(TagPath::to_lightroom).collect();
+    assert_eq!(kw[0], "Aircraft|Registration|JA02WJ", "{kw:?}");
+    assert!(
+        kw.contains(&"Aircraft|Type|Airbus A350-1000".to_owned()),
+        "{kw:?}"
+    );
+
+    // Each is asked once: nothing is due again.
+    assert!(fr24::near_due(&w.cat).unwrap().is_empty());
+    let n = client.asked.lock().unwrap().len();
+    fr24::run_batch(
+        &mut w.cat,
+        &client,
+        &AtomicBool::new(false),
+        std::time::Duration::ZERO,
+    )
+    .unwrap();
+    assert_eq!(client.asked.lock().unwrap().len(), n);
+}

@@ -1,4 +1,4 @@
-# Manual Test Steps — Read aircraft: small registrations cut short, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: small registrations cut short, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,30 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## Read aircraft: a burst is one shot, and a registration one letter off
+
+Automatic:
+```
+cargo test -p keepsake-core --lib near::
+cargo test -p keepsake-core --lib a_shot_follows_a_burst
+cargo test -p keepsake-core --test aircraft_tests one_letter_off
+cargo test -p keepsake-core --test aircraft_tests a_burst_is_one_shot
+cargo test -p keepsake-core --test aircraft_tests flightradar24_is_asked_about_a_mark
+```
+
+Manual (both OSes; Read aircraft on, with **Look registrations up online** on; a Flightradar24 token saved and **Look up a new registration on its own when it is tagged on a photo** on):
+1. Pick A7405080 to A7405082 (or any photos where a registration was read one letter off). Right-click → **Read again**. Wait for reading to finish (a few seconds more: adsbdb is asked about the marks one letter off).
+   - **Expected:** adsbdb knows none of them, so within about a minute Flightradar24 is asked (Settings → Flightradar24 shows it running; about 2 credits). Close and open the review window: the photo offers **Registration JA02WJ** ticked, labelled "(read JA02NJ 95%; Flightradar24 knows JA02WJ)", with Type Airbus A350-1000 and the airline, and JA02NJ beside it unticked "(95%, as read)".
+   - **Also:** where adsbdb knows the right one (a C- or N- registration read one letter off), the label says "adsbdb knows …" at once, with no Flightradar24 question.
+2. In the same photo, look at **The same shot**.
+   - **Expected:** every photo of the burst is listed (A7405080 to A7405100, not only those within 10 s), the alike ones ticked; a line says "Registration read on 3 of 21 photos (JA02NJ) of this shot."
+3. Click **Accept (and 20 more)**.
+   - **Expected:** all 21 photos get Aircraft|Registration|JA02WJ (and the airline and type ticked); none gets JA02NJ. A photo taken minutes later (A7405101) gets nothing.
+4. Move the same-shot slider down to 2 s.
+   - **Expected:** the shot stops at the first gap longer than 2 s.
+5. A photo whose registration adsbdb knows (for example a C- or N- registration read right).
+   - **Expected:** offered as read, nothing asked about one letter off, no "knows" label.
 
 ## Read aircraft: small registrations cut short, and O for zero in JA marks
 

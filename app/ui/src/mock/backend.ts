@@ -2704,7 +2704,43 @@ export function installMock(): void {
                   ]
                 : [],
               neighbours: r.review === "waiting" ? neighbours : [],
+              sameShot: [{ name: "C-FJZS", photos: 1 + neighbours.filter((n) => n.alike).length }],
+              shotPhotos: 1 + neighbours.filter((n) => n.alike).length,
+              near: [] as { read: string; real: string; by: string }[],
             });
+            // ?aircraftnear=on: a burst of 21 where 3 photos read JA02NJ,
+            // one letter off JA02WJ, which adsbdb knows (ADR-051).
+            if (params.get("aircraftnear") === "on") {
+              const last = items[items.length - 1];
+              Object.assign(last, {
+                registrations: [{ name: "JA02NJ", pct: 95 }],
+                airlines: [],
+                types: [],
+                looksLike: null,
+                offered: [
+                  "Aircraft|Registration|JA02WJ",
+                  "Aircraft|Registration|JA02NJ",
+                  "Aircraft|Airline|Japan Airlines",
+                  "Aircraft|Type|Airbus A350-1000",
+                ],
+                unticked: ["Aircraft|Registration|JA02NJ"],
+                fromLookup: ["Aircraft|Airline|Japan Airlines", "Aircraft|Type|Airbus A350-1000"],
+                lookups: [
+                  {
+                    registration: "JA02WJ",
+                    known: true,
+                    aircraftType: "Airbus A350-1000",
+                    airline: "Japan Airlines",
+                    owner: "Japan Airlines",
+                    country: "Japan",
+                    built: null,
+                  },
+                ],
+                sameShot: [{ name: "JA02NJ", photos: 3 }],
+                shotPhotos: 21,
+                near: [{ read: "JA02NJ", real: "JA02WJ", by: "adsbdb" }],
+              });
+            }
           }
           return {
             items,

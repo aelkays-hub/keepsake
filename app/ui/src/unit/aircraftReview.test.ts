@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AircraftReviewDto, AircraftReviewItemDto } from "../api";
 import {
+  shotLine,
   alsoRead,
   confidenceOf,
   isTicked,
@@ -37,6 +38,9 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   fromLookup: [],
   lookups: [],
   neighbours: [],
+  sameShot: [],
+  shotPhotos: 1,
+  near: [],
   ...p,
 });
 
@@ -224,5 +228,41 @@ describe("Read aircraft review", () => {
     expect(shownIds(empty, true, 100)).toEqual(["x", "y"]);
     // Not looked for: the app gives the keywords to the alike ones.
     expect(tickedNeighbours(item({ neighbours: null }), undefined)).toBeNull();
+  });
+
+  it("says when a registration was read one letter off a known aircraft, and what the shot read", () => {
+    const x = item({
+      registrations: [{ name: "JA02NJ", pct: 95 }],
+      offered: ["Aircraft|Registration|JA02WJ", "Aircraft|Registration|JA02NJ"],
+      unticked: ["Aircraft|Registration|JA02NJ"],
+      near: [{ read: "JA02NJ", real: "JA02WJ", by: "adsbdb" }],
+      sameShot: [{ name: "JA02NJ", photos: 3 }],
+      shotPhotos: 21,
+    });
+    expect(sourceOf(x, "Aircraft|Registration|JA02WJ")).toBe(
+      "(read JA02NJ 95%; adsbdb knows JA02WJ)",
+    );
+    expect(sourceOf(x, "Aircraft|Registration|JA02NJ")).toBe("(95%, as read)");
+    expect(isTicked(x, "Aircraft|Registration|JA02WJ", undefined)).toBe(true);
+    expect(isTicked(x, "Aircraft|Registration|JA02NJ", undefined)).toBe(false);
+    expect(
+      sourceOf(
+        item({ near: [{ read: "C-FJ2S", real: "C-FJZS", by: "register" }] }),
+        "Aircraft|Registration|C-FJZS",
+      ),
+    ).toBe("(read C-FJ2S; the register knows C-FJZS)");
+    expect(
+      sourceOf(
+        item({
+          registrations: [{ name: "JA02NJ", pct: 95 }],
+          near: [{ read: "JA02NJ", real: "JA02WJ", by: "flightradar24" }],
+        }),
+        "Aircraft|Registration|JA02WJ",
+      ),
+    ).toBe("(read JA02NJ 95%; Flightradar24 knows JA02WJ)");
+    expect(shotLine(x)).toBe("Registration read on 3 of 21 photos (JA02NJ) of this shot.");
+    // No shot, or nothing read on it: no line.
+    expect(shotLine(item())).toBe("");
+    expect(shotLine(item({ shotPhotos: 4 }))).toBe("");
   });
 });

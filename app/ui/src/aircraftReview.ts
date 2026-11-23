@@ -60,8 +60,27 @@ export function ordered(items: AircraftReviewItemDto[]): AircraftReviewItemDto[]
     .map((x) => x.item);
 }
 
+/** Who knows an aircraft a registration was read one letter off. */
+function knownBy(by: string): string {
+  if (by === "register") return "the register";
+  return by === "flightradar24" ? "Flightradar24" : "adsbdb";
+}
+
 /** Where an offered keyword comes from, for its label. */
 export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
+  const [kind, name] = parts(keyword);
+  if (kind === "Registration") {
+    // Read one look-alike letter off a known aircraft (ADR-051).
+    const fixed = item.near.find((n) => n.real === name);
+    if (fixed) {
+      const read = item.registrations.find((m) => m.name === fixed.read);
+      return `(read ${fixed.read}${read ? ` ${read.pct}%` : ""}; ${knownBy(fixed.by)} knows ${fixed.real})`;
+    }
+    if (item.near.some((n) => n.read === name)) {
+      const read = item.registrations.find((m) => m.name === name);
+      return `(${read ? `${read.pct}%, ` : ""}as read)`;
+    }
+  }
   const pct = pctOf(item, keyword);
   // The build year comes from OpenSky's database on this computer (ADR-044).
   if (item.fromLookup.includes(keyword) && parts(keyword)[0] === "Built") return "(OpenSky)";
@@ -119,6 +138,16 @@ export function lookupLine(item: AircraftReviewItemDto): string {
         : `adsbdb does not know ${l.registration}`,
     )
     .join("; ");
+}
+
+/** What the photos of its shot read, in a line ("" with no shot, or when
+ * they read no registration): "Registration read on 3 of 21 photos of
+ * this shot: JA02NJ". */
+export function shotLine(item: AircraftReviewItemDto): string {
+  if (item.shotPhotos < 2 || item.sameShot.length === 0) return "";
+  return `Registration read on ${item.sameShot
+    .map((m) => `${m.photos} of ${item.shotPhotos} photos (${m.name})`)
+    .join(", ")} of this shot.`;
 }
 
 /** Possible marks below the window's confidence, for "also read". */
