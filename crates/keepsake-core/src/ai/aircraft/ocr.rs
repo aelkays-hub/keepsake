@@ -61,12 +61,12 @@ pub const TEXT_MIN: f32 = 0.5;
 /// upside down (a registration painted along the wing, read from below),
 /// and the recogniser reads only upright text.
 pub const TURN_BELOW: f32 = 0.95;
-/// A line less high than this (picture pixels) is also read lengthened by
-/// [`LENGTHEN`] at each end: around small letters the detector's box can
-/// stop short of the last one (`JA02WJ` read `JAO2N` under the wing of a
-/// plane high overhead, A7405081), and a mark missing a letter is no mark.
-pub const SMALL_LINE: f32 = 48.0;
-/// How much longer, as a share of the line's length, at each end.
+/// A line read with less confidence than [`TURN_BELOW`] is also read with
+/// its box this share of its length longer at each end. The detector's box
+/// can stop short of the last letter (`JA02WJ` read `JAO2N` under the wing
+/// of a plane high overhead, A7405081), and even around big clear letters
+/// the recogniser can drop one when the box is tight (`C-GFCH` read `C-GCH`
+/// at 79 px, A7_07933); a mark missing a letter is no mark.
 pub const LENGTHEN: f32 = 0.1;
 
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
@@ -630,7 +630,7 @@ pub type LineReader<'a> = dyn FnMut(&RgbImage) -> Result<(String, f32), AiError>
 
 /// The readings of one box the detector found in `rgb`, by `read_line`
 /// (the recogniser): the box either way up ([`turned`]), the more
-/// confident kept; and, for small letters, the box lengthened
+/// confident kept; and, when still unsure, the box lengthened
 /// ([`lengthened`]) read too, as a line of its own when it says something
 /// else. Each kept only when read with at least [`TEXT_MIN`] confidence.
 pub fn read_box(
@@ -654,7 +654,7 @@ pub fn read_box(
         }
     }
     let mut out = Vec::new();
-    if dist(quad[0], quad[3]) < SMALL_LINE {
+    if read.1 < TURN_BELOW {
         let longer = lengthened(&quad, LENGTHEN);
         if let Some(line) = crop(rgb, &longer) {
             let (text, score) = read_line(&line)?;
@@ -798,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn small_letters_cut_short_are_read_again_lengthened() {
+    fn unsure_lines_are_read_again_lengthened() {
         // A7405081: JA02WJ under the wing, letters about 10 px high at a
         // slant; the detector's box stops before the last J, and what the
         // recogniser reads in it, JAO2N, is no mark.
@@ -825,8 +825,25 @@ mod tests {
         // Read upright, turned (unsure), then lengthened.
         assert_eq!(widths, [35, 35, 42]);
 
-        // Big letters are not read again; nor a lengthened read that says
-        // the same.
+        // A7_07933: C-GFCH on the side, 79 px high, read C-GCH in the box
+        // as found and right in the box a little longer.
+        let side = slanted([10.0, 20.0], [0.99, -0.12], 122.0, 79.0);
+        let mut tight = |line: &RgbImage| {
+            Ok(if line.width() > 122 {
+                ("C-GFCH".to_owned(), 0.96)
+            } else {
+                ("C-GCH".to_owned(), 0.85)
+            })
+        };
+        let lines = read_box(&img, side, &mut tight).unwrap();
+        let marks = super::super::marks::candidates(
+            &lines,
+            &super::super::marks::Airlines::parse("Air Canada	AIR CANADA"),
+        );
+        assert_eq!(marks.registrations, [("C-GFCH".to_owned(), 0.96)]);
+
+        // A line read surely is not read again; nor is a lengthened read
+        // that says the same kept twice.
         let big = slanted([10.0, 60.0], [1.0, 0.0], 150.0, 50.0);
         let mut n = 0;
         let lines = read_box(&img, big, &mut |_| {
