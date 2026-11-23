@@ -1,3 +1,18 @@
+# Keepsake 0.11.0
+
+Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.11.0 makes Add route choose OpenSky or Flightradar24 for each photo by the date it was taken.
+
+No catalog change: 0.11.0 opens a 0.10.0 library as it is.
+
+## New in 0.11.0
+
+**Add route chooses where to find each flight**
+- **Settings → Read aircraft → Flights from** has a new choice, **Automatic**, and it is the default for new settings. A photo from within your Flightradar24 plan's history is asked of Flightradar24; an older one is asked of OpenSky.
+- Add route assumes the plan goes back 30 days. When Flightradar24 says your plan starts later, Add route remembers how far back it really goes, and that photo is asked of OpenSky instead, so it doesn't fail.
+- With only one service set up, Add route uses it wherever it can. A photo older than your Flightradar24 plan, with no OpenSky client, says to add one.
+- The Add route window says, for each photo, which service its flight came from.
+- **OpenSky only** and **Flightradar24 only** are still there. Settings saved by an earlier version keep the service they name: choose **Automatic** once to use it.
+
 # Keepsake 0.10.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.10.0 makes Add route ask OpenSky far less often, and lets you type a flight number to reuse the route your other photos of that flight already have.
