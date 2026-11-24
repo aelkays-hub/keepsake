@@ -16,9 +16,9 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftLookupDto,
+    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftLookupDto, AircraftNearDto,
     AircraftNeighbourDto, AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted,
-    CloudStatusDto, SamePlaneDto, ScoredMarkDto, Selection,
+    CloudStatusDto, SamePlaneDto, ScoredMarkDto, Selection, ShotMarkDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -386,12 +386,14 @@ pub fn aircraft_review(
         } else {
             (name_of(&cat, it.asset)?, None)
         };
-        let found = scan::found_for(&cat, &it, &conf).map_err(err)?;
-        let offer = scan::offer_for(&cat, &it, &conf).map_err(err)?;
         let names = |v: &[TagPath]| v.iter().map(TagPath::to_lightroom).collect::<Vec<_>>();
         let mut neighbours = Vec::new();
+        let mut mates = Vec::new();
         if on_screen && it.review == scan::Review::Waiting {
             for n in scan::neighbours(&cat, it.asset, i64::from(same_shot_s) * 1000).map_err(err)? {
+                if n.alike {
+                    mates.push(n.asset);
+                }
                 let (name, thumb) = photo_of(&cat, &open.cache, n.asset)?;
                 neighbours.push(AircraftNeighbourDto {
                     id: n.asset.to_string(),
@@ -405,6 +407,9 @@ pub fn aircraft_review(
                 });
             }
         }
+        // What the alike photos of its shot read too (ADR-051).
+        let (it, support) = scan::with_shot(&cat, &it, &mates).map_err(err)?;
+        let (offer, found) = scan::offer_full(&cat, &it, &conf).map_err(err)?;
         items.push(AircraftReviewItemDto {
             id: it.asset.to_string(),
             name,
@@ -431,6 +436,23 @@ pub fn aircraft_review(
                 })
                 .collect(),
             neighbours: on_screen.then_some(neighbours),
+            same_shot: support
+                .into_iter()
+                .map(|(name, photos)| ShotMarkDto {
+                    name,
+                    photos: u32::try_from(photos).unwrap_or(u32::MAX),
+                })
+                .collect(),
+            shot_photos: u32::try_from(mates.len() + 1).unwrap_or(u32::MAX),
+            near: offer
+                .near
+                .iter()
+                .map(|n| AircraftNearDto {
+                    read: n.read.clone(),
+                    real: n.real.clone(),
+                    by: n.by.to_owned(),
+                })
+                .collect(),
         });
     }
     let read = items.len() as u64;

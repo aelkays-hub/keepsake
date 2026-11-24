@@ -219,6 +219,18 @@ impl<M> Ai<'_, M> {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// The reads waiting for review that found a registration: each photo
+    /// and what it read (JSON), the newest read first.
+    pub fn waiting_aircraft_reads(&self) -> Result<Vec<(AssetId, String)>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT asset_id, candidates FROM aircraft_reads
+              WHERE review = 'waiting' AND candidates LIKE '%\"registrations\":[[%'
+              ORDER BY made_ms DESC",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Every registration looked up and what was said (JSON), the longest
     /// ago first.
     pub fn aircraft_lookups(&self) -> Result<Vec<(String, String, i64)>, CatalogError> {

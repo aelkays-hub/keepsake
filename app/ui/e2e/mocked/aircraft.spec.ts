@@ -286,6 +286,33 @@ test("with the online lookup: the registry's type and airline, neighbours and th
   expect(await calls(page, "aircraft_set_lookup")).toEqual([{ enabled: false }]);
 });
 
+test("a registration read one letter off is offered as the known aircraft, with what its shot read", async ({
+  page,
+}) => {
+  await open(page, "&aircraft=on&lookup=on&aircraftnear=on");
+  await page.getByTestId("tile").nth(10).click({ button: "right" });
+  await page.getByTestId("tile-menu-aircraft").click();
+  const photo = page.getByTestId("aircraft-review").getByTestId("ar-photo").first();
+  const real = photo.locator("label", { hasText: "JA02WJ" }).getByTestId("ar-mark");
+  const read = photo.locator("label", { hasText: "as read" }).getByTestId("ar-mark");
+  await expect(real).toBeChecked();
+  await expect(read).not.toBeChecked();
+  await expect(photo).toContainText("(read JA02NJ 95%; adsbdb knows JA02WJ)");
+  await expect(photo.getByTestId("ar-shot")).toHaveText(
+    "Registration read on 3 of 21 photos (JA02NJ) of this shot.",
+  );
+  await expect(photo.getByTestId("ar-lookup")).toHaveText(
+    "Registry (adsbdb): JA02WJ: Airbus A350-1000, Japan Airlines, Japan",
+  );
+  await expect(photo.getByTestId("ar-near")).toContainText(
+    "The same shot: taken one after another by the same camera and lens",
+  );
+  await photo.getByTestId("ar-accept").click();
+  const sent = (await calls(page, "aircraft_accept"))[0] as { keywords: string[] };
+  expect(sent.keywords).toContain("Aircraft|Registration|JA02WJ");
+  expect(sent.keywords).not.toContain("Aircraft|Registration|JA02NJ");
+});
+
 test("photos accepted as a photo's neighbours leave the list and are not asked about again", async ({
   page,
 }) => {

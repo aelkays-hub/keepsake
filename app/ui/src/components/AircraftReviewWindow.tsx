@@ -21,6 +21,7 @@ import {
   isTicked,
   KINDS,
   lookupLine,
+  shotLine,
   MIN_PCT,
   parts,
   progressLine,
@@ -90,6 +91,7 @@ function Photo({
   const also = alsoRead(item);
   const done = item.review !== "waiting";
   const looked = lookupLine(item);
+  const shot = shotLine(item);
   const near = tickedNeighbours(item, toggledNear) ?? [];
   return (
     <li className={`ar-photo ${item.review}`} data-testid="ar-photo" data-id={item.id}>
@@ -139,6 +141,11 @@ function Photo({
             Registry (adsbdb): {looked}
           </p>
         )}
+        {shot && (
+          <p className="muted ar-shot" data-testid="ar-shot">
+            {shot}
+          </p>
+        )}
         {also.length > 0 && (
           <p className="muted ar-also" data-testid="ar-also">
             Also read, below your confidence: {also.map((a) => `${a.label} ${a.pct}%`).join(", ")}
@@ -147,8 +154,8 @@ function Photo({
         {!done && item.neighbours && item.neighbours.length > 0 && (
           <div className="ar-near" data-testid="ar-near">
             <span className="muted">
-              Taken within ±{sameShotS} s by the same camera and lens (ticked ones get the same
-              keywords):
+              The same shot: taken one after another by the same camera and lens, at most{" "}
+              {sameShotS} s apart (ticked ones get the same keywords):
             </span>
             <ul>
               {item.neighbours.map((n) => {
@@ -464,8 +471,9 @@ export function AircraftReviewWindow() {
             <p className="muted">
               Lower finds more, with more mistakes; higher finds less, more surely. What was read is
               kept, so moving these re-sorts at once and nothing is read again. Same shot: photos
-              this many seconds either side, by the same camera and lens, that look alike (Tag with
-              AI uses it too). Remembered for next time.
+              taken one after another by the same camera and lens, each at most this many seconds
+              after the one before (up to 30 s either side), that look alike; what they read is
+              offered together (Tag with AI uses it too). Remembered for next time.
             </p>
           </fieldset>
         )}

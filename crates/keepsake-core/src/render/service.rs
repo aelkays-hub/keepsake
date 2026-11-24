@@ -1498,6 +1498,26 @@ impl RenderService {
             }
             Self::sleep(cancel, lk::MIN_GAP);
         }
+        // Not known: the known aircraft it may have been read off (ADR-051).
+        for (reg, score) in out.candidates.registrations.iter().take(lk::MAX_PER_PHOTO) {
+            if *score < lk::LOOKUP_MIN || cancel.load(Ordering::SeqCst) {
+                continue;
+            }
+            let mut pause = || {
+                Self::sleep(cancel, lk::MIN_GAP);
+                !cancel.load(Ordering::SeqCst)
+            };
+            match crate::ai::aircraft::near::ask_variants(cat, lookup, reg, &mut pause) {
+                Ok(0) => {}
+                Ok(n) => {
+                    tracing::info!(registration = %reg, asked = n, "aircraft lookup: marks one letter off");
+                    Self::sleep(cancel, lk::MIN_GAP);
+                }
+                Err(e) => {
+                    tracing::warn!(registration = %reg, "aircraft lookup, one letter off: {e}")
+                }
+            }
+        }
     }
 
     /// An AI job found no thumbnail: have it made (as urgently) and wait.

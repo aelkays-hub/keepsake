@@ -1,3 +1,35 @@
+# Keepsake 0.11.2
+
+Version 0.11.2 makes Read aircraft better at a plane passing overhead: a burst of photos counts as one shot, and a registration read one letter wrong is checked against aircraft that really exist. It has everything in 0.11.1.
+
+No catalog change: 0.11.2 opens a 0.11.1 library as it is.
+
+## New in 0.11.2
+
+**A burst is one shot**
+- The same shot used to be the photos taken within a few seconds either side of one photo. Now it follows a burst from one photo to the next: photos by the same camera and lens, each no more than the same-shot setting after the one before (up to 30 seconds either side).
+- Accepting one photo gives its keywords to every ticked photo of the burst.
+- The review window says what the burst's photos read, for example "Registration read on 3 of 21 photos (JA02NJ) of this shot", and offers what they read together.
+
+**A registration read one letter wrong**
+- When a registration is not a known aircraft, Keepsake checks the registrations one look-alike letter away (W for N, 0 for O, and so on) with adsbdb and, when adsbdb knows none of them, with your Flightradar24 lookup.
+- One that is known is offered ticked, for example "JA02WJ (read JA02NJ 95%; Flightradar24 knows JA02WJ)", with what was read beside it unticked.
+- Flightradar24 is asked only when **Look up a new registration on its own** is on, or with **Look up aircraft on Flightradar24**. A registration it does not find costs no credits; one it finds costs 2.
+- Photos read before 0.11.2: use **Read again** for these checks to run.
+
+# Keepsake 0.11.1
+
+Version 0.11.1 makes Read aircraft better at small registrations, such as one painted under the wing of a plane high overhead. It has everything in 0.11.0.
+
+No catalog change: 0.11.1 opens a 0.11.0 or 0.10.0 library as it is.
+
+## Fixed in 0.11.1
+
+**Small registrations are read again**
+- When a registration is only a few pixels high, the box around it could stop short of the last letter, and nothing was offered. Read aircraft now reads small lines a second time with the box made a little longer at each end.
+- In marks such as Japan's `JA` followed by two digits, a letter O read where a digit belongs is taken as a zero (also D, Q, I and L), so `JAO2…` becomes `JA02…`.
+- Very small letters can still be read wrong (a W read as N, for example). Check a small registration against the photo before you accept it.
+
 # Keepsake 0.11.0
 
 Keepsake is a local-first replacement for Sony PlayMemories Home. It imports camera cards safely, keeps a calendar-first library of photos and videos, and backs it up, all on your own computer. Version 0.11.0 makes Add route choose OpenSky or Flightradar24 for each photo by the date it was taken.

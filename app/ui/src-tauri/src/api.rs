@@ -1478,9 +1478,33 @@ dto! {
         pub from_lookup: Vec<String>,
         /// What the lookup said about its registrations.
         pub lookups: Vec<AircraftLookupDto>,
-        /// Photos taken by the same camera and lens within the same-shot
-        /// window; `None`: not looked for (the photo is not on screen).
+        /// The photos of its shot: taken one after another by the same
+        /// camera and lens, no more than the same-shot gap apart; `None`:
+        /// not looked for (the photo is not on screen).
         pub neighbours: Option<Vec<AircraftNeighbourDto>>,
+        /// For each registration read on it or on the alike photos of its
+        /// shot, on how many of them (this one too), most first (ADR-051).
+        pub same_shot: Vec<ShotMarkDto>,
+        /// How many photos those are (this one too; 1: no shot).
+        pub shot_photos: u32,
+        /// Registrations read one look-alike letter off a known aircraft,
+        /// offered as that one.
+        pub near: Vec<AircraftNearDto>,
+    }
+
+    /// A registration and on how many photos of a shot it was read.
+    pub struct ShotMarkDto {
+        pub name: String,
+        pub photos: u32,
+    }
+
+    /// A registration read (`read`) offered as the known aircraft it was
+    /// most likely read off (`real`), known to `by`: `register` (a national
+    /// register) or `adsbdb`.
+    pub struct AircraftNearDto {
+        pub read: String,
+        pub real: String,
+        pub by: String,
     }
 
     /// What the online lookup (adsbdb.com) said about a registration.

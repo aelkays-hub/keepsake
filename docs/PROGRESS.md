@@ -45,6 +45,7 @@
 | — | Add route: one OpenSky question per aircraft; a typed flight number offers the routes other photos of it have (ADR-049) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: registrations read unsurely are read again with a longer box (a letter was dropped); O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -74,6 +75,24 @@
 
 
 
+
+## Version 0.11.2 (2026-11-22)
+
+- Version 0.11.2 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft treats a burst as one shot, and checks a registration one look-alike letter off with adsbdb and Flightradar24 (ADR-051, PR #63). No catalog change.
+
+## Read aircraft: a burst is one shot, and a registration one letter off is checked (ADR-051) (2026-11-22)
+
+- **Asked:** A7405080 to A7405100 all show JA02WJ under the wing; Read aircraft gave JA02NJ on three and nothing on 18. "What can we do to improve this identification process?" Owner chose: read a burst as one plane, and check near-misses against real registrations.
+- **Found (the owner's catalog, read only):** the 21 photos span 12.8 s, 3 s apart at most, same camera and lens, all analysed; A7405080 to 082 read `JA02NJ` (95%), adsbdb does not know it; the others read nothing and were set aside. The same shot (10 s either side of one photo) did not reach the end of the burst. OpenSky's database on this computer does not list JA02WJ (April 2024 snapshot).
+- **Then (owner: "Yes, add Flightradar24"):** adsbdb itself knows none of JA02WJ, JA02MJ, JA02HJ, JA02NJ (asked here). So when adsbdb knows neither what was read nor its variants, Flightradar24's registration lookup asks about them (`fr24::near_due`, in `fr24::due`); one it saw fly counts as known, with its type and airline.
+- **Built:** `near::{variants, fix, ask_variants, Hints}` (look-alikes moved from `register`, N/W/M/H added); the aircraft worker asks adsbdb about the variants of an unknown registration; `scan::{offer_full, hints, with_shot, Near, SHOT_REACH_MS}`; `scan::neighbours` follows a burst photo to photo. Tauri: `AircraftReviewItemDto.{sameShot, shotPhotos, near}`. UI: the label "read JA02NJ 95%; adsbdb knows JA02WJ", the shot's line, the same-shot wording. Mock: `?aircraftnear=on`.
+- **Tests, run here (Windows):** keepsake-core lib `ai::` (162, 2 new), `aircraft_tests` (47, 3 new), `ai_tests` (20), keepsake-app tests (bindings); Vitest aircraft review (16, 1 new); mocked Playwright `aircraft` and `a11y` (31, 1 new); cargo fmt, clippy `-D warnings`, tsc, ESLint, Prettier.
+- **Note:** the owner's photos need **Read again** (A7405080 to 082): adsbdb is asked about the variants, then (with Look up a new registration on its own on, as the owner has it) Flightradar24 within a minute, about 2 credits; then accepting one with its shot ticked gives all 21 the keywords. If adsbdb knows more than one of JA02WJ, JA02MJ and JA02HJ and the photo shows no type or airline, none is offered.
+- **Not run:** against adsbdb itself; in the installed app; CI; macOS. Branch `feat/aircraft-burst-nearmiss`.
+
+## Version 0.11.1 (2026-11-22)
+
+- Version 0.11.1 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft reads small registrations cut short again, and O for zero in JA marks (PR #61). No catalog change. v0.11.0 stays tagged as built (without that fix).
 
 ## Read aircraft: registrations missing a letter, and O for zero in JA marks (2026-11-22, 2026-11-23)
 

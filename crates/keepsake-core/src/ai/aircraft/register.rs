@@ -696,34 +696,6 @@ fn current_marks(
     Ok(set)
 }
 
-/// Characters text recognition takes for one another (`2` for `Z`).
-fn look_alikes(c: u8) -> &'static [u8] {
-    match c {
-        b'0' => b"ODQ",
-        b'O' => b"0DQ",
-        b'D' => b"0O",
-        b'Q' => b"0O",
-        b'1' => b"IL",
-        b'I' => b"1L",
-        b'L' => b"1I",
-        b'2' => b"Z",
-        b'Z' => b"2",
-        b'5' => b"S",
-        b'S' => b"5",
-        b'8' => b"B",
-        b'B' => b"8",
-        b'6' => b"G",
-        b'G' => b"6",
-        b'7' => b"T",
-        b'T' => b"7",
-        b'4' => b"A",
-        b'A' => b"4",
-        b'U' => b"V",
-        b'V' => b"U",
-        _ => b"",
-    }
-}
-
 /// A registration read that no register lists, but that one registered
 /// aircraft matches with one character text recognition confuses (`C-FJ2S`
 /// for `C-FJZS`): that one. `None` when it is listed, when its register is
@@ -746,7 +718,7 @@ pub fn near(cat: &Catalog, registration: &str) -> Result<Option<String>, AiError
     let mut b = r.clone().into_bytes();
     for i in fixed..b.len() {
         let was = b[i];
-        for &c in look_alikes(was) {
+        for &c in super::near::look_alikes(was) {
             b[i] = c;
             if let Ok(s) = std::str::from_utf8(&b) {
                 if marks.contains(s) && !found.iter().any(|f| f == s) {

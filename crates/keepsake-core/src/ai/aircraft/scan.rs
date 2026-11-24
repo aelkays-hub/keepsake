@@ -591,6 +591,18 @@ pub struct Offer {
     pub unticked: Vec<TagPath>,
     /// Those the lookup gave.
     pub from_lookup: Vec<TagPath>,
+    /// Registrations read one look-alike character off a known aircraft,
+    /// offered as that one.
+    pub near: Vec<Near>,
+}
+
+/// A registration read (`read`) offered as the known aircraft it was most
+/// likely read off (`real`), known to `by` (`register` or `adsbdb`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Near {
+    pub read: String,
+    pub real: String,
+    pub by: &'static str,
 }
 
 /// The keywords to offer for a read at `conf`, with what lookups of its
@@ -655,7 +667,7 @@ pub fn offer(
 /// the same maker and model said less exactly: "Boeing 787 Dreamliner" is
 /// a "Boeing 787-9" (A7202202.ARW, C-FVLU), "Airbus A320neo" an "Airbus
 /// A320-251N"; "Boeing 777-300ER" is not a "Boeing 777-200LR".
-fn same_type(painted: &str, looked: &str) -> bool {
+pub(crate) fn same_type(painted: &str, looked: &str) -> bool {
     if painted.eq_ignore_ascii_case(looked) {
         return true;
     }
@@ -701,23 +713,50 @@ pub fn found_for(
 }
 
 /// The keywords to offer for a read ([`offer`]), with what lookups and the
-/// national registers say; a registration read one character off a
-/// registered aircraft is offered as that one, the one read beside it
-/// unticked ([`super::register::near`]).
+/// national registers say; a registration read one look-alike character
+/// off a known aircraft is offered as that one, the one read beside it
+/// unticked ([`super::near::fix`]).
 pub fn offer_for(cat: &Catalog, item: &ReviewItem, conf: &Confidence) -> Result<Offer, AiError> {
+    offer_full(cat, item, conf).map(|(o, _)| o)
+}
+
+/// What the photo shows besides its registrations, at `conf`: to choose
+/// between known aircraft a registration may have been read off.
+pub fn hints(item: &ReviewItem, conf: &Confidence) -> super::near::Hints {
+    let m = item.candidates.at(conf);
+    let mut types = m.types;
+    types.extend(item.looks_like.clone());
+    super::near::Hints {
+        types,
+        airlines: m.airlines,
+    }
+}
+
+/// [`offer_for`], with what the lookups say about the registrations it
+/// offers (those it was corrected to, not those read).
+pub fn offer_full(
+    cat: &Catalog,
+    item: &ReviewItem,
+    conf: &Confidence,
+) -> Result<(Offer, Vec<super::lookup::Found>), AiError> {
+    let hints = hints(item, conf);
     let mut it = item.clone();
     let mut fixes = Vec::new();
     for (r, _) in &mut it.candidates.registrations {
-        if let Some(real) = super::register::near(cat, r)? {
-            fixes.push((r.clone(), real.clone()));
+        if let Some((real, by)) = super::near::fix(cat, r, &hints)? {
+            fixes.push(Near {
+                read: r.clone(),
+                real: real.clone(),
+                by,
+            });
             *r = real;
         }
     }
     let found = found_for(cat, &it, conf)?;
     let mut o = offer(&it, conf, &found)?;
-    for (read, real) in fixes {
-        let k = TagPath::new([TAG_PARENT, "Registration", read.as_str()])?;
-        let real_k = TagPath::new([TAG_PARENT, "Registration", real.as_str()])?;
+    for f in &fixes {
+        let k = TagPath::new([TAG_PARENT, "Registration", f.read.as_str()])?;
+        let real_k = TagPath::new([TAG_PARENT, "Registration", f.real.as_str()])?;
         if let Some(i) = o.keywords.iter().position(|x| *x == real_k) {
             if !o.keywords.contains(&k) {
                 o.keywords.insert(i + 1, k.clone());
@@ -725,12 +764,42 @@ pub fn offer_for(cat: &Catalog, item: &ReviewItem, conf: &Confidence) -> Result<
             o.unticked.push(k);
         }
     }
-    Ok(o)
+    o.near = fixes;
+    Ok((o, found))
 }
 
-/// Photos taken this close (either side) are offered with a read, unless
-/// the user sets another window (`ai.same_shot_s`).
+/// The same shot: photos taken one after another by the same camera and
+/// lens, each at most this long after the one before, unless the user sets
+/// another gap (`ai.same_shot_s`). A burst of a plane passing overhead
+/// (A7405080–A7405100: 21 photos over 13 s, 3 s apart at most) is one shot.
 pub const NEIGHBOUR_MS: i64 = 10_000;
+
+/// How far a shot reaches either side of a photo, however short its gaps
+/// (or the gap, when longer): continuous shooting at an air show is not
+/// one shot.
+pub const SHOT_REACH_MS: i64 = 30_000;
+
+/// Of the photos taken `ms` after one (before it: below zero), those it
+/// reaches one step at a time, no step longer than `gap_ms`; nearest first.
+fn chained(near: Vec<(AssetId, i64)>, gap_ms: i64) -> Vec<(AssetId, i64)> {
+    let mut after: Vec<(AssetId, i64)> = near.iter().copied().filter(|(_, ms)| *ms >= 0).collect();
+    let mut before: Vec<(AssetId, i64)> = near.into_iter().filter(|(_, ms)| *ms < 0).collect();
+    after.sort_by_key(|(_, ms)| *ms);
+    before.sort_by_key(|(_, ms)| -*ms);
+    let mut out = Vec::new();
+    for side in [after, before] {
+        let mut last = 0i64;
+        for (id, ms) in side {
+            if (ms - last).abs() > gap_ms {
+                break;
+            }
+            last = ms;
+            out.push((id, ms));
+        }
+    }
+    out.sort_by_key(|(_, ms)| (ms.abs(), *ms));
+    out
+}
 
 /// A photo taken just before or after a read one.
 #[derive(Debug, Clone, PartialEq)]
@@ -745,8 +814,10 @@ pub struct Neighbour {
     pub alike: bool,
 }
 
-/// The photos taken by the same camera and lens within `window_ms` of `asset`,
-/// nearest first, each with how alike it is (alike: at least
+/// The photos of `asset`'s shot: taken by the same camera and lens one
+/// after another, each at most `window_ms` after the one before
+/// (reaching [`SHOT_REACH_MS`] either side at most), nearest first, each
+/// with how alike it is to `asset` (alike: at least
 /// [`crate::ai::duplicates::COSINE_BURST`], the bar Duplicates uses for
 /// photos taken moments apart). Not analysed by On-device AI: no
 /// similarity, not alike.
@@ -763,7 +834,9 @@ pub fn neighbours(
     };
     let mine = emb(asset)?;
     let mut out = Vec::new();
-    for (id, ms) in cat.read(|tx| tx.ai().taken_near(asset, window_ms))? {
+    let reach = window_ms.max(SHOT_REACH_MS);
+    let near = cat.read(|tx| tx.ai().taken_near(asset, reach))?;
+    for (id, ms) in chained(near, window_ms) {
         let similarity = match (&mine, emb(id)?) {
             (Some(a), Some(b)) => Some(a.cosine(&b)),
             _ => None,
@@ -776,6 +849,57 @@ pub fn neighbours(
         });
     }
     Ok(out)
+}
+
+/// A read with what the other photos of its shot read (`mates`, those
+/// alike): each photo of a burst reads the small letters a little
+/// differently, or not at all, so together they say more than one does.
+/// Their marks join the read's, each at the surest it was read with;
+/// registrations read on more of the shot's photos come first. Returns it,
+/// and for each registration on how many photos of the shot (this one
+/// too) it was read.
+pub fn with_shot(
+    cat: &Catalog,
+    item: &ReviewItem,
+    mates: &[AssetId],
+) -> Result<(ReviewItem, Vec<(String, usize)>), AiError> {
+    let mut it = item.clone();
+    let mut support: Vec<(String, usize)> = Vec::new();
+    let mut count = |c: &Candidates| {
+        for (r, _) in &c.registrations {
+            match support.iter_mut().find(|(n, _)| n == r) {
+                Some(e) => e.1 += 1,
+                None => support.push((r.clone(), 1)),
+            }
+        }
+    };
+    count(&item.candidates);
+    let reads = review_items(cat, mates)?;
+    for m in &reads {
+        count(&m.candidates);
+        let c = &mut it.candidates;
+        for (list, from) in [
+            (&mut c.registrations, &m.candidates.registrations),
+            (&mut c.airlines, &m.candidates.airlines),
+            (&mut c.types, &m.candidates.types),
+        ] {
+            for (name, score) in from {
+                match list.iter_mut().find(|(n, _)| n == name) {
+                    Some(e) => e.1 = e.1.max(*score),
+                    None => list.push((name.clone(), *score)),
+                }
+            }
+        }
+        if it.looks_like.is_none() {
+            it.looks_like.clone_from(&m.looks_like);
+        }
+    }
+    let on = |r: &str| support.iter().find(|(n, _)| n == r).map_or(0, |(_, k)| *k);
+    it.candidates
+        .registrations
+        .sort_by(|a, b| on(&b.0).cmp(&on(&a.0)).then(b.1.total_cmp(&a.1)));
+    support.sort_by_key(|e| std::cmp::Reverse(e.1));
+    Ok((it, support))
 }
 
 /// Other photos with `registration` as a keyword that lack some of
@@ -1287,5 +1411,31 @@ mod tests {
             ]
         );
         assert_eq!(at(0.99, 0.99, 0.99), ["Aircraft|Type|Boeing 777"]);
+    }
+
+    #[test]
+    fn a_shot_follows_a_burst_one_photo_to_the_next() {
+        let id = |_: u8| AssetId::new_random();
+        // A7405081 (+0 s) in a burst from −0 s to +12.8 s, 3 s apart at
+        // most, then a photo 154 s later and one 12 s before.
+        let near = vec![
+            (id(1), 0),
+            (id(2), 2_100),
+            (id(3), 4_600),
+            (id(4), 6_500),
+            (id(5), 9_400),
+            (id(6), 11_200),
+            (id(7), 12_800),
+            (id(8), 166_800),
+            (id(9), -12_000),
+        ];
+        let got: Vec<i64> = chained(near.clone(), 3_000)
+            .iter()
+            .map(|(_, ms)| *ms)
+            .collect();
+        assert_eq!(got, vec![0, 2_100, 4_600, 6_500, 9_400, 11_200, 12_800]);
+        // A gap longer than the window ends the shot on that side.
+        let got: Vec<i64> = chained(near, 2_000).iter().map(|(_, ms)| *ms).collect();
+        assert_eq!(got, vec![0]);
     }
 }
