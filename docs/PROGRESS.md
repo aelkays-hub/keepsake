@@ -77,6 +77,10 @@
 
 
 
+## Version 0.11.3 (2026-11-23)
+
+- Version 0.11.3 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft reads every unsure line again in a longer box, so a registration that lost a letter is read whole (C-GFCH, PR #65), and a big aircraft in a large photo is also read cut out (C-GJYI, PR #67). No catalog change.
+
 ## Read aircraft: a big aircraft in a large photo is also read cut out (2026-11-23)
 
 - **Asked:** A7_08117 to A7_08120 (2024-05-05, an Air Canada A220-300) each show a clear registration that was not read.
