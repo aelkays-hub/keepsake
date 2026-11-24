@@ -261,6 +261,9 @@ fn range_dto(from: String, to: String, s: ai::analyze::RangeStatus) -> AiRangeSt
 /// `what` = `aircraft`: Read aircraft (ADR-041) for a folder or dates,
 /// handled by [`crate::aircraft`] instead of the AI worker.
 const AIRCRAFT: &str = "aircraft";
+/// `what` = `aircraft-again`: the same, the photos read before read again
+/// keeping their review (ADR-052: for their fins).
+const AIRCRAFT_AGAIN: &str = "aircraft-again";
 
 fn purpose(what: &str) -> CmdResult<Purpose> {
     Purpose::parse(what).ok_or_else(|| format!("unknown AI task: {what}"))
@@ -278,12 +281,12 @@ pub fn ai_analyze_range(
     to: String,
     what: String,
 ) -> CmdResult<AiRangeStatus> {
-    if what == AIRCRAFT {
+    if what == AIRCRAFT || what == AIRCRAFT_AGAIN {
         let target = ai::Target::Dates {
             from: from.clone(),
             to: to.clone(),
         };
-        let s = crate::aircraft::target_start(&app, &state, &target)?;
+        let s = crate::aircraft::target_start(&app, &state, &target, what == AIRCRAFT_AGAIN)?;
         return Ok(range_dto(from, to, s));
     }
     let purpose = purpose(&what)?;
@@ -346,10 +349,13 @@ pub fn ai_analyze_folder(
     folder: String,
     what: String,
 ) -> CmdResult<AiFolderStatus> {
-    if what == AIRCRAFT {
+    if what == AIRCRAFT || what == AIRCRAFT_AGAIN {
         let target = folder_target(&volume, folder)?;
         return Ok(folder_dto(crate::aircraft::target_start(
-            &app, &state, &target,
+            &app,
+            &state,
+            &target,
+            what == AIRCRAFT_AGAIN,
         )?));
     }
     let purpose = purpose(&what)?;

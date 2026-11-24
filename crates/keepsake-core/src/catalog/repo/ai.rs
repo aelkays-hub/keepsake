@@ -931,10 +931,11 @@ impl Ai<'_, Rw> {
              ON CONFLICT(asset_id) DO UPDATE SET candidates = excluded.candidates,
                looks_like = excluded.looks_like, full_size = excluded.full_size,
                made_ms = excluded.made_ms,
-               review = CASE WHEN aircraft_reads.made_ms = 0 THEN aircraft_reads.review
-                             ELSE 'waiting' END,
-               reviewed_ms = CASE WHEN aircraft_reads.made_ms = 0 THEN aircraft_reads.reviewed_ms
-                                  END",
+               review = CASE WHEN aircraft_reads.made_ms = 0 OR aircraft_reads.keep_review = 1
+                             THEN aircraft_reads.review ELSE 'waiting' END,
+               reviewed_ms = CASE WHEN aircraft_reads.made_ms = 0 OR aircraft_reads.keep_review = 1
+                                  THEN aircraft_reads.reviewed_ms END,
+               keep_review = 0",
             params![asset, candidates, looks_like, i64::from(full_size), made_ms],
         )?;
         Ok(())
@@ -958,6 +959,24 @@ impl Ai<'_, Rw> {
              WHERE aircraft_reads.review = 'waiting'",
             params![asset, empty, at_ms],
         )? > 0)
+    }
+
+    /// `keep`: `ids` are to be read again keeping their review (ADR-052):
+    /// those accepted or dismissed stay so when their new read is kept.
+    /// Not `keep`: their next read waits for review again (the user picked
+    /// them). Returns how many changed.
+    pub fn keep_aircraft_reviews(&self, ids: &[AssetId], keep: bool) -> Result<u64, CatalogError> {
+        let mut n = 0;
+        let mut st = self.conn.prepare_cached(if keep {
+            "UPDATE aircraft_reads SET keep_review = 1
+              WHERE asset_id = ?1 AND review IN ('accepted', 'dismissed') AND keep_review = 0"
+        } else {
+            "UPDATE aircraft_reads SET keep_review = 0 WHERE asset_id = ?1 AND keep_review = 1"
+        })?;
+        for id in ids {
+            n += st.execute(params![id])? as u64;
+        }
+        Ok(n)
     }
 
     /// Forget that `ids` were accepted before they were read

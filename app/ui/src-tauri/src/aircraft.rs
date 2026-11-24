@@ -241,11 +241,13 @@ pub fn aircraft_read_status(
 }
 
 /// Read the aircraft photos of a folder or dates (those tagged Airplane,
-/// Helicopter or Airport and not read yet), in the background.
+/// Helicopter or Airport and not read yet), in the background. `again`:
+/// those read before too, keeping their review (ADR-052: for their fins).
 pub fn target_start(
     app: &AppHandle,
     state: &AppState,
     target: &keepsake_core::ai::Target,
+    again: bool,
 ) -> CmdResult<keepsake_core::ai::analyze::RangeStatus> {
     if !Settings::load().map_err(err)?.ai.aircraft {
         return Err("Turn on Read aircraft in Settings first.".into());
@@ -253,7 +255,11 @@ pub fn target_start(
     let open = state.open()?;
     let st = {
         let mut cat = open.writer()?;
-        scan::enqueue_target(&mut cat, target).map_err(err)?
+        if again {
+            scan::reread_target(&mut cat, target).map_err(err)?
+        } else {
+            scan::enqueue_target(&mut cat, target).map_err(err)?
+        }
     };
     crate::render::start_service(app)?;
     Ok(st)

@@ -837,7 +837,10 @@ export function installMock(): void {
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
-      st.calls.push({ cmd, args: a });
+      st.calls.push({ cmd, args: { ...a } });
+      // Read aircraft again (ADR-052) is Read aircraft here: the window
+      // then follows it as "aircraft".
+      if (a.what === "aircraft-again") a.what = "aircraft";
       switch (cmd) {
         case "app_info": {
           const reply = { version: "0.11.3-mock", library, uiTest: true };

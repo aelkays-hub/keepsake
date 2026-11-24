@@ -19,3 +19,8 @@ CREATE TABLE aircraft_fins (
   made_ms      INTEGER NOT NULL,
   PRIMARY KEY (airline, fin, registration, source)
 ) STRICT, WITHOUT ROWID;
+
+-- A folder or dates read again for their fins: a photo already accepted
+-- or dismissed keeps that when its new read is kept (then this is reset).
+ALTER TABLE aircraft_reads ADD COLUMN keep_review INTEGER NOT NULL DEFAULT 0
+  CHECK (keep_review IN (0, 1));

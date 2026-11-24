@@ -20,7 +20,7 @@ export interface FolderMenuProps {
   onScan: () => Promise<void>;
   /** Find duplicates, tag the photos or read the aircraft photos of the
    * folder and those in it. */
-  onAi: (what: "duplicates" | "tags" | "aircraft") => void;
+  onAi: (what: "duplicates" | "tags" | "aircraft" | "aircraft-again") => void;
   onClose: () => void;
 }
 
@@ -102,6 +102,17 @@ export function FolderMenu({
         data-testid="folder-menu-aircraft"
       >
         Read aircraft
+      </button>
+      <button
+        role="menuitem"
+        onClick={() => {
+          onAi("aircraft-again");
+          onClose();
+        }}
+        title="Read the aircraft photos here again, those read before too (for their fin numbers). Photos already accepted or dismissed stay so; their keywords stay."
+        data-testid="folder-menu-aircraft-again"
+      >
+        Read aircraft again
       </button>
       {!online && <p className="muted">The drive is not connected.</p>}
       {problem && (

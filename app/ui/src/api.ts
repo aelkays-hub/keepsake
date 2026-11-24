@@ -185,7 +185,7 @@ export type {
 /** The two separate AI tasks for a date range. */
 /** `aircraft`: Read aircraft (ADR-041) for the photos tagged Airplane,
  * Helicopter or Airport in a folder or on dates. */
-export type AiTask = "duplicates" | "tags" | "aircraft";
+export type AiTask = "duplicates" | "tags" | "aircraft" | "aircraft-again";
 
 export const emptyQuery: Query = {
   text: null,

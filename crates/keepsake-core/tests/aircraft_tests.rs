@@ -565,6 +565,82 @@ fn a_folder_is_read_for_its_aircraft_photos_only_and_each_once() {
     assert!(w.keywords(d).is_empty());
 }
 
+#[test]
+fn a_folder_read_again_keeps_its_reviews_and_learns_its_fins() {
+    use keepsake_core::ai::Target;
+    let mut w = World::new(&["air/a.jpg", "air/b.jpg", "air/c.jpg"]);
+    let [a, b, c] = ["air/a.jpg", "air/b.jpg", "air/c.jpg"].map(|n| w.asset(n));
+    let volume = {
+        let path = std::fs::canonicalize(w.media.join("air/a.jpg")).unwrap();
+        w.lib.locate(&w.cat, &path).unwrap().unwrap().volume_id
+    };
+    let tag = |t: &str| TagPath::new([t]).unwrap();
+    let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+    for id in [a, b, c] {
+        svc.set_ai_tags(id, &[(tag("Airplane"), 0.4)]).unwrap();
+    }
+    let air = Target::Folder {
+        volume,
+        folder: "air".into(),
+    };
+    // Read before fins were read: the airline only.
+    scan::enqueue_target(&mut w.cat, &air).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&["AIR CANADA"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    // a accepted with its registration (typed), c dismissed, b waits.
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let keep = [
+        p("Aircraft|Registration|C-GJYI"),
+        p("Aircraft|Airline|Air Canada"),
+    ];
+    scan::accept(&mut w.cat, &w.lib, a, &keep).unwrap();
+    scan::dismiss(&mut w.cat, c).unwrap();
+    let review = |w: &World, id: AssetId| {
+        w.cat
+            .read(|tx| tx.ai().aircraft_read(id))
+            .unwrap()
+            .map(|r| r.review)
+            .unwrap_or_default()
+    };
+    // The folder's Read aircraft skips them; read again, all are read.
+    let st = scan::enqueue_target(&mut w.cat, &air).unwrap();
+    assert_eq!(st.pending, 0);
+    let st = scan::reread_target(&mut w.cat, &air).unwrap();
+    assert_eq!((st.items, st.pending), (3, 3));
+    w.service(fake(&["AIR CANADA", "147"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 6);
+    // Reviews kept: a accepted, c dismissed, b still waiting.
+    assert_eq!(review(&w, a), "accepted");
+    assert_eq!(review(&w, c), "dismissed");
+    assert_eq!(review(&w, b), "waiting");
+    // a's new read has its fin, and a is tagged: the table learned it.
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0].fin.as_str(), rows[0].registration.as_str()),
+        ("147", "C-GJYI")
+    );
+    // b now offers C-GJYI from the fin.
+    let it = scan::review_items(&w.cat, &[b]).unwrap().remove(0);
+    let (o, _) = scan::offer_full(&w.cat, &it, &Confidence::default()).unwrap();
+    assert_eq!(
+        o.from_fin.map(|f| f.registration).as_deref(),
+        Some("C-GJYI")
+    );
+    // Picked and read again (not the folder's): a waits for review again.
+    scan::reread_target(&mut w.cat, &air).unwrap();
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    w.service(fake(&["AIR CANADA", "147"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(review(&w, a), "waiting");
+    assert_eq!(review(&w, c), "dismissed");
+}
+
 /// The real models on real pictures (see the top of this file). Prints
 /// what each picture got; checks every picture was read, at full size,
 /// and that the folder is as it was.

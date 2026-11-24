@@ -102,6 +102,21 @@ pub fn learn(cat: &mut Catalog, ids: &[AssetId], paths: &[TagPath]) -> Result<u6
 /// twice. Returns how many photos taught one.
 pub fn learn_from_library(cat: &mut Catalog) -> Result<u64, AiError> {
     let reads = cat.read(|tx| tx.ai().aircraft_reads_with_fins())?;
+    learn_reads(cat, reads)
+}
+
+/// [`learn_from_library`] for photos `ids` only (just read again).
+pub fn learn_tagged(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
+    let mut reads = Vec::new();
+    for id in ids {
+        if let Some(r) = cat.read(|tx| tx.ai().aircraft_read(*id))? {
+            reads.push((*id, r.candidates));
+        }
+    }
+    learn_reads(cat, reads)
+}
+
+fn learn_reads(cat: &mut Catalog, reads: Vec<(AssetId, String)>) -> Result<u64, AiError> {
     let mut taught: Vec<(String, String, String, Option<i64>)> = Vec::new();
     for (id, json) in reads {
         let c: Candidates = serde_json::from_str(&json).unwrap_or_default();

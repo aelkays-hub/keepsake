@@ -204,6 +204,41 @@ test("right-click a folder: Read aircraft reviews its aircraft photos", async ({
   await expect(win).toHaveCount(0);
 });
 
+test("Read aircraft again for a folder or a year reads those read before too (ADR-052)", async ({
+  page,
+}) => {
+  await page.goto("/?items=2000&aircraft=on");
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await node(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-aircraft-again").click();
+  const win = page.getByTestId("aircraft-review");
+  await expect(win.getByRole("heading")).toHaveText("Read aircraft: 2015");
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "aircraft-again" },
+  ]);
+  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
+    timeout: 15_000,
+  });
+  await win.getByTestId("ar-close").click();
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  await page
+    .getByTestId("sidebar")
+    .locator('button[data-folder="2016"]')
+    .first()
+    .click({ button: "right" });
+  await page.getByTestId("folder-menu").getByTestId("folder-menu-aircraft-again").click();
+  await expect(win.getByRole("heading")).toHaveText("Read aircraft: Photos A › 2016");
+  expect((await calls(page, "ai_analyze_folder")).at(-1)).toEqual({
+    volume: "vOn",
+    folder: "2016",
+    what: "aircraft-again",
+  });
+  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
+    timeout: 15_000,
+  });
+});
+
 test("right-click a year: Read aircraft; when it is off the window opens Settings", async ({
   page,
 }) => {

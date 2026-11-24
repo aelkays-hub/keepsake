@@ -424,7 +424,8 @@ pub(crate) fn lib_err(e: LibraryError) -> AiError {
 }
 
 /// One aircraft job: read `asset`'s picture and keep what it shows for
-/// review (a read before is replaced, and waits for review again).
+/// review (a read before is replaced, and waits for review again, unless
+/// its folder or dates were read again keeping reviews: ADR-052).
 pub fn read_asset(
     cat: &mut Catalog,
     lib: &Library,
@@ -450,6 +451,11 @@ pub fn read_asset(
         // Nothing found: nothing to review.
         tx.ai().dismiss_empty_aircraft_reads(&[asset], now)
     })?;
+    // A fin read on a photo already tagged with its registration and
+    // airline (read again for it): learned (ADR-052).
+    if !candidates.fins.is_empty() {
+        super::fins::learn_tagged(cat, &[asset])?;
+    }
     let out = Outcome {
         marks: candidates.at(&Confidence::default()),
         candidates,
@@ -1050,11 +1056,29 @@ pub fn dismiss(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
 /// user asked for these, so the window shows what was read.
 pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
-        cat.write(|tx| tx.ai().forget_aircraft_accepted_unread(chunk))?;
+        cat.write(|tx| {
+            tx.ai().forget_aircraft_accepted_unread(chunk)?;
+            tx.ai().keep_aircraft_reviews(chunk, false)
+        })?;
     }
     let n = enqueue_ids(cat, ids, true)?;
     to_front(cat, JOB_AI_AIRCRAFT, ids)?;
     Ok(n)
+}
+
+/// Read a folder's or dates' aircraft photos again, those read before too
+/// (ADR-052: to give them their fins), keeping their review: a photo
+/// accepted or dismissed stays so and is not asked about again; one
+/// waiting still waits. After each is read, a sure fin on a photo tagged
+/// with one registration and one airline is learned. Returns how far it
+/// has got, as [`enqueue_target`].
+pub fn reread_target(cat: &mut Catalog, target: &Target) -> Result<RangeStatus, AiError> {
+    let ids = target_items(cat, target)?;
+    for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
+        cat.write(|tx| tx.ai().keep_aircraft_reviews(chunk, true))?;
+    }
+    enqueue_ids(cat, &ids, true)?;
+    status_of(cat, &ids)
 }
 
 /// The photos picked go ahead of any backlog of `kind`, even those already

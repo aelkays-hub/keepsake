@@ -49,6 +49,7 @@
 | — | Read aircraft: fin numbers (fleet numbers) read and kept, shown beside the marks with their airline; part 1 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: the fin table (ADR-052): learned on accept, filled from tagged photos, imported and exported as CSV (Settings → Read aircraft → Fin numbers); schema v23; part 2 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a registration offered from the airline's fin read (ADR-052), by the photo's date, unticked when its type disagrees; part 3 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft again for a folder or dates: photos read before are read again for their fins, keeping their review; their fins learned as read (ADR-052) | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -78,6 +79,13 @@
 
 
 
+
+## Read aircraft again for a folder or dates (2026-11-24)
+
+- **Asked:** after part 3, "Yes, add it": a Read again for folders that keeps accepted photos accepted, so a back catalogue gets its fins without being reviewed again.
+- **Built:** `aircraft_reads.keep_review` (added to the v23 migration, not yet released). `keep_aircraft_reviews(ids, keep)`: set on accepted and dismissed reads before a folder is read again; cleared when photos are picked (`scan::enqueue`). `put_aircraft_read` keeps the review when set, then clears it. `scan::reread_target`: every aircraft photo of the folder or dates queued again. After each read with a fin, `fins::learn_tagged` (shared with `learn_from_library`). Tauri: `what` = `aircraft-again` for `ai_analyze_folder` and `ai_analyze_range` (`target_start(.., again)`). UI: **Read aircraft again** in the folder menu and the date menu; `AircraftJob.again`. ADR-052 and SPEC.
+- **Tests, run here (Windows):** `aircraft_tests` (1 new: `a_folder_read_again_keeps_its_reviews_and_learns_its_fins`); mocked Playwright (1 new: Read aircraft again for a folder or a year) and the aircraft suite; tsc, ESLint, Prettier, clippy.
+- **Not run:** in the installed app; CI; macOS.
 
 ## Read aircraft: fin numbers, part 3 — the registration offered from the fin (2026-11-24)
 
