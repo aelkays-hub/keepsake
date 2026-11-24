@@ -1,3 +1,32 @@
+# Keepsake 0.11.4
+
+Version 0.11.4 reads the fin (fleet) number airlines paint on their aircraft, and uses it to find the registration when the registration itself cannot be read. It has everything in 0.11.3.
+
+**Catalog change:** 0.11.4 moves the library to catalog version 23 the first time it opens it. After that, 0.11.3 and older cannot open the library. Back up `catalog.db` first if you may go back.
+
+## New in 0.11.4
+
+**Fin numbers are read**
+- Air Canada paints a number on the tail and the nose gear doors (147, 840); US airlines paint a ship number on the tail and by the cockpit. A number alone on the aircraft, 2 to 4 digits, is now read as its fin. It is never added as a keyword: the review window shows it as "Fin 840" beside the airline.
+
+**The fin table** (Settings → Read aircraft → **Fin numbers**)
+- Which registration each airline's fin stood for, and when. Keepsake learns it when you accept a photo with the registration, the airline and the fin read.
+- **Learn from tagged photos** fills it from photos already tagged with their registration and airline.
+- **Import CSV…** adds a list you made, one aircraft per line: `airline,fin,registration` and, if a fin was reused, `from` and `to` dates (`2019`, `2019-05` or `2019-05-05`). Commas, semicolons or tabs; a header line is skipped. Lines that cannot be kept are listed with the reason.
+- **Export to CSV…** writes the table in the same columns, to edit and import again. **Show** lists it; **Remove** deletes a row. Two registrations for one fin at the same time are marked "(two at once)".
+- No fin list comes with Keepsake: there is no free source of one.
+
+**A registration from the fin**
+- When a photo reads the airline and its fin but no registration, the registration the table gives for the photo's date is offered, labelled "(from Air Canada fin 147, 97%)". It is ticked when there is one answer and the aircraft type the lookup gives is what the photo shows; otherwise it is offered unticked. Its burst gets it too.
+
+**Read aircraft again for a folder or dates**
+- Right-click a folder, or a year, month or day → **Read aircraft again**: its aircraft photos are read again, those read before too, so they get their fins. Photos you already accepted or dismissed stay so and do not come back for review; their keywords stay. A tagged photo's fin goes into the table as it is read.
+- **Read aircraft** for a folder or dates still reads only photos never read.
+
+**Photos read before 0.11.4**
+- They have no fins: use **Read aircraft again** on their folder or dates, then check Settings → Read aircraft → Fin numbers.
+- Some fins cannot be read: white or faint digits on a patterned tail (Air Canada's 787 tails) are not found as text. Import those with a CSV line, for example `Air Canada,840,C-FGFZ`.
+
 # Keepsake 0.11.3
 
 Version 0.11.3 reads registrations that used to come out a letter short, and the registration on a plane that fills a large photo. It has everything in 0.11.2.

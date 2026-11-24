@@ -81,6 +81,10 @@
 
 
 
+## Version 0.11.4 (2026-11-24)
+
+- Version 0.11.4 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: fin numbers read, the fin table (learned, filled from tagged photos, imported and exported as CSV), a registration offered from the fin, and Read aircraft again for a folder or dates keeping reviews (ADR-052, PR #68). Catalog version 23: 0.11.3 cannot open a library opened by 0.11.4. A tail scan for fins the text finder cannot see was tried on eight library photos and not taken (5–30 s more per photo, and false fins read at 93–97 %).
+
 ## Read aircraft again for a folder or dates (2026-11-24)
 
 - **Asked:** after part 3, "Yes, add it": a Read again for folders that keeps accepted photos accepted, so a back catalogue gets its fins without being reviewed again.
