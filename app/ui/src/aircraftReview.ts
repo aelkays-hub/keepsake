@@ -162,6 +162,9 @@ export function alsoRead(item: AircraftReviewItemDto): { label: string; pct: num
     for (const m of list)
       if (!offered.has(m.name)) out.push({ label: `${kind} ${m.name}`, pct: m.pct });
   }
+  // A fin means something only with its airline (read on it or its shot).
+  if (item.airlines.length > 0)
+    for (const m of item.fins) out.push({ label: `Fin ${m.name}`, pct: m.pct });
   return out;
 }
 

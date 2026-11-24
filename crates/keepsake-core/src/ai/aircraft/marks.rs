@@ -11,6 +11,11 @@
 //!   split in two by a wing or an engine (`AIR` … `CANADA`) are joined.
 //! - A **painted type** is what some airlines write by the door:
 //!   `BOEING 777-300ER`, `AIRBUS A220-300` ([`painted_type`]).
+//! - A **fin** (fleet number) is a line that is a number alone, 2 to 4
+//!   digits ([`fin`]): Air Canada paints one at the top of the tail and on
+//!   the nose gear doors, US airlines at the top of the tail and under the
+//!   cockpit windows. It means something only with the airline, which owns
+//!   the number; it is kept, never given as a keyword.
 
 use super::ocr::TextLine;
 
@@ -565,6 +570,17 @@ fn boeing_variant(s: &str) -> Option<String> {
         .then(|| format!("{num}{rest}"))
 }
 
+/// Fewest and most digits in a fin.
+pub const FIN_DIGITS: std::ops::RangeInclusive<usize> = 2..=4;
+
+/// The fin (fleet number) a line of text is, when it is a number alone:
+/// ` 147 ` → `147`. Not a word with letters (a gate `B12`, a
+/// registration), not a number among other words.
+pub fn fin(text: &str) -> Option<String> {
+    let t = text.trim();
+    (FIN_DIGITS.contains(&t.len()) && t.bytes().all(|b| b.is_ascii_digit())).then(|| t.to_owned())
+}
+
 /// The aircraft type a line of text spells out, as it is usually written:
 /// `BOEING 777-30DER` → `Boeing 777-300ER`.
 pub fn painted_type(text: &str) -> Option<String> {
@@ -765,6 +781,11 @@ pub struct Candidates {
     pub airlines: Vec<(String, f32)>,
     /// Most surely read first.
     pub types: Vec<(String, f32)>,
+    /// Fins (fleet numbers, [`fin`]), most surely read first. Not marks:
+    /// kept for finding the registration an airline's fin stands for.
+    /// Reads before fins were kept have none.
+    #[serde(default)]
+    pub fins: Vec<(String, f32)>,
 }
 
 fn note(list: &mut Vec<(String, f32)>, v: String, score: f32) {
@@ -786,6 +807,9 @@ pub fn candidates(lines: &[TextLine], airlines: &Airlines) -> Candidates {
         }
         if let Some(t) = painted_type(&l.text) {
             note(&mut c.types, t, l.score);
+        }
+        if let Some(f) = fin(&l.text) {
+            note(&mut c.fins, f, l.score);
         }
     }
     for l in lines {
@@ -1047,6 +1071,43 @@ mod tests {
         // No country's shape either way: nothing.
         assert_eq!(registration("00-000"), None);
         assert_eq!(registration("12-345"), None);
+    }
+
+    #[test]
+    fn a_number_alone_is_a_fin() {
+        // Air Canada's fins: three digits on the tail; US ship numbers: four.
+        assert_eq!(fin("147").as_deref(), Some("147"));
+        assert_eq!(fin(" 3301 ").as_deref(), Some("3301"));
+        assert_eq!(fin("47").as_deref(), Some("47"));
+        // Too short or too long, letters, or among other words: none.
+        for no in [
+            "7", "12345", "B12", "C-GJYI", "N123AB", "A220-300", "AIR 147", "1.47", "",
+        ] {
+            assert_eq!(fin(no), None, "{no}");
+        }
+    }
+
+    #[test]
+    fn fins_are_kept_beside_the_marks_but_are_not_marks() {
+        let c = candidates(
+            &[
+                line("AIR CANADA", 0.98, 0.0, 60.0),
+                line("147", 0.97, 900.0, 40.0),
+                line("147", 0.9, 300.0, 12.0),
+                line("C-GJYI", 0.95, 500.0, 20.0),
+            ],
+            &Airlines::builtin(),
+        );
+        assert_eq!(c.fins, [("147".to_owned(), 0.97)]);
+        let m = c.at(&Confidence::default());
+        assert_eq!(m.registrations, ["C-GJYI"]);
+        assert!(!m.airlines.is_empty());
+        // A read kept before fins were: none.
+        let old: Candidates =
+            serde_json::from_str(r#"{"registrations":[["C-GJYI",0.95]],"airlines":[],"types":[]}"#)
+                .unwrap();
+        assert!(old.fins.is_empty());
+        assert_eq!(old.registrations.len(), 1);
     }
 
     #[test]

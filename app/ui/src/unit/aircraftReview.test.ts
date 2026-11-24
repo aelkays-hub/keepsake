@@ -32,6 +32,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   registrations: [{ name: "VT-JEX", pct: 100 }],
   airlines: [{ name: "Jet Airways", pct: 82 }],
   types: [{ name: "Boeing 777-300ER", pct: 81 }],
+  fins: [],
   looksLike: "Boeing 777",
   offered: ["Aircraft|Registration|VT-JEX", "Aircraft|Type|Boeing 777-300ER"],
   unticked: [],
@@ -106,6 +107,13 @@ describe("Read aircraft review", () => {
   it("lists what was read below the confidence", () => {
     expect(alsoRead(item())).toEqual([{ label: "Airline Jet Airways", pct: 82 }]);
     expect(alsoRead(item({ airlines: [] }))).toEqual([]);
+    // A fin is shown with its airline, never without one.
+    const fins = [{ name: "147", pct: 97 }];
+    expect(alsoRead(item({ fins }))).toEqual([
+      { label: "Airline Jet Airways", pct: 82 },
+      { label: "Fin 147", pct: 97 },
+    ]);
+    expect(alsoRead(item({ fins, airlines: [] }))).toEqual([]);
   });
 
   it("says how reading is getting on", () => {

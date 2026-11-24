@@ -26,6 +26,10 @@ fullSize: boolean,
  */
 registrations: Array<ScoredMarkDto>, airlines: Array<ScoredMarkDto>, types: Array<ScoredMarkDto>, 
 /**
+ * Fins (fleet numbers) read: not marks, shown beside them.
+ */
+fins: Array<ScoredMarkDto>, 
+/**
  * The type the picture looks like, when one stands out.
  */
 looksLike: string | null, 

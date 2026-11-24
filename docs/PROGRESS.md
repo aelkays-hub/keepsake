@@ -46,6 +46,7 @@
 | — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: registrations read unsurely are read again with a longer box (a letter was dropped); O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: fin numbers (fleet numbers) read and kept, shown beside the marks with their airline; part 1 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -75,6 +76,14 @@
 
 
 
+
+## Read aircraft: fin numbers, part 1 — read and kept (2026-11-24)
+
+- **Asked:** Canadian and US airlines paint a fin (fleet) number on the tail and by the nose; it is unique within the airline. Use it to find the registration. Plan agreed: three parts (`PLAN-fin-numbers.md`, not committed): read fins; a fin table learned from accepted photos and imported from CSV; the registration offered in review.
+- **Found:** no free database or API gives fin → registration (adsbdb, Flightradar24 and AirLabs look up by registration or hex; OAG and ch-aviation are paid). So no fin data ships with Keepsake; the table will come from the user's photos and imports.
+- **Built (part 1):** `marks::fin`: a line that is a number alone, 2 to 4 digits (`FIN_DIGITS`). `Candidates` keeps `fins` beside the marks (`#[serde(default)]`: reads kept before have none; no schema change). Fins are not marks: never keywords, not in `Candidates::at`. The burst (`scan::with_shot`) joins its photos' fins too. The review window lists "Fin 147" under also read, only when an airline was read on the photo or its shot (`alsoRead`); `AircraftReviewItemDto.fins`.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (2 new: `a_number_alone_is_a_fin`, `fins_are_kept_beside_the_marks_but_are_not_marks`); `aircraft_tests`; UI `aircraftReview.test.ts` (fins shown only with an airline); tsc, ESLint, Prettier.
+- **Not run:** in the installed app; CI; macOS. Branch `feat/aircraft-fin-numbers`.
 
 ## Version 0.11.3 (2026-11-23)
 

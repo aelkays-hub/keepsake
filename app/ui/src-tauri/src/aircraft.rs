@@ -419,6 +419,7 @@ pub fn aircraft_review(
             registrations: scored(&it.candidates.registrations),
             airlines: scored(&it.candidates.airlines),
             types: scored(&it.candidates.types),
+            fins: scored(&it.candidates.fins),
             looks_like: it.looks_like.clone(),
             offered: names(&offer.keywords),
             unticked: names(&offer.unticked),

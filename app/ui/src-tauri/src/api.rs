@@ -1467,6 +1467,8 @@ dto! {
         pub registrations: Vec<ScoredMarkDto>,
         pub airlines: Vec<ScoredMarkDto>,
         pub types: Vec<ScoredMarkDto>,
+        /// Fins (fleet numbers) read: not marks, shown beside them.
+        pub fins: Vec<ScoredMarkDto>,
         /// The type the picture looks like, when one stands out.
         pub looks_like: Option<String>,
         /// The keywords offered at the window's confidence (`A|B|C`).

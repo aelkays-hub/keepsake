@@ -2686,6 +2686,7 @@ export function installMock(): void {
               registrations,
               airlines,
               types,
+              fins: airlines.length > 0 ? [{ name: "147", pct: 97 }] : [],
               looksLike: "Boeing 777",
               offered,
               unticked,
@@ -2716,6 +2717,7 @@ export function installMock(): void {
                 registrations: [{ name: "JA02NJ", pct: 95 }],
                 airlines: [],
                 types: [],
+                fins: [],
                 looksLike: null,
                 offered: [
                   "Aircraft|Registration|JA02WJ",

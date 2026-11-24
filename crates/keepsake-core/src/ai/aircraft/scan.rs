@@ -882,6 +882,7 @@ pub fn with_shot(
             (&mut c.registrations, &m.candidates.registrations),
             (&mut c.airlines, &m.candidates.airlines),
             (&mut c.types, &m.candidates.types),
+            (&mut c.fins, &m.candidates.fins),
         ] {
             for (name, score) in from {
                 match list.iter_mut().find(|(n, _)| n == name) {
@@ -1376,6 +1377,7 @@ mod tests {
                 registrations: vec![("VT-JEX".into(), 0.97)],
                 airlines: vec![("Jet Airways".into(), 0.82)],
                 types: vec![("Boeing 777-300ER".into(), 0.66)],
+                fins: vec![],
             },
             looks_like: Some("Boeing 777".into()),
             full_size: true,

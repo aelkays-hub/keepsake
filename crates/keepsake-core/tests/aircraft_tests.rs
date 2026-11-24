@@ -2270,6 +2270,7 @@ fn a_national_register_gives_build_year_code_type_and_airline_and_puts_misreads_
             registrations: vec![("C-FJ2S".into(), 0.97)],
             airlines: vec![],
             types: vec![],
+            fins: vec![],
         },
         looks_like: None,
         full_size: true,
