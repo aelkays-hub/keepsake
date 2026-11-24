@@ -853,6 +853,152 @@ fn neighbours_accepted_with_a_photo_are_not_asked_about_again() {
 }
 
 #[test]
+fn a_photo_accepted_with_its_fin_read_teaches_the_fin_table() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c, d] = names.map(|n| w.asset(n));
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, day) in [(a, 0), (b, 0), (c, 3), (d, 9)] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2 WHERE id = ?1",
+            rusqlite::params![id, (PHOTO_S + day * 86_400) * 1000],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let read = |w: &mut World, id: AssetId, fins: &str| {
+        let json = format!(
+            r#"{{"registrations":[],"airlines":[["Air Canada",0.98]],"types":[],"fins":{fins}}}"#
+        );
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, None, true, 10))
+            .unwrap();
+    };
+    // a: the tail's 147 read surely; b (its burst): none; c, days later:
+    // 147 again; d: read unsurely.
+    read(&mut w, a, r#"[["147",0.97]]"#);
+    read(&mut w, b, "[]");
+    read(&mut w, c, r#"[["147",0.95]]"#);
+    read(&mut w, d, r#"[["147",0.6]]"#);
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let keep = [
+        p("Aircraft|Registration|C-GJYI"),
+        p("Aircraft|Airline|Air Canada"),
+        p("Aircraft|Type|Airbus A220-300"),
+    ];
+    scan::accept(&mut w.cat, &w.lib, a, &keep).unwrap();
+    scan::accept_neighbours(&mut w.cat, &w.lib, &[b], &keep).unwrap();
+    let all = |w: &World| w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    let rows = all(&w);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let r = &rows[0];
+    assert_eq!(
+        (r.airline.as_str(), r.fin.as_str(), r.registration.as_str()),
+        ("Air Canada", "147", "C-GJYI")
+    );
+    assert_eq!((r.source.as_str(), r.seen), ("learned", 1));
+    assert_eq!(
+        (r.first_ms, r.last_ms),
+        (Some(PHOTO_S * 1000), Some(PHOTO_S * 1000))
+    );
+    // Days later: the same pair, its dates stretched.
+    scan::accept(&mut w.cat, &w.lib, c, &keep).unwrap();
+    let r = &all(&w)[0];
+    assert_eq!(r.seen, 2);
+    assert_eq!(r.last_ms, Some((PHOTO_S + 3 * 86_400) * 1000));
+    // An unsure fin, or no airline accepted, teaches nothing.
+    scan::accept(&mut w.cat, &w.lib, d, &keep).unwrap();
+    assert_eq!(all(&w)[0].seen, 2);
+    read(&mut w, d, r#"[["401",0.99]]"#);
+    scan::accept(&mut w.cat, &w.lib, d, &keep[..1]).unwrap();
+    assert_eq!(all(&w).len(), 1);
+    // An imported file adds beside what was learned; again, it updates.
+    let parsed = fins::parse_csv(
+        "Air Canada,147,C-GJYI,2019\nAir Canada,401,C-FPWD\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    assert!(parsed.problems.is_empty());
+    assert_eq!(fins::import(&mut w.cat, &parsed.rows).unwrap(), (2, 0));
+    assert_eq!(fins::import(&mut w.cat, &parsed.rows).unwrap(), (0, 2));
+    let rows = all(&w);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        w.cat
+            .read(|tx| tx.ai().fins_for("Air Canada", "147"))
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(fins::conflicts(&rows).iter().all(|c| !c));
+    // Forgotten one by one.
+    assert!(w
+        .cat
+        .write(|tx| tx
+            .ai()
+            .forget_fin("Air Canada", "401", "C-FPWD", "imported"))
+        .unwrap());
+    assert_eq!(all(&w).len(), 2);
+}
+
+#[test]
+fn the_fin_table_is_filled_from_photos_already_tagged() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c, d] = names.map(|n| w.asset(n));
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let tag = |w: &mut World, id: AssetId, paths: &[TagPath]| {
+        MetadataService::new(&w.lib, &mut w.cat)
+            .set_user_tags(id, paths)
+            .unwrap();
+    };
+    let read = |w: &mut World, id: AssetId, fins: &str| {
+        let json = format!(r#"{{"registrations":[],"airlines":[],"types":[],"fins":{fins}}}"#);
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, None, true, 10))
+            .unwrap();
+    };
+    let ac = p("Aircraft|Airline|Air Canada");
+    // a: tagged C-GJYI and Air Canada, its read kept fin 147.
+    tag(&mut w, a, &[p("Aircraft|Registration|C-GJYI"), ac.clone()]);
+    read(&mut w, a, r#"[["147",0.97]]"#);
+    // b: tagged too, but read before fins were kept.
+    tag(&mut w, b, &[p("Aircraft|Registration|C-FPWD"), ac.clone()]);
+    w.cat
+        .write(|tx| {
+            tx.ai().put_aircraft_read(
+                b,
+                r#"{"registrations":[],"airlines":[],"types":[]}"#,
+                None,
+                true,
+                10,
+            )
+        })
+        .unwrap();
+    // c: a fin read, but no airline tagged.
+    tag(&mut w, c, &[p("Aircraft|Registration|C-GHKR")]);
+    read(&mut w, c, r#"[["951",0.99]]"#);
+    // d: a fin read, nothing tagged.
+    read(&mut w, d, r#"[["401",0.99]]"#);
+    assert_eq!(fins::learn_from_library(&mut w.cat).unwrap(), 1);
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            rows[0].fin.as_str(),
+            rows[0].registration.as_str(),
+            rows[0].seen
+        ),
+        ("147", "C-GJYI", 1)
+    );
+    // Gone over again: nothing counted twice.
+    fins::learn_from_library(&mut w.cat).unwrap();
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!((rows.len(), rows[0].seen), (1, 1));
+}
+
+#[test]
 fn a_picked_photo_accepted_beside_another_is_shown_for_review_when_read() {
     let mut w = World::new(&["a.jpg", "b.jpg"]);
     let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));

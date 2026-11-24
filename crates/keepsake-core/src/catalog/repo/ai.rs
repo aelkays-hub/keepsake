@@ -105,6 +105,38 @@ pub struct AiCounts {
     pub failed: u64,
 }
 
+/// Which registration an airline's fin (fleet number) stood for (ADR-052).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinRow {
+    /// As Keepsake names it (`Air Canada`).
+    pub airline: String,
+    /// `147`.
+    pub fin: String,
+    pub registration: String,
+    /// When it was so: photo times, or an imported file's dates (`None`:
+    /// open).
+    pub first_ms: Option<i64>,
+    pub last_ms: Option<i64>,
+    /// `learned` or `imported`.
+    pub source: String,
+    /// Photos accepted that taught it (0 for imported).
+    pub seen: i64,
+}
+
+const FIN_COLS: &str = "airline, fin, registration, first_ms, last_ms, source, seen";
+
+fn fin_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FinRow> {
+    Ok(FinRow {
+        airline: r.get(0)?,
+        fin: r.get(1)?,
+        registration: r.get(2)?,
+        first_ms: r.get(3)?,
+        last_ms: r.get(4)?,
+        source: r.get(5)?,
+        seen: r.get(6)?,
+    })
+}
+
 /// What Read aircraft found in a photo, kept for review (ADR-041).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AircraftReadRow {
@@ -171,6 +203,39 @@ const ANALYSIS_COLS: &str =
     "x.asset_id, x.model, x.embedding, x.emb_scale, x.dhash, x.made_ms, x.tag_list";
 
 impl<M> Ai<'_, M> {
+    /// Every fin kept (ADR-052): by airline, then fin in number order.
+    pub fn fins_all(&self) -> Result<Vec<FinRow>, CatalogError> {
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT {FIN_COLS} FROM aircraft_fins
+              ORDER BY airline, CAST(fin AS INTEGER), fin, registration, source"
+        ))?;
+        let rows = st.query_map([], fin_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// What `airline`'s `fin` stood for, every registration kept.
+    pub fn fins_for(&self, airline: &str, fin: &str) -> Result<Vec<FinRow>, CatalogError> {
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT {FIN_COLS} FROM aircraft_fins WHERE airline = ?1 AND fin = ?2
+              ORDER BY registration, source"
+        ))?;
+        let rows = st.query_map(params![airline, fin], fin_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// When `asset` was taken, if known.
+    pub fn taken_ms(&self, asset: AssetId) -> Result<Option<i64>, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT capture_ts_ms FROM assets WHERE id = ?1",
+                [asset],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
     /// The register's entry for `registration`, if any (ADR-045).
     pub fn register_get(&self, registration: &str) -> Result<Option<RegisterRow>, CatalogError> {
         Ok(self
@@ -221,6 +286,16 @@ impl<M> Ai<'_, M> {
 
     /// The reads waiting for review that found a registration: each photo
     /// and what it read (JSON), the newest read first.
+    /// Every read that kept a fin (ADR-052): photo and candidates (JSON).
+    pub fn aircraft_reads_with_fins(&self) -> Result<Vec<(AssetId, String)>, CatalogError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT asset_id, candidates FROM aircraft_reads
+              WHERE ifnull(json_array_length(candidates, '$.fins'), 0) > 0",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn waiting_aircraft_reads(&self) -> Result<Vec<(AssetId, String)>, CatalogError> {
         let mut st = self.conn.prepare_cached(
             "SELECT asset_id, candidates FROM aircraft_reads
@@ -590,6 +665,86 @@ impl<M> Ai<'_, M> {
 }
 
 impl Ai<'_, Rw> {
+    /// A photo accepted with `airline`, its `fin` and `registration` read
+    /// (ADR-052), taken at `at_ms`: kept, or its dates stretched to it.
+    /// `counted`: one more photo taught it (not when the library is gone
+    /// over again).
+    pub fn learn_fin(
+        &self,
+        airline: &str,
+        fin: &str,
+        registration: &str,
+        at_ms: Option<i64>,
+        counted: bool,
+        now_ms: i64,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO aircraft_fins
+               (airline, fin, registration, first_ms, last_ms, source, seen, made_ms)
+             VALUES (?1, ?2, ?3, ?4, ?4, 'learned', 1, ?5)
+             ON CONFLICT(airline, fin, registration, source) DO UPDATE SET
+               first_ms = CASE WHEN excluded.first_ms IS NULL THEN first_ms
+                               WHEN first_ms IS NULL THEN excluded.first_ms
+                               ELSE min(first_ms, excluded.first_ms) END,
+               last_ms = CASE WHEN excluded.last_ms IS NULL THEN last_ms
+                              WHEN last_ms IS NULL THEN excluded.last_ms
+                              ELSE max(last_ms, excluded.last_ms) END,
+               seen = seen + ?6,
+               made_ms = excluded.made_ms",
+            params![
+                airline,
+                fin,
+                registration,
+                at_ms,
+                now_ms,
+                i64::from(counted)
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// An imported row: added, or its dates replaced. True when new.
+    pub fn import_fin(&self, row: &FinRow, now_ms: i64) -> Result<bool, CatalogError> {
+        let had: bool = self.conn.query_row(
+            "SELECT count(*) > 0 FROM aircraft_fins
+              WHERE airline = ?1 AND fin = ?2 AND registration = ?3 AND source = 'imported'",
+            params![row.airline, row.fin, row.registration],
+            |r| r.get(0),
+        )?;
+        self.conn.execute(
+            "INSERT INTO aircraft_fins
+               (airline, fin, registration, first_ms, last_ms, source, seen, made_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'imported', 0, ?6)
+             ON CONFLICT(airline, fin, registration, source) DO UPDATE SET
+               first_ms = excluded.first_ms, last_ms = excluded.last_ms,
+               made_ms = excluded.made_ms",
+            params![
+                row.airline,
+                row.fin,
+                row.registration,
+                row.first_ms,
+                row.last_ms,
+                now_ms
+            ],
+        )?;
+        Ok(!had)
+    }
+
+    /// Delete one fin row. True when there was one.
+    pub fn forget_fin(
+        &self,
+        airline: &str,
+        fin: &str,
+        registration: &str,
+        source: &str,
+    ) -> Result<bool, CatalogError> {
+        Ok(self.conn.execute(
+            "DELETE FROM aircraft_fins
+              WHERE airline = ?1 AND fin = ?2 AND registration = ?3 AND source = ?4",
+            params![airline, fin, registration, source],
+        )? > 0)
+    }
+
     /// Replace `source`'s register with `rows` (ADR-045).
     pub fn register_replace(
         &self,

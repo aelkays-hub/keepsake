@@ -174,6 +174,31 @@ dto! {
         pub eastern: bool,
     }
 
+    /// A fin (fleet number) and the registration it stood for (Settings →
+    /// Read aircraft; ADR-052).
+    pub struct FinDto {
+        pub airline: String,
+        pub fin: String,
+        pub registration: String,
+        /// When it was so: `2019-05-05` (UTC); none: open.
+        pub from: Option<String>,
+        pub to: Option<String>,
+        /// `learned` or `imported`.
+        pub source: String,
+        /// Photos accepted that taught it.
+        pub seen: u32,
+        /// Another registration has this airline's fin at the same time.
+        pub conflict: bool,
+    }
+
+    /// What an imported fin file gave.
+    pub struct FinImportDto {
+        pub added: u32,
+        pub updated: u32,
+        /// Lines not kept, and why (`line 3: …`).
+        pub problems: Vec<String>,
+    }
+
     /// A national aircraft register (Settings → Read aircraft; ADR-045).
     pub struct RegisterStatusDto {
         /// `tc` or `faa`.

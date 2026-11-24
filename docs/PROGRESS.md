@@ -47,6 +47,7 @@
 | — | Read aircraft: registrations read unsurely are read again with a longer box (a letter was dropped); O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: fin numbers (fleet numbers) read and kept, shown beside the marks with their airline; part 1 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: the fin table (ADR-052): learned on accept, filled from tagged photos, imported and exported as CSV (Settings → Read aircraft → Fin numbers); schema v23; part 2 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -76,6 +77,14 @@
 
 
 
+
+## Read aircraft: fin numbers, part 2 — the fin table (2026-11-24)
+
+- **Asked:** Start part 2. Mid-way: "are we going to fill in the fin table from the current registrations we know about?" Yes: **Learn from tagged photos**.
+- **Built:** schema v23 `aircraft_fins` (airline, fin, registration, first_ms, last_ms, source, seen). `fins::learn`, called from `scan::accept` and `accept_neighbours`: one registration and one airline accepted, one fin read at least `LEARN_MIN` (0.9) → kept, dates stretched. `fins::learn_from_library`: every read with a sure fin on a photo tagged with one registration and one airline (any source; a keyword twice counts once); again counts nothing twice. `fins::parse_csv` (comma, semicolon or tab; header, `#` and blank lines skipped; airline known, fin 2–4 digits, registration a real shape, dates year, month or day; problems by line), `import` (added or dates replaced), `to_csv` (reads back), `conflicts`. Repo: `fins_all`, `fins_for`, `taken_ms`, `aircraft_reads_with_fins`, `learn_fin`, `import_fin`, `forget_fin`. Tauri: `aircraft_fins`, `aircraft_fins_import`, `aircraft_fins_csv`, `aircraft_fins_learn`, `aircraft_fin_forget`. UI: Settings → Read aircraft → **Fin numbers** (count, Learn from tagged photos, Import CSV…, Export to CSV…, Show: the table with "(two at once)" and Remove). ADR-052; SPEC.
+- **Changed from the plan:** the block is in Settings beside the national registers, not a Tools menu; an import shows what it added and the lines not kept instead of a preview first.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (fins: 6 new) and `catalog::`; `aircraft_tests` (2 new: `a_photo_accepted_with_its_fin_read_teaches_the_fin_table`, `the_fin_table_is_filled_from_photos_already_tagged`); Vitest `aircraftFins.test.ts` (new) and all unit; mocked Playwright `aircraft.spec.ts` (new: Fin numbers) and `backup.spec.ts`; checked in the browser preview against the mock. fmt, clippy (core and app), tsc, ESLint, Prettier.
+- **Not run:** in the installed app against a real library; CI; macOS.
 
 ## Read aircraft: fin numbers, part 1 — read and kept (2026-11-24)
 

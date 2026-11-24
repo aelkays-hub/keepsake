@@ -28,7 +28,7 @@ pub fn human_bytes(n: u64) -> String {
 
 /// Quote a CSV field when it needs it (RFC 4180). A leading `=`, `+`, `-`
 /// or `@` gets a `'` so spreadsheets do not run a camera name as a formula.
-fn field(s: &str) -> String {
+pub(crate) fn field(s: &str) -> String {
     let s = match s.chars().next() {
         Some('=' | '+' | '-' | '@') => format!("'{s}"),
         _ => s.to_owned(),

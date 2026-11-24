@@ -579,6 +579,8 @@ pub fn accept(
         Review::Accepted
     };
     cat.write(|tx| tx.ai().set_aircraft_review(asset, review.as_str(), now))?;
+    // Its fin, read with the registration and airline accepted (ADR-052).
+    super::fins::learn(cat, &[asset], paths)?;
     Ok(added)
 }
 
@@ -951,6 +953,8 @@ pub fn accept_neighbours(
         return Ok(Vec::new());
     }
     add_to(cat, lib, ids, paths)?;
+    // The fins its photos read (ADR-052).
+    super::fins::learn(cat, ids, paths)?;
     let empty = serde_json::to_string(&Candidates::default())
         .map_err(|e| AiError::Image(format!("the read could not be kept: {e}")))?;
     let now = crate::jobs::now_ms();

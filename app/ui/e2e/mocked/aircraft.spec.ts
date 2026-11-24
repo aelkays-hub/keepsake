@@ -843,6 +843,39 @@ test("the inspector shows what Flightradar24 showed of the photo's aircraft", as
   await expect(fr.getByTestId("fr24-seen-flying")).toHaveText("2026-11-19");
 });
 
+test("Fin numbers: learned, imported, shown, exported and removed (ADR-052)", async ({ page }) => {
+  await open(page, "&aircraft=on&fins=on");
+  await settings(page);
+  const box = page.getByTestId("aircraft-fins");
+  await expect(box.getByTestId("fins-count")).toHaveText("1 fin for 1 airline.");
+  await box.getByTestId("fins-learn").click();
+  await expect(box.getByTestId("fins-note")).toHaveText("1 photo gave a fin.");
+  await box.getByTestId("fins-import").click();
+  expect(await calls(page, "aircraft_fins_import")).toEqual([
+    { path: "C:\\Users\\me\\Documents\\fins.csv" },
+  ]);
+  await expect(box.getByTestId("fins-note")).toHaveText(
+    "1 added, 0 updated. 1 line not kept: line 3: Nowhere Air is not an airline Keepsake knows",
+  );
+  await expect(box.getByTestId("fins-count")).toHaveText("2 fins for 1 airline.");
+  await box.getByTestId("fins-show").click();
+  const rows = box.getByTestId("fin-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("C-GJYI");
+  await expect(rows.first()).toContainText("Learned from 4 photos");
+  await expect(rows.nth(1)).toContainText("C-FPWD");
+  await expect(rows.nth(1)).toContainText("any time");
+  await box.getByTestId("fins-export").click();
+  await expect(box.getByTestId("fins-note")).toHaveText(
+    "Saved to C:\\Users\\me\\Documents\\Keepsake report.csv.",
+  );
+  await rows.nth(1).getByTestId("fin-forget").click();
+  expect(await calls(page, "aircraft_fin_forget")).toEqual([
+    { airline: "Air Canada", fin: "401", registration: "C-FPWD", source: "imported" },
+  ]);
+  await expect(rows).toHaveCount(1);
+});
+
 test("National aircraft registers: download, update, remove; the inspector shows the entry", async ({
   page,
 }) => {

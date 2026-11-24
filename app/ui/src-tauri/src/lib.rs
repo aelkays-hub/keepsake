@@ -9,6 +9,7 @@ mod convert;
 mod diagnostics;
 mod edit;
 mod faces;
+mod fins;
 mod flickr;
 mod folders;
 mod import;
@@ -220,6 +221,11 @@ pub fn run() {
             registers::aircraft_register_update,
             registers::aircraft_register_cancel,
             registers::aircraft_register_remove,
+            fins::aircraft_fins,
+            fins::aircraft_fins_import,
+            fins::aircraft_fins_csv,
+            fins::aircraft_fins_learn,
+            fins::aircraft_fin_forget,
             registers::aircraft_register,
             route::fr24_aircraft_start,
             route::fr24_aircraft_stop,
