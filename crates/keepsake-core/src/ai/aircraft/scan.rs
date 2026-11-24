@@ -265,7 +265,7 @@ const LOOK_AROUND: f32 = 5.0;
 /// the picture's long side, or nothing is gained). `[x, y, w, h]`.
 pub fn closer_look(lines: &[TextLine], airlines: &Airlines, w: u32, h: u32) -> Option<[u32; 4]> {
     let long = w.max(h) as f32;
-    if long <= DETECT_SIDE as f32 * 1.25 {
+    if long <= DETECT_SIDE as f32 * SHRUNK {
         return None;
     }
     let found = marks::candidates(lines, airlines);
@@ -307,12 +307,17 @@ pub const MAX_PLANES: usize = 4;
 /// out gains no detail, and the text reader reads a picture cut at another
 /// size a little differently (SAUDIA beside its Arabic, DSC03440).
 pub const BIG_PLANE: f32 = 0.6;
+/// A picture whose long side is more than this many times [`DETECT_SIDE`]
+/// is shrunk enough for the detector that a big aircraft in it is also
+/// read cut out ([`read_lines`]).
+pub const SHRUNK: f32 = 1.25;
 
 /// The text in `img`. With aircraft found in it (`planes`, from
 /// [`Reader::planes`]), only the text on them, so that a sign, a jet
 /// bridge, a vehicle or a signature beside it is not read: a big one in the
-/// whole picture, keeping the text inside it; a smaller one cut out with a
-/// small margin and read at full size. With none (the finder is not
+/// whole picture, keeping the text inside it (and, when the picture is
+/// shrunk for the detector, cut out too, both readings kept); a smaller one
+/// cut out with a small margin and read at full size. With none (the finder is not
 /// installed, or a close-up of a tail is not seen as an aircraft), the
 /// whole picture. Either way, when an airline is read but no registration,
 /// closer around the airline ([`closer_look`]). In the picture's
@@ -347,7 +352,13 @@ pub fn read_lines(
         };
         lines.extend(read_part(read, airlines, img)?.into_iter().filter(inside));
     }
-    for [x, y, w, h] in small {
+    // A big one in a picture the detector sees shrunk is cut out and read
+    // too: shrunk with the whole picture, letters 20 px high are 9 and not
+    // found (C-GJYI beside the flag of an A220, A7_08119); cut out, they
+    // are shrunk less or not at all.
+    let shrunk = long > DETECT_SIDE as f32 * SHRUNK;
+    let cut = small.iter().chain(big.iter().filter(|_| shrunk));
+    for &[x, y, w, h] in cut {
         let part = img.crop_imm(x, y, w, h);
         for mut l in read_part(read, airlines, &part)? {
             shift(&mut l, x, y);
@@ -1344,16 +1355,88 @@ mod tests {
             score: 0.9,
         };
         let lines = read_lines(&mut read, &[big], &airlines, &img).unwrap();
-        // (Then closer around KLM, as no registration was read.)
+        // (Then closer around KLM, as no registration was read; and, as
+        // the picture is shrunk for the detector, the aircraft cut out.)
         assert_eq!(seen.borrow()[0], (4000, 3000));
+        let [_, _, bw, bh] = big.grown(PLANE_MARGIN, 4000, 3000);
+        assert!(seen.borrow().contains(&(bw, bh)), "{:?}", seen.borrow());
         let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(texts, ["KLM"], "not the sign nor the signature");
+        assert!(
+            texts.contains(&"KLM") && texts.contains(&"PH-BFA"),
+            "{texts:?}"
+        );
+        assert!(
+            !texts.contains(&"Air Canada") && !texts.contains(&"ahmad el-kays"),
+            "not the sign nor the signature: {texts:?}"
+        );
 
         // No aircraft found: the whole picture, as before.
         seen.borrow_mut().clear();
         let lines = read_lines(&mut read, &[], &airlines, &img).unwrap();
         assert_eq!(seen.borrow()[0], (4000, 3000));
         assert!(lines.iter().any(|l| l.text == "Air Canada"));
+    }
+
+    #[test]
+    fn a_big_aircraft_in_a_shrunk_picture_is_read_cut_out_too() {
+        // A7_08119: an A220 across 3870 of 6024 px. Shrunk with the whole
+        // picture for the detector, C-GJYI by the flag (20 px) is not
+        // found; in the aircraft cut out, it is.
+        let airlines = Airlines::builtin();
+        let img = DynamicImage::new_rgb8(6024, 4024);
+        let plane = Plane {
+            x: 1726.0,
+            y: 1825.0,
+            w: 3335.0,
+            h: 1098.0,
+            score: 0.9,
+        };
+        let [x, y, w, h] = plane.grown(PLANE_MARGIN, 6024, 4024);
+        assert!(w as f32 >= 6024.0 * BIG_PLANE, "a big one");
+        let seen = std::cell::RefCell::new(Vec::new());
+        let mut read = |i: &DynamicImage| {
+            seen.borrow_mut().push((i.width(), i.height()));
+            Ok(if i.width() == 6024 {
+                vec![at("AIRBUS A220-300", 4069.0, 2521.0, 172.0, 25.0)]
+            } else {
+                vec![
+                    at("CANADA", 1205.0, 642.0, 494.0, 58.0),
+                    at("C-GJYI", 2639.0, 647.0, 128.0, 26.0),
+                ]
+            })
+        };
+        let lines = read_lines(&mut read, &[plane], &airlines, &img).unwrap();
+        assert_eq!(seen.borrow()[0], (6024, 4024), "the whole picture first");
+        assert!(seen.borrow().contains(&(w, h)), "{:?}", seen.borrow());
+        let found = marks::candidates(&lines, &airlines);
+        assert_eq!(found.registrations.len(), 1);
+        assert_eq!(found.registrations[0].0, "C-GJYI");
+        // In the picture's coordinates.
+        let reg = lines.iter().find(|l| l.text == "C-GJYI").unwrap();
+        assert_eq!(reg.quad[0], [2639.0 + x as f32, 647.0 + y as f32]);
+
+        // A picture the detector sees (nearly) as it is: the big one is
+        // read in the whole picture only, as before.
+        let small_pic = DynamicImage::new_rgb8(3000, 2000);
+        let fits = Plane {
+            x: 200.0,
+            y: 600.0,
+            w: 2500.0,
+            h: 700.0,
+            score: 0.9,
+        };
+        let mut sizes = Vec::new();
+        read_lines(
+            &mut |i: &DynamicImage| {
+                sizes.push((i.width(), i.height()));
+                Ok(vec![at("C-GJYI", 1500.0, 900.0, 128.0, 26.0)])
+            },
+            &[fits],
+            &airlines,
+            &small_pic,
+        )
+        .unwrap();
+        assert_eq!(sizes, [(3000, 2000)]);
     }
 
     #[test]

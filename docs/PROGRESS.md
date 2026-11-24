@@ -46,6 +46,7 @@
 | — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: small registrations cut short by the text finder are read again lengthened; O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: a big aircraft in a large photo is also read cut out, so small registrations on it are found | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -75,6 +76,18 @@
 
 
 
+
+## Read aircraft: a big aircraft in a large photo is also read cut out (2026-11-23)
+
+- **Asked:** A7_08117 to A7_08120 (2024-05-05, an Air Canada A220-300) each show a clear registration that was not read.
+- **Found:** the registration is C-GJYI, beside the flag, about 20 px high. The installed 0.11.2 read them on 2026-11-23: the type and sometimes Air Canada, no registration.
+  - **A7_08119:** the aircraft spans 3870 of 6024 px with its margin, which is over `BIG_PLANE` (60 %). So the whole photo was read shrunk to 2560 px, where its letters are about 9 px and not found. Cut out, the same text finder reads C-GJYI (0.99) and CANADA (0.99).
+  - **A7_08117, 08118 and 08120:** smaller aircraft, already read cut out at full size; the text finder puts no box on the registration. On 08118 it finds C-GJYI only when a small area around it is enlarged 2 ×. On 08120 the letters are faint grey on a bright fuselage. On 08117 they are smaller still.
+  - **Reading the whole cut-out at 2 × (tried, not taken):** 4–20 × slower, found nothing new on 08117, 08118 or 08120, and lost JA02NJ on A7405081.
+- **Built:** `scan::read_lines` also reads a big aircraft cut out when the photo is more than `SHRUNK` (1.25) × `DETECT_SIDE` long, keeping both readings; `closer_look` uses the same `SHRUNK`. A photo the detector sees nearly as it is is read as before.
+- **Result** (scratch harness against this branch; originals only read): A7_08119 gives C-GJYI. 08117, 08118 and 08120 still read none: they get it through the burst (0.11.2, ADR-051), whose photos are offered what one of them read.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (79, 1 new: `a_big_aircraft_in_a_shrunk_picture_is_read_cut_out_too`; 1 changed: `only_the_text_on_the_aircraft_found_is_read`); `aircraft_tests` (47); cargo fmt, clippy `-D warnings` (keepsake-core).
+- **Not run:** in the installed app; CI; macOS. Branch `fix/aircraft-big-plane-cutout`.
 
 ## Version 0.11.2 (2026-11-22)
 
