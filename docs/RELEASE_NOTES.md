@@ -1,3 +1,15 @@
+# Keepsake 0.11.3
+
+Version 0.11.3 reads registrations that used to come out a letter short. It has everything in 0.11.2.
+
+No catalog change: 0.11.3 opens a 0.11.2 library as it is.
+
+## New in 0.11.3
+
+**A registration missing a letter**
+- When a line of text is read less than surely, it is read again in a slightly longer box. Even big, clear letters could lose one in a tight box: C-GFCH on the side of an A320 was read C-GCH, which is no registration, so none was offered. Now it is read C-GFCH.
+- Photos read before 0.11.3: use **Read again**.
+
 # Keepsake 0.11.2
 
 Version 0.11.2 makes Read aircraft better at a plane passing overhead: a burst of photos counts as one shot, and a registration read one letter wrong is checked against aircraft that really exist. It has everything in 0.11.1.
