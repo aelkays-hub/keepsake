@@ -16,9 +16,10 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftLookupDto, AircraftNearDto,
-    AircraftNeighbourDto, AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted,
-    CloudStatusDto, SamePlaneDto, ScoredMarkDto, Selection, ShotMarkDto,
+    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftFromFinDto,
+    AircraftLookupDto, AircraftNearDto, AircraftNeighbourDto, AircraftReviewDto,
+    AircraftReviewItemDto, AircraftStatus, CloudStarted, CloudStatusDto, SamePlaneDto,
+    ScoredMarkDto, Selection, ShotMarkDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -240,11 +241,13 @@ pub fn aircraft_read_status(
 }
 
 /// Read the aircraft photos of a folder or dates (those tagged Airplane,
-/// Helicopter or Airport and not read yet), in the background.
+/// Helicopter or Airport and not read yet), in the background. `again`:
+/// those read before too, keeping their review (ADR-052: for their fins).
 pub fn target_start(
     app: &AppHandle,
     state: &AppState,
     target: &keepsake_core::ai::Target,
+    again: bool,
 ) -> CmdResult<keepsake_core::ai::analyze::RangeStatus> {
     if !Settings::load().map_err(err)?.ai.aircraft {
         return Err("Turn on Read aircraft in Settings first.".into());
@@ -252,7 +255,11 @@ pub fn target_start(
     let open = state.open()?;
     let st = {
         let mut cat = open.writer()?;
-        scan::enqueue_target(&mut cat, target).map_err(err)?
+        if again {
+            scan::reread_target(&mut cat, target).map_err(err)?
+        } else {
+            scan::enqueue_target(&mut cat, target).map_err(err)?
+        }
     };
     crate::render::start_service(app)?;
     Ok(st)
@@ -419,6 +426,7 @@ pub fn aircraft_review(
             registrations: scored(&it.candidates.registrations),
             airlines: scored(&it.candidates.airlines),
             types: scored(&it.candidates.types),
+            fins: scored(&it.candidates.fins),
             looks_like: it.looks_like.clone(),
             offered: names(&offer.keywords),
             unticked: names(&offer.unticked),
@@ -453,6 +461,12 @@ pub fn aircraft_review(
                     by: n.by.to_owned(),
                 })
                 .collect(),
+            from_fin: offer.from_fin.as_ref().map(|f| AircraftFromFinDto {
+                registration: f.registration.clone(),
+                airline: f.airline.clone(),
+                fin: f.fin.clone(),
+                pct: (f.score * 100.0).round().clamp(0.0, 100.0) as u8,
+            }),
         });
     }
     let read = items.len() as u64;

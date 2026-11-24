@@ -204,6 +204,41 @@ test("right-click a folder: Read aircraft reviews its aircraft photos", async ({
   await expect(win).toHaveCount(0);
 });
 
+test("Read aircraft again for a folder or a year reads those read before too (ADR-052)", async ({
+  page,
+}) => {
+  await page.goto("/?items=2000&aircraft=on");
+  await expect(page.getByTestId("count")).toHaveText("2,000 items");
+  await node(page, "2015").click({ button: "right" });
+  await page.getByTestId("date-menu-aircraft-again").click();
+  const win = page.getByTestId("aircraft-review");
+  await expect(win.getByRole("heading")).toHaveText("Read aircraft: 2015");
+  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
+    timeout: 15_000,
+  });
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "aircraft-again" },
+  ]);
+  await win.getByTestId("ar-close").click();
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
+  await node(page, "Photos A").click();
+  await page
+    .getByTestId("sidebar")
+    .locator('button[data-folder="2016"]')
+    .first()
+    .click({ button: "right" });
+  await page.getByTestId("folder-menu").getByTestId("folder-menu-aircraft-again").click();
+  await expect(win.getByRole("heading")).toHaveText("Read aircraft: Photos A › 2016");
+  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
+    timeout: 15_000,
+  });
+  expect((await calls(page, "ai_analyze_folder")).at(-1)).toEqual({
+    volume: "vOn",
+    folder: "2016",
+    what: "aircraft-again",
+  });
+});
+
 test("right-click a year: Read aircraft; when it is off the window opens Settings", async ({
   page,
 }) => {
@@ -841,6 +876,40 @@ test("the inspector shows what Flightradar24 showed of the photo's aircraft", as
   await expect(fr.getByTestId("fr24-airline")).toHaveText("Air Canada (ACA)");
   await expect(fr.getByTestId("fr24-transponder")).toHaveText("C05E2B");
   await expect(fr.getByTestId("fr24-seen-flying")).toHaveText("2026-11-19");
+});
+
+test("Fin numbers: learned, imported, shown, exported and removed (ADR-052)", async ({ page }) => {
+  await open(page, "&aircraft=on&fins=on");
+  await settings(page);
+  const box = page.getByTestId("aircraft-fins");
+  await expect(box.getByTestId("fins-count")).toHaveText("1 fin for 1 airline.");
+  await box.getByTestId("fins-learn").click();
+  await expect(box.getByTestId("fins-note")).toHaveText("1 photo gave a fin.");
+  await box.getByTestId("fins-import").click();
+  // The open dialog answers first: the import is asked after it.
+  await expect(box.getByTestId("fins-note")).toHaveText(
+    "1 added, 0 updated. 1 line not kept: line 3: Nowhere Air is not an airline Keepsake knows",
+  );
+  expect(await calls(page, "aircraft_fins_import")).toEqual([
+    { path: "C:\\Users\\me\\Documents\\fins.csv" },
+  ]);
+  await expect(box.getByTestId("fins-count")).toHaveText("2 fins for 1 airline.");
+  await box.getByTestId("fins-show").click();
+  const rows = box.getByTestId("fin-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("C-GJYI");
+  await expect(rows.first()).toContainText("Learned from 4 photos");
+  await expect(rows.nth(1)).toContainText("C-FPWD");
+  await expect(rows.nth(1)).toContainText("any time");
+  await box.getByTestId("fins-export").click();
+  await expect(box.getByTestId("fins-note")).toHaveText(
+    "Saved to C:\\Users\\me\\Documents\\Keepsake report.csv.",
+  );
+  await rows.nth(1).getByTestId("fin-forget").click();
+  await expect(rows).toHaveCount(1);
+  expect(await calls(page, "aircraft_fin_forget")).toEqual([
+    { airline: "Air Canada", fin: "401", registration: "C-FPWD", source: "imported" },
+  ]);
 });
 
 test("National aircraft registers: download, update, remove; the inspector shows the entry", async ({

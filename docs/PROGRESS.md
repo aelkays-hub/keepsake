@@ -46,6 +46,10 @@
 | — | Add route chooses OpenSky or Flightradar24 by each photo's date, following how far back the Flightradar24 plan goes (ADR-050) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: registrations read unsurely are read again with a longer box (a letter was dropped); O read for zero in Japanese and Korean marks | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: fin numbers (fleet numbers) read and kept, shown beside the marks with their airline; part 1 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: the fin table (ADR-052): learned on accept, filled from tagged photos, imported and exported as CSV (Settings → Read aircraft → Fin numbers); schema v23; part 2 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: a registration offered from the airline's fin read (ADR-052), by the photo's date, unticked when its type disagrees; part 3 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft again for a folder or dates: photos read before are read again for their fins, keeping their review; their fins learned as read (ADR-052) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: a big aircraft in a large photo is also read cut out, so small registrations on it are found | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
@@ -76,6 +80,36 @@
 
 
 
+
+## Read aircraft again for a folder or dates (2026-11-24)
+
+- **Asked:** after part 3, "Yes, add it": a Read again for folders that keeps accepted photos accepted, so a back catalogue gets its fins without being reviewed again.
+- **Built:** `aircraft_reads.keep_review` (added to the v23 migration, not yet released). `keep_aircraft_reviews(ids, keep)`: set on accepted and dismissed reads before a folder is read again; cleared when photos are picked (`scan::enqueue`). `put_aircraft_read` keeps the review when set, then clears it. `scan::reread_target`: every aircraft photo of the folder or dates queued again. After each read with a fin, `fins::learn_tagged` (shared with `learn_from_library`). Tauri: `what` = `aircraft-again` for `ai_analyze_folder` and `ai_analyze_range` (`target_start(.., again)`). UI: **Read aircraft again** in the folder menu and the date menu; `AircraftJob.again`. ADR-052 and SPEC.
+- **Tests, run here (Windows):** `aircraft_tests` (1 new: `a_folder_read_again_keeps_its_reviews_and_learns_its_fins`); mocked Playwright (1 new: Read aircraft again for a folder or a year) and the aircraft suite; tsc, ESLint, Prettier, clippy.
+- **Not run:** in the installed app; CI; macOS.
+
+## Read aircraft: fin numbers, part 3 — the registration offered from the fin (2026-11-24)
+
+- **Asked:** Start part 3. Mid-way: "does the reread do it for the whole, a folder or just a picture?" Answered: picked photos (right-click → Read aircraft) are read again; a folder, year, month or day reads only photos never read; Read again in the window is one photo. Reading again puts a photo back to waiting for review (its keywords stay). Not changed here.
+- **Built:** `fins::pick` (the registration for a photo's time: inside one row's time, sure; two at once, none; else the nearest, sure only when the fin had one registration; no time, only one registration) and `fins::offer` (no registration read at the window's confidence; the surest fin at least the registration confidence; an airline at the airline confidence; the table asked by airline and fin). `scan::offer_full` adds it as a registration to look up (after the one-letter-off fixes), then unticks it when not sure or when its looked-up type is not one the photo shows (`same_type` against the painted types and its look). `Offer::from_fin`; `AircraftReviewItemDto.fromFin` (`AircraftFromFinDto`); the window's label "(from Air Canada fin 147, 97%)". ADR-052 and SPEC updated.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (1 new: `the_registration_for_a_photo_s_time_is_picked`); `aircraft_tests` (1 new: `a_photo_with_its_airline_and_fin_read_is_offered_the_registration`); Vitest (the label); tsc, ESLint, Prettier, clippy.
+- **Not run:** in the installed app; CI; macOS.
+
+## Read aircraft: fin numbers, part 2 — the fin table (2026-11-24)
+
+- **Asked:** Start part 2. Mid-way: "are we going to fill in the fin table from the current registrations we know about?" Yes: **Learn from tagged photos**.
+- **Built:** schema v23 `aircraft_fins` (airline, fin, registration, first_ms, last_ms, source, seen). `fins::learn`, called from `scan::accept` and `accept_neighbours`: one registration and one airline accepted, one fin read at least `LEARN_MIN` (0.9) → kept, dates stretched. `fins::learn_from_library`: every read with a sure fin on a photo tagged with one registration and one airline (any source; a keyword twice counts once); again counts nothing twice. `fins::parse_csv` (comma, semicolon or tab; header, `#` and blank lines skipped; airline known, fin 2–4 digits, registration a real shape, dates year, month or day; problems by line), `import` (added or dates replaced), `to_csv` (reads back), `conflicts`. Repo: `fins_all`, `fins_for`, `taken_ms`, `aircraft_reads_with_fins`, `learn_fin`, `import_fin`, `forget_fin`. Tauri: `aircraft_fins`, `aircraft_fins_import`, `aircraft_fins_csv`, `aircraft_fins_learn`, `aircraft_fin_forget`. UI: Settings → Read aircraft → **Fin numbers** (count, Learn from tagged photos, Import CSV…, Export to CSV…, Show: the table with "(two at once)" and Remove). ADR-052; SPEC.
+- **Changed from the plan:** the block is in Settings beside the national registers, not a Tools menu; an import shows what it added and the lines not kept instead of a preview first.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (fins: 6 new) and `catalog::`; `aircraft_tests` (2 new: `a_photo_accepted_with_its_fin_read_teaches_the_fin_table`, `the_fin_table_is_filled_from_photos_already_tagged`); Vitest `aircraftFins.test.ts` (new) and all unit; mocked Playwright `aircraft.spec.ts` (new: Fin numbers) and `backup.spec.ts`; checked in the browser preview against the mock. fmt, clippy (core and app), tsc, ESLint, Prettier.
+- **Not run:** in the installed app against a real library; CI; macOS.
+
+## Read aircraft: fin numbers, part 1 — read and kept (2026-11-24)
+
+- **Asked:** Canadian and US airlines paint a fin (fleet) number on the tail and by the nose; it is unique within the airline. Use it to find the registration. Plan agreed: three parts (`PLAN-fin-numbers.md`, not committed): read fins; a fin table learned from accepted photos and imported from CSV; the registration offered in review.
+- **Found:** no free database or API gives fin → registration (adsbdb, Flightradar24 and AirLabs look up by registration or hex; OAG and ch-aviation are paid). So no fin data ships with Keepsake; the table will come from the user's photos and imports.
+- **Built (part 1):** `marks::fin`: a line that is a number alone, 2 to 4 digits (`FIN_DIGITS`). `Candidates` keeps `fins` beside the marks (`#[serde(default)]`: reads kept before have none; no schema change). Fins are not marks: never keywords, not in `Candidates::at`. The burst (`scan::with_shot`) joins its photos' fins too. The review window lists "Fin 147" under also read, only when an airline was read on the photo or its shot (`alsoRead`); `AircraftReviewItemDto.fins`.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (2 new: `a_number_alone_is_a_fin`, `fins_are_kept_beside_the_marks_but_are_not_marks`); `aircraft_tests`; UI `aircraftReview.test.ts` (fins shown only with an airline); tsc, ESLint, Prettier.
+- **Not run:** in the installed app; CI; macOS. Branch `feat/aircraft-fin-numbers`.
 
 ## Version 0.11.3 (2026-11-23)
 

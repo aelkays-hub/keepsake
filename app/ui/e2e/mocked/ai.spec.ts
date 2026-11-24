@@ -85,6 +85,7 @@ test("right-click a year: find duplicates for those dates only", async ({ page }
     "Find duplicates",
     "Tag photos",
     "Read aircraft",
+    "Read aircraft again",
   ]);
   await menu.getByTestId("date-menu-dups").click();
   expect(await calls(page, "ai_analyze_range")).toEqual([

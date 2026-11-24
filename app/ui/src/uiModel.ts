@@ -87,6 +87,9 @@ export type AircraftJob = (
 ) & {
   /** "3 photos", "Pictures › 2025 › May", "July 2026". */
   title: string;
+  /** A folder or dates: read again those read before too, keeping their
+   * review (ADR-052: for their fins). */
+  again?: boolean;
 };
 
 /** Find duplicates or Tag photos for a folder and the folders in it, or

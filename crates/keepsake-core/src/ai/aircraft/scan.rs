@@ -435,7 +435,8 @@ pub(crate) fn lib_err(e: LibraryError) -> AiError {
 }
 
 /// One aircraft job: read `asset`'s picture and keep what it shows for
-/// review (a read before is replaced, and waits for review again).
+/// review (a read before is replaced, and waits for review again, unless
+/// its folder or dates were read again keeping reviews: ADR-052).
 pub fn read_asset(
     cat: &mut Catalog,
     lib: &Library,
@@ -461,6 +462,11 @@ pub fn read_asset(
         // Nothing found: nothing to review.
         tx.ai().dismiss_empty_aircraft_reads(&[asset], now)
     })?;
+    // A fin read on a photo already tagged with its registration and
+    // airline (read again for it): learned (ADR-052).
+    if !candidates.fins.is_empty() {
+        super::fins::learn_tagged(cat, &[asset])?;
+    }
     let out = Outcome {
         marks: candidates.at(&Confidence::default()),
         candidates,
@@ -590,6 +596,8 @@ pub fn accept(
         Review::Accepted
     };
     cat.write(|tx| tx.ai().set_aircraft_review(asset, review.as_str(), now))?;
+    // Its fin, read with the registration and airline accepted (ADR-052).
+    super::fins::learn(cat, &[asset], paths)?;
     Ok(added)
 }
 
@@ -605,6 +613,8 @@ pub struct Offer {
     /// Registrations read one look-alike character off a known aircraft,
     /// offered as that one.
     pub near: Vec<Near>,
+    /// A registration offered from the airline's fin (ADR-052).
+    pub from_fin: Option<super::fins::FromFin>,
 }
 
 /// A registration read (`read`) offered as the known aircraft it was most
@@ -763,8 +773,36 @@ pub fn offer_full(
             *r = real;
         }
     }
+    // No registration read, but the airline and its fin: the one the fin
+    // table gives for the photo's time (ADR-052), looked up like one read.
+    let from_fin = super::fins::offer(cat, &it, conf)?;
+    if let Some(f) = &from_fin {
+        it.candidates
+            .registrations
+            .push((f.registration.clone(), f.score));
+    }
     let found = found_for(cat, &it, conf)?;
     let mut o = offer(&it, conf, &found)?;
+    if let Some(f) = &from_fin {
+        // Unticked when not sure, or when its type is not what the photo
+        // shows (an A220's fin giving a 777).
+        let other_type = found
+            .iter()
+            .find(|x| x.registration == f.registration)
+            .and_then(|x| x.aircraft_type.as_deref())
+            .is_some_and(|t| {
+                !hints.types.is_empty()
+                    && !hints
+                        .types
+                        .iter()
+                        .any(|h| same_type(h, t) || same_type(t, h))
+            });
+        let k = TagPath::new([TAG_PARENT, "Registration", f.registration.as_str()])?;
+        if (!f.sure || other_type) && !o.unticked.contains(&k) {
+            o.unticked.push(k);
+        }
+    }
+    o.from_fin = from_fin;
     for f in &fixes {
         let k = TagPath::new([TAG_PARENT, "Registration", f.read.as_str()])?;
         let real_k = TagPath::new([TAG_PARENT, "Registration", f.real.as_str()])?;
@@ -893,6 +931,7 @@ pub fn with_shot(
             (&mut c.registrations, &m.candidates.registrations),
             (&mut c.airlines, &m.candidates.airlines),
             (&mut c.types, &m.candidates.types),
+            (&mut c.fins, &m.candidates.fins),
         ] {
             for (name, score) in from {
                 match list.iter_mut().find(|(n, _)| n == name) {
@@ -961,6 +1000,8 @@ pub fn accept_neighbours(
         return Ok(Vec::new());
     }
     add_to(cat, lib, ids, paths)?;
+    // The fins its photos read (ADR-052).
+    super::fins::learn(cat, ids, paths)?;
     let empty = serde_json::to_string(&Candidates::default())
         .map_err(|e| AiError::Image(format!("the read could not be kept: {e}")))?;
     let now = crate::jobs::now_ms();
@@ -1026,11 +1067,29 @@ pub fn dismiss(cat: &mut Catalog, asset: AssetId) -> Result<(), AiError> {
 /// user asked for these, so the window shows what was read.
 pub fn enqueue(cat: &mut Catalog, ids: &[AssetId]) -> Result<u64, AiError> {
     for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
-        cat.write(|tx| tx.ai().forget_aircraft_accepted_unread(chunk))?;
+        cat.write(|tx| {
+            tx.ai().forget_aircraft_accepted_unread(chunk)?;
+            tx.ai().keep_aircraft_reviews(chunk, false)
+        })?;
     }
     let n = enqueue_ids(cat, ids, true)?;
     to_front(cat, JOB_AI_AIRCRAFT, ids)?;
     Ok(n)
+}
+
+/// Read a folder's or dates' aircraft photos again, those read before too
+/// (ADR-052: to give them their fins), keeping their review: a photo
+/// accepted or dismissed stays so and is not asked about again; one
+/// waiting still waits. After each is read, a sure fin on a photo tagged
+/// with one registration and one airline is learned. Returns how far it
+/// has got, as [`enqueue_target`].
+pub fn reread_target(cat: &mut Catalog, target: &Target) -> Result<RangeStatus, AiError> {
+    let ids = target_items(cat, target)?;
+    for chunk in ids.chunks(crate::render::ENQUEUE_CHUNK) {
+        cat.write(|tx| tx.ai().keep_aircraft_reviews(chunk, true))?;
+    }
+    enqueue_ids(cat, &ids, true)?;
+    status_of(cat, &ids)
 }
 
 /// The photos picked go ahead of any backlog of `kind`, even those already
@@ -1459,6 +1518,7 @@ mod tests {
                 registrations: vec![("VT-JEX".into(), 0.97)],
                 airlines: vec![("Jet Airways".into(), 0.82)],
                 types: vec![("Boeing 777-300ER".into(), 0.66)],
+                fins: vec![],
             },
             looks_like: Some("Boeing 777".into()),
             full_size: true,

@@ -191,6 +191,7 @@ test("right-click a folder: tag it and the folders in it, with a progress window
     "Find duplicates",
     "Tag photos",
     "Read aircraft",
+    "Read aircraft again",
   ]);
   await page.getByTestId("folder-menu-tags").click();
   await expect(menu).toHaveCount(0);

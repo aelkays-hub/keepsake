@@ -22,6 +22,7 @@
 
 pub mod built;
 pub mod complete;
+pub mod fins;
 pub mod fr24;
 pub mod install;
 pub mod lookup;
