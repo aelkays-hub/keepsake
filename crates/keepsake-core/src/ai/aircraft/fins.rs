@@ -412,6 +412,14 @@ pub fn offer(
     Ok(None)
 }
 
+/// Write [`to_csv`] to `path`, the file the user chose (UTF-8 with a
+/// byte-order mark, so spreadsheets read it as such).
+pub fn write_csv(rows: &[FinRow], path: &std::path::Path) -> std::io::Result<()> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(to_csv(rows).as_bytes());
+    std::fs::write(path, bytes)
+}
+
 /// Whether two rows' times overlap (`None`: open at that end).
 fn overlap(a: &FinRow, b: &FinRow) -> bool {
     let starts_before_end = |x: &FinRow, y: &FinRow| match (x.first_ms, y.last_ms) {

@@ -78,9 +78,7 @@ pub fn aircraft_fins_csv(state: State<'_, AppState>, path: String) -> CmdResult<
     let open = state.open()?;
     let cat = open.cat()?;
     let rows = cat.read(|tx| tx.ai().fins_all()).map_err(err)?;
-    let mut bytes = vec![0xEF, 0xBB, 0xBF];
-    bytes.extend_from_slice(fins::to_csv(&rows).as_bytes());
-    std::fs::write(&out, bytes).map_err(err)?;
+    fins::write_csv(&rows, &out).map_err(err)?;
     Ok(crate::convert::path_text(&out))
 }
 

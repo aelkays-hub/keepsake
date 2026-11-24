@@ -1072,6 +1072,16 @@ fn the_fin_table_is_filled_from_photos_already_tagged() {
     fins::learn_from_library(&mut w.cat).unwrap();
     let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
     assert_eq!((rows.len(), rows[0].seen), (1, 1));
+    // Exported where the user chose: it reads back.
+    let out = w.media.join("fins.csv");
+    fins::write_csv(&rows, &out).unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    let back = fins::parse_csv(
+        &text,
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    assert!(back.problems.is_empty(), "{:?}", back.problems);
+    assert_eq!(back.rows[0].registration, "C-GJYI");
 }
 
 #[test]
