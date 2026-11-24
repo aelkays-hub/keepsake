@@ -78,7 +78,7 @@
 
 ## Version 0.11.3 (2026-11-23)
 
-- Version 0.11.3 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft reads every unsure line again in a longer box, so a registration that lost a letter is read whole (C-GFCH, PR #65). No catalog change.
+- Version 0.11.3 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: Read aircraft reads every unsure line again in a longer box, so a registration that lost a letter is read whole (C-GFCH, PR #65), and a big aircraft in a large photo is also read cut out (C-GJYI, PR #67). No catalog change.
 
 ## Version 0.11.2 (2026-11-22)
 
