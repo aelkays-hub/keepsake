@@ -213,12 +213,12 @@ test("Read aircraft again for a folder or a year reads those read before too (AD
   await page.getByTestId("date-menu-aircraft-again").click();
   const win = page.getByTestId("aircraft-review");
   await expect(win.getByRole("heading")).toHaveText("Read aircraft: 2015");
-  expect(await calls(page, "ai_analyze_range")).toEqual([
-    { from: "2015-01-01", to: "2015-12-31", what: "aircraft-again" },
-  ]);
   await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
     timeout: 15_000,
   });
+  expect(await calls(page, "ai_analyze_range")).toEqual([
+    { from: "2015-01-01", to: "2015-12-31", what: "aircraft-again" },
+  ]);
   await win.getByTestId("ar-close").click();
   await page.getByTestId("tree-mode").getByRole("button", { name: "By folder" }).click();
   await node(page, "Photos A").click();
@@ -229,13 +229,13 @@ test("Read aircraft again for a folder or a year reads those read before too (AD
     .click({ button: "right" });
   await page.getByTestId("folder-menu").getByTestId("folder-menu-aircraft-again").click();
   await expect(win.getByRole("heading")).toHaveText("Read aircraft: Photos A › 2016");
+  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
+    timeout: 15_000,
+  });
   expect((await calls(page, "ai_analyze_folder")).at(-1)).toEqual({
     volume: "vOn",
     folder: "2016",
     what: "aircraft-again",
-  });
-  await expect(win.getByTestId("ar-progress")).toHaveText(/^[\d,]+ of [\d,]+ photos read\.$/, {
-    timeout: 15_000,
   });
 });
 
@@ -886,12 +886,13 @@ test("Fin numbers: learned, imported, shown, exported and removed (ADR-052)", as
   await box.getByTestId("fins-learn").click();
   await expect(box.getByTestId("fins-note")).toHaveText("1 photo gave a fin.");
   await box.getByTestId("fins-import").click();
-  expect(await calls(page, "aircraft_fins_import")).toEqual([
-    { path: "C:\\Users\\me\\Documents\\fins.csv" },
-  ]);
+  // The open dialog answers first: the import is asked after it.
   await expect(box.getByTestId("fins-note")).toHaveText(
     "1 added, 0 updated. 1 line not kept: line 3: Nowhere Air is not an airline Keepsake knows",
   );
+  expect(await calls(page, "aircraft_fins_import")).toEqual([
+    { path: "C:\\Users\\me\\Documents\\fins.csv" },
+  ]);
   await expect(box.getByTestId("fins-count")).toHaveText("2 fins for 1 airline.");
   await box.getByTestId("fins-show").click();
   const rows = box.getByTestId("fin-row");
@@ -905,10 +906,10 @@ test("Fin numbers: learned, imported, shown, exported and removed (ADR-052)", as
     "Saved to C:\\Users\\me\\Documents\\Keepsake report.csv.",
   );
   await rows.nth(1).getByTestId("fin-forget").click();
+  await expect(rows).toHaveCount(1);
   expect(await calls(page, "aircraft_fin_forget")).toEqual([
     { airline: "Air Canada", fin: "401", registration: "C-FPWD", source: "imported" },
   ]);
-  await expect(rows).toHaveCount(1);
 });
 
 test("National aircraft registers: download, update, remove; the inspector shows the entry", async ({
