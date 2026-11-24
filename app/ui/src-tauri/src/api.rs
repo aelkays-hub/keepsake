@@ -1517,6 +1517,8 @@ dto! {
         /// Registrations read one look-alike letter off a known aircraft,
         /// offered as that one.
         pub near: Vec<AircraftNearDto>,
+        /// A registration offered from the airline's fin read (ADR-052).
+        pub from_fin: Option<AircraftFromFinDto>,
     }
 
     /// A registration and on how many photos of a shot it was read.
@@ -1532,6 +1534,15 @@ dto! {
         pub read: String,
         pub real: String,
         pub by: String,
+    }
+
+    /// A registration offered from the airline's fin (ADR-052).
+    pub struct AircraftFromFinDto {
+        pub registration: String,
+        pub airline: String,
+        pub fin: String,
+        /// How surely the fin was read, 0–100.
+        pub pct: u8,
     }
 
     /// What the online lookup (adsbdb.com) said about a registration.

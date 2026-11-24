@@ -16,9 +16,10 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftLookupDto, AircraftNearDto,
-    AircraftNeighbourDto, AircraftReviewDto, AircraftReviewItemDto, AircraftStatus, CloudStarted,
-    CloudStatusDto, SamePlaneDto, ScoredMarkDto, Selection, ShotMarkDto,
+    AiInstallProgress, AircraftBuiltDto, AircraftConfidenceDto, AircraftFromFinDto,
+    AircraftLookupDto, AircraftNearDto, AircraftNeighbourDto, AircraftReviewDto,
+    AircraftReviewItemDto, AircraftStatus, CloudStarted, CloudStatusDto, SamePlaneDto,
+    ScoredMarkDto, Selection, ShotMarkDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -454,6 +455,12 @@ pub fn aircraft_review(
                     by: n.by.to_owned(),
                 })
                 .collect(),
+            from_fin: offer.from_fin.as_ref().map(|f| AircraftFromFinDto {
+                registration: f.registration.clone(),
+                airline: f.airline.clone(),
+                fin: f.fin.clone(),
+                pct: (f.score * 100.0).round().clamp(0.0, 100.0) as u8,
+            }),
         });
     }
     let read = items.len() as u64;

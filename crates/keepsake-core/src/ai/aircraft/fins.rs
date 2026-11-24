@@ -296,6 +296,107 @@ pub fn to_csv(rows: &[FinRow]) -> String {
     out
 }
 
+/// A registration offered from an airline's fin (part 3): no registration
+/// was read surely enough, but the airline and its fin were.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FromFin {
+    pub registration: String,
+    pub airline: String,
+    pub fin: String,
+    /// How surely the fin was read.
+    pub score: f32,
+    /// One answer for the photo's time: offered ticked (unless its type
+    /// disagrees with what the photo shows).
+    pub sure: bool,
+}
+
+/// How far `at` is from a row's time (0: inside; an open end reaches
+/// forever).
+fn distance(r: &FinRow, at: i64) -> i64 {
+    match (r.first_ms, r.last_ms) {
+        (Some(f), _) if at < f => f - at,
+        (_, Some(l)) if at > l => at - l,
+        _ => 0,
+    }
+}
+
+/// Of the registrations an airline's fin stood for (`rows`), the one for a
+/// photo taken at `at`, and whether it is sure:
+/// - one whose time holds `at`: sure; two or more: none (a conflict);
+/// - none holds it: the nearest, sure only when the fin never stood for
+///   another (a learned row spans only the photos that taught it);
+/// - the photo's time unknown: the only one, sure; two or more: none.
+pub fn pick(rows: &[FinRow], at: Option<i64>) -> Option<(String, bool)> {
+    let mut regs: Vec<&str> = rows.iter().map(|r| r.registration.as_str()).collect();
+    regs.sort_unstable();
+    regs.dedup();
+    let Some(at) = at else {
+        return (regs.len() == 1).then(|| (regs[0].to_owned(), true));
+    };
+    let near = |reg: &str| {
+        rows.iter()
+            .filter(|r| r.registration == reg)
+            .map(|r| distance(r, at))
+            .min()
+            .unwrap_or(i64::MAX)
+    };
+    let inside: Vec<&str> = regs.iter().copied().filter(|r| near(r) == 0).collect();
+    match inside.as_slice() {
+        [one] => Some(((*one).to_owned(), true)),
+        [_, _, ..] => None,
+        [] => regs
+            .iter()
+            .min_by_key(|r| near(r))
+            .map(|r| ((*r).to_owned(), regs.len() == 1)),
+    }
+}
+
+/// The registration to offer from a read's fin (`item`, its shot's reads
+/// joined), at `conf`: only when no registration was read at `conf`; the
+/// surest fin read at least as surely as a registration must be, with an
+/// airline read at `conf`, that the table knows.
+pub fn offer(
+    cat: &Catalog,
+    item: &super::scan::ReviewItem,
+    conf: &marks::Confidence,
+) -> Result<Option<FromFin>, AiError> {
+    let c = &item.candidates;
+    if !c.at(conf).registrations.is_empty() || c.fins.is_empty() {
+        return Ok(None);
+    }
+    let mut fins: Vec<&(String, f32)> = c
+        .fins
+        .iter()
+        .filter(|(_, s)| *s >= conf.registration)
+        .collect();
+    fins.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let airlines: Vec<&String> = c
+        .airlines
+        .iter()
+        .filter(|(_, s)| *s >= conf.airline)
+        .map(|(a, _)| a)
+        .collect();
+    if fins.is_empty() || airlines.is_empty() {
+        return Ok(None);
+    }
+    let at = cat.read(|tx| tx.ai().taken_ms(item.asset))?;
+    for (fin, score) in fins {
+        for airline in &airlines {
+            let rows = cat.read(|tx| tx.ai().fins_for(airline, fin))?;
+            if let Some((registration, sure)) = pick(&rows, at) {
+                return Ok(Some(FromFin {
+                    registration,
+                    airline: (*airline).clone(),
+                    fin: fin.clone(),
+                    score: *score,
+                    sure,
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Whether two rows' times overlap (`None`: open at that end).
 fn overlap(a: &FinRow, b: &FinRow) -> bool {
     let starts_before_end = |x: &FinRow, y: &FinRow| match (x.first_ms, y.last_ms) {
@@ -433,6 +534,38 @@ mod tests {
             },
         ];
         assert_eq!(conflicts(&rows), [false, false, true, true, false, false]);
+    }
+
+    #[test]
+    fn the_registration_for_a_photo_s_time_is_picked() {
+        let d = |t| date_ms(t, false);
+        // One registration ever: sure, inside its time or not, or no time.
+        let one = [row("147", "C-GJYI", d("2024-05-05"), d("2024-05-05"))];
+        assert_eq!(pick(&one, d("2024-05-05")), Some(("C-GJYI".into(), true)));
+        assert_eq!(pick(&one, d("2026-01-01")), Some(("C-GJYI".into(), true)));
+        assert_eq!(pick(&one, None), Some(("C-GJYI".into(), true)));
+        // A fin reused: the one whose time holds the photo's, sure.
+        let reused = [
+            row("147", "C-GJYI", d("2019"), d("2022")),
+            row("147", "C-FAAA", d("2023"), None),
+        ];
+        assert_eq!(pick(&reused, d("2020")), Some(("C-GJYI".into(), true)));
+        assert_eq!(pick(&reused, d("2025")), Some(("C-FAAA".into(), true)));
+        // Between learned times: the nearest, not sure.
+        let learned = [
+            row("147", "C-GJYI", d("2019"), d("2019")),
+            row("147", "C-FAAA", d("2024"), d("2024")),
+        ];
+        assert_eq!(pick(&learned, d("2020")), Some(("C-GJYI".into(), false)));
+        assert_eq!(pick(&learned, d("2023")), Some(("C-FAAA".into(), false)));
+        // Two at once, or two with no time to go by: none.
+        let both = [
+            row("147", "C-GJYI", None, None),
+            row("147", "C-FAAA", d("2020"), None),
+        ];
+        assert_eq!(pick(&both, d("2021")), None);
+        assert_eq!(pick(&learned, None), None);
+        assert_eq!(pick(&[], d("2021")), None);
     }
 
     #[test]

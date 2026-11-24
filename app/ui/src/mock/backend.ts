@@ -14,6 +14,7 @@ import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
 import type { FinDto } from "../bindings/FinDto";
+import type { AircraftFromFinDto } from "../bindings/AircraftFromFinDto";
 import type { HistoryRun } from "../bindings/HistoryRun";
 import type { Details } from "../bindings/Details";
 import type { ImportRequest } from "../bindings/ImportRequest";
@@ -2767,6 +2768,7 @@ export function installMock(): void {
               sameShot: [{ name: "C-FJZS", photos: 1 + neighbours.filter((n) => n.alike).length }],
               shotPhotos: 1 + neighbours.filter((n) => n.alike).length,
               near: [] as { read: string; real: string; by: string }[],
+              fromFin: null as AircraftFromFinDto | null,
             });
             // ?aircraftnear=on: a burst of 21 where 3 photos read JA02NJ,
             // one letter off JA02WJ, which adsbdb knows (ADR-051).

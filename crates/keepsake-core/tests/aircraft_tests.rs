@@ -999,6 +999,103 @@ fn the_fin_table_is_filled_from_photos_already_tagged() {
 }
 
 #[test]
+fn a_photo_with_its_airline_and_fin_read_is_offered_the_registration() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c] = names.map(|n| w.asset(n));
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for id in [a, b, c] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2 WHERE id = ?1",
+            rusqlite::params![id, PHOTO_S * 1000],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let read = |w: &mut World, id: AssetId, regs: &str, looks: Option<&str>| {
+        let json = format!(
+            r#"{{"registrations":{regs},"airlines":[["Air Canada",0.98]],"types":[],"fins":[["147",0.97]]}}"#
+        );
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, looks, true, 10))
+            .unwrap();
+    };
+    let offer = |w: &World, id: AssetId| {
+        let it = scan::review_items(&w.cat, &[id]).unwrap().remove(0);
+        scan::offer_full(&w.cat, &it, &Confidence::default())
+            .unwrap()
+            .0
+    };
+    let reg = TagPath::parse_lightroom("Aircraft|Registration|C-GJYI").unwrap();
+    // a: the airline and its fin read, no registration; the table knows 147.
+    read(&mut w, a, "[]", Some("Airbus A220"));
+    // With an empty table nothing is offered from the fin.
+    assert_eq!(offer(&w, a).from_fin, None);
+    let parsed = fins::parse_csv(
+        "Air Canada,147,C-GJYI,2019\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    fins::import(&mut w.cat, &parsed.rows).unwrap();
+    let o = offer(&w, a);
+    let f = o.from_fin.clone().unwrap();
+    assert_eq!(
+        (
+            f.registration.as_str(),
+            f.airline.as_str(),
+            f.fin.as_str(),
+            f.sure
+        ),
+        ("C-GJYI", "Air Canada", "147", true)
+    );
+    assert!(o.keywords.contains(&reg));
+    assert!(!o.unticked.contains(&reg), "{o:?}");
+    // Its lookup says a 777: not what the photo looks like, so unticked.
+    let found = lookup::Found {
+        registration: "C-GJYI".into(),
+        known: true,
+        aircraft_type: Some("Boeing 777-300ER".into()),
+        airline: Some("Air Canada".into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GJYI", &json, 1))
+        .unwrap();
+    let o = offer(&w, a);
+    assert!(
+        o.keywords.contains(&reg) && o.unticked.contains(&reg),
+        "{o:?}"
+    );
+    // An A220 as looked up: ticked again, its type offered from the lookup.
+    let found = lookup::Found {
+        aircraft_type: Some("Airbus A220-300".into()),
+        ..found
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GJYI", &json, 2))
+        .unwrap();
+    let o = offer(&w, a);
+    assert!(
+        o.keywords.contains(&reg) && !o.unticked.contains(&reg),
+        "{o:?}"
+    );
+    // b: a registration read: the fin offers nothing.
+    read(&mut w, b, r#"[["C-GJYK",0.97]]"#, None);
+    assert_eq!(offer(&w, b).from_fin, None);
+    // c: two registrations for 147 at once: none offered.
+    let both = fins::parse_csv(
+        "Air Canada,147,C-FAAA,2020\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    fins::import(&mut w.cat, &both.rows).unwrap();
+    read(&mut w, c, "[]", None);
+    assert_eq!(offer(&w, c).from_fin, None);
+}
+
+#[test]
 fn a_picked_photo_accepted_beside_another_is_shown_for_review_when_read() {
     let mut w = World::new(&["a.jpg", "b.jpg"]);
     let (a, b) = (w.asset("a.jpg"), w.asset("b.jpg"));

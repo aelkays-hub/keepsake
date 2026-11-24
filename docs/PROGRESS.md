@@ -48,6 +48,7 @@
 | — | Read aircraft: a burst is one shot whose reads are offered together; a registration one look-alike letter off a known aircraft is offered as that one (ADR-051) | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: fin numbers (fleet numbers) read and kept, shown beside the marks with their airline; part 1 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | — | Read aircraft: the fin table (ADR-052): learned on accept, filled from tagged photos, imported and exported as CSV (Settings → Read aircraft → Fin numbers); schema v23; part 2 of 3 | 🟡 Built and tested on Windows; CI not run yet |
+| — | Read aircraft: a registration offered from the airline's fin read (ADR-052), by the photo's date, unticked when its type disagrees; part 3 of 3 | 🟡 Built and tested on Windows; CI not run yet |
 | 2 | Device watcher — card/camera detection on Windows and macOS | ✅ Done in prompt 8 (MTP cameras: v1) |
 | 2 | Sony card layout parser and asset grouper | ✅ Done in prompt 5 |
 | 3 | Probe: ExifTool integration and Sony XML sidecar reader | ✅ Done in prompt 5 |
@@ -77,6 +78,13 @@
 
 
 
+
+## Read aircraft: fin numbers, part 3 — the registration offered from the fin (2026-11-24)
+
+- **Asked:** Start part 3. Mid-way: "does the reread do it for the whole, a folder or just a picture?" Answered: picked photos (right-click → Read aircraft) are read again; a folder, year, month or day reads only photos never read; Read again in the window is one photo. Reading again puts a photo back to waiting for review (its keywords stay). Not changed here.
+- **Built:** `fins::pick` (the registration for a photo's time: inside one row's time, sure; two at once, none; else the nearest, sure only when the fin had one registration; no time, only one registration) and `fins::offer` (no registration read at the window's confidence; the surest fin at least the registration confidence; an airline at the airline confidence; the table asked by airline and fin). `scan::offer_full` adds it as a registration to look up (after the one-letter-off fixes), then unticks it when not sure or when its looked-up type is not one the photo shows (`same_type` against the painted types and its look). `Offer::from_fin`; `AircraftReviewItemDto.fromFin` (`AircraftFromFinDto`); the window's label "(from Air Canada fin 147, 97%)". ADR-052 and SPEC updated.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (1 new: `the_registration_for_a_photo_s_time_is_picked`); `aircraft_tests` (1 new: `a_photo_with_its_airline_and_fin_read_is_offered_the_registration`); Vitest (the label); tsc, ESLint, Prettier, clippy.
+- **Not run:** in the installed app; CI; macOS.
 
 ## Read aircraft: fin numbers, part 2 — the fin table (2026-11-24)
 

@@ -76,6 +76,9 @@ export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
       const read = item.registrations.find((m) => m.name === fixed.read);
       return `(read ${fixed.read}${read ? ` ${read.pct}%` : ""}; ${knownBy(fixed.by)} knows ${fixed.real})`;
     }
+    // Not read: the airline's fin stood for it (ADR-052).
+    const f = item.fromFin;
+    if (f && f.registration === name) return `(from ${f.airline} fin ${f.fin}, ${f.pct}%)`;
     if (item.near.some((n) => n.read === name)) {
       const read = item.registrations.find((m) => m.name === name);
       return `(${read ? `${read.pct}%, ` : ""}as read)`;

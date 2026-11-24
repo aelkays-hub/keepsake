@@ -596,6 +596,8 @@ pub struct Offer {
     /// Registrations read one look-alike character off a known aircraft,
     /// offered as that one.
     pub near: Vec<Near>,
+    /// A registration offered from the airline's fin (ADR-052).
+    pub from_fin: Option<super::fins::FromFin>,
 }
 
 /// A registration read (`read`) offered as the known aircraft it was most
@@ -754,8 +756,36 @@ pub fn offer_full(
             *r = real;
         }
     }
+    // No registration read, but the airline and its fin: the one the fin
+    // table gives for the photo's time (ADR-052), looked up like one read.
+    let from_fin = super::fins::offer(cat, &it, conf)?;
+    if let Some(f) = &from_fin {
+        it.candidates
+            .registrations
+            .push((f.registration.clone(), f.score));
+    }
     let found = found_for(cat, &it, conf)?;
     let mut o = offer(&it, conf, &found)?;
+    if let Some(f) = &from_fin {
+        // Unticked when not sure, or when its type is not what the photo
+        // shows (an A220's fin giving a 777).
+        let other_type = found
+            .iter()
+            .find(|x| x.registration == f.registration)
+            .and_then(|x| x.aircraft_type.as_deref())
+            .is_some_and(|t| {
+                !hints.types.is_empty()
+                    && !hints
+                        .types
+                        .iter()
+                        .any(|h| same_type(h, t) || same_type(t, h))
+            });
+        let k = TagPath::new([TAG_PARENT, "Registration", f.registration.as_str()])?;
+        if (!f.sure || other_type) && !o.unticked.contains(&k) {
+            o.unticked.push(k);
+        }
+    }
+    o.from_fin = from_fin;
     for f in &fixes {
         let k = TagPath::new([TAG_PARENT, "Registration", f.read.as_str()])?;
         let real_k = TagPath::new([TAG_PARENT, "Registration", f.real.as_str()])?;

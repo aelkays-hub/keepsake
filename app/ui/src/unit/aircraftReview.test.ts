@@ -42,6 +42,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   sameShot: [],
   shotPhotos: 1,
   near: [],
+  fromFin: null,
   ...p,
 });
 
@@ -185,6 +186,12 @@ describe("Read aircraft review", () => {
     });
     expect(sourceOf(built, "Aircraft|Built|2008")).toBe("(OpenSky)");
     expect(sourceOf(it2, "Aircraft|Registration|C-FIUJ")).toBe("(its look)");
+    // Not read: the airline's fin stood for it (ADR-052).
+    const fin = item({
+      offered: ["Aircraft|Registration|C-GJYI"],
+      fromFin: { registration: "C-GJYI", airline: "Air Canada", fin: "147", pct: 97 },
+    });
+    expect(sourceOf(fin, "Aircraft|Registration|C-GJYI")).toBe("(from Air Canada fin 147, 97%)");
   });
 
   it("ticks alike neighbours, says what the registry knows", () => {
