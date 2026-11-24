@@ -9,6 +9,7 @@ import { aircraftProgress } from "../aircraft";
 import { fr24ReachLine } from "../aircraftRoute";
 import { api, events, type AircraftStatus } from "../api";
 import type { Fr24AircraftStatusDto } from "../bindings/Fr24AircraftStatusDto";
+import { AircraftFins } from "./AircraftFins";
 import { AircraftRegisters } from "./AircraftRegisters";
 import type { RouteStatusDto } from "../bindings/RouteStatusDto";
 import * as fmt from "../format";
@@ -190,6 +191,7 @@ export function AircraftSettings() {
         </div>
       )}
       {st.enabled && <AircraftRegisters />}
+      {st.enabled && <AircraftFins />}
       <label className="check">
         <input
           type="checkbox"

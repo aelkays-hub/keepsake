@@ -50,11 +50,12 @@ const REREAD_ASK = 20;
 /** Start reading `job`; the photos it covers. */
 async function start(job: AircraftJob): Promise<string[]> {
   if ("selection" in job) return (await api.aircraftRead(job.selection)).ids;
+  const what = job.again ? "aircraft-again" : "aircraft";
   if ("volume" in job) {
-    await api.aiAnalyzeFolder(job.volume, job.folder, "aircraft");
+    await api.aiAnalyzeFolder(job.volume, job.folder, what);
     return api.aircraftTargetIds({ volume: job.volume, folder: job.folder });
   }
-  await api.aiAnalyzeRange(job.from, job.to, "aircraft");
+  await api.aiAnalyzeRange(job.from, job.to, what);
   return api.aircraftTargetIds({ from: job.from, to: job.to });
 }
 

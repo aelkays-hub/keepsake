@@ -174,6 +174,31 @@ dto! {
         pub eastern: bool,
     }
 
+    /// A fin (fleet number) and the registration it stood for (Settings →
+    /// Read aircraft; ADR-052).
+    pub struct FinDto {
+        pub airline: String,
+        pub fin: String,
+        pub registration: String,
+        /// When it was so: `2019-05-05` (UTC); none: open.
+        pub from: Option<String>,
+        pub to: Option<String>,
+        /// `learned` or `imported`.
+        pub source: String,
+        /// Photos accepted that taught it.
+        pub seen: u32,
+        /// Another registration has this airline's fin at the same time.
+        pub conflict: bool,
+    }
+
+    /// What an imported fin file gave.
+    pub struct FinImportDto {
+        pub added: u32,
+        pub updated: u32,
+        /// Lines not kept, and why (`line 3: …`).
+        pub problems: Vec<String>,
+    }
+
     /// A national aircraft register (Settings → Read aircraft; ADR-045).
     pub struct RegisterStatusDto {
         /// `tc` or `faa`.
@@ -1467,6 +1492,8 @@ dto! {
         pub registrations: Vec<ScoredMarkDto>,
         pub airlines: Vec<ScoredMarkDto>,
         pub types: Vec<ScoredMarkDto>,
+        /// Fins (fleet numbers) read: not marks, shown beside them.
+        pub fins: Vec<ScoredMarkDto>,
         /// The type the picture looks like, when one stands out.
         pub looks_like: Option<String>,
         /// The keywords offered at the window's confidence (`A|B|C`).
@@ -1490,6 +1517,8 @@ dto! {
         /// Registrations read one look-alike letter off a known aircraft,
         /// offered as that one.
         pub near: Vec<AircraftNearDto>,
+        /// A registration offered from the airline's fin read (ADR-052).
+        pub from_fin: Option<AircraftFromFinDto>,
     }
 
     /// A registration and on how many photos of a shot it was read.
@@ -1505,6 +1534,15 @@ dto! {
         pub read: String,
         pub real: String,
         pub by: String,
+    }
+
+    /// A registration offered from the airline's fin (ADR-052).
+    pub struct AircraftFromFinDto {
+        pub registration: String,
+        pub airline: String,
+        pub fin: String,
+        /// How surely the fin was read, 0–100.
+        pub pct: u8,
     }
 
     /// What the online lookup (adsbdb.com) said about a registration.

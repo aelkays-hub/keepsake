@@ -471,6 +471,22 @@ export function Sidebar() {
                       });
                     },
                   },
+                  {
+                    label: "Read aircraft again",
+                    title:
+                      "Read the aircraft photos of these dates again, those read before too (for their fin numbers). Photos already accepted or dismissed stay so; their keywords stay.",
+                    testId: "date-menu-aircraft-again",
+                    run: () => {
+                      const c = dated(menu.entry);
+                      const r = c && calRange(c.year, c.month, c.day);
+                      if (!r) return;
+                      openEntry(menu.entry);
+                      dispatch({
+                        t: "aircraftReview",
+                        job: { from: r.from, to: r.to, title: r.title, again: true },
+                      });
+                    },
+                  },
                 ]
           }
           onClose={() => {
@@ -503,10 +519,15 @@ export function Sidebar() {
             const f = menu.entry.fold;
             if (!f) return;
             const title = folderTitle(data?.volumes ?? [], f.volume, f.path ?? "");
-            if (what === "aircraft") {
+            if (what === "aircraft" || what === "aircraft-again") {
               dispatch({
                 t: "aircraftReview",
-                job: { volume: f.volume, folder: f.path ?? "", title },
+                job: {
+                  volume: f.volume,
+                  folder: f.path ?? "",
+                  title,
+                  again: what === "aircraft-again",
+                },
               });
               return;
             }

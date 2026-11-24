@@ -32,6 +32,8 @@ import type { Fr24AircraftDto } from "./bindings/Fr24AircraftDto";
 import type { RegisterEntryDto } from "./bindings/RegisterEntryDto";
 import type { RegisterProgress } from "./bindings/RegisterProgress";
 import type { RegisterStatusDto } from "./bindings/RegisterStatusDto";
+import type { FinDto } from "./bindings/FinDto";
+import type { FinImportDto } from "./bindings/FinImportDto";
 import type { Fr24AircraftStatusDto } from "./bindings/Fr24AircraftStatusDto";
 import type { RouteStatusDto } from "./bindings/RouteStatusDto";
 import type { RouteSuggestionDto } from "./bindings/RouteSuggestionDto";
@@ -183,7 +185,7 @@ export type {
 /** The two separate AI tasks for a date range. */
 /** `aircraft`: Read aircraft (ADR-041) for the photos tagged Airplane,
  * Helicopter or Airport in a folder or on dates. */
-export type AiTask = "duplicates" | "tags" | "aircraft";
+export type AiTask = "duplicates" | "tags" | "aircraft" | "aircraft-again";
 
 export const emptyQuery: Query = {
   text: null,
@@ -392,6 +394,12 @@ export const api = {
   aircraftRegisterUpdate: (id: string) => invoke<void>("aircraft_register_update", { id }),
   aircraftRegisterCancel: (id: string) => invoke<void>("aircraft_register_cancel", { id }),
   aircraftRegisterRemove: (id: string) => invoke<void>("aircraft_register_remove", { id }),
+  aircraftFins: () => invoke<FinDto[]>("aircraft_fins"),
+  aircraftFinsImport: (path: string) => invoke<FinImportDto>("aircraft_fins_import", { path }),
+  aircraftFinsCsv: (path: string) => invoke<string>("aircraft_fins_csv", { path }),
+  aircraftFinsLearn: () => invoke<number>("aircraft_fins_learn"),
+  aircraftFinForget: (f: { airline: string; fin: string; registration: string; source: string }) =>
+    invoke<void>("aircraft_fin_forget", f),
   aircraftRegister: (registration: string) =>
     invoke<RegisterEntryDto | null>("aircraft_register", { registration }),
   fr24AircraftStatus: () => invoke<Fr24AircraftStatusDto>("fr24_aircraft_status"),

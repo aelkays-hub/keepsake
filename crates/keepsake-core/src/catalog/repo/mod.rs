@@ -24,7 +24,8 @@ mod tags;
 mod volumes;
 
 pub use ai::{
-    Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, RangeItem, RegisterRow, RegisterSource,
+    Ai, AiCounts, AircraftReadRow, DayItem, EditAdviceRow, FinRow, RangeItem, RegisterRow,
+    RegisterSource,
 };
 pub use aircraft_report::{
     AircraftGroup, AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,

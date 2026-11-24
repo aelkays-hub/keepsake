@@ -1,4 +1,4 @@
-# Manual Test Steps — Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,102 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## Read aircraft again for a folder or dates
+
+Automated:
+```
+cargo test -p keepsake-core --test aircraft_tests a_folder_read_again_keeps_its_reviews_and_learns_its_fins
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts -g "again"
+```
+
+Manual (both OSes; Read aircraft on; a folder whose aircraft photos were read before this build, some accepted with their registration and airline, some dismissed, some waiting):
+1. Right-click the folder → **Read aircraft**.
+   - **Expected:** nothing is read again (already read).
+2. Right-click it → **Read aircraft again**.
+   - **Expected:** the window reads every aircraft photo of the folder (the count goes up to all of them). Photos accepted or dismissed before do **not** come back to the list. Waiting ones are listed as before.
+3. Settings → Read aircraft → **Fin numbers** → Show.
+   - **Expected:** the fins of the accepted, tagged photos whose tail number was read are there ("Learned from N photos"), without pressing Learn from tagged photos.
+4. In the review window, a waiting photo of the same aircraft where only the airline and fin were read.
+   - **Expected:** it offers the registration "(from … fin …)".
+5. Right-click a year (or month, day) in the calendar → **Read aircraft again**.
+   - **Expected:** the same, for those dates.
+6. Pick one accepted photo, right-click → **Read aircraft**.
+   - **Expected:** it is read again and waits for review (as before).
+7. Keywords on every photo are unchanged; originals untouched.
+
+## Read aircraft: a registration offered from the fin (part 3)
+
+Automated:
+```
+cargo test -p keepsake-core --lib fins::tests::the_registration_for_a_photo_s_time_is_picked
+cargo test -p keepsake-core --test aircraft_tests a_photo_with_its_airline_and_fin_read_is_offered_the_registration
+cd app/ui; pnpm exec vitest run src/unit/aircraftReview.test.ts
+```
+
+Manual (both OSes; Read aircraft on, **Look registrations up online** on; the fin table has Air Canada 147 → C-GJYI, learned in part 2's steps or imported):
+1. Pick A7_08117, A7_08118 and A7_08120 (the registration is not read on them, the tail's fin is). Select them, right-click → **Read aircraft** (selected photos are read again; a folder's Read aircraft skips photos already read).
+   - **Expected:** each offers **Registration C-GJYI** ticked, labelled "(from Air Canada fin 147, NN%)", with the type and airline adsbdb gives. "Fin 147" also shows under also read.
+2. Import a second row for the same fin at the same time (`Air Canada,147,C-FAAA,2020`), then Read again one of them.
+   - **Expected:** no registration from the fin (two at once). Remove that row afterwards.
+3. A photo of a different aircraft type whose fin number happens to be in the table for that airline.
+   - **Expected:** the registration is offered unticked when adsbdb's type is not what the photo shows.
+4. A photo where the registration itself is read.
+   - **Expected:** offered as read, with no "(from … fin …)" label.
+5. Accept a photo offered from its fin.
+   - **Expected:** it gets the registration, airline and type keywords. Originals untouched.
+
+## Read aircraft: the fin table (part 2)
+
+Automated:
+```
+cargo test -p keepsake-core --lib ai::aircraft::fins
+cargo test -p keepsake-core --test aircraft_tests fin_table
+cd app/ui; pnpm exec vitest run src/unit/aircraftFins.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft.spec.ts -g "Fin numbers"
+```
+
+Manual (both OSes; Read aircraft on). **This build moves the catalog to schema v23: an older Keepsake cannot open the library afterwards.** Make a backup first if you may go back.
+1. Settings → Read aircraft → **Fin numbers**.
+   - **Expected:** "No fins yet." with **Learn from tagged photos** and **Import CSV…**.
+2. Pick A7_08117 to A7_08120 (Air Canada A220, C-GJYI) and photos of other tagged aircraft whose tail number shows. Right-click → **Read again**, wait, then close the review window without accepting. Back in Settings, click **Learn from tagged photos**.
+   - **Expected:** "N photos gave a fin." for the tagged photos whose fin was read surely; the count line says how many fins for how many airlines. **Show** lists Air Canada, the fin, C-GJYI, the photo dates, "Learned from N photos". Click it again: the counts do not grow.
+3. Read a new photo of an aircraft with its fin and registration both readable; accept it in the review window.
+   - **Expected:** its fin appears in the table (or its dates and photo count grow).
+4. Make a CSV file, for example:
+   ```
+   Airline,Fin,Registration,From,To
+   Air Canada,401,C-FPWD
+   Nowhere Air,12,C-FAAA
+   Air Canada,147,C-GHKR,2026
+   ```
+   Click **Import CSV…** and choose it.
+   - **Expected:** "2 added, 0 updated. 1 line not kept: line 3: Nowhere Air is not an airline Keepsake knows". In the table C-FPWD shows "any time", Imported. C-GHKR shows "from 2026-01-01". C-GJYI and C-GHKR are not marked "(two at once)" unless their dates overlap. Import the same file again: "0 added, 2 updated."
+5. **Export to CSV…**, save, and open the file in a spreadsheet.
+   - **Expected:** Airline, Fin, Registration, From, To, Source, Seen columns, one row per table row.
+6. **Remove** a row.
+   - **Expected:** it is gone from the table and stays gone after reopening Settings.
+7. Photos and their keywords.
+   - **Expected:** nothing on any photo changed; originals untouched.
+
+## Read aircraft: fin numbers read (part 1)
+
+Automated:
+```
+cargo test -p keepsake-core --lib marks::tests::a_number_alone_is_a_fin
+cargo test -p keepsake-core --lib marks::tests::fins_are_kept_beside_the_marks
+cd app/ui; pnpm exec vitest run src/unit/aircraftReview.test.ts
+```
+
+Manual (both OSes; Read aircraft on):
+1. Pick photos of an Air Canada or US airline aircraft whose tail number is visible (for example A7_08117 to A7_08120). Right-click → **Read again**, then open the review window.
+   - **Expected:** under **Also read**, "Fin 147" (the number on the tail, with its confidence) beside the airline. No keyword "147" is offered or added.
+2. A photo with a number but no airline read (a gate or a stand number, a plane with no titles).
+   - **Expected:** no "Fin …" line.
+3. A photo read before this build (not read again).
+   - **Expected:** opens as before, with no fins and no error.
+4. Accept a photo with a fin shown.
+   - **Expected:** only the registration, airline and type keywords are added, as before. (Learning the fin comes in part 2.)
 
 ## Read aircraft: a big aircraft in a large photo is also read cut out
 

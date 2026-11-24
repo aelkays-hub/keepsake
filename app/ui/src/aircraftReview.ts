@@ -76,6 +76,9 @@ export function sourceOf(item: AircraftReviewItemDto, keyword: string): string {
       const read = item.registrations.find((m) => m.name === fixed.read);
       return `(read ${fixed.read}${read ? ` ${read.pct}%` : ""}; ${knownBy(fixed.by)} knows ${fixed.real})`;
     }
+    // Not read: the airline's fin stood for it (ADR-052).
+    const f = item.fromFin;
+    if (f && f.registration === name) return `(from ${f.airline} fin ${f.fin}, ${f.pct}%)`;
     if (item.near.some((n) => n.read === name)) {
       const read = item.registrations.find((m) => m.name === name);
       return `(${read ? `${read.pct}%, ` : ""}as read)`;
@@ -162,6 +165,9 @@ export function alsoRead(item: AircraftReviewItemDto): { label: string; pct: num
     for (const m of list)
       if (!offered.has(m.name)) out.push({ label: `${kind} ${m.name}`, pct: m.pct });
   }
+  // A fin means something only with its airline (read on it or its shot).
+  if (item.airlines.length > 0)
+    for (const m of item.fins) out.push({ label: `Fin ${m.name}`, pct: m.pct });
   return out;
 }
 

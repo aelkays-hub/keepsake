@@ -13,6 +13,8 @@ import type { Bucket } from "../bindings/Bucket";
 import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
+import type { FinDto } from "../bindings/FinDto";
+import type { AircraftFromFinDto } from "../bindings/AircraftFromFinDto";
 import type { HistoryRun } from "../bindings/HistoryRun";
 import type { Details } from "../bindings/Details";
 import type { ImportRequest } from "../bindings/ImportRequest";
@@ -178,6 +180,7 @@ export interface MockState {
     fr24Auto: boolean;
     /** National registers downloaded (`?registers=tc,faa`). */
     registers: Set<string>;
+    fins: FinDto[];
     /** Fill in route keywords: how often each photo was looked at. */
     fill: Map<string, number>;
     /** Flight numbers chosen, per photo. */
@@ -629,6 +632,21 @@ export function installMock(): void {
       lookedUp: 0,
       fr24Auto: true,
       registers: new Set((params.get("registers") ?? "").split(",").filter(Boolean)),
+      // Fin numbers (ADR-052); ?fins=on starts with one learned.
+      fins: (params.get("fins") === "on"
+        ? [
+            {
+              airline: "Air Canada",
+              fin: "147",
+              registration: "C-GJYI",
+              from: "2024-05-05",
+              to: "2024-05-05",
+              source: "learned",
+              seen: 4,
+              conflict: false,
+            },
+          ]
+        : []) as FinDto[],
       fill: new Map(),
       chosen: new Map(),
       lookingUp: false,
@@ -819,7 +837,10 @@ export function installMock(): void {
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
-      st.calls.push({ cmd, args: a });
+      st.calls.push({ cmd, args: { ...a } });
+      // Read aircraft again (ADR-052) is Read aircraft here: the window
+      // then follows it as "aircraft".
+      if (a.what === "aircraft-again") a.what = "aircraft";
       switch (cmd) {
         case "app_info": {
           const reply = { version: "0.11.4-mock", library, uiTest: true };
@@ -1302,6 +1323,12 @@ export function installMock(): void {
           return mockReport(all);
         case "plugin:dialog|save":
           return "C:\\Users\\me\\Documents\\Keepsake report.csv";
+        // Only the fin import's file is answered here (ADR-052).
+        case "plugin:dialog|open": {
+          const title = String((a.options as { title?: string } | undefined)?.title ?? "");
+          if (!title.startsWith("Import fin numbers")) throw new Error(`mock: ${cmd}`);
+          return "C:\\Users\\me\\Documents\\fins.csv";
+        }
         case "aircraft_report":
           return mockAircraftReport();
         case "flight_report":
@@ -1930,6 +1957,42 @@ export function installMock(): void {
         }
         case "fr24_set_auto":
           st.route.fr24Auto = Boolean(a.on);
+          return null;
+        case "aircraft_fins":
+          return st.route.fins;
+        case "aircraft_fins_learn":
+          return st.route.fins.length;
+        case "aircraft_fins_import": {
+          const add: FinDto = {
+            airline: "Air Canada",
+            fin: "401",
+            registration: "C-FPWD",
+            from: null,
+            to: null,
+            source: "imported",
+            seen: 0,
+            conflict: false,
+          };
+          const had = st.route.fins.some((f) => f.fin === "401" && f.source === "imported");
+          if (!had) st.route.fins.push(add);
+          return {
+            added: had ? 0 : 1,
+            updated: had ? 1 : 0,
+            problems: ["line 3: Nowhere Air is not an airline Keepsake knows"],
+          };
+        }
+        case "aircraft_fins_csv":
+          return String(a.path);
+        case "aircraft_fin_forget":
+          st.route.fins = st.route.fins.filter(
+            (f) =>
+              !(
+                f.airline === a.airline &&
+                f.fin === a.fin &&
+                f.registration === a.registration &&
+                f.source === a.source
+              ),
+          );
           return null;
         case "aircraft_registers":
           return [
@@ -2686,6 +2749,7 @@ export function installMock(): void {
               registrations,
               airlines,
               types,
+              fins: airlines.length > 0 ? [{ name: "147", pct: 97 }] : [],
               looksLike: "Boeing 777",
               offered,
               unticked,
@@ -2707,6 +2771,7 @@ export function installMock(): void {
               sameShot: [{ name: "C-FJZS", photos: 1 + neighbours.filter((n) => n.alike).length }],
               shotPhotos: 1 + neighbours.filter((n) => n.alike).length,
               near: [] as { read: string; real: string; by: string }[],
+              fromFin: null as AircraftFromFinDto | null,
             });
             // ?aircraftnear=on: a burst of 21 where 3 photos read JA02NJ,
             // one letter off JA02WJ, which adsbdb knows (ADR-051).
@@ -2716,6 +2781,7 @@ export function installMock(): void {
                 registrations: [{ name: "JA02NJ", pct: 95 }],
                 airlines: [],
                 types: [],
+                fins: [],
                 looksLike: null,
                 offered: [
                   "Aircraft|Registration|JA02WJ",

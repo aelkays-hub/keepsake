@@ -32,6 +32,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   registrations: [{ name: "VT-JEX", pct: 100 }],
   airlines: [{ name: "Jet Airways", pct: 82 }],
   types: [{ name: "Boeing 777-300ER", pct: 81 }],
+  fins: [],
   looksLike: "Boeing 777",
   offered: ["Aircraft|Registration|VT-JEX", "Aircraft|Type|Boeing 777-300ER"],
   unticked: [],
@@ -41,6 +42,7 @@ const item = (p: Partial<AircraftReviewItemDto> = {}): AircraftReviewItemDto => 
   sameShot: [],
   shotPhotos: 1,
   near: [],
+  fromFin: null,
   ...p,
 });
 
@@ -106,6 +108,13 @@ describe("Read aircraft review", () => {
   it("lists what was read below the confidence", () => {
     expect(alsoRead(item())).toEqual([{ label: "Airline Jet Airways", pct: 82 }]);
     expect(alsoRead(item({ airlines: [] }))).toEqual([]);
+    // A fin is shown with its airline, never without one.
+    const fins = [{ name: "147", pct: 97 }];
+    expect(alsoRead(item({ fins }))).toEqual([
+      { label: "Airline Jet Airways", pct: 82 },
+      { label: "Fin 147", pct: 97 },
+    ]);
+    expect(alsoRead(item({ fins, airlines: [] }))).toEqual([]);
   });
 
   it("says how reading is getting on", () => {
@@ -177,6 +186,12 @@ describe("Read aircraft review", () => {
     });
     expect(sourceOf(built, "Aircraft|Built|2008")).toBe("(OpenSky)");
     expect(sourceOf(it2, "Aircraft|Registration|C-FIUJ")).toBe("(its look)");
+    // Not read: the airline's fin stood for it (ADR-052).
+    const fin = item({
+      offered: ["Aircraft|Registration|C-GJYI"],
+      fromFin: { registration: "C-GJYI", airline: "Air Canada", fin: "147", pct: 97 },
+    });
+    expect(sourceOf(fin, "Aircraft|Registration|C-GJYI")).toBe("(from Air Canada fin 147, 97%)");
   });
 
   it("ticks alike neighbours, says what the registry knows", () => {

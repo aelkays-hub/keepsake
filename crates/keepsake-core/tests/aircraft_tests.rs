@@ -565,6 +565,82 @@ fn a_folder_is_read_for_its_aircraft_photos_only_and_each_once() {
     assert!(w.keywords(d).is_empty());
 }
 
+#[test]
+fn a_folder_read_again_keeps_its_reviews_and_learns_its_fins() {
+    use keepsake_core::ai::Target;
+    let mut w = World::new(&["air/a.jpg", "air/b.jpg", "air/c.jpg"]);
+    let [a, b, c] = ["air/a.jpg", "air/b.jpg", "air/c.jpg"].map(|n| w.asset(n));
+    let volume = {
+        let path = std::fs::canonicalize(w.media.join("air/a.jpg")).unwrap();
+        w.lib.locate(&w.cat, &path).unwrap().unwrap().volume_id
+    };
+    let tag = |t: &str| TagPath::new([t]).unwrap();
+    let mut svc = MetadataService::new(&w.lib, &mut w.cat);
+    for id in [a, b, c] {
+        svc.set_ai_tags(id, &[(tag("Airplane"), 0.4)]).unwrap();
+    }
+    let air = Target::Folder {
+        volume,
+        folder: "air".into(),
+    };
+    // Read before fins were read: the airline only.
+    scan::enqueue_target(&mut w.cat, &air).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    w.service(fake(&["AIR CANADA"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    // a accepted with its registration (typed), c dismissed, b waits.
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let keep = [
+        p("Aircraft|Registration|C-GJYI"),
+        p("Aircraft|Airline|Air Canada"),
+    ];
+    scan::accept(&mut w.cat, &w.lib, a, &keep).unwrap();
+    scan::dismiss(&mut w.cat, c).unwrap();
+    let review = |w: &World, id: AssetId| {
+        w.cat
+            .read(|tx| tx.ai().aircraft_read(id))
+            .unwrap()
+            .map(|r| r.review)
+            .unwrap_or_default()
+    };
+    // The folder's Read aircraft skips them; read again, all are read.
+    let st = scan::enqueue_target(&mut w.cat, &air).unwrap();
+    assert_eq!(st.pending, 0);
+    let st = scan::reread_target(&mut w.cat, &air).unwrap();
+    assert_eq!((st.items, st.pending), (3, 3));
+    w.service(fake(&["AIR CANADA", "147"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 6);
+    // Reviews kept: a accepted, c dismissed, b still waiting.
+    assert_eq!(review(&w, a), "accepted");
+    assert_eq!(review(&w, c), "dismissed");
+    assert_eq!(review(&w, b), "waiting");
+    // a's new read has its fin, and a is tagged: the table learned it.
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0].fin.as_str(), rows[0].registration.as_str()),
+        ("147", "C-GJYI")
+    );
+    // b now offers C-GJYI from the fin.
+    let it = scan::review_items(&w.cat, &[b]).unwrap().remove(0);
+    let (o, _) = scan::offer_full(&w.cat, &it, &Confidence::default()).unwrap();
+    assert_eq!(
+        o.from_fin.map(|f| f.registration).as_deref(),
+        Some("C-GJYI")
+    );
+    // Picked and read again (not the folder's): a waits for review again.
+    scan::reread_target(&mut w.cat, &air).unwrap();
+    scan::enqueue(&mut w.cat, &[a]).unwrap();
+    w.service(fake(&["AIR CANADA", "147"], &seen))
+        .run(&AtomicBool::new(false), &mut |_| {})
+        .unwrap();
+    assert_eq!(review(&w, a), "waiting");
+    assert_eq!(review(&w, c), "dismissed");
+}
+
 /// The real models on real pictures (see the top of this file). Prints
 /// what each picture got; checks every picture was read, at full size,
 /// and that the folder is as it was.
@@ -850,6 +926,259 @@ fn neighbours_accepted_with_a_photo_are_not_asked_about_again() {
         .unwrap()
         .is_empty());
     assert_eq!(review(&w, d).as_deref(), Some("waiting"));
+}
+
+#[test]
+fn a_photo_accepted_with_its_fin_read_teaches_the_fin_table() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c, d] = names.map(|n| w.asset(n));
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for (id, day) in [(a, 0), (b, 0), (c, 3), (d, 9)] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2 WHERE id = ?1",
+            rusqlite::params![id, (PHOTO_S + day * 86_400) * 1000],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let read = |w: &mut World, id: AssetId, fins: &str| {
+        let json = format!(
+            r#"{{"registrations":[],"airlines":[["Air Canada",0.98]],"types":[],"fins":{fins}}}"#
+        );
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, None, true, 10))
+            .unwrap();
+    };
+    // a: the tail's 147 read surely; b (its burst): none; c, days later:
+    // 147 again; d: read unsurely.
+    read(&mut w, a, r#"[["147",0.97]]"#);
+    read(&mut w, b, "[]");
+    read(&mut w, c, r#"[["147",0.95]]"#);
+    read(&mut w, d, r#"[["147",0.6]]"#);
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let keep = [
+        p("Aircraft|Registration|C-GJYI"),
+        p("Aircraft|Airline|Air Canada"),
+        p("Aircraft|Type|Airbus A220-300"),
+    ];
+    scan::accept(&mut w.cat, &w.lib, a, &keep).unwrap();
+    scan::accept_neighbours(&mut w.cat, &w.lib, &[b], &keep).unwrap();
+    let all = |w: &World| w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    let rows = all(&w);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let r = &rows[0];
+    assert_eq!(
+        (r.airline.as_str(), r.fin.as_str(), r.registration.as_str()),
+        ("Air Canada", "147", "C-GJYI")
+    );
+    assert_eq!((r.source.as_str(), r.seen), ("learned", 1));
+    assert_eq!(
+        (r.first_ms, r.last_ms),
+        (Some(PHOTO_S * 1000), Some(PHOTO_S * 1000))
+    );
+    // Days later: the same pair, its dates stretched.
+    scan::accept(&mut w.cat, &w.lib, c, &keep).unwrap();
+    let r = &all(&w)[0];
+    assert_eq!(r.seen, 2);
+    assert_eq!(r.last_ms, Some((PHOTO_S + 3 * 86_400) * 1000));
+    // An unsure fin, or no airline accepted, teaches nothing.
+    scan::accept(&mut w.cat, &w.lib, d, &keep).unwrap();
+    assert_eq!(all(&w)[0].seen, 2);
+    read(&mut w, d, r#"[["401",0.99]]"#);
+    scan::accept(&mut w.cat, &w.lib, d, &keep[..1]).unwrap();
+    assert_eq!(all(&w).len(), 1);
+    // An imported file adds beside what was learned; again, it updates.
+    let parsed = fins::parse_csv(
+        "Air Canada,147,C-GJYI,2019\nAir Canada,401,C-FPWD\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    assert!(parsed.problems.is_empty());
+    assert_eq!(fins::import(&mut w.cat, &parsed.rows).unwrap(), (2, 0));
+    assert_eq!(fins::import(&mut w.cat, &parsed.rows).unwrap(), (0, 2));
+    let rows = all(&w);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        w.cat
+            .read(|tx| tx.ai().fins_for("Air Canada", "147"))
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(fins::conflicts(&rows).iter().all(|c| !c));
+    // Forgotten one by one.
+    assert!(w
+        .cat
+        .write(|tx| tx
+            .ai()
+            .forget_fin("Air Canada", "401", "C-FPWD", "imported"))
+        .unwrap());
+    assert_eq!(all(&w).len(), 2);
+}
+
+#[test]
+fn the_fin_table_is_filled_from_photos_already_tagged() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c, d] = names.map(|n| w.asset(n));
+    let p = |s: &str| TagPath::parse_lightroom(s).unwrap();
+    let tag = |w: &mut World, id: AssetId, paths: &[TagPath]| {
+        MetadataService::new(&w.lib, &mut w.cat)
+            .set_user_tags(id, paths)
+            .unwrap();
+    };
+    let read = |w: &mut World, id: AssetId, fins: &str| {
+        let json = format!(r#"{{"registrations":[],"airlines":[],"types":[],"fins":{fins}}}"#);
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, None, true, 10))
+            .unwrap();
+    };
+    let ac = p("Aircraft|Airline|Air Canada");
+    // a: tagged C-GJYI and Air Canada, its read kept fin 147.
+    tag(&mut w, a, &[p("Aircraft|Registration|C-GJYI"), ac.clone()]);
+    read(&mut w, a, r#"[["147",0.97]]"#);
+    // b: tagged too, but read before fins were kept.
+    tag(&mut w, b, &[p("Aircraft|Registration|C-FPWD"), ac.clone()]);
+    w.cat
+        .write(|tx| {
+            tx.ai().put_aircraft_read(
+                b,
+                r#"{"registrations":[],"airlines":[],"types":[]}"#,
+                None,
+                true,
+                10,
+            )
+        })
+        .unwrap();
+    // c: a fin read, but no airline tagged.
+    tag(&mut w, c, &[p("Aircraft|Registration|C-GHKR")]);
+    read(&mut w, c, r#"[["951",0.99]]"#);
+    // d: a fin read, nothing tagged.
+    read(&mut w, d, r#"[["401",0.99]]"#);
+    assert_eq!(fins::learn_from_library(&mut w.cat).unwrap(), 1);
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (
+            rows[0].fin.as_str(),
+            rows[0].registration.as_str(),
+            rows[0].seen
+        ),
+        ("147", "C-GJYI", 1)
+    );
+    // Gone over again: nothing counted twice.
+    fins::learn_from_library(&mut w.cat).unwrap();
+    let rows = w.cat.read(|tx| tx.ai().fins_all()).unwrap();
+    assert_eq!((rows.len(), rows[0].seen), (1, 1));
+    // Exported where the user chose: it reads back.
+    let out = w.media.join("fins.csv");
+    fins::write_csv(&rows, &out).unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    let back = fins::parse_csv(
+        &text,
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    assert!(back.problems.is_empty(), "{:?}", back.problems);
+    assert_eq!(back.rows[0].registration, "C-GJYI");
+}
+
+#[test]
+fn a_photo_with_its_airline_and_fin_read_is_offered_the_registration() {
+    use keepsake_core::ai::aircraft::fins;
+    let names = ["a.jpg", "b.jpg", "c.jpg"];
+    let mut w = World::new(&names);
+    let [a, b, c] = names.map(|n| w.asset(n));
+    let db = rusqlite::Connection::open(w.lib.catalog_path()).unwrap();
+    for id in [a, b, c] {
+        db.execute(
+            "UPDATE assets SET capture_ts_ms = ?2 WHERE id = ?1",
+            rusqlite::params![id, PHOTO_S * 1000],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let read = |w: &mut World, id: AssetId, regs: &str, looks: Option<&str>| {
+        let json = format!(
+            r#"{{"registrations":{regs},"airlines":[["Air Canada",0.98]],"types":[],"fins":[["147",0.97]]}}"#
+        );
+        w.cat
+            .write(|tx| tx.ai().put_aircraft_read(id, &json, looks, true, 10))
+            .unwrap();
+    };
+    let offer = |w: &World, id: AssetId| {
+        let it = scan::review_items(&w.cat, &[id]).unwrap().remove(0);
+        scan::offer_full(&w.cat, &it, &Confidence::default())
+            .unwrap()
+            .0
+    };
+    let reg = TagPath::parse_lightroom("Aircraft|Registration|C-GJYI").unwrap();
+    // a: the airline and its fin read, no registration; the table knows 147.
+    read(&mut w, a, "[]", Some("Airbus A220"));
+    // With an empty table nothing is offered from the fin.
+    assert_eq!(offer(&w, a).from_fin, None);
+    let parsed = fins::parse_csv(
+        "Air Canada,147,C-GJYI,2019\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    fins::import(&mut w.cat, &parsed.rows).unwrap();
+    let o = offer(&w, a);
+    let f = o.from_fin.clone().unwrap();
+    assert_eq!(
+        (
+            f.registration.as_str(),
+            f.airline.as_str(),
+            f.fin.as_str(),
+            f.sure
+        ),
+        ("C-GJYI", "Air Canada", "147", true)
+    );
+    assert!(o.keywords.contains(&reg));
+    assert!(!o.unticked.contains(&reg), "{o:?}");
+    // Its lookup says a 777: not what the photo looks like, so unticked.
+    let found = lookup::Found {
+        registration: "C-GJYI".into(),
+        known: true,
+        aircraft_type: Some("Boeing 777-300ER".into()),
+        airline: Some("Air Canada".into()),
+        version: lookup::LOOKUP_VERSION,
+        ..lookup::Found::default()
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GJYI", &json, 1))
+        .unwrap();
+    let o = offer(&w, a);
+    assert!(
+        o.keywords.contains(&reg) && o.unticked.contains(&reg),
+        "{o:?}"
+    );
+    // An A220 as looked up: ticked again, its type offered from the lookup.
+    let found = lookup::Found {
+        aircraft_type: Some("Airbus A220-300".into()),
+        ..found
+    };
+    let json = serde_json::to_string(&found).unwrap();
+    w.cat
+        .write(|tx| tx.ai().put_aircraft_lookup("C-GJYI", &json, 2))
+        .unwrap();
+    let o = offer(&w, a);
+    assert!(
+        o.keywords.contains(&reg) && !o.unticked.contains(&reg),
+        "{o:?}"
+    );
+    // b: a registration read: the fin offers nothing.
+    read(&mut w, b, r#"[["C-GJYK",0.97]]"#, None);
+    assert_eq!(offer(&w, b).from_fin, None);
+    // c: two registrations for 147 at once: none offered.
+    let both = fins::parse_csv(
+        "Air Canada,147,C-FAAA,2020\n",
+        &keepsake_core::ai::aircraft::marks::Airlines::builtin(),
+    );
+    fins::import(&mut w.cat, &both.rows).unwrap();
+    read(&mut w, c, "[]", None);
+    assert_eq!(offer(&w, c).from_fin, None);
 }
 
 #[test]
@@ -2270,6 +2599,7 @@ fn a_national_register_gives_build_year_code_type_and_airline_and_puts_misreads_
             registrations: vec![("C-FJ2S".into(), 0.97)],
             airlines: vec![],
             types: vec![],
+            fins: vec![],
         },
         looks_like: None,
         full_size: true,
