@@ -3,7 +3,6 @@
 
 mod ai;
 mod aircraft_report;
-mod aircraft_tree;
 mod assets;
 mod browse;
 mod events;
@@ -33,7 +32,6 @@ pub use ai::{
 pub use aircraft_report::{
     AircraftGroup, AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
 };
-pub use aircraft_tree::AircraftKind;
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,

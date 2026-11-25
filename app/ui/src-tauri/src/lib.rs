@@ -145,7 +145,6 @@ pub fn run() {
             report::library_report_csv,
             report::aircraft_report,
             report::aircraft_report_csv,
-            report::aircraft_tree,
             report::flight_report,
             report::flight_report_csv,
             folders::folder_add,

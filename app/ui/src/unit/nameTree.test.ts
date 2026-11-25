@@ -1,110 +1,116 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  dateQuery,
-  isAircraftTree,
+  aircraftTreeNodes,
+  faceDateQuery,
+  faceQuery,
+  faceTreeNodes,
   isNameTree,
-  nameQuery,
-  nameTreeNodes,
   sameQuery,
-  unnamedLabel,
+  sortGroups,
 } from "../nameTree";
+import type { AircraftReportGroup } from "../bindings/AircraftReportGroup";
 import type { NameTreeNode } from "../bindings/NameTreeNode";
 
-const tree: NameTreeNode[] = [
+const g = (
+  name: string | null,
+  photos: number,
+  children: AircraftReportGroup[] = [],
+): AircraftReportGroup => ({ name, photos, children });
+
+// As the report gives them: most photos first.
+const fleet: AircraftReportGroup[] = [
+  g("KLM", 12, [g("Boeing 777", 4, [g("PH-BVA", 4)]), g("Boeing 747", 8, [g("PH-BFA", 8)])]),
+  g(null, 3, [g(null, 3, [g("C-GZQX", 3)])]),
+  g("air Canada", 5, [g(null, 2, [g(null, 2)]), g("Airbus A330", 3, [g("C-GFAF", 3)])]),
+];
+
+const people: NameTreeNode[] = [
+  { name: "tom", photos: 9, years: [{ year: 2019, photos: 9, months: [{ month: 3, photos: 9 }] }] },
+  { name: null, photos: 4, years: [{ year: 2021, photos: 4, months: [{ month: 6, photos: 4 }] }] },
   {
-    name: "KLM",
-    photos: 5,
+    name: "Sara",
+    photos: 2,
     years: [
-      {
-        year: 2019,
-        photos: 3,
-        months: [
-          { month: 1, photos: 2 },
-          { month: 3, photos: 1 },
-        ],
-      },
-      { year: null, photos: 2, months: [] },
+      { year: 2019, photos: 1, months: [{ month: 1, photos: 1 }] },
+      { year: null, photos: 1, months: [] },
     ],
   },
-  { name: null, photos: 1, years: [{ year: 2024, photos: 1, months: [{ month: 2, photos: 1 }] }] },
 ];
 
 describe("trees by name", () => {
-  it("knows its kinds", () => {
-    expect(["airline", "type", "registration"].every(isAircraftTree)).toBe(true);
-    expect(isAircraftTree("date")).toBe(false);
-    expect(unnamedLabel("type")).toBe("No type named");
-  });
-
-  it("shows only the names until one is opened", () => {
-    const n = nameTreeNodes("airline", tree, new Set());
-    expect(n.map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
-      ["KLM", 0, 5, false],
-      ["No airline named", 0, 1, false],
-    ]);
-  });
-
-  it("opens a name to its years and a year to its months", () => {
-    const n = nameTreeNodes("airline", tree, new Set(["KLM", "KLM\u001f2019"]));
-    expect(n.map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
-      ["KLM", 0, 5, true],
-      ["2019", 1, 3, true],
-      ["January", 2, 2, undefined],
-      ["March", 2, 1, undefined],
-      ["No date", 1, 2, undefined],
-      ["No airline named", 0, 1, false],
-    ]);
-    expect(n[2].title).toBe("KLM › 2019 › January");
-  });
-
-  it("finds exactly a node's photos", () => {
-    expect(nameQuery("registration", "PH-BFA")).toEqual({ tags: ["Aircraft|Registration|PH-BFA"] });
-    expect(nameQuery("type", null)).toEqual({
-      tags: ["Aircraft"],
-      withoutTags: ["Aircraft|Type"],
-    });
-    expect(dateQuery("airline", "KLM", 2019)).toEqual({
-      tags: ["Aircraft|Airline|KLM"],
-      from: "2019-01-01",
-      to: "2019-12-31",
-    });
-    // A month ends on its own last day (a leap year here).
-    expect(dateQuery("airline", "KLM", 2024, 2)).toMatchObject({
-      from: "2024-02-01",
-      to: "2024-02-29",
-    });
-    expect(dateQuery("airline", null, null)).toEqual({
-      tags: ["Aircraft"],
-      withoutTags: ["Aircraft|Airline"],
-      undated: true,
-    });
-    const open = nameTreeNodes("airline", tree, new Set(["", "\u001f2024"]));
-    expect(open[open.length - 1].query).toEqual({
-      tags: ["Aircraft"],
-      withoutTags: ["Aircraft|Airline"],
-      from: "2024-02-01",
-      to: "2024-02-29",
-    });
-  });
-
-  it("by face: each person's keyword, then the unnamed faces", () => {
+  it("knows its trees", () => {
+    expect(isNameTree("aircraft")).toBe(true);
     expect(isNameTree("face")).toBe(true);
-    expect(isAircraftTree("face")).toBe(false);
-    expect(nameQuery("face", "Sara")).toEqual({ tags: ["People|Sara"] });
-    expect(dateQuery("face", null, 2019, 3)).toEqual({
-      unnamedFaces: true,
-      from: "2019-03-01",
-      to: "2019-03-31",
-    });
-    expect(dateQuery("face", "Sara", null)).toEqual({ tags: ["People|Sara"], undated: true });
-    const n = nameTreeNodes("face", tree, new Set([""]));
-    expect(n.map((x) => [x.label, x.depth, x.count])).toEqual([
-      ["KLM", 0, 5],
-      ["Unnamed faces", 0, 1],
-      ["2024", 1, 1],
+    expect(isNameTree("date")).toBe(false);
+  });
+
+  it("sorts every step A to Z, any case, the unnamed last", () => {
+    const s = sortGroups(fleet);
+    expect(s.map((x) => x.name)).toEqual(["air Canada", "KLM", null]);
+    expect(s[0].children.map((x) => x.name)).toEqual(["Airbus A330", null]);
+    expect(s[1].children.map((x) => x.name)).toEqual(["Boeing 747", "Boeing 777"]);
+  });
+
+  it("by aircraft: airlines, then an open one's types, then an open type's registrations", () => {
+    expect(aircraftTreeNodes(fleet, new Set()).map((n) => [n.label, n.count, n.expanded])).toEqual([
+      ["air Canada", 5, false],
+      ["KLM", 12, false],
+      ["No airline named", 3, false],
     ]);
-    expect(n[2].title).toBe("Unnamed faces › 2024");
+    const klm = aircraftTreeNodes(fleet, new Set(["KLM\u001f", "KLM\u001fBoeing 747\u001f"]));
+    expect(klm.map((n) => [n.label, n.depth, n.count, n.expanded])).toEqual([
+      ["air Canada", 0, 5, false],
+      ["KLM", 0, 12, true],
+      ["Boeing 747", 1, 8, true],
+      ["PH-BFA", 2, 8, undefined],
+      ["Boeing 777", 1, 4, false],
+      ["No airline named", 0, 3, false],
+    ]);
+    expect(klm[3].title).toBe("KLM › Boeing 747 › PH-BFA");
+    expect(klm[3].query).toEqual({
+      tags: ["Aircraft|Airline|KLM", "Aircraft|Type|Boeing 747", "Aircraft|Registration|PH-BFA"],
+    });
+  });
+
+  it("by aircraft: an unnamed line finds the photos naming none at that step", () => {
+    const n = aircraftTreeNodes(fleet, new Set(["\u001f", "\u001f\u001f"]));
+    const reg = n.find((x) => x.label === "C-GZQX");
+    expect(reg?.title).toBe("No airline named › No type named › C-GZQX");
+    expect(reg?.query).toEqual({
+      tags: ["Aircraft|Registration|C-GZQX"],
+      withoutTags: ["Aircraft|Airline", "Aircraft|Type"],
+    });
+    expect(n.find((x) => x.label === "No airline named")?.query).toEqual({
+      tags: ["Aircraft"],
+      withoutTags: ["Aircraft|Airline"],
+    });
+  });
+
+  it("by face: people A to Z, the unnamed faces last, then years and months", () => {
+    const n = faceTreeNodes(people, new Set(["Sara", "Sara\u001f2019"]));
+    expect(n.map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
+      ["Sara", 0, 2, true],
+      ["2019", 1, 1, true],
+      ["January", 2, 1, undefined],
+      ["No date", 1, 1, undefined],
+      ["tom", 0, 9, false],
+      ["Unnamed faces", 0, 4, false],
+    ]);
+    expect(n[2].title).toBe("Sara › 2019 › January");
+    expect(n[2].query).toEqual({ tags: ["People|Sara"], from: "2019-01-01", to: "2019-01-31" });
+  });
+
+  it("by face: each node's search", () => {
+    expect(faceQuery("Sara")).toEqual({ tags: ["People|Sara"] });
+    expect(faceQuery(null)).toEqual({ unnamedFaces: true });
+    // A month ends on its own last day (a leap year here).
+    expect(faceDateQuery(null, 2024, 2)).toEqual({
+      unnamedFaces: true,
+      from: "2024-02-01",
+      to: "2024-02-29",
+    });
+    expect(faceDateQuery("Sara", null)).toEqual({ tags: ["People|Sara"], undated: true });
   });
 
   it("compares queries whatever their order", () => {

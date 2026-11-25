@@ -1,99 +1,107 @@
-// The sidebar's trees by name, then year, then month (ADR-053): by airline,
-// type or registration, from the aircraft keywords, or by face, from the
-// people's names. Pure functions (unit-tested); the counts come from the
-// `aircraft_tree` and `faces_tree` commands.
+// The sidebar's trees by name (ADR-053). Pure functions (unit-tested).
 //
-// Each node opens exactly its photos, as the aircraft report's lines do: a
-// report section with the name's keyword in `tags` (`Aircraft|Airline|KLM`,
-// `People|Sara`), and `from`/`to` for a year or month, or `undated` for the
-// photos with no date. The unnamed node: for an aircraft kind, the photos
-// with `Aircraft` in `tags` and the kind in `withoutTags`; by face, the
-// photos with a face that has no name (`unnamedFaces`).
+// - By aircraft: airline › type › registration, the aircraft report's
+//   drill-down (`aircraft_report`'s `byAirline`, lines from `drillRows`):
+//   each line opens exactly its photos, as in the report: the keywords of
+//   the steps named down to it in `tags`, the kinds unnamed in
+//   `withoutTags` (`No type named`).
+// - By face: person › year › month (`faces_tree`): a person's photos have
+//   `People|<name>` in `tags`; the unnamed node is the photos with a face
+//   that has no name (`unnamedFaces`); `from`/`to` for a year or month, or
+//   `undated` for the photos with no date.
+//
+// Both: names A to Z (any case), the unnamed last.
 
+import type { AircraftReportGroup } from "./bindings/AircraftReportGroup";
 import type { NameTreeNode } from "./bindings/NameTreeNode";
 import type { Query } from "./api";
 import { calRange } from "./ai";
+import { drillRows } from "./aircraftReport";
 import * as fmt from "./format";
 
-/** The kinds of aircraft tree. */
-export type AircraftTreeKind = "airline" | "type" | "registration";
-export const AIRCRAFT_TREE_KINDS: AircraftTreeKind[] = ["airline", "type", "registration"];
-/** The trees by name: an aircraft kind, or by face. */
-export type NameTreeKind = AircraftTreeKind | "face";
-
-export function isAircraftTree(m: string): m is AircraftTreeKind {
-  return (AIRCRAFT_TREE_KINDS as string[]).includes(m);
-}
+/** The trees by name. */
+export type NameTreeKind = "aircraft" | "face";
 
 export function isNameTree(m: string): m is NameTreeKind {
-  return m === "face" || isAircraftTree(m);
+  return m === "aircraft" || m === "face";
 }
-
-/** As in the keyword: `Aircraft|Airline|KLM`. */
-export function keywordKind(kind: AircraftTreeKind): string {
-  return kind[0].toUpperCase() + kind.slice(1);
-}
-
-/** The button's label: `Airline`. */
-export const treeKindLabel = keywordKind;
 
 /** A visible node of the tree. */
 export interface NameNode {
-  /** Its place: `KLM`, `KLM\u001f2019`, `KLM\u001f2019\u001f6`. */
+  /** Its place: the names above it and its own (each kind its own form). */
   key: string;
   label: string;
-  /** 0 a name, 1 a year, 2 a month. */
+  /** 0 to 2: an airline, a type, a registration; a person, a year, a month. */
   depth: number;
   count: number;
-  /** `undefined`: a leaf (a month, or the photos with no date). */
+  /** `undefined`: a leaf. */
   expanded?: boolean;
-  /** The library's heading for its photos: `KLM › 2019 › June`. */
+  /** The library's heading for its photos: `KLM › Boeing 747`. */
   title: string;
   /** What finds exactly its photos. */
   query: Partial<Query>;
 }
 
+/** A to Z ignoring case; `null` (the unnamed) last. */
+function byName(a: string | null, b: string | null): number {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  return a.localeCompare(b, undefined, { sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+/** The drill-down's steps, each sorted A to Z, the unnamed last. */
+export function sortGroups(groups: AircraftReportGroup[]): AircraftReportGroup[] {
+  return [...groups]
+    .sort((a, b) => byName(a.name, b.name))
+    .map((g) => ({ ...g, children: sortGroups(g.children) }));
+}
+
+/** By aircraft: the visible lines, airlines, under each open one its
+ * types, under each open type its registrations. */
+export function aircraftTreeNodes(
+  groups: AircraftReportGroup[],
+  open: ReadonlySet<string>,
+): NameNode[] {
+  return drillRows(sortGroups(groups), open, "").map((r) => ({
+    key: r.key,
+    label: r.label,
+    depth: r.depth,
+    count: r.photos,
+    expanded: r.depth < 2 && r.children > 0 ? r.open : undefined,
+    title: r.title,
+    query: r.without.length > 0 ? { tags: r.tags, withoutTags: r.without } : { tags: r.tags },
+  }));
+}
+
 const SEP = "\u001f";
 
-/** `No airline named`; by face, `Unnamed faces`. */
-export function unnamedLabel(kind: NameTreeKind): string {
-  return kind === "face" ? "Unnamed faces" : `No ${kind} named`;
+export const UNNAMED_FACES = "Unnamed faces";
+
+/** By face: the search for a person's photos (every date); `null`: the
+ * photos with a face that has no name. */
+export function faceQuery(name: string | null): Partial<Query> {
+  return name === null ? { unnamedFaces: true } : { tags: [`People|${name}`] };
 }
 
-/** The search for a name's photos (every date). */
-export function nameQuery(kind: NameTreeKind, name: string | null): Partial<Query> {
-  if (kind === "face") return name === null ? { unnamedFaces: true } : { tags: [`People|${name}`] };
-  const k = keywordKind(kind);
-  return name === null
-    ? { tags: ["Aircraft"], withoutTags: [`Aircraft|${k}`] }
-    : { tags: [`Aircraft|${k}|${name}`] };
-}
-
-/** The search for a name's photos of a year (or of a month of it); `year`
- * null: those with no date. */
-export function dateQuery(
-  kind: NameTreeKind,
+/** A person's photos of a year (or of a month of it); `year` null: those
+ * with no date. */
+export function faceDateQuery(
   name: string | null,
   year: number | null,
   month: number | null = null,
 ): Partial<Query> {
-  const base = nameQuery(kind, name);
+  const base = faceQuery(name);
   if (year === null) return { ...base, undated: true };
   const r = calRange(year, month, null);
   return r ? { ...base, from: r.from, to: r.to } : base;
 }
 
-/** The visible nodes, in order: the names, under each open one its years,
- * under each open year its months. */
-export function nameTreeNodes(
-  kind: NameTreeKind,
-  tree: NameTreeNode[],
-  open: ReadonlySet<string>,
-): NameNode[] {
+/** By face: the visible nodes, the people A to Z (then the unnamed), under
+ * each open one its years, under each open year its months. */
+export function faceTreeNodes(tree: NameTreeNode[], open: ReadonlySet<string>): NameNode[] {
   const out: NameNode[] = [];
-  for (const n of tree) {
+  for (const n of [...tree].sort((a, b) => byName(a.name, b.name))) {
     const nameKey = n.name ?? "";
-    const label = n.name ?? unnamedLabel(kind);
+    const label = n.name ?? UNNAMED_FACES;
     const isOpen = open.has(nameKey);
     out.push({
       key: nameKey,
@@ -102,7 +110,7 @@ export function nameTreeNodes(
       count: n.photos,
       expanded: n.years.length > 0 ? isOpen : undefined,
       title: label,
-      query: nameQuery(kind, n.name),
+      query: faceQuery(n.name),
     });
     if (!isOpen) continue;
     for (const y of n.years) {
@@ -116,7 +124,7 @@ export function nameTreeNodes(
         count: y.photos,
         expanded: y.months.length > 0 ? yearOpen : undefined,
         title: `${label} › ${yearLabel}`,
-        query: dateQuery(kind, n.name, y.year),
+        query: faceDateQuery(n.name, y.year),
       });
       if (!yearOpen || y.year === null) continue;
       for (const m of y.months) {
@@ -127,7 +135,7 @@ export function nameTreeNodes(
           depth: 2,
           count: m.photos,
           title: `${label} › ${yearLabel} › ${monthLabel}`,
-          query: dateQuery(kind, n.name, y.year, m.month),
+          query: faceDateQuery(n.name, y.year, m.month),
         });
       }
     }

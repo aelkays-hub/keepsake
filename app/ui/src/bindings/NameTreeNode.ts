@@ -2,13 +2,11 @@
 import type { NameTreeYear } from "./NameTreeYear";
 
 /**
- * A name of a sidebar tree by name › year › month (an airline, a type,
- * a registration or a person; ADR-053).
+ * A person of the sidebar's tree by face › year › month (ADR-053).
  */
 export type NameTreeNode = { 
 /**
- * Null: the photos that name none of this kind, or (by face) the
- * photos with a face that has no name.
+ * Null: the photos with a face that has no name.
  */
 name: string | null, photos: number, 
 /**

@@ -22,8 +22,8 @@ use crate::catalog::AssetId;
 use crate::metadata::PEOPLE_TAG;
 
 impl<M> Faces<'_, M> {
-    /// The library by person, then year and month: most photos first, then
-    /// by name; the photos with an unnamed face last.
+    /// The library by person, then year and month: people A to Z; the
+    /// photos with an unnamed face last.
     pub fn tree(&self) -> Result<Vec<NameTreeNode>, CatalogError> {
         // Every person keyword on every item, with the item's day. LIKE
         // ignores ASCII case, as the search does; the bare `People` (an AI

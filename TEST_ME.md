@@ -25,7 +25,7 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/face-tree.spec.
 1. In the sidebar, above the tree, look at the buttons.
    - **Expected:** four buttons, two by two: **By date**, **By folder**, **By aircraft**, **By face**, each label on one line.
 2. Click **By face**.
-   - **Expected:** the people you named, each with a photo count, most photos first; **Unnamed faces** last.
+   - **Expected:** the people you named, **A to Z**, each with a photo count; **Unnamed faces** last.
 3. Click a person.
    - **Expected:** the library shows that person's photos; the heading is their name; the count under the grid equals the number beside the name. The node opens to its years, oldest first (**No date** last, if some of their photos have no date).
 4. Click a year, then open it and click a month.
@@ -43,7 +43,7 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/face-tree.spec.
 
 ## The sidebar tree by aircraft
 
-Same on **Windows** and **macOS**. You need some photos with aircraft keywords (accepted in Read aircraft, or typed, such as `Aircraft|Airline|KLM`), and ideally a few with a type or registration but no airline.
+Same on **Windows** and **macOS**. You need some photos with aircraft keywords (accepted in Read aircraft, or typed, such as `Aircraft|Airline|KLM`), ideally a few with a type or registration but no airline.
 
 Automated:
 ```
@@ -53,22 +53,20 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft-tree.s
 ```
 
 1. In the sidebar, above the tree, click **By aircraft**.
-   - **Expected:** a second row shows **Airline / Type / Registration**, with Airline pressed. The tree lists the airlines with their photo counts, most photos first; **No airline named** is last, in the same list. The Calendar tree is gone.
-2. Open Tools → Report → Aircraft and compare.
-   - **Expected:** each airline's count in the sidebar is the same as its line in the report's drill-down.
+   - **Expected:** the tree lists the airlines **A to Z**, each with its photo count; **No airline named** is last. There is no second row of buttons. The Calendar tree is gone.
+2. Open Tools → Report → Aircraft (drill-down) and compare.
+   - **Expected:** the same airlines with the same counts (the report lists them by photos, the sidebar A to Z).
 3. Click an airline (KLM, say).
-   - **Expected:** the library shows its photos; the heading reads "KLM" and the item count is the number beside KLM. The node opens to its years, oldest first, with **No date** last if some of its photos have no date.
-4. Click a year, then open it and click a month.
-   - **Expected:** the heading reads "KLM › 2019", then "KLM › 2019 › June"; each time the item count equals the node's number, and every photo shown is from that year or month.
-5. Click **No airline named**.
-   - **Expected:** photos with aircraft keywords (a type, a registration, a route…) but no airline keyword.
-6. Click **Registration**, then **Type**.
-   - **Expected:** the tree is the registrations, then the types, each name › year › month. A photo with two registrations counts under both.
-7. Close and start Keepsake again.
-   - **Expected:** the sidebar still shows By aircraft › Type, with the same nodes open. **By date** brings the calendar back; **By aircraft** again shows Type.
-8. Accept a new registration in Read aircraft (or add an `Aircraft|Registration|…` keyword to a photo), then look at the Registration tree.
-   - **Expected:** within a few seconds the registration is in the tree with its count.
-9. With the keyboard: Tab into the tree, use ↓ ↑ to move, → to open a name or year, ← to close or go up, Enter to show.
+   - **Expected:** the library shows its photos; the heading reads "KLM" and the item count is the number beside KLM. The line opens to its **types**, A to Z, with **No type named** last.
+4. Click a type, then one of its **registrations**.
+   - **Expected:** the heading reads "KLM › Boeing 747", then "KLM › Boeing 747 › PH-BFA"; each time the item count equals the line's number.
+5. Click a **No type named** (or No registration named) line.
+   - **Expected:** the photos of the lines above it that name no type (no registration).
+6. Close and start Keepsake again.
+   - **Expected:** the sidebar still shows By aircraft, with the same lines open. **By date** brings the calendar back.
+7. Accept a new registration in Read aircraft (or add an `Aircraft|Registration|…` keyword to a photo).
+   - **Expected:** within a few seconds it is in the tree under its airline and type, with its count.
+8. With the keyboard: Tab into the tree, use ↓ ↑ to move, → to open a line, ← to close or go up, Enter to show.
    - **Expected:** works as in the date tree.
 
 ---

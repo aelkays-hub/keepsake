@@ -77,7 +77,6 @@ import type { ImportProgress } from "./bindings/ImportProgress";
 import type { ImportRequest } from "./bindings/ImportRequest";
 import type { ImportResult } from "./bindings/ImportResult";
 import type { AircraftReport } from "./bindings/AircraftReport";
-import type { AircraftKindDto } from "./bindings/AircraftKindDto";
 import type { NameTreeNode } from "./bindings/NameTreeNode";
 import type { LibraryReport } from "./bindings/LibraryReport";
 import type { MaintDone } from "./bindings/MaintDone";
@@ -292,7 +291,6 @@ export const api = {
   aircraftReport: () => invoke<AircraftReport>("aircraft_report"),
   aircraftReportCsv: (path: string) => invoke<string>("aircraft_report_csv", { path }),
   /** The sidebar's tree by airline, type or registration (ADR-053). */
-  aircraftTree: (kind: AircraftKindDto) => invoke<NameTreeNode[]>("aircraft_tree", { kind }),
   /** The sidebar's tree by face: each person, then the unnamed faces. */
   facesTree: () => invoke<NameTreeNode[]>("faces_tree"),
   flightReport: () => invoke<FlightReportDto>("flight_report"),

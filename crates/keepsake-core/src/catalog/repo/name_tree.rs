@@ -1,7 +1,8 @@
-//! The sidebar's trees by name, then year and month (ADR-053): by airline,
-//! type or registration (`aircraft_tree`), or by person (`face_tree`).
-//! What is shared: the nodes, and building them from each name's photos
-//! and their days.
+//! The sidebar's trees by name, then year and month (ADR-053): by person
+//! (`face_tree`). The nodes, and building them from each name's photos and
+//! their days.
+
+use std::cmp::Ordering;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -27,11 +28,11 @@ pub struct NameTreeYear {
     pub months: Vec<NameTreeMonth>,
 }
 
-/// One name: an airline, a type, a registration or a person.
+/// One name: a person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NameTreeNode {
-    /// As in the keyword (`KLM`, `Sara`); `None`: the unnamed node (the
-    /// photos that name none of this kind, or with an unnamed face).
+    /// As in the keyword (`Sara`); `None`: the unnamed node (the photos
+    /// with a face that has no name).
     pub name: Option<String>,
     pub photos: u64,
     /// Oldest first; the photos with no date last.
@@ -88,8 +89,15 @@ pub(crate) fn node(name: Option<String>, photos: &HashMap<AssetId, Day>) -> Name
     }
 }
 
-/// The tree: the names, most photos first, then by name; the unnamed node
-/// last (when it holds any photo).
+/// A to Z, ignoring case (then as written, so the order is fixed).
+fn by_name(a: &str, b: &str) -> Ordering {
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
+}
+
+/// The tree: the names A to Z; the unnamed node last (when it holds any
+/// photo).
 pub(crate) fn tree(
     named: HashMap<String, HashMap<AssetId, Day>>,
     unnamed: &HashMap<AssetId, Day>,
@@ -98,7 +106,12 @@ pub(crate) fn tree(
         .into_iter()
         .map(|(name, photos)| node(Some(name), &photos))
         .collect();
-    out.sort_by(|a, b| b.photos.cmp(&a.photos).then_with(|| a.name.cmp(&b.name)));
+    out.sort_by(|a, b| {
+        by_name(
+            a.name.as_deref().unwrap_or_default(),
+            b.name.as_deref().unwrap_or_default(),
+        )
+    });
     if !unnamed.is_empty() {
         out.push(node(None, unnamed));
     }

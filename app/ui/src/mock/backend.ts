@@ -120,6 +120,8 @@ export interface MockState {
   keywords: Map<number, string[]>;
   /** Photos with a face that has no name (the face tree; ADR-053). */
   unnamedFaces: Set<number>;
+  /** The aircraft report has no aircraft keyword (the tree's empty hint). */
+  noAircraft: boolean;
   presets: Preset[];
   imported: Set<string>;
   /** Seconds added to capture times by time shifts. */
@@ -345,21 +347,6 @@ const day = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 const READ_MS = 1000;
 
 /** Report → Aircraft: a small fixed fleet. */
-/** The sidebar's aircraft tree (`aircraft_tree`), as the core builds it. */
-function mockNameTree(items: { day: string | null; kw: string[] }[], kind: string): NameTreeNode[] {
-  const k = kind[0].toUpperCase() + kind.slice(1);
-  const names = new Map<string | null, (string | null)[]>();
-  for (const it of items) {
-    if (!it.kw.some((t) => t === "Aircraft" || t.startsWith("Aircraft|"))) continue;
-    const own = [
-      ...new Set(it.kw.filter((t) => t.startsWith(`Aircraft|${k}|`)).map((t) => t.split("|")[2])),
-    ];
-    const has = it.kw.some((t) => t === `Aircraft|${k}` || t.startsWith(`Aircraft|${k}|`));
-    for (const n of has ? own : [null]) names.set(n, [...(names.get(n) ?? []), it.day]);
-  }
-  return mockTreeOf(names);
-}
-
 /** The sidebar's face tree (`faces_tree`): the `People|<name>` keywords,
  * then the photos with an unnamed face. */
 function mockFaceTree(
@@ -376,7 +363,7 @@ function mockFaceTree(
   return mockTreeOf(names);
 }
 
-/** Each name's photos' days, as tree nodes: most photos first, unnamed last. */
+/** Each name's photos' days, as tree nodes (the UI sorts them). */
 function mockTreeOf(names: Map<string | null, (string | null)[]>): NameTreeNode[] {
   const nodes: NameTreeNode[] = [...names.entries()].map(([name, days]) => {
     const years = new Map<number | null, Map<number, number>>();
@@ -657,6 +644,7 @@ export function installMock(): void {
     comment: new Map(),
     keywords: new Map(),
     unnamedFaces: new Set(),
+    noAircraft: false,
     presets: [
       {
         name: "Two drives",
@@ -1403,14 +1391,7 @@ export function installMock(): void {
           return "C:\\Users\\me\\Documents\\fins.csv";
         }
         case "aircraft_report":
-          return mockAircraftReport();
-        case "aircraft_tree":
-          // From the keywords given in this session (AI tags are never
-          // aircraft keywords).
-          return mockNameTree(
-            [...st.keywords.entries()].map(([i, kw]) => ({ day: day(all[i]?.t ?? null), kw })),
-            String(a.kind),
-          );
+          return st.noAircraft ? { ...mockAircraftReport(), byAirline: [] } : mockAircraftReport();
         case "faces_tree": {
           const ids = new Set([...st.keywords.keys(), ...st.unnamedFaces]);
           return mockFaceTree(

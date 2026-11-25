@@ -1,24 +1,28 @@
-// The sidebar's trees by name (an airline, type or registration, or a
-// person; then year and month): the whole tree loads at once, again when the library
-// changes; the old one stays on screen until then. The open nodes are
-// remembered for each kind (`treeMemory`).
+// The sidebar's trees by name (by aircraft: airline › type › registration;
+// by face: person › year › month): the whole tree loads at once, again
+// when the library changes; the old one stays on screen until then. The
+// open nodes are remembered for each tree (`treeMemory`).
 
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
+import type { AircraftReportGroup } from "./bindings/AircraftReportGroup";
 import type { NameTreeNode } from "./bindings/NameTreeNode";
-import { nameTreeNodes, type NameTreeKind, type NameNode } from "./nameTree";
+import { aircraftTreeNodes, faceTreeNodes, type NameNode, type NameTreeKind } from "./nameTree";
 import { keepOpenLevels, openLevels } from "./treeMemory";
+
+type Loaded =
+  { kind: "aircraft"; groups: AircraftReportGroup[] } | { kind: "face"; nodes: NameTreeNode[] };
 
 export function useNameTree(kind: NameTreeKind | null, refresh: unknown) {
   const [st, setSt] = useState(() => ({
     kind,
     open: kind ? openLevels(kind, []) : new Set<string>(),
   }));
-  // Another kind: its own open nodes (set while rendering, before they are
-  // kept, so one kind's never land in another's).
+  // Another tree: its own open nodes (set while rendering, before they are
+  // kept, so one tree's never land in another's).
   if (st.kind !== kind) setSt({ kind, open: kind ? openLevels(kind, []) : new Set() });
-  const [tree, setTree] = useState<{ kind: NameTreeKind; nodes: NameTreeNode[] } | null>(null);
+  const [tree, setTree] = useState<Loaded | null>(null);
   const rkey = JSON.stringify(refresh);
 
   useEffect(() => {
@@ -28,9 +32,13 @@ export function useNameTree(kind: NameTreeKind | null, refresh: unknown) {
   useEffect(() => {
     if (!kind) return;
     let live = true;
-    (kind === "face" ? api.facesTree() : api.aircraftTree(kind))
-      .then((nodes) => {
-        if (live) setTree({ kind, nodes });
+    const load: Promise<Loaded> =
+      kind === "aircraft"
+        ? api.aircraftReport().then((r) => ({ kind: "aircraft", groups: r.byAirline }))
+        : api.facesTree().then((nodes) => ({ kind: "face", nodes }));
+    load
+      .then((t) => {
+        if (live) setTree(t);
       })
       .catch((e) => console.error("name tree", e));
     return () => {
@@ -48,7 +56,11 @@ export function useNameTree(kind: NameTreeKind | null, refresh: unknown) {
     });
   }, []);
 
-  const nodes: NameNode[] =
-    kind && tree?.kind === kind && st.kind === kind ? nameTreeNodes(kind, tree.nodes, st.open) : [];
+  let nodes: NameNode[] = [];
+  if (kind !== null && st.kind === kind && tree?.kind === kind)
+    nodes =
+      tree.kind === "aircraft"
+        ? aircraftTreeNodes(tree.groups, st.open)
+        : faceTreeNodes(tree.nodes, st.open);
   return { nodes, setExpanded, loaded: kind !== null && tree?.kind === kind };
 }

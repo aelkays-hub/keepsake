@@ -1043,16 +1043,6 @@ pub enum CalendarLevelDto {
     Days { year: i32, month: u32 },
 }
 
-/// Which aircraft keyword a sidebar tree is built from (ADR-053).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/bindings/")]
-pub enum AircraftKindDto {
-    Airline,
-    Type,
-    Registration,
-}
-
 dto! {
     /// What the viewer can toggle between for an asset.
     pub struct AssetMembers {
@@ -1335,11 +1325,9 @@ dto! {
         pub months: Vec<NameTreeMonth>,
     }
 
-    /// A name of a sidebar tree by name › year › month (an airline, a type,
-    /// a registration or a person; ADR-053).
+    /// A person of the sidebar's tree by face › year › month (ADR-053).
     pub struct NameTreeNode {
-        /// Null: the photos that name none of this kind, or (by face) the
-        /// photos with a face that has no name.
+        /// Null: the photos with a face that has no name.
         pub name: Option<String>,
         #[ts(type = "number")]
         pub photos: u64,

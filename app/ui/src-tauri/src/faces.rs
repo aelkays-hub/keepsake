@@ -15,7 +15,8 @@ use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::api::{
-    AiInstallProgress, FaceDto, FacesStatus, NameTreeNode, PersonDto, PhotoFacesDto, SuggestDto,
+    AiInstallProgress, FaceDto, FacesStatus, NameTreeMonth, NameTreeNode, NameTreeYear, PersonDto,
+    PhotoFacesDto, SuggestDto,
 };
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
@@ -327,14 +328,37 @@ pub fn faces_of_photo(
 }
 
 /// Everyone named, by name.
-/// The sidebar's tree by face: each named person, then the photos with a
-/// face that has no name, by year and month (ADR-053).
+/// The sidebar's tree by face: each named person A to Z, then the photos
+/// with a face that has no name, by year and month (ADR-053).
 #[tauri::command(async)]
 pub fn faces_tree(state: State<'_, AppState>) -> CmdResult<Vec<NameTreeNode>> {
     let open = state.open()?;
     let cat = open.cat()?;
     let t = cat.read(|tx| tx.faces().tree()).map_err(err)?;
-    Ok(t.iter().map(crate::report::tree_node).collect())
+    Ok(t.iter().map(tree_node).collect())
+}
+
+fn tree_node(n: &keepsake_core::catalog::NameTreeNode) -> NameTreeNode {
+    NameTreeNode {
+        name: n.name.clone(),
+        photos: n.photos,
+        years: n
+            .years
+            .iter()
+            .map(|y| NameTreeYear {
+                year: y.year,
+                photos: y.photos,
+                months: y
+                    .months
+                    .iter()
+                    .map(|m| NameTreeMonth {
+                        month: m.month,
+                        photos: m.photos,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
 }
 
 #[tauri::command(async)]

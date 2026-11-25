@@ -81,6 +81,13 @@
 
 
 
+## The sidebar tree by aircraft: airline › type › registration, A to Z (ADR-053) (2026-11-25)
+
+- **Asked:** "I wanted the tree to show me by airline, type, registration … it can be later" (the years and months), and "what about sorting them alphabetically".
+- **Changed:** By aircraft is now one tree, **airline › type › registration**, the aircraft report's drill-down, with **No … named** lines for the photos naming none at a step; the Airline / Type / Registration row and the three name › year › month trees are gone (core `aircraft_tree.rs`, Tauri `aircraft_tree`, `AircraftKindDto` removed). Every step is **A to Z** (any case), the unnamed last; the people of By face too. Each line opens exactly its photos with the report's search (`tags`, `withoutTags`).
+- **Tests, run here (Windows):** `report_tests` (all 18; new: every drill-down line at every step finds exactly its count with the tree's search); Vitest `nameTree.test.ts` (7), `treeMemory`, `uiModel`, `aircraftReport` (18 in all); mocked Playwright `aircraft-tree.spec.ts` (rewritten, 3), `face-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (30 in all); tsc, ESLint, Prettier, cargo fmt, clippy `-D warnings`.
+- **Not run:** in the installed app; CI; macOS.
+
 ## The sidebar tree by face (ADR-053) (2026-11-25)
 
 - **Asked:** "another tree, by face/year/month this should include untagged faces also".

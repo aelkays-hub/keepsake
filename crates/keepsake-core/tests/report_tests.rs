@@ -776,13 +776,9 @@ fn the_aircraft_csv_has_the_totals_and_every_table() {
     assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06,"));
 }
 
-// ---- The sidebar's aircraft trees (ADR-053) ----
+// ---- The sidebar's tree by aircraft (ADR-053) ----
 
-use keepsake_core::catalog::{AircraftKind, NameTreeNode};
-
-fn tree(cat: &Catalog, kind: AircraftKind) -> Vec<NameTreeNode> {
-    cat.read(|tx| tx.aircraft_report().tree(kind)).unwrap()
-}
+use keepsake_core::catalog::{AircraftGroup, NameTreeNode};
 
 /// The fleet, and an undated photo naming KLM and two registrations, and
 /// one with only a built year (an aircraft keyword, but no name of any
@@ -835,76 +831,47 @@ fn shape(t: &[NameTreeNode]) -> Shape {
         .collect()
 }
 
-#[test]
-fn the_aircraft_trees_go_by_name_then_year_then_month() {
-    let cat = fleet_and_more();
-    let some = |s: &str| Some(s.to_owned());
-    assert_eq!(
-        shape(&tree(&cat, AircraftKind::Airline)),
-        [
-            (
-                some("KLM"),
-                5,
-                vec![
-                    (Some(2018), 1, vec![(12, 1)]),
-                    (Some(2019), 3, vec![(1, 2), (3, 1)]),
-                    (None, 1, vec![]),
-                ]
-            ),
-            (None, 1, vec![(Some(2020), 1, vec![(7, 1)])]),
-        ]
-    );
-    // The AI-only Airplane photo has no aircraft keyword: in no tree.
-    assert_eq!(
-        shape(&tree(&cat, AircraftKind::Type)),
-        [
-            (some("Boeing 747"), 2, vec![(Some(2019), 2, vec![(1, 2)])]),
-            (
-                some("Boeing 777-300ER"),
-                1,
-                vec![(Some(2019), 1, vec![(3, 1)])]
-            ),
-            (
-                None,
-                3,
-                vec![
-                    (Some(2018), 1, vec![(12, 1)]),
-                    (Some(2020), 1, vec![(7, 1)]),
-                    (None, 1, vec![]),
-                ]
-            ),
-        ]
-    );
-    // A photo naming two registrations is under each.
-    let regs = tree(&cat, AircraftKind::Registration);
-    let names: Vec<_> = regs.iter().map(|n| (n.name.clone(), n.photos)).collect();
-    assert_eq!(names, [(some("PH-BFA"), 4), (some("PH-BVA"), 2), (None, 1)]);
+/// Every drill-down line, at every step and named or not, as the sidebar's
+/// tree By aircraft opens it (`nameTree.ts`, from `drillRows`): the
+/// keywords of the steps named down to it, and none of the kinds unnamed
+/// (`Aircraft` alone when nothing is named).
+fn assert_drill_opens(cat: &Catalog, groups: &[AircraftGroup], path: &[Option<&str>]) {
+    const KINDS: [&str; 3] = ["Airline", "Type", "Registration"];
+    for g in groups {
+        let mut p = path.to_vec();
+        p.push(g.name.as_deref());
+        let mut tags: Vec<String> = p
+            .iter()
+            .zip(KINDS)
+            .filter_map(|(n, k)| n.map(|n| format!("Aircraft|{k}|{n}")))
+            .collect();
+        if tags.is_empty() {
+            tags.push("Aircraft".into());
+        }
+        let without_tags = p
+            .iter()
+            .zip(KINDS)
+            .filter(|(n, _)| n.is_none())
+            .map(|(_, k)| format!("Aircraft|{k}"))
+            .collect();
+        let q = SearchQuery {
+            tags,
+            without_tags,
+            ..Default::default()
+        };
+        assert_eq!(found(cat, &q), g.photos, "{p:?}");
+        assert_drill_opens(cat, &g.children, &p);
+    }
 }
 
 #[test]
-fn every_aircraft_tree_node_opens_exactly_its_photos() {
+fn every_line_of_the_aircraft_tree_opens_exactly_its_photos() {
     let cat = fleet_and_more();
-    for kind in [
-        AircraftKind::Airline,
-        AircraftKind::Type,
-        AircraftKind::Registration,
-    ] {
-        for n in tree(&cat, kind) {
-            // As the sidebar asks for them (`aircraftTree.ts`).
-            let base = match &n.name {
-                Some(name) => SearchQuery {
-                    tags: vec![format!("Aircraft|{}|{name}", kind.keyword())],
-                    ..Default::default()
-                },
-                None => SearchQuery {
-                    tags: vec!["Aircraft".into()],
-                    without_tags: vec![format!("Aircraft|{}", kind.keyword())],
-                    ..Default::default()
-                },
-            };
-            assert_opens(&cat, &n, &base);
-        }
-    }
+    let r = aircraft(&cat);
+    // An unnamed step is among them: KLM's photo naming no type.
+    let klm = &r.by_airline[0];
+    assert!(klm.children.iter().any(|t| t.name.is_none()));
+    assert_drill_opens(&cat, &r.by_airline, &[]);
 }
 
 /// Each node, year and month of `n` finds exactly its photos with `base`

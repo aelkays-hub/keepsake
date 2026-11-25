@@ -1,6 +1,6 @@
 // Sidebar: Library (with a tree: the calendar's years, months and days, the
-// folders on disk, the aircraft keywords' airlines, types or registrations
-// by year and month, or the people by year and month), Events, Volumes, Tools, Imports. Arrow keys move
+// folders on disk, the aircraft keywords' airlines › types ›
+// registrations, or the people by year and month), Events, Volumes, Tools, Imports. Arrow keys move
 // between entries (a single tab stop), Enter or click opens one; Right and
 // Left open and close a tree node, or go to its first child or its parent.
 // A folder of the folder tree has a menu (right-click, the Menu key or
@@ -18,23 +18,12 @@ import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
 import { useFolderTree, type FolderTreeNode } from "../useFolderTree";
 import { useNameTree } from "../useNameTree";
-import {
-  AIRCRAFT_TREE_KINDS,
-  isAircraftTree,
-  isNameTree,
-  sameQuery,
-  treeKindLabel,
-  type AircraftTreeKind,
-  type NameNode,
-  type NameTreeKind,
-} from "../nameTree";
+import { isNameTree, sameQuery, type NameNode, type NameTreeKind } from "../nameTree";
 import { keepScroll, scrollOf } from "../treeMemory";
 
 /** How the Library tree is shown. */
 export type TreeMode = "date" | "folder" | NameTreeKind;
 const MODE_KEY = "keepsake.sidebarTree";
-/** The aircraft tree shown last, for the By aircraft button. */
-const AIRCRAFT_KEY = "keepsake.sidebarTree.aircraft";
 
 function remembered(key: string): string | null {
   try {
@@ -47,11 +36,6 @@ function remembered(key: string): string | null {
 function rememberedMode(): TreeMode {
   const m = remembered(MODE_KEY) ?? "";
   return m === "folder" || isNameTree(m) ? m : "date";
-}
-
-function rememberedAircraft(): AircraftTreeKind {
-  const m = remembered(AIRCRAFT_KEY) ?? "";
-  return isAircraftTree(m) ? m : "airline";
 }
 
 /** How long a remembered scroll position waits for the tree's levels to
@@ -104,7 +88,6 @@ export function Sidebar() {
     setModeState(m);
     try {
       localStorage.setItem(MODE_KEY, m);
-      if (isAircraftTree(m)) localStorage.setItem(AIRCRAFT_KEY, m);
     } catch {
       // Not kept: fine.
     }
@@ -127,7 +110,6 @@ export function Sidebar() {
     [refreshes, s.revision],
     mode === "folder",
   );
-  const aircraftKind = isAircraftTree(mode) ? mode : null;
   const nameKind = isNameTree(mode) ? mode : null;
   const names = useNameTree(nameKind, [refreshes, s.revision]);
   // The calendar tree follows the calendar view down to where it is.
@@ -382,15 +364,15 @@ export function Sidebar() {
                 ).map(([m, label]) => (
                   <button
                     key={m}
-                    aria-pressed={m === "aircraft" ? aircraftKind !== null : mode === m}
+                    aria-pressed={mode === m}
                     title={
                       m === "aircraft"
-                        ? "By the airline, type or registration in the aircraft keywords, then by year and month"
+                        ? "By airline, then type, then registration, from the aircraft keywords"
                         : m === "face"
                           ? "By the people named in the photos, then by year and month; the photos with a face that has no name last"
                           : undefined
                     }
-                    onClick={() => setMode(m === "aircraft" ? rememberedAircraft() : m)}
+                    onClick={() => setMode(m)}
                     onKeyDown={(ev) => ev.stopPropagation()}
                   >
                     {label}
@@ -398,26 +380,7 @@ export function Sidebar() {
                 ))}
               </div>
             )}
-            {g.switcher && aircraftKind && (
-              <div
-                className="segmented tree-mode"
-                role="group"
-                aria-label="Show the aircraft by"
-                data-testid="tree-aircraft"
-              >
-                {AIRCRAFT_TREE_KINDS.map((k) => (
-                  <button
-                    key={k}
-                    aria-pressed={aircraftKind === k}
-                    onClick={() => setMode(k)}
-                    onKeyDown={(ev) => ev.stopPropagation()}
-                  >
-                    {treeKindLabel(k)}
-                  </button>
-                ))}
-              </div>
-            )}
-            {g.switcher && aircraftKind && names.loaded && names.nodes.length === 0 && (
+            {g.switcher && mode === "aircraft" && names.loaded && names.nodes.length === 0 && (
               <p className="muted tree-empty" data-testid="tree-aircraft-empty">
                 No photo has an aircraft keyword yet. Read aircraft (right-click a date or a folder)
                 or add keywords such as Aircraft|Airline|KLM.

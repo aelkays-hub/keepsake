@@ -4,7 +4,7 @@
 // web storage, so the tree comes back as it was after a restart; if the
 // storage cannot be used, the tree simply starts at the top.
 
-export type TreeName = "date" | "folder" | "airline" | "type" | "registration" | "face";
+export type TreeName = "date" | "folder" | "aircraft" | "face";
 
 const OPEN_KEY = (t: TreeName) => `keepsake.tree.${t}.open`;
 const SCROLL_KEY = (t: TreeName) => `keepsake.tree.${t}.scroll`;
