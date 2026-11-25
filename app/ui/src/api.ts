@@ -293,6 +293,8 @@ export const api = {
   aircraftReportCsv: (path: string) => invoke<string>("aircraft_report_csv", { path }),
   /** The sidebar's tree by airline, type or registration (ADR-053). */
   aircraftTree: (kind: AircraftKindDto) => invoke<NameTreeNode[]>("aircraft_tree", { kind }),
+  /** The sidebar's tree by face: each person, then the unnamed faces. */
+  facesTree: () => invoke<NameTreeNode[]>("faces_tree"),
   flightReport: () => invoke<FlightReportDto>("flight_report"),
   flightReportCsv: (path: string) => invoke<string>("flight_report_csv", { path }),
   backupRun: (dest: string, label: string | null) => invoke<void>("backup_run", { dest, label }),

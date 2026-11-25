@@ -14,7 +14,9 @@ use keepsake_core::render::{source, Cache, Variant};
 use keepsake_core::settings::Settings;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::api::{AiInstallProgress, FaceDto, FacesStatus, PersonDto, PhotoFacesDto, SuggestDto};
+use crate::api::{
+    AiInstallProgress, FaceDto, FacesStatus, NameTreeNode, PersonDto, PhotoFacesDto, SuggestDto,
+};
 use crate::convert;
 use crate::state::{err, AppState, CmdResult};
 
@@ -325,6 +327,16 @@ pub fn faces_of_photo(
 }
 
 /// Everyone named, by name.
+/// The sidebar's tree by face: each named person, then the photos with a
+/// face that has no name, by year and month (ADR-053).
+#[tauri::command(async)]
+pub fn faces_tree(state: State<'_, AppState>) -> CmdResult<Vec<NameTreeNode>> {
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let t = cat.read(|tx| tx.faces().tree()).map_err(err)?;
+    Ok(t.iter().map(crate::report::tree_node).collect())
+}
+
 #[tauri::command(async)]
 pub fn faces_people(state: State<'_, AppState>) -> CmdResult<Vec<PersonDto>> {
     let open = state.open()?;

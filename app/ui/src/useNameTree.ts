@@ -1,5 +1,5 @@
-// The sidebar's aircraft trees (by airline, type or registration, then year
-// and month): the whole tree loads at once, again when the library
+// The sidebar's trees by name (an airline, type or registration, or a
+// person; then year and month): the whole tree loads at once, again when the library
 // changes; the old one stays on screen until then. The open nodes are
 // remembered for each kind (`treeMemory`).
 
@@ -7,10 +7,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
 import type { NameTreeNode } from "./bindings/NameTreeNode";
-import { nameTreeNodes, type AircraftTreeKind, type NameNode } from "./aircraftTree";
+import { nameTreeNodes, type NameTreeKind, type NameNode } from "./nameTree";
 import { keepOpenLevels, openLevels } from "./treeMemory";
 
-export function useNameTree(kind: AircraftTreeKind | null, refresh: unknown) {
+export function useNameTree(kind: NameTreeKind | null, refresh: unknown) {
   const [st, setSt] = useState(() => ({
     kind,
     open: kind ? openLevels(kind, []) : new Set<string>(),
@@ -18,7 +18,7 @@ export function useNameTree(kind: AircraftTreeKind | null, refresh: unknown) {
   // Another kind: its own open nodes (set while rendering, before they are
   // kept, so one kind's never land in another's).
   if (st.kind !== kind) setSt({ kind, open: kind ? openLevels(kind, []) : new Set() });
-  const [tree, setTree] = useState<{ kind: AircraftTreeKind; nodes: NameTreeNode[] } | null>(null);
+  const [tree, setTree] = useState<{ kind: NameTreeKind; nodes: NameTreeNode[] } | null>(null);
   const rkey = JSON.stringify(refresh);
 
   useEffect(() => {
@@ -28,12 +28,11 @@ export function useNameTree(kind: AircraftTreeKind | null, refresh: unknown) {
   useEffect(() => {
     if (!kind) return;
     let live = true;
-    api
-      .aircraftTree(kind)
+    (kind === "face" ? api.facesTree() : api.aircraftTree(kind))
       .then((nodes) => {
         if (live) setTree({ kind, nodes });
       })
-      .catch((e) => console.error("aircraft tree", e));
+      .catch((e) => console.error("name tree", e));
     return () => {
       live = false;
     };

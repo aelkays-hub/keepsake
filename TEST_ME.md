@@ -1,4 +1,4 @@
-# Manual Test Steps — The sidebar tree by aircraft, Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — The sidebar tree by face, The sidebar tree by aircraft, Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -10,6 +10,37 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+## The sidebar tree by face
+
+Same on **Windows** and **macOS**. You need **Recognise faces** on (Settings → On-device AI), some photos searched for faces, at least one person named with right-click → **Name and find…** (a few faces confirmed), and some faces left without a name.
+
+Automated (run these first; they need no faces):
+
+```
+cargo test -p keepsake-core --test report_tests face_tree
+cd app/ui; pnpm exec vitest run src/unit/nameTree.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/face-tree.spec.ts
+```
+
+1. In the sidebar, above the tree, look at the buttons.
+   - **Expected:** four buttons, two by two: **By date**, **By folder**, **By aircraft**, **By face**, each label on one line.
+2. Click **By face**.
+   - **Expected:** the people you named, each with a photo count, most photos first; **Unnamed faces** last.
+3. Click a person.
+   - **Expected:** the library shows that person's photos; the heading is their name; the count under the grid equals the number beside the name. The node opens to its years, oldest first (**No date** last, if some of their photos have no date).
+4. Click a year, then open it and click a month.
+   - **Expected:** heading `Sara › 2019`, then `Sara › 2019 › June`; each time the item count equals the node's number.
+5. Click **Unnamed faces**.
+   - **Expected:** the photos with at least one face that has no name yet, including faces only suggested in Name and find and not confirmed. A photo with a named person and an unnamed face also shows here. Photos where you marked the only face **Not a face** do not.
+6. Name one of those faces (right-click the photo → **Name and find…**, or in the viewer with **Faces**), then wait a moment.
+   - **Expected:** the person's count goes up; if that was the photo's only unnamed face, **Unnamed faces** goes down by one.
+7. Click **By date**, then **By face** again; then close and reopen Keepsake.
+   - **Expected:** By face comes back, with the same nodes open and scrolled as you left them.
+8. In a library with face recognition never used (or after **Delete all face data**), click **By face**.
+   - **Expected:** a short note says no face is found or named yet and how to start (Recognise faces, then Name and find).
+
+---
+
 ## The sidebar tree by aircraft
 
 Same on **Windows** and **macOS**. You need some photos with aircraft keywords (accepted in Read aircraft, or typed, such as `Aircraft|Airline|KLM`), and ideally a few with a type or registration but no airline.
@@ -17,7 +48,7 @@ Same on **Windows** and **macOS**. You need some photos with aircraft keywords (
 Automated:
 ```
 cargo test -p keepsake-core --test report_tests aircraft_tree
-cd app/ui; pnpm exec vitest run src/unit/aircraftTree.test.ts
+cd app/ui; pnpm exec vitest run src/unit/nameTree.test.ts
 cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft-tree.spec.ts
 ```
 

@@ -37,7 +37,7 @@ pub use repo::{
     RegisterRow, RegisterSource, Renditions, Report, ReportRow, Search, SearchQuery, Sequences,
     Shared, Sidecars, Sort, SortField, Tags, Volumes, UNKNOWN,
 };
-pub use repo::{AircraftKind, AircraftTreeMonth, AircraftTreeNode, AircraftTreeYear};
+pub use repo::{AircraftKind, NameTreeMonth, NameTreeNode, NameTreeYear};
 pub use repo::{FlickrQueued, FlickrRepo, FlickrUpload};
 pub use repo::{FlightReport, FlightReportRepo, FlightRow};
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};

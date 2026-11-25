@@ -81,6 +81,10 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub without_tags: Option<Vec<String>>,
+        /// Only photos with a face that has no name (the face tree).
+        #[serde(default)]
+        #[ts(optional)]
+        pub unnamed_faces: Option<bool>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).
@@ -1331,10 +1335,11 @@ dto! {
         pub months: Vec<NameTreeMonth>,
     }
 
-    /// A name of a sidebar tree by name › year › month (an airline, a type
-    /// or a registration; ADR-053).
+    /// A name of a sidebar tree by name › year › month (an airline, a type,
+    /// a registration or a person; ADR-053).
     pub struct NameTreeNode {
-        /// Null: the photos that name none of this kind.
+        /// Null: the photos that name none of this kind, or (by face) the
+        /// photos with a face that has no name.
         pub name: Option<String>,
         #[ts(type = "number")]
         pub photos: u64,

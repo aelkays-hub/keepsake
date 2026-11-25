@@ -7,6 +7,7 @@ mod aircraft_tree;
 mod assets;
 mod browse;
 mod events;
+mod face_tree;
 mod faces;
 mod files;
 mod flickr;
@@ -15,6 +16,7 @@ mod imports;
 mod jobs;
 mod labels;
 mod meta;
+mod name_tree;
 mod recipes;
 mod renditions;
 mod report;
@@ -31,7 +33,7 @@ pub use ai::{
 pub use aircraft_report::{
     AircraftGroup, AircraftReport, AircraftReportRepo, AircraftRow, AircraftTotals, AircraftYear,
 };
-pub use aircraft_tree::{AircraftKind, AircraftTreeMonth, AircraftTreeNode, AircraftTreeYear};
+pub use aircraft_tree::AircraftKind;
 pub use assets::{Assets, DayCount};
 pub use browse::{
     Browse, BrowseRow, CalendarBucket, CalendarLevel, EditFields, Facet, FacetColumn, Shared, Sort,
@@ -49,6 +51,7 @@ pub use imports::Imports;
 pub use jobs::{Job, JobCounts, JobState, Jobs, NewJob, Priority};
 pub use labels::Labels;
 pub use meta::Meta;
+pub use name_tree::{NameTreeMonth, NameTreeNode, NameTreeYear};
 pub use recipes::Recipes;
 pub use renditions::Renditions;
 pub use report::{DriveRow, LibraryReport, Report, ReportRow, UNKNOWN};

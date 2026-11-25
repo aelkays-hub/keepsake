@@ -118,6 +118,8 @@ export interface MockState {
   label: Map<number, string | null>;
   comment: Map<number, string | null>;
   keywords: Map<number, string[]>;
+  /** Photos with a face that has no name (the face tree; ADR-053). */
+  unnamedFaces: Set<number>;
   presets: Preset[];
   imported: Set<string>;
   /** Seconds added to capture times by time shifts. */
@@ -355,6 +357,27 @@ function mockNameTree(items: { day: string | null; kw: string[] }[], kind: strin
     const has = it.kw.some((t) => t === `Aircraft|${k}` || t.startsWith(`Aircraft|${k}|`));
     for (const n of has ? own : [null]) names.set(n, [...(names.get(n) ?? []), it.day]);
   }
+  return mockTreeOf(names);
+}
+
+/** The sidebar's face tree (`faces_tree`): the `People|<name>` keywords,
+ * then the photos with an unnamed face. */
+function mockFaceTree(
+  items: { day: string | null; kw: string[]; unnamed: boolean }[],
+): NameTreeNode[] {
+  const names = new Map<string | null, (string | null)[]>();
+  for (const it of items) {
+    const own = [
+      ...new Set(it.kw.filter((t) => t.startsWith("People|")).map((t) => t.split("|")[1])),
+    ];
+    for (const n of [...own, ...(it.unnamed ? [null] : [])])
+      names.set(n, [...(names.get(n) ?? []), it.day]);
+  }
+  return mockTreeOf(names);
+}
+
+/** Each name's photos' days, as tree nodes: most photos first, unnamed last. */
+function mockTreeOf(names: Map<string | null, (string | null)[]>): NameTreeNode[] {
   const nodes: NameTreeNode[] = [...names.entries()].map(([name, days]) => {
     const years = new Map<number | null, Map<number, number>>();
     const per = new Map<number | null, number>();
@@ -633,6 +656,7 @@ export function installMock(): void {
     label: new Map(),
     comment: new Map(),
     keywords: new Map(),
+    unnamedFaces: new Set(),
     presets: [
       {
         name: "Two drives",
@@ -826,6 +850,7 @@ export function installMock(): void {
       if (!tagsOf(it.i).some((t) => t === want || t.startsWith(`${want}|`))) return false;
     for (const not of q.withoutTags ?? [])
       if (tagsOf(it.i).some((t) => t === not || t.startsWith(`${not}|`))) return false;
+    if (q.unnamedFaces && !st.unnamedFaces.has(it.i)) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -1386,6 +1411,16 @@ export function installMock(): void {
             [...st.keywords.entries()].map(([i, kw]) => ({ day: day(all[i]?.t ?? null), kw })),
             String(a.kind),
           );
+        case "faces_tree": {
+          const ids = new Set([...st.keywords.keys(), ...st.unnamedFaces]);
+          return mockFaceTree(
+            [...ids].map((i) => ({
+              day: day(all[i]?.t ?? null),
+              kw: st.keywords.get(i) ?? [],
+              unnamed: st.unnamedFaces.has(i),
+            })),
+          );
+        }
         case "flight_report":
           return {
             withoutRoute: 12,

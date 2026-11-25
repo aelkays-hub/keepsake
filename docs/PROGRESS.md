@@ -81,6 +81,13 @@
 
 
 
+## The sidebar tree by face (ADR-053) (2026-11-25)
+
+- **Asked:** "another tree, by face/year/month this should include untagged faces also".
+- **Built:** a fourth button, **By face** (the four buttons now two by two so each label fits). Person › year › month from the `People|<name>` keywords of confirmed faces; **Unnamed faces** last: the photos with a face that has no name (found, or only suggested; "not a face" left out). One node for all unnamed faces: they are not grouped by likeness anywhere yet (that is the People screen, ADR-040 step 6). Each node opens exactly its photos: `tags` `People|<name>`, or the new search filter `unnamedFaces` (core `SearchQuery::unnamed_faces`). Core `Faces::tree()` in `face_tree.rs`; the shared node building moved to `name_tree.rs` (`NameTreeNode`, also used by the aircraft trees). Tauri `faces_tree`. UI `aircraftTree.ts` renamed `nameTree.ts` with the kind `face`.
+- **Tests, run here (Windows):** `report_tests` (all 19, 2 new: the face tree's shape; every face node finds exactly its count); Vitest `nameTree.test.ts` (6, 1 new), `treeMemory`, `uiModel`; mocked Playwright `face-tree.spec.ts` (3 new), `aircraft-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (30 in all); looked at in the mocked app; tsc, ESLint, Prettier (3 e2e files this branch does not touch were already unformatted), cargo fmt, clippy `-D warnings` (keepsake-core, keepsake-app).
+- **Not run:** in the installed app with real faces; CI; macOS.
+
 ## The sidebar tree by aircraft (ADR-053) (2026-11-25)
 
 - **Asked:** the aircraft report's Airline › Type › Registration grouping in the sidebar's tree, by year and month.

@@ -11,11 +11,12 @@
 //!
 //! Read-only: one scan of the aircraft keywords; no media file is read.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::aircraft_report::{AircraftReportRepo, AIRCRAFT_KEYWORDS};
+use super::name_tree::{self, Day, NameTreeNode};
 use super::tags::PATHS_CTE;
 use crate::catalog::error::CatalogError;
 use crate::catalog::AssetId;
@@ -39,82 +40,10 @@ impl AircraftKind {
     }
 }
 
-/// One month of a year.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AircraftTreeMonth {
-    /// 1–12.
-    pub month: u32,
-    pub photos: u64,
-}
-
-/// One year of a name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AircraftTreeYear {
-    /// `None`: the photos with no date.
-    pub year: Option<i32>,
-    pub photos: u64,
-    /// Oldest first (none for the photos with no date).
-    pub months: Vec<AircraftTreeMonth>,
-}
-
-/// One airline, type or registration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AircraftTreeNode {
-    /// As in the keyword (`KLM`); `None`: the photos that name none of this
-    /// kind.
-    pub name: Option<String>,
-    pub photos: u64,
-    /// Oldest first; the photos with no date last.
-    pub years: Vec<AircraftTreeYear>,
-}
-
-/// A photo's day: `(year, month)`, or `None` when it has no date.
-type Day = Option<(i32, u32)>;
-
-fn day_of(date: Option<&str>) -> Option<(i32, u32)> {
-    let d = date?;
-    let y = d.get(0..4)?.parse().ok()?;
-    let m = d.get(5..7)?.parse().ok()?;
-    Some((y, m))
-}
-
-fn node(name: Option<String>, photos: &HashMap<AssetId, Day>) -> AircraftTreeNode {
-    // `None` sorts first in a BTreeMap: the undated go last below.
-    let mut years: BTreeMap<Option<i32>, BTreeMap<u32, u64>> = BTreeMap::new();
-    let mut per_year: HashMap<Option<i32>, u64> = HashMap::new();
-    for day in photos.values() {
-        let y = day.map(|(y, _)| y);
-        *per_year.entry(y).or_default() += 1;
-        let months = years.entry(y).or_default();
-        if let Some((_, m)) = day {
-            *months.entry(*m).or_default() += 1;
-        }
-    }
-    let mut years: Vec<AircraftTreeYear> = years
-        .into_iter()
-        .map(|(year, months)| AircraftTreeYear {
-            year,
-            photos: per_year.get(&year).copied().unwrap_or(0),
-            months: months
-                .into_iter()
-                .map(|(month, photos)| AircraftTreeMonth { month, photos })
-                .collect(),
-        })
-        .collect();
-    if years.first().is_some_and(|y| y.year.is_none()) {
-        years.rotate_left(1);
-    }
-    AircraftTreeNode {
-        name,
-        photos: photos.len() as u64,
-        years,
-    }
-}
-
 impl<M> AircraftReportRepo<'_, M> {
     /// The library by `kind`, then year and month: most photos first, then
     /// by name; the unnamed last.
-    pub fn tree(&self, kind: AircraftKind) -> Result<Vec<AircraftTreeNode>, CatalogError> {
+    pub fn tree(&self, kind: AircraftKind) -> Result<Vec<NameTreeNode>, CatalogError> {
         // Every aircraft keyword (or the bare parent) on every item, with
         // the item's day. LIKE ignores ASCII case, as the search does.
         let mut st = self.conn.prepare(&format!(
@@ -136,15 +65,8 @@ impl<M> AircraftReportRepo<'_, M> {
             let undated: bool = r.get(1)?;
             let date: Option<String> = r.get(2)?;
             let path: String = r.get(3)?;
-            let d = if undated {
-                None
-            } else {
-                match day_of(date.as_deref()) {
-                    Some(d) => Some(d),
-                    // Dated, but no readable local day: in no year or
-                    // month the search could find; left out.
-                    None => continue,
-                }
+            let Some(d) = name_tree::day_of(undated, date.as_deref()) else {
+                continue;
             };
             day.insert(id, d);
             let mut parts = path.split('|');
@@ -159,18 +81,10 @@ impl<M> AircraftReportRepo<'_, M> {
         }
         drop(q);
 
-        let mut out: Vec<AircraftTreeNode> = named
-            .into_iter()
-            .map(|(name, photos)| node(Some(name), &photos))
-            .collect();
-        out.sort_by(|a, b| b.photos.cmp(&a.photos).then_with(|| a.name.cmp(&b.name)));
         let none: HashMap<AssetId, Day> = day
             .into_iter()
             .filter(|(id, _)| !has_kind.contains(id))
             .collect();
-        if !none.is_empty() {
-            out.push(node(None, &none));
-        }
-        Ok(out)
+        Ok(name_tree::tree(named, &none))
     }
 }

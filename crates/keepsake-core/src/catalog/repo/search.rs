@@ -74,6 +74,11 @@ pub struct SearchQuery {
     /// that names no airline (`Aircraft|Airline`).
     #[serde(default)]
     pub without_tags: Vec<String>,
+    /// Only photos with a face that has no name: found, or only suggested
+    /// for someone, and not "not a face" (ADR-040): the face tree's
+    /// unnamed node (ADR-053).
+    #[serde(default)]
+    pub unnamed_faces: bool,
 }
 
 /// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
@@ -269,6 +274,13 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
     }
     if q.undated {
         f.wh.push("a.capture_ts_ms IS NULL".into());
+    }
+    if q.unnamed_faces {
+        f.wh.push(
+            "EXISTS (SELECT 1 FROM faces fu WHERE fu.asset_id = a.id
+                     AND fu.state IN ('unknown', 'suggested'))"
+                .into(),
+        );
     }
     Ok(f)
 }

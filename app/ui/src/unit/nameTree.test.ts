@@ -3,11 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   dateQuery,
   isAircraftTree,
+  isNameTree,
   nameQuery,
   nameTreeNodes,
   sameQuery,
   unnamedLabel,
-} from "../aircraftTree";
+} from "../nameTree";
 import type { NameTreeNode } from "../bindings/NameTreeNode";
 
 const tree: NameTreeNode[] = [
@@ -29,7 +30,7 @@ const tree: NameTreeNode[] = [
   { name: null, photos: 1, years: [{ year: 2024, photos: 1, months: [{ month: 2, photos: 1 }] }] },
 ];
 
-describe("aircraft trees", () => {
+describe("trees by name", () => {
   it("knows its kinds", () => {
     expect(["airline", "type", "registration"].every(isAircraftTree)).toBe(true);
     expect(isAircraftTree("date")).toBe(false);
@@ -85,6 +86,25 @@ describe("aircraft trees", () => {
       from: "2024-02-01",
       to: "2024-02-29",
     });
+  });
+
+  it("by face: each person's keyword, then the unnamed faces", () => {
+    expect(isNameTree("face")).toBe(true);
+    expect(isAircraftTree("face")).toBe(false);
+    expect(nameQuery("face", "Sara")).toEqual({ tags: ["People|Sara"] });
+    expect(dateQuery("face", null, 2019, 3)).toEqual({
+      unnamedFaces: true,
+      from: "2019-03-01",
+      to: "2019-03-31",
+    });
+    expect(dateQuery("face", "Sara", null)).toEqual({ tags: ["People|Sara"], undated: true });
+    const n = nameTreeNodes("face", tree, new Set([""]));
+    expect(n.map((x) => [x.label, x.depth, x.count])).toEqual([
+      ["KLM", 0, 5],
+      ["Unnamed faces", 0, 1],
+      ["2024", 1, 1],
+    ]);
+    expect(n[2].title).toBe("Unnamed faces › 2024");
   });
 
   it("compares queries whatever their order", () => {

@@ -266,6 +266,7 @@ pub fn run() {
             faces::faces_remove_models,
             faces::faces_of_photo,
             faces::faces_people,
+            faces::faces_tree,
             faces::faces_name,
             faces::faces_find,
             faces::faces_suggest,

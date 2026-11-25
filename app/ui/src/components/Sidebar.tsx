@@ -1,6 +1,6 @@
 // Sidebar: Library (with a tree: the calendar's years, months and days, the
-// folders on disk, or the aircraft keywords' airlines, types or
-// registrations by year and month), Events, Volumes, Tools, Imports. Arrow keys move
+// folders on disk, the aircraft keywords' airlines, types or registrations
+// by year and month, or the people by year and month), Events, Volumes, Tools, Imports. Arrow keys move
 // between entries (a single tab stop), Enter or click opens one; Right and
 // Left open and close a tree node, or go to its first child or its parent.
 // A folder of the folder tree has a menu (right-click, the Menu key or
@@ -21,15 +21,17 @@ import { useNameTree } from "../useNameTree";
 import {
   AIRCRAFT_TREE_KINDS,
   isAircraftTree,
+  isNameTree,
   sameQuery,
   treeKindLabel,
   type AircraftTreeKind,
   type NameNode,
-} from "../aircraftTree";
+  type NameTreeKind,
+} from "../nameTree";
 import { keepScroll, scrollOf } from "../treeMemory";
 
 /** How the Library tree is shown. */
-export type TreeMode = "date" | "folder" | AircraftTreeKind;
+export type TreeMode = "date" | "folder" | NameTreeKind;
 const MODE_KEY = "keepsake.sidebarTree";
 /** The aircraft tree shown last, for the By aircraft button. */
 const AIRCRAFT_KEY = "keepsake.sidebarTree.aircraft";
@@ -44,7 +46,7 @@ function remembered(key: string): string | null {
 
 function rememberedMode(): TreeMode {
   const m = remembered(MODE_KEY) ?? "";
-  return m === "folder" || isAircraftTree(m) ? m : "date";
+  return m === "folder" || isNameTree(m) ? m : "date";
 }
 
 function rememberedAircraft(): AircraftTreeKind {
@@ -76,7 +78,7 @@ interface Entry {
   cal?: CalNode;
   /** A folder tree node. */
   fold?: FolderTreeNode;
-  /** An aircraft tree node. */
+  /** A node of a tree by name (aircraft or face). */
   name?: NameNode;
 }
 
@@ -126,13 +128,14 @@ export function Sidebar() {
     mode === "folder",
   );
   const aircraftKind = isAircraftTree(mode) ? mode : null;
-  const names = useNameTree(aircraftKind, [refreshes, s.revision]);
+  const nameKind = isNameTree(mode) ? mode : null;
+  const names = useNameTree(nameKind, [refreshes, s.revision]);
   // The calendar tree follows the calendar view down to where it is.
   const { reveal } = cal;
   useEffect(() => {
     if (s.section.kind === "calendar") reveal(s.cal.year, s.cal.month);
   }, [reveal, s.section.kind, s.cal.year, s.cal.month]);
-  const treeEntries: Entry[] = aircraftKind
+  const treeEntries: Entry[] = nameKind
     ? names.nodes.map((n) => ({
         key: `n${n.key}`,
         label: n.label,
@@ -364,7 +367,7 @@ export function Sidebar() {
             <h3>{g.title}</h3>
             {g.switcher && (
               <div
-                className="segmented tree-mode"
+                className="segmented tree-mode four"
                 role="group"
                 aria-label="Show the library"
                 data-testid="tree-mode"
@@ -374,6 +377,7 @@ export function Sidebar() {
                     ["date", "By date"],
                     ["folder", "By folder"],
                     ["aircraft", "By aircraft"],
+                    ["face", "By face"],
                   ] as const
                 ).map(([m, label]) => (
                   <button
@@ -382,7 +386,9 @@ export function Sidebar() {
                     title={
                       m === "aircraft"
                         ? "By the airline, type or registration in the aircraft keywords, then by year and month"
-                        : undefined
+                        : m === "face"
+                          ? "By the people named in the photos, then by year and month; the photos with a face that has no name last"
+                          : undefined
                     }
                     onClick={() => setMode(m === "aircraft" ? rememberedAircraft() : m)}
                     onKeyDown={(ev) => ev.stopPropagation()}
@@ -415,6 +421,12 @@ export function Sidebar() {
               <p className="muted tree-empty" data-testid="tree-aircraft-empty">
                 No photo has an aircraft keyword yet. Read aircraft (right-click a date or a folder)
                 or add keywords such as Aircraft|Airline|KLM.
+              </p>
+            )}
+            {g.switcher && mode === "face" && names.loaded && names.nodes.length === 0 && (
+              <p className="muted tree-empty" data-testid="tree-face-empty">
+                No face is found or named yet. Turn on Recognise faces (Settings → On-device AI),
+                then right-click a photo and choose Name and find.
               </p>
             )}
             <ul>

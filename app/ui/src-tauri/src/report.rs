@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use keepsake_core::catalog::{
-    AircraftGroup, AircraftKind, AircraftReport as CoreAircraft, AircraftRow, AircraftTreeNode,
-    LibraryReport as CoreReport, ReportRow,
+    AircraftGroup, AircraftKind, AircraftReport as CoreAircraft, AircraftRow,
+    LibraryReport as CoreReport, NameTreeNode as CoreNameTree, ReportRow,
 };
 use keepsake_core::report;
 use tauri::State;
@@ -228,7 +228,9 @@ pub fn flight_report_csv(state: State<'_, AppState>, path: String) -> CmdResult<
     Ok(crate::convert::path_text(&out))
 }
 
-fn tree_node(n: &AircraftTreeNode) -> NameTreeNode {
+/// A sidebar tree's node for the UI (by aircraft here, by face in
+/// `faces::faces_tree`).
+pub(crate) fn tree_node(n: &CoreNameTree) -> NameTreeNode {
     NameTreeNode {
         name: n.name.clone(),
         photos: n.photos,

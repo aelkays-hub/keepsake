@@ -61,6 +61,7 @@ pub fn query(q: &Query) -> Result<SearchQuery, String> {
         tag: q.tag.clone().filter(|t| !t.trim().is_empty()),
         tags: q.tags.clone().unwrap_or_default(),
         without_tags: q.without_tags.clone().unwrap_or_default(),
+        unnamed_faces: q.unnamed_faces.unwrap_or(false),
         limit: None,
     })
 }
