@@ -1,9 +1,10 @@
 // Where the sidebar's tree was left: which levels are open and how far it
-// is scrolled, for each tree (By date, By folder). Kept in this computer's
+// is scrolled, for each tree (By date, By folder, and By aircraft by
+// airline, type or registration). Kept in this computer's
 // web storage, so the tree comes back as it was after a restart; if the
 // storage cannot be used, the tree simply starts at the top.
 
-export type TreeName = "date" | "folder";
+export type TreeName = "date" | "folder" | "airline" | "type" | "registration";
 
 const OPEN_KEY = (t: TreeName) => `keepsake.tree.${t}.open`;
 const SCROLL_KEY = (t: TreeName) => `keepsake.tree.${t}.scroll`;

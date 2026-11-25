@@ -775,3 +775,160 @@ fn the_aircraft_csv_has_the_totals_and_every_table() {
     assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01,"));
     assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06,"));
 }
+
+// ---- The sidebar's aircraft trees (ADR-053) ----
+
+use keepsake_core::catalog::{AircraftKind, AircraftTreeNode};
+
+fn tree(cat: &Catalog, kind: AircraftKind) -> Vec<AircraftTreeNode> {
+    cat.read(|tx| tx.aircraft_report().tree(kind)).unwrap()
+}
+
+/// The fleet, and an undated photo naming KLM and two registrations, and
+/// one with only a built year (an aircraft keyword, but no name of any
+/// kind).
+fn fleet_and_more() -> Catalog {
+    let (mut cat, _) = fleet();
+    let e = asset(MediaKind::Photo, None, None, None);
+    let f = asset(MediaKind::Photo, Some("2020-07-04"), None, None);
+    add(&mut cat, &e, &[]);
+    add(&mut cat, &f, &[]);
+    tag(
+        &mut cat,
+        &e,
+        TagSource::User,
+        &[
+            "Aircraft|Airline|KLM",
+            "Aircraft|Registration|PH-BFA",
+            "Aircraft|Registration|PH-BVA",
+        ],
+    );
+    tag(&mut cat, &f, TagSource::User, &["Aircraft|Built|2014"]);
+    cat
+}
+
+/// `(name, photos, [(year, photos, [(month, photos)])])`.
+type Shape = Vec<(
+    Option<String>,
+    u64,
+    Vec<(Option<i32>, u64, Vec<(u32, u64)>)>,
+)>;
+
+fn shape(t: &[AircraftTreeNode]) -> Shape {
+    t.iter()
+        .map(|n| {
+            (
+                n.name.clone(),
+                n.photos,
+                n.years
+                    .iter()
+                    .map(|y| {
+                        (
+                            y.year,
+                            y.photos,
+                            y.months.iter().map(|m| (m.month, m.photos)).collect(),
+                        )
+                    })
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_aircraft_trees_go_by_name_then_year_then_month() {
+    let cat = fleet_and_more();
+    let some = |s: &str| Some(s.to_owned());
+    assert_eq!(
+        shape(&tree(&cat, AircraftKind::Airline)),
+        [
+            (
+                some("KLM"),
+                5,
+                vec![
+                    (Some(2018), 1, vec![(12, 1)]),
+                    (Some(2019), 3, vec![(1, 2), (3, 1)]),
+                    (None, 1, vec![]),
+                ]
+            ),
+            (None, 1, vec![(Some(2020), 1, vec![(7, 1)])]),
+        ]
+    );
+    // The AI-only Airplane photo has no aircraft keyword: in no tree.
+    assert_eq!(
+        shape(&tree(&cat, AircraftKind::Type)),
+        [
+            (some("Boeing 747"), 2, vec![(Some(2019), 2, vec![(1, 2)])]),
+            (
+                some("Boeing 777-300ER"),
+                1,
+                vec![(Some(2019), 1, vec![(3, 1)])]
+            ),
+            (
+                None,
+                3,
+                vec![
+                    (Some(2018), 1, vec![(12, 1)]),
+                    (Some(2020), 1, vec![(7, 1)]),
+                    (None, 1, vec![]),
+                ]
+            ),
+        ]
+    );
+    // A photo naming two registrations is under each.
+    let regs = tree(&cat, AircraftKind::Registration);
+    let names: Vec<_> = regs.iter().map(|n| (n.name.clone(), n.photos)).collect();
+    assert_eq!(names, [(some("PH-BFA"), 4), (some("PH-BVA"), 2), (None, 1)]);
+}
+
+#[test]
+fn every_aircraft_tree_node_opens_exactly_its_photos() {
+    let cat = fleet_and_more();
+    for kind in [
+        AircraftKind::Airline,
+        AircraftKind::Type,
+        AircraftKind::Registration,
+    ] {
+        for n in tree(&cat, kind) {
+            // As the sidebar asks for them (`aircraftTree.ts`).
+            let base = match &n.name {
+                Some(name) => SearchQuery {
+                    tags: vec![format!("Aircraft|{}|{name}", kind.keyword())],
+                    ..Default::default()
+                },
+                None => SearchQuery {
+                    tags: vec!["Aircraft".into()],
+                    without_tags: vec![format!("Aircraft|{}", kind.keyword())],
+                    ..Default::default()
+                },
+            };
+            assert_eq!(found(&cat, &base), n.photos, "{kind:?} {:?}", n.name);
+            for y in &n.years {
+                let Some(year) = y.year else {
+                    let q = SearchQuery {
+                        undated: true,
+                        ..base.clone()
+                    };
+                    assert_eq!(found(&cat, &q), y.photos, "{:?} undated", n.name);
+                    continue;
+                };
+                let q = SearchQuery {
+                    from: Some(format!("{year}-01-01")),
+                    to: Some(format!("{year}-12-31")),
+                    ..base.clone()
+                };
+                assert_eq!(found(&cat, &q), y.photos, "{:?} {year}", n.name);
+                for m in &y.months {
+                    let g = format!("{year}-{:02}", m.month);
+                    let d = date_query(Some(&g));
+                    let q = SearchQuery {
+                        from: d.from,
+                        to: d.to,
+                        ..base.clone()
+                    };
+                    assert_eq!(found(&cat, &q), m.photos, "{:?} {g}", n.name);
+                }
+            }
+        }
+    }
+}

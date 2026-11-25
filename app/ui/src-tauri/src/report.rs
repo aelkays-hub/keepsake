@@ -7,15 +7,16 @@
 use std::path::PathBuf;
 
 use keepsake_core::catalog::{
-    AircraftGroup, AircraftReport as CoreAircraft, AircraftRow, LibraryReport as CoreReport,
-    ReportRow,
+    AircraftGroup, AircraftKind, AircraftReport as CoreAircraft, AircraftRow, AircraftTreeNode,
+    LibraryReport as CoreReport, ReportRow,
 };
 use keepsake_core::report;
 use tauri::State;
 
 use crate::api::{
-    AircraftReport, AircraftReportGroup, AircraftReportRow, AircraftReportTotals,
-    AircraftReportYear, LibraryReport, ReportDrive, ReportGroup,
+    AircraftKindDto, AircraftReport, AircraftReportGroup, AircraftReportRow, AircraftReportTotals,
+    AircraftReportYear, LibraryReport, NameTreeMonth, NameTreeNode, NameTreeYear, ReportDrive,
+    ReportGroup,
 };
 use crate::state::{err, AppState, CmdResult};
 
@@ -225,4 +226,47 @@ pub fn flight_report_csv(state: State<'_, AppState>, path: String) -> CmdResult<
     }
     report::write_flights_csv(&build_flights(&state)?, &out).map_err(err)?;
     Ok(crate::convert::path_text(&out))
+}
+
+fn tree_node(n: &AircraftTreeNode) -> NameTreeNode {
+    NameTreeNode {
+        name: n.name.clone(),
+        photos: n.photos,
+        years: n
+            .years
+            .iter()
+            .map(|y| NameTreeYear {
+                year: y.year,
+                photos: y.photos,
+                months: y
+                    .months
+                    .iter()
+                    .map(|m| NameTreeMonth {
+                        month: m.month,
+                        photos: m.photos,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// The sidebar's tree by airline, type or registration, then year and
+/// month (ADR-053).
+#[tauri::command(async)]
+pub fn aircraft_tree(
+    state: State<'_, AppState>,
+    kind: AircraftKindDto,
+) -> CmdResult<Vec<NameTreeNode>> {
+    let kind = match kind {
+        AircraftKindDto::Airline => AircraftKind::Airline,
+        AircraftKindDto::Type => AircraftKind::Type,
+        AircraftKindDto::Registration => AircraftKind::Registration,
+    };
+    let open = state.open()?;
+    let cat = open.cat()?;
+    let t = cat
+        .read(|tx| tx.aircraft_report().tree(kind))
+        .map_err(err)?;
+    Ok(t.iter().map(tree_node).collect())
 }

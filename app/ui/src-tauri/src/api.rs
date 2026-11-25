@@ -1039,6 +1039,16 @@ pub enum CalendarLevelDto {
     Days { year: i32, month: u32 },
 }
 
+/// Which aircraft keyword a sidebar tree is built from (ADR-053).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum AircraftKindDto {
+    Airline,
+    Type,
+    Registration,
+}
+
 dto! {
     /// What the viewer can toggle between for an asset.
     pub struct AssetMembers {
@@ -1301,6 +1311,35 @@ dto! {
         pub years: Vec<AircraftReportYear>,
         /// Airline › type › registration, most photos first, unnamed last.
         pub by_airline: Vec<AircraftReportGroup>,
+    }
+
+    /// A month of a sidebar tree's year.
+    pub struct NameTreeMonth {
+        /// 1–12.
+        pub month: u32,
+        #[ts(type = "number")]
+        pub photos: u64,
+    }
+
+    /// A year of a sidebar tree's name.
+    pub struct NameTreeYear {
+        /// Null: the photos with no date.
+        pub year: Option<i32>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// Oldest first.
+        pub months: Vec<NameTreeMonth>,
+    }
+
+    /// A name of a sidebar tree by name › year › month (an airline, a type
+    /// or a registration; ADR-053).
+    pub struct NameTreeNode {
+        /// Null: the photos that name none of this kind.
+        pub name: Option<String>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// Oldest first, undated last.
+        pub years: Vec<NameTreeYear>,
     }
 
     /// `maint://progress`: a backup, verify or folder scan is running.

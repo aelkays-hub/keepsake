@@ -1585,6 +1585,10 @@ pre.licence-text {
   font-size: 12px;
   padding: 2px 6px;
 }
+.sidebar .tree-empty {
+  margin: 4px 12px 8px;
+  font-size: 12px;
+}
 
 /* ── All metadata (inspector) ─────────────────────────────────────── */
 .all-meta-tools {

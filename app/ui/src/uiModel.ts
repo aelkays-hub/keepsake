@@ -13,7 +13,13 @@ export type Section =
   | { kind: "folder"; id: string; path: string; title: string }
   | { kind: "import"; id: string; title: string }
   /** The items of one report row (Tools → Report), e.g. a year or a camera. */
-  | { kind: "report"; title: string; query: Partial<Query> };
+  | {
+      kind: "report";
+      title: string;
+      query: Partial<Query>;
+      /** Opened from the sidebar's tree (ADR-053): no way back to the report. */
+      fromTree?: boolean;
+    };
 
 export type Mode = "calendar" | "grid" | "details";
 

@@ -1,4 +1,4 @@
-# Manual Test Steps — Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — The sidebar tree by aircraft, Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -9,6 +9,38 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
+
+## The sidebar tree by aircraft
+
+Same on **Windows** and **macOS**. You need some photos with aircraft keywords (accepted in Read aircraft, or typed, such as `Aircraft|Airline|KLM`), and ideally a few with a type or registration but no airline.
+
+Automated:
+```
+cargo test -p keepsake-core --test report_tests aircraft_tree
+cd app/ui; pnpm exec vitest run src/unit/aircraftTree.test.ts
+cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft-tree.spec.ts
+```
+
+1. In the sidebar, above the tree, click **By aircraft**.
+   - **Expected:** a second row shows **Airline / Type / Registration**, with Airline pressed. The tree lists the airlines with their photo counts, most photos first; **No airline named** is last, in the same list. The Calendar tree is gone.
+2. Open Tools → Report → Aircraft and compare.
+   - **Expected:** each airline's count in the sidebar is the same as its line in the report's drill-down.
+3. Click an airline (KLM, say).
+   - **Expected:** the library shows its photos; the heading reads "KLM" and the item count is the number beside KLM. The node opens to its years, oldest first, with **No date** last if some of its photos have no date.
+4. Click a year, then open it and click a month.
+   - **Expected:** the heading reads "KLM › 2019", then "KLM › 2019 › June"; each time the item count equals the node's number, and every photo shown is from that year or month.
+5. Click **No airline named**.
+   - **Expected:** photos with aircraft keywords (a type, a registration, a route…) but no airline keyword.
+6. Click **Registration**, then **Type**.
+   - **Expected:** the tree is the registrations, then the types, each name › year › month. A photo with two registrations counts under both.
+7. Close and start Keepsake again.
+   - **Expected:** the sidebar still shows By aircraft › Type, with the same nodes open. **By date** brings the calendar back; **By aircraft** again shows Type.
+8. Accept a new registration in Read aircraft (or add an `Aircraft|Registration|…` keyword to a photo), then look at the Registration tree.
+   - **Expected:** within a few seconds the registration is in the tree with its count.
+9. With the keyboard: Tab into the tree, use ↓ ↑ to move, → to open a name or year, ← to close or go up, Enter to show.
+   - **Expected:** works as in the date tree.
+
+---
 
 ## Read aircraft: the flag after a Canadian registration
 

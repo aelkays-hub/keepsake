@@ -10,6 +10,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 
 import type { AiAdviceDto } from "../bindings/AiAdviceDto";
 import type { Bucket } from "../bindings/Bucket";
+import type { NameTreeNode } from "../bindings/NameTreeNode";
 import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
@@ -342,6 +343,51 @@ const day = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 const READ_MS = 1000;
 
 /** Report → Aircraft: a small fixed fleet. */
+/** The sidebar's aircraft tree (`aircraft_tree`), as the core builds it. */
+function mockNameTree(items: { day: string | null; kw: string[] }[], kind: string): NameTreeNode[] {
+  const k = kind[0].toUpperCase() + kind.slice(1);
+  const names = new Map<string | null, (string | null)[]>();
+  for (const it of items) {
+    if (!it.kw.some((t) => t === "Aircraft" || t.startsWith("Aircraft|"))) continue;
+    const own = [
+      ...new Set(it.kw.filter((t) => t.startsWith(`Aircraft|${k}|`)).map((t) => t.split("|")[2])),
+    ];
+    const has = it.kw.some((t) => t === `Aircraft|${k}` || t.startsWith(`Aircraft|${k}|`));
+    for (const n of has ? own : [null]) names.set(n, [...(names.get(n) ?? []), it.day]);
+  }
+  const nodes: NameTreeNode[] = [...names.entries()].map(([name, days]) => {
+    const years = new Map<number | null, Map<number, number>>();
+    const per = new Map<number | null, number>();
+    for (const d of days) {
+      const y = d ? Number(d.slice(0, 4)) : null;
+      per.set(y, (per.get(y) ?? 0) + 1);
+      const ms = years.get(y) ?? new Map<number, number>();
+      if (d) ms.set(Number(d.slice(5, 7)), (ms.get(Number(d.slice(5, 7))) ?? 0) + 1);
+      years.set(y, ms);
+    }
+    return {
+      name,
+      photos: days.length,
+      years: [...years.entries()]
+        .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a - b))
+        .map(([year, ms]) => ({
+          year,
+          photos: per.get(year) ?? 0,
+          months: [...ms.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([month, photos]) => ({ month, photos })),
+        })),
+    };
+  });
+  return nodes.sort((a, b) =>
+    a.name === null
+      ? 1
+      : b.name === null
+        ? -1
+        : b.photos - a.photos || a.name.localeCompare(b.name),
+  );
+}
+
 function mockAircraftReport(): AircraftReport {
   const row = (
     kind: string,
@@ -1333,6 +1379,13 @@ export function installMock(): void {
         }
         case "aircraft_report":
           return mockAircraftReport();
+        case "aircraft_tree":
+          // From the keywords given in this session (AI tags are never
+          // aircraft keywords).
+          return mockNameTree(
+            [...st.keywords.entries()].map(([i, kw]) => ({ day: day(all[i]?.t ?? null), kw })),
+            String(a.kind),
+          );
         case "flight_report":
           return {
             withoutRoute: 12,

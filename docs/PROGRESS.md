@@ -81,6 +81,13 @@
 
 
 
+## The sidebar tree by aircraft (ADR-053) (2026-11-25)
+
+- **Asked:** the aircraft report's Airline › Type › Registration grouping in the sidebar's tree, by year and month.
+- **Built:** a third button, **By aircraft**, beside By date and By folder, with **Airline / Type / Registration** under it (remembered, with each kind's open nodes and scroll place). The tree is name › year › month with photo counts; **No airline named** (type, registration) last for the photos with other aircraft keywords; **No date** last among a name's years. Each node opens exactly its photos as a report section (`tags`, `withoutTags`, `from`/`to`, `undated`); the counts are of the whole library, since a report section clears the filters. Core `AircraftReportRepo::tree` (one scan of the aircraft keywords), thin Tauri command `aircraft_tree`, pure UI tree code (`aircraftTree.ts`, `useNameTree.ts`) written so a tree by face can reuse it.
+- **Tests, run here (Windows):** `report_tests` (all 17, 2 new: the three trees' shape; every node of every kind finds exactly its count); Vitest `aircraftTree.test.ts` (5 new), `treeMemory`, `uiModel`; mocked Playwright `aircraft-tree.spec.ts` (3 new), `folder-tree`, `tree-place`, `a11y`, `report`; tsc, ESLint, Prettier, cargo fmt, clippy `-D warnings` (keepsake-core, keepsake-app). The headings of nodes opened from the tree have no Report › link (`fromTree`).
+- **Not run:** in the installed app; CI; macOS.
+
 ## Version 0.11.5 (2026-11-25)
 
 - Version 0.11.5 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: a Canadian registration read with the flag painted after it (Porter, PR #71), and the aircraft report's lines with no airline open their photos (PR #70). No catalog change.
