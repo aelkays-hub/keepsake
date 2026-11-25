@@ -81,6 +81,10 @@
 
 
 
+## Version 0.11.5 (2026-11-25)
+
+- Version 0.11.5 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: a Canadian registration read with the flag painted after it (Porter, PR #71), and the aircraft report's lines with no airline open their photos (PR #70). No catalog change.
+
 ## Read aircraft: the flag after a Canadian registration (2026-11-25)
 
 - **Asked:** A7_08885.ARW (2024-05-18) has Porter's registration in black on white after the back door, very plain, yet no registration was read; all Porter aircraft the same.

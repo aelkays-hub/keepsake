@@ -1,3 +1,17 @@
+# Keepsake 0.11.5
+
+Version 0.11.5 reads Porter's registrations, and lets the aircraft report open the photos that name no airline. It has everything in 0.11.4. No catalog change: 0.11.4 and 0.11.5 open the same library.
+
+## Fixed in 0.11.5
+
+**Registrations with the flag painted after them** (Read aircraft)
+- Porter paints the Canadian flag right after the registration's last letter, and it was read as part of it (`C-GZQXI*I`, `C-GZOBM`), so no Porter photo was offered its registration. The flag is now left out: A7_08885.ARW offers C-GZQX beside Porter Airlines and fin 929.
+- A Canadian registration is always `C-` and four letters, so one or two characters more after them are taken as the flag.
+- Photos read before 0.11.5 keep what they read: right-click their folder or dates → **Read aircraft again**.
+
+**Aircraft report: lines with no airline open their photos** (Tools → Report → Aircraft)
+- In Airline › Type › Registration, **No airline named** and the types and registrations under it (and any "No type named" or "No registration named") are now links like the others. Each opens exactly its photos: those with its keywords and none of the kind it does not name.
+
 # Keepsake 0.11.4
 
 Version 0.11.4 reads the fin (fleet) number airlines paint on their aircraft, and uses it to find the registration when the registration itself cannot be read. It has everything in 0.11.3.
