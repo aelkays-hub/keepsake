@@ -436,7 +436,11 @@ fn hierarchical_tags_and_search() {
         with_but_not(&["Travel"], &["Travel|Japan"]).is_empty(),
         "below the tag counts"
     );
-    assert_eq!(with_but_not(&["Travel"], &["Trav"]), both, "whole names only");
+    assert_eq!(
+        with_but_not(&["Travel"], &["Trav"]),
+        both,
+        "whole names only"
+    );
     assert_eq!(
         with_all(&[" ", "Travel|Japan|Tokyo"]),
         vec![a.id],
