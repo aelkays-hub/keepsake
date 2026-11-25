@@ -81,6 +81,10 @@
 
 
 
+## Version 0.11.5 (2026-11-25)
+
+- Version 0.11.5 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: a Canadian registration read with the flag painted after it (Porter, PR #71), and the aircraft report's lines with no airline open their photos (PR #70). No catalog change.
+
 ## Aircraft report: lines that name no airline open their photos (2026-11-24)
 
 - **Asked:** in the report's drill-down, the types and registrations under an airline with no name "have no way to get to those pictures".
