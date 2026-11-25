@@ -36,4 +36,9 @@ tag?: string,
 /**
  * Has every one of these tags (the search bar's tag chips).
  */
-tags?: Array<string>, };
+tags?: Array<string>, 
+/**
+ * Has none of these tags, nor one below it (a report line that
+ * names no airline: `Aircraft|Airline`).
+ */
+withoutTags?: Array<string>, };

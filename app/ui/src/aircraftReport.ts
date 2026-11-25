@@ -117,15 +117,25 @@ export interface DrillRow {
   /** `3 types`, `1 registration`; empty for a registration. */
   under: string;
   open: boolean;
-  /** The keywords that find exactly its photos; `null` when a step above
-   * it (or its own) is unnamed, where no keywords say so. */
-  tags: string[] | null;
+  /** The keywords its photos have: each step named above it and its own. */
+  tags: string[];
+  /** The kinds its photos have none of: each step unnamed above it and its
+   * own (`Aircraft|Airline` under No airline named). With `tags`, they find
+   * exactly its photos. */
+  without: string[];
   /** The library's heading for its photos: `KLM › Boeing 747 › PH-BFA`. */
   title: string;
 }
 
 function drillLabel(name: string | null, depth: number): string {
   return name ?? `No ${DRILL_KINDS[depth].toLowerCase()} named`;
+}
+
+/** The keywords of the named steps; `Aircraft` alone when none is named
+ * (the line is of aircraft keywords, not every Airplane photo). */
+function drillTags(path: (string | null)[]): string[] {
+  const named = path.flatMap((n, i) => (n === null ? [] : [`Aircraft|${DRILL_KINDS[i]}|${n}`]));
+  return named.length > 0 ? named : ["Aircraft"];
 }
 
 /** Does `g`, or a step under it, hold `q` (lower case)? */
@@ -182,9 +192,8 @@ export function drillRows(
             ? `${g.children.length} ${DRILL_PLURAL[depth + 1].slice(0, g.children.length === 1 ? -1 : undefined)}`
             : "",
         open: isOpen,
-        tags: path.every((n) => n !== null)
-          ? path.map((n, i) => `Aircraft|${DRILL_KINDS[i]}|${n}`)
-          : null,
+        tags: drillTags(path),
+        without: path.flatMap((n, i) => (n === null ? [`Aircraft|${DRILL_KINDS[i]}`] : [])),
         title: path.map((n, i) => drillLabel(n, i)).join(" › "),
       });
       if (isOpen) walk(g.children, depth + 1, key, path, matched || own);

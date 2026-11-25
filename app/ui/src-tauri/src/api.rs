@@ -76,6 +76,11 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub tags: Option<Vec<String>>,
+        /// Has none of these tags, nor one below it (a report line that
+        /// names no airline: `Aircraft|Airline`).
+        #[serde(default)]
+        #[ts(optional)]
+        pub without_tags: Option<Vec<String>>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).

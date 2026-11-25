@@ -778,6 +778,8 @@ export function installMock(): void {
     if (q.tag && !tagsOf(it.i).some((t) => t === q.tag || t.startsWith(`${q.tag}|`))) return false;
     for (const want of q.tags ?? [])
       if (!tagsOf(it.i).some((t) => t === want || t.startsWith(`${want}|`))) return false;
+    for (const not of q.withoutTags ?? [])
+      if (tagsOf(it.i).some((t) => t === not || t.startsWith(`${not}|`))) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;

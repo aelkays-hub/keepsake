@@ -65,7 +65,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 
 ### Aircraft report
 - Tools → **Report** → **Aircraft** (ADR-043): photos tagged Airplane or with a keyword under Aircraft, and the airlines, types and registrations named on them (keywords typed, or found by Read aircraft and accepted; reads waiting for review are counted apart).
-- It opens on a drill-down, **Airline › Type › Registration**: each airline with its photos, its types under it, and their registrations, each with its count; a line opens exactly its photos. Photos naming none at a step are kept apart ("No type named").
+- It opens on a drill-down, **Airline › Type › Registration**: each airline with its photos, its types under it, and their registrations, each with its count; a line opens exactly its photos. Photos naming none at a step are kept apart ("No type named"), and open too: the photos with no keyword of that kind.
 - Totals: aircraft photos and distinct shots (copies of one picture in other folders once); photos naming an airline, a type, a registration; how many airlines, types and registrations; reads waiting.
 - Photos by year (all, and naming something). One table at a time, **Airlines**, **Types** or **Registrations**, most photos first, with Find: photos, different registrations, up to three airlines and types, first and last day seen. A row's name opens its photos; **Report** goes back to the same table.
 - Every column sorts when its heading is clicked, as in the library report (Undated stays last).

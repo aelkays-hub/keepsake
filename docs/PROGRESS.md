@@ -81,6 +81,13 @@
 
 
 
+## Aircraft report: lines that name no airline open their photos (2026-11-24)
+
+- **Asked:** in the report's drill-down, the types and registrations under an airline with no name "have no way to get to those pictures".
+- **Built:** `SearchQuery.without_tags` (core, and `Query.withoutTags` in the app): items with none of these tags nor one below. Every drill-down line now opens its photos: the keywords of the steps it names, and none of the kinds it does not (`Aircraft|Airline` under No airline named); a line naming nothing asks for `Aircraft` so only photos with aircraft keywords come. Unnamed lines are links, shown muted.
+- **Tests, run here (Windows):** `catalog_tests` (`hierarchical_tags_and_search`: without a tag); Vitest `aircraftReport.test.ts`; mocked Playwright `report.spec.ts` (new: an unnamed drill-down line opens its photos); tsc, ESLint, Prettier, clippy.
+- **Not run:** in the installed app; CI; macOS.
+
 ## Version 0.11.4 (2026-11-24)
 
 - Version 0.11.4 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: fin numbers read, the fin table (learned, filled from tagged photos, imported and exported as CSV), a registration offered from the fin, and Read aircraft again for a folder or dates keeping reviews (ADR-052, PR #68). Catalog version 23: 0.11.3 cannot open a library opened by 0.11.4. A tail scan for fins the text finder cannot see was tried on eight library photos and not taken (5–30 s more per photo, and false fins read at 93–97 %).

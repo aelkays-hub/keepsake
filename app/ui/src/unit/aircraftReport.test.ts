@@ -11,6 +11,7 @@ import {
   drillRows,
 } from "../aircraftReport";
 import type { AircraftReport } from "../bindings/AircraftReport";
+import type { AircraftReportGroup } from "../bindings/AircraftReportGroup";
 import type { AircraftReportRow } from "../bindings/AircraftReportRow";
 
 const row = (
@@ -118,8 +119,8 @@ describe("aircraft report", () => {
       "1 No type named 1",
       "0 Interjet 1",
     ]);
-    // A line named all the way up opens exactly its photos by keywords;
-    // under an unnamed step no keywords say so.
+    // A line opens exactly its photos: the keywords of the steps named and
+    // none of the kinds unnamed.
     const reg = drillRows(g, new Set([klm, opened[1].key]), "")[2];
     expect(reg.tags).toEqual([
       "Aircraft|Airline|KLM",
@@ -127,8 +128,43 @@ describe("aircraft report", () => {
       "Aircraft|Registration|PH-BFA",
     ]);
     expect(reg.title).toBe("KLM › Boeing 747 › PH-BFA");
-    expect(opened[2].tags).toBeNull();
+    expect(reg.without).toEqual([]);
+    expect(opened[2].tags).toEqual(["Aircraft|Airline|KLM"]);
+    expect(opened[2].without).toEqual(["Aircraft|Type"]);
     expect(closed[0].tags).toEqual(["Aircraft|Airline|KLM"]);
+    expect(closed[0].without).toEqual([]);
+    // No airline named: its type and registration open too.
+    const none: AircraftReportGroup[] = [
+      {
+        name: null,
+        photos: 2,
+        children: [
+          {
+            name: "Airbus A320",
+            photos: 1,
+            children: [{ name: "C-FXYZ", photos: 1, children: [] }],
+          },
+          { name: null, photos: 1, children: [{ name: null, photos: 1, children: [] }] },
+        ],
+      },
+    ];
+    const n0 = drillRows(none, new Set(drillKeys(none)), "");
+    expect(n0.map((r) => [r.label, r.tags, r.without])).toEqual([
+      ["No airline named", ["Aircraft"], ["Aircraft|Airline"]],
+      ["Airbus A320", ["Aircraft|Type|Airbus A320"], ["Aircraft|Airline"]],
+      [
+        "C-FXYZ",
+        ["Aircraft|Type|Airbus A320", "Aircraft|Registration|C-FXYZ"],
+        ["Aircraft|Airline"],
+      ],
+      ["No type named", ["Aircraft"], ["Aircraft|Airline", "Aircraft|Type"]],
+      [
+        "No registration named",
+        ["Aircraft"],
+        ["Aircraft|Airline", "Aircraft|Type", "Aircraft|Registration"],
+      ],
+    ]);
+    expect(n0[2].title).toBe("No airline named › Airbus A320 › C-FXYZ");
     // Find opens down to what it finds and leaves the rest out.
     expect(lines([], "ph-bva")).toEqual(["0 KLM 3", "1 No type named 1", "2 PH-BVA 1"]);
     expect(lines([], "concorde")).toEqual([]);
