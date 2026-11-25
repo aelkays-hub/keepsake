@@ -243,7 +243,7 @@ fn us_mark(word: &str) -> bool {
 /// `word` as a registration, if it is shaped like one: upper case, with
 /// what stands for the hyphen made a hyphen.
 pub fn registration(word: &str) -> Option<String> {
-    shaped(word).or_else(|| {
+    shaped(word).or_else(|| flag_after(word)).or_else(|| {
         // A capital I read as a small l (`El-EWR` for EI-EWR, A7202769), in
         // a word otherwise in capitals: a word in small letters (a
         // signature, `el-kays`) is not one.
@@ -255,6 +255,53 @@ pub fn registration(word: &str) -> Option<String> {
             None
         }
     })
+}
+
+/// What a flag painted against the registration's last letter is read as:
+/// its leaf or star, and the bars either side of it.
+const FLAG_LEAF: &[char] = &['*', '+', '#', '\u{2731}', '\u{2733}', '\u{203B}'];
+const FLAG_BAR: &[char] = &['I', 'l', '1', '|', '!', '[', ']', '(', ')'];
+
+/// A registration with a flag painted right after it, read as one word:
+/// Porter's `C-GZQX` and the Canadian flag read as `C-GZQXI*I`
+/// (A7_08885.ARW). The word is cut where the flag starts, only when what
+/// follows has the flag's leaf and nothing but its bars beside it.
+fn flag_after(word: &str) -> Option<String> {
+    let w = word.trim();
+    let Some(leaf) = w.find(FLAG_LEAF) else {
+        return canadian_with_flag(w);
+    };
+    let tail = &w[leaf..];
+    if !tail
+        .chars()
+        .all(|c| FLAG_LEAF.contains(&c) || FLAG_BAR.contains(&c))
+    {
+        return None;
+    }
+    // The bar before the leaf may have been read as a letter of the mark.
+    let head = &w[..leaf];
+    let bare = head.trim_end_matches(FLAG_BAR);
+    [head, bare]
+        .into_iter()
+        .filter(|h| !h.is_empty())
+        .find_map(shaped)
+}
+
+/// A Canadian mark is `C-` and four letters, `F` or `G` first, always: one
+/// or two more characters after them are what is painted after the mark,
+/// the flag (`C-GZOBM`, `C-GZOBIY`, `C-GZOBM/`: _DSC0855.ARW).
+fn canadian_with_flag(w: &str) -> Option<String> {
+    let w = w.to_ascii_uppercase();
+    let rest = w.strip_prefix("C-")?;
+    let letters: String = rest.chars().take(4).collect();
+    let extra = rest.chars().count().checked_sub(4)?;
+    if !(1..=2).contains(&extra)
+        || !letters.starts_with(['F', 'G'])
+        || !letters.chars().all(|c| c.is_ascii_uppercase())
+    {
+        return None;
+    }
+    shaped(&format!("C-{letters}"))
 }
 
 fn shaped(word: &str) -> Option<String> {
@@ -1108,6 +1155,32 @@ mod tests {
                 .unwrap();
         assert!(old.fins.is_empty());
         assert_eq!(old.registrations.len(), 1);
+    }
+
+    #[test]
+    fn a_flag_painted_after_the_registration_is_left_out() {
+        // A7_08885.ARW: Porter's C-GZQX, the Canadian flag after it.
+        assert_eq!(registration("C-GZQXI*I").as_deref(), Some("C-GZQX"));
+        assert_eq!(registration("C-GZQX|*|").as_deref(), Some("C-GZQX"));
+        assert_eq!(registration("C-GZQX*").as_deref(), Some("C-GZQX"));
+        assert_eq!(registration("C-GKQAl+l").as_deref(), Some("C-GKQA"));
+        assert_eq!(registrations_in("C-GZQXI*I 929"), vec!["C-GZQX".to_owned()]);
+        // A real last letter is kept: the bars beside the leaf go only when
+        // the word is no registration with them.
+        assert_eq!(registration("D-AIKI*").as_deref(), Some("D-AIKI"));
+        // _DSC0855.ARW: the flag read as letters. A Canadian mark has four
+        // letters, so one or two more are the flag.
+        assert_eq!(registration("C-GZOBM").as_deref(), Some("C-GZOB"));
+        assert_eq!(registration("C-GZOBIY").as_deref(), Some("C-GZOB"));
+        assert_eq!(registration("C-GZOBM/").as_deref(), Some("C-GZOB"));
+        assert_eq!(registration("C-GZQXI").as_deref(), Some("C-GZQX"));
+        // Three more is not a flag; nor a mark not Canadian.
+        assert_eq!(registration("C-GZOBMXY"), None);
+        assert_eq!(registration("C-AZOBM"), None);
+        assert_eq!(registration("D-AIKIX"), None);
+        // Something other than a flag after the leaf: not a registration.
+        assert_eq!(registration("C-GZQX*AB"), None);
+        assert_eq!(registration("*I"), None);
     }
 
     #[test]
