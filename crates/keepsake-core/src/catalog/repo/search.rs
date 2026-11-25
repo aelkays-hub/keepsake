@@ -190,7 +190,12 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         f.args.push(Box::new(t.to_owned()));
         f.args.push(Box::new(t.to_owned()));
     }
-    for t in q.without_tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+    for t in q
+        .without_tags
+        .iter()
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+    {
         f.wh.push(format!(
             "NOT EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
                {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
