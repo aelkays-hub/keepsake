@@ -81,6 +81,15 @@
 
 
 
+## Read aircraft: the flag after a Canadian registration (2026-11-25)
+
+- **Asked:** A7_08885.ARW (2024-05-18) has Porter's registration in black on white after the back door, very plain, yet no registration was read; all Porter aircraft the same.
+- **Found:** Porter paints the Canadian flag right after the mark's last letter. The text is read as one word with it: `C-GZQXI*I` (the leaf as `*`, the bars as `I`), or `C-GZOBM`, `C-GZOBIY`, `C-GZOBM/` (_DSC0855.ARW). Neither is a registration's shape, so none was kept: none of the library's 180 Porter reads had one.
+- **Built:** `marks::registration` tries the word without the flag after its own shape fails: cut where a leaf (`*`, `+`, `#`, stars) starts when only the leaf and bars (`I l 1 | ! [ ] ( )`) follow, the bar before it too; and a Canadian mark (`C-F…`, `C-G…`, always four letters) with one or two characters more is its first four letters.
+- **Checked on the library's photos (probe):** A7_08885 reads C-GZQX (98 %) beside Porter Airlines and fin 929; _DSC0855 reads C-GZOB (85 %); A7_03084 (Air Canada's C-GKFA) unchanged. Three other Porter photos read no registration line at all (not on the side seen).
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (1 new: `a_flag_painted_after_the_registration_is_left_out`); fmt, clippy.
+- **Not run:** in the installed app; CI; macOS. Photos read before need Read aircraft again.
+
 ## Aircraft report: lines that name no airline open their photos (2026-11-24)
 
 - **Asked:** in the report's drill-down, the types and registrations under an airline with no name "have no way to get to those pictures".
