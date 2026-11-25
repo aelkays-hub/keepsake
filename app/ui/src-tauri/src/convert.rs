@@ -60,6 +60,7 @@ pub fn query(q: &Query) -> Result<SearchQuery, String> {
         hide_not_kept: q.hide_not_kept.unwrap_or(false),
         tag: q.tag.clone().filter(|t| !t.trim().is_empty()),
         tags: q.tags.clone().unwrap_or_default(),
+        without_tags: q.without_tags.clone().unwrap_or_default(),
         limit: None,
     })
 }

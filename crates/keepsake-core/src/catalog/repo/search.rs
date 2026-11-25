@@ -70,6 +70,10 @@ pub struct SearchQuery {
     /// search bar's tag chips.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Assets with none of these tags (nor one below it): a report line
+    /// that names no airline (`Aircraft|Airline`).
+    #[serde(default)]
+    pub without_tags: Vec<String>,
 }
 
 /// SQL for the filters of a [`SearchQuery`] over `assets a`: joins, WHERE
@@ -180,6 +184,15 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
     for t in tags {
         f.wh.push(format!(
             "EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
+               {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
+            super::tags::PATHS_CTE
+        ));
+        f.args.push(Box::new(t.to_owned()));
+        f.args.push(Box::new(t.to_owned()));
+    }
+    for t in q.without_tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        f.wh.push(format!(
+            "NOT EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
                {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
             super::tags::PATHS_CTE
         ));

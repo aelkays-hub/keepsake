@@ -418,6 +418,25 @@ fn hierarchical_tags_and_search() {
     assert_eq!(with_all(&["Travel"]), both);
     assert_eq!(with_all(&["Travel", "Beach"]), vec![b.id]);
     assert!(with_all(&["Beach", "Travel|Japan|Tokyo"]).is_empty());
+    // Without a tag: neither it nor one below it (a report line that names
+    // no airline), with the tags it must have.
+    let with_but_not = |ts: &[&str], not: &[&str]| {
+        let q = keepsake_core::catalog::SearchQuery {
+            tags: ts.iter().map(|t| (*t).to_owned()).collect(),
+            without_tags: not.iter().map(|t| (*t).to_owned()).collect(),
+            ..Default::default()
+        };
+        let mut ids = cat.read(|tx| tx.search().query(&q)).unwrap();
+        ids.sort();
+        ids
+    };
+    assert_eq!(with_but_not(&["Travel"], &["Beach"]), vec![a.id]);
+    assert_eq!(with_but_not(&[], &["Travel|Japan|Tokyo"]), vec![b.id]);
+    assert!(
+        with_but_not(&["Travel"], &["Travel|Japan"]).is_empty(),
+        "below the tag counts"
+    );
+    assert_eq!(with_but_not(&["Travel"], &["Trav"]), both, "whole names only");
     assert_eq!(
         with_all(&[" ", "Travel|Japan|Tokyo"]),
         vec![a.id],

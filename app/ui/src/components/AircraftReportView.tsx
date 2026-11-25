@@ -2,7 +2,8 @@
 // registrations named on them (keywords under Aircraft, typed or accepted
 // from Read aircraft). It opens on the drill-down (airline › type ›
 // registration, each with its photos); the three tables are beside it. A
-// row's name opens its photos in the library.
+// row's name opens its photos in the library, an unnamed one too (No airline
+// named: the photos with no airline keyword).
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -94,8 +95,8 @@ export function AircraftReportView() {
   const yearMax = r ? Math.max(1, ...r.years.map((y) => y.photos)) : 1;
   const open = (path: string, title: string) =>
     dispatch({ t: "open", section: { kind: "report", title, query: { tag: path } } });
-  const openAll = (tags: string[], title: string) =>
-    dispatch({ t: "open", section: { kind: "report", title, query: { tags } } });
+  const openAll = (tags: string[], withoutTags: string[], title: string) =>
+    dispatch({ t: "open", section: { kind: "report", title, query: { tags, withoutTags } } });
 
   return (
     <>
@@ -386,7 +387,7 @@ function DrillDown({
 }: {
   groups: AircraftReportGroup[];
   find: string;
-  onOpen: (tags: string[], title: string) => void;
+  onOpen: (tags: string[], without: string[], title: string) => void;
 }) {
   const [openKeys, setOpenState] = useState<ReadonlySet<string>>(lastOpen);
   const setOpen = (s: ReadonlySet<string>) => {
@@ -438,17 +439,14 @@ function DrillDown({
                   ) : (
                     <span className="aircraft-twist" aria-hidden={true} />
                   )}
-                  {row.tags ? (
-                    <button
-                      className="link"
-                      onClick={() => onOpen(row.tags ?? [], row.title)}
-                      title={`Show these ${fmt.count(row.photos)} photos`}
-                    >
-                      {row.label}
-                    </button>
-                  ) : (
-                    <span className={row.named ? undefined : "muted"}>{row.label}</span>
-                  )}
+                  <button
+                    className={row.named ? "link" : "link muted"}
+                    onClick={() => onOpen(row.tags, row.without, row.title)}
+                    title={`Show these ${fmt.count(row.photos)} photos`}
+                    data-testid="aircraft-drill-open"
+                  >
+                    {row.label}
+                  </button>
                   {row.under && <span className="muted small"> · {row.under}</span>}
                 </th>
                 <td className="num">

@@ -236,6 +236,19 @@ test("a drill-down line opens exactly its photos, and back shows it open", async
   await expect(drill.nth(3)).toContainText("PH-BFA");
 });
 
+test("an unnamed drill-down line opens its photos too: those naming none", async ({ page }) => {
+  const screen = await open(page, 200);
+  await screen.getByTestId("report-kind-aircraft").click();
+  const drill = screen.getByTestId("aircraft-drill-row");
+  await drill.first().getByTestId("aircraft-drill-toggle").click();
+  await drill.nth(3).getByTestId("aircraft-drill-open").click();
+  await expect(page.getByTestId("heading")).toContainText("Air Canada › No type named");
+  // The airline's photos with no type keyword.
+  await expect
+    .poll(async () => JSON.stringify(await calls(page, "view_open")))
+    .toContain('"withoutTags":["Aircraft|Type"]');
+});
+
 test("report columns sort when their heading is clicked, Unknown last", async ({ page }) => {
   const screen = await open(page, 1000);
   const table = screen.getByTestId("report-table");
