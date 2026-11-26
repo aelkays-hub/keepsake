@@ -191,6 +191,7 @@ export function Sidebar() {
         { key: "backup", label: "Backup", section: { kind: "all" }, screen: "backup" },
         { key: "report", label: "Report", section: { kind: "all" }, screen: "report" },
         { key: "settings", label: "Settings", section: { kind: "all" }, screen: "settings" },
+        { key: "help", label: "Help", section: { kind: "all" }, screen: "help" },
         { key: "about", label: "About", section: { kind: "all" }, screen: "about" },
       ],
     },
