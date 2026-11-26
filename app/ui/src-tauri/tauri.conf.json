@@ -30,6 +30,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Ahmad Elkays",
+    "copyright": "Copyright © 2026 Ahmad Elkays",
     "targets": "all",
     "resources": {
       "licenses/THIRD-PARTY-NOTICES.txt": "licenses/THIRD-PARTY-NOTICES.txt"
