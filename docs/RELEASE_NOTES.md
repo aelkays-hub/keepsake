@@ -1,3 +1,21 @@
+# Keepsake 0.11.7
+
+Version 0.11.7 adds a Help screen and shows the version in Settings. It has everything in 0.11.6. No catalog change: 0.11.6 and 0.11.7 open the same library.
+
+## New in 0.11.7
+
+**Help** (Tools → Help, right after Settings)
+- **How to:** 15 short topics with numbered steps, such as importing a card, adding a folder, browsing by date, folder, aircraft or face, searching, rating, the viewer, fixing the time, backup, duplicates, on-device AI, Read aircraft and Flickr. Type in Find to narrow them.
+- **Keyboard shortcuts:** every shortcut in one table. On a Mac, use ⌘ where it says Ctrl.
+- **Get help:** the version, and **Copy diagnostic report** to paste into a bug report.
+
+**Settings**
+- The version (`Keepsake 0.11.7`) is shown under the Settings heading.
+
+## Documentation
+
+- The system requirements for Windows and macOS are in `docs/SPEC.md`, with memory, disk and processor use measured on a 129,000-item library.
+
 # Keepsake 0.11.6
 
 Version 0.11.6 adds two new sidebar trees, By aircraft and By face, and makes keyword searches much faster. It has everything in 0.11.5. No catalog change: 0.11.5 and 0.11.6 open the same library.

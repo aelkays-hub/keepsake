@@ -81,6 +81,10 @@
 
 
 
+## Version 0.11.7 (2026-11-26)
+
+- Version 0.11.7 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: the Help screen and the version in Settings (PR #76), and the system requirements in SPEC (PR #75). No catalog change.
+
 ## Help screen and the version in Settings (2026-11-26)
 
 - **Asked:** a How to and Help section after Settings, and the version number in Settings.
