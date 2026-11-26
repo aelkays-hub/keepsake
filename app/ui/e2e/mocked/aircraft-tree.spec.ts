@@ -61,6 +61,52 @@ test("airline › type › registration, A to Z, each line opens its photos", as
     );
 });
 
+test("a registration opens to its years and a year to its months", async ({ page }) => {
+  // C-FVLU on ten photos (the mock report is fixed; the calendar counts
+  // the photos with these keywords).
+  await page.evaluate(() => {
+    const kw = [
+      "Aircraft|Airline|Air Canada",
+      "Aircraft|Type|Boeing 787-9",
+      "Aircraft|Registration|C-FVLU",
+    ];
+    for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) window.__mock?.keywords.set(i, kw);
+  });
+  await page.getByTestId("tree-mode").getByRole("button", { name: "By aircraft" }).click();
+  await line(page, "Air Canada").click();
+  await line(page, "Boeing 787-9").click();
+  await line(page, "C-FVLU").click();
+  await expect(line(page, "C-FVLU")).toHaveAttribute("aria-expanded", "true");
+  // Its years; together its ten photos.
+  await expect(labels(page, 3).first()).toBeVisible();
+  const counts = await page
+    .getByTestId("sidebar")
+    .locator("button.cal-node.depth-3 .count")
+    .allTextContents();
+  expect(counts.map(Number).reduce((a, b) => a + b, 0)).toBe(10);
+
+  const year = page.getByTestId("sidebar").locator("button.cal-node.depth-3").first();
+  const yearLabel = ((await year.locator(".label").textContent()) ?? "").trim();
+  const yearCount = Number(await year.locator(".count").textContent());
+  await year.click();
+  await expect(page.getByTestId("heading")).toHaveText(
+    `Air Canada › Boeing 787-9 › C-FVLU › ${yearLabel}`,
+  );
+  await expect(page.getByTestId("count")).toHaveText(
+    `${yearCount} item${yearCount === 1 ? "" : "s"}`,
+  );
+  const month = page.getByTestId("sidebar").locator("button.cal-node.depth-4").first();
+  const monthLabel = ((await month.locator(".label").textContent()) ?? "").trim();
+  const monthCount = Number(await month.locator(".count").textContent());
+  await month.click();
+  await expect(page.getByTestId("heading")).toHaveText(
+    `Air Canada › Boeing 787-9 › C-FVLU › ${yearLabel} › ${monthLabel}`,
+  );
+  await expect(page.getByTestId("count")).toHaveText(
+    `${monthCount} item${monthCount === 1 ? "" : "s"}`,
+  );
+});
+
 test("the open lines are remembered after a restart", async ({ page }) => {
   await page.getByTestId("tree-mode").getByRole("button", { name: "By aircraft" }).click();
   await line(page, "KLM").click();

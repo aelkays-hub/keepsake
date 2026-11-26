@@ -63,7 +63,7 @@ describe("trees by name", () => {
       ["air Canada", 0, 5, false],
       ["KLM", 0, 12, true],
       ["Boeing 747", 1, 8, true],
-      ["PH-BFA", 2, 8, undefined],
+      ["PH-BFA", 2, 8, false],
       ["Boeing 777", 1, 4, false],
       ["No airline named", 0, 3, false],
     ]);
@@ -85,6 +85,49 @@ describe("trees by name", () => {
       tags: ["Aircraft"],
       withoutTags: ["Aircraft|Airline"],
     });
+  });
+
+  it("by aircraft: a registration opens to its years, a year to its months", () => {
+    const reg = "KLMBoeing 747PH-BFA";
+    const open = new Set(["KLM", "KLMBoeing 747", reg]);
+    // Not loaded yet: the open registration asks for its years.
+    const before = aircraftTreeNodes(fleet, open);
+    const r = before.find((n) => n.label === "PH-BFA");
+    expect(r?.expanded).toBe(true);
+    expect(r?.load).toEqual({
+      key: reg,
+      query: {
+        tags: ["Aircraft|Airline|KLM", "Aircraft|Type|Boeing 747", "Aircraft|Registration|PH-BFA"],
+      },
+      level: { level: "years" },
+    });
+    const b = (key: string, count: number) => ({ key, count, coverId: null, cover: null });
+    const dates = new Map([
+      [reg, [b("2019", 6), b("2024", 1), b("undated", 1)]],
+      [`${reg}2019`, [b("2019-01", 2), b("2019-06", 4)]],
+    ]);
+    const n = aircraftTreeNodes(fleet, new Set([...open, `${reg}2019`]), dates);
+    const i = n.findIndex((x) => x.label === "PH-BFA");
+    expect(n[i].load).toBeUndefined();
+    expect(n.slice(i + 1, i + 6).map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
+      ["2019", 3, 6, true],
+      ["January", 4, 2, undefined],
+      ["June", 4, 4, undefined],
+      ["2024", 3, 1, false],
+      ["No date", 3, 1, undefined],
+    ]);
+    expect(n[i + 3].title).toBe("KLM › Boeing 747 › PH-BFA › 2019 › June");
+    expect(n[i + 3].query).toEqual({
+      tags: ["Aircraft|Airline|KLM", "Aircraft|Type|Boeing 747", "Aircraft|Registration|PH-BFA"],
+      from: "2019-06-01",
+      to: "2019-06-30",
+    });
+    expect(n[i + 5].query).toMatchObject({ undated: true });
+    // An open year not loaded yet asks for its months.
+    const y = aircraftTreeNodes(fleet, new Set([...open, `${reg}2024`]), dates).find(
+      (x) => x.label === "2024",
+    );
+    expect(y?.load?.level).toEqual({ level: "months", year: 2024 });
   });
 
   it("by face: people A to Z, the unnamed faces last, then years and months", () => {

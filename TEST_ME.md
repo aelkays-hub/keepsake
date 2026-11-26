@@ -60,13 +60,15 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft-tree.s
    - **Expected:** the library shows its photos; the heading reads "KLM" and the item count is the number beside KLM. The line opens to its **types**, A to Z, with **No type named** last.
 4. Click a type, then one of its **registrations**.
    - **Expected:** the heading reads "KLM › Boeing 747", then "KLM › Boeing 747 › PH-BFA"; each time the item count equals the line's number.
-5. Click a **No type named** (or No registration named) line.
+5. The registration opens to its **years**, oldest first, **No date** last if some photos have no date. Click a year, then open it and click a **month**.
+   - **Expected:** the years' numbers add up to the registration's; the heading reads "KLM › Boeing 747 › PH-BFA › 2019", then "… › 2019 › June"; each time the item count equals the line's number.
+6. Click a **No type named** (or No registration named) line.
    - **Expected:** the photos of the lines above it that name no type (no registration).
-6. Close and start Keepsake again.
+7. Close and start Keepsake again.
    - **Expected:** the sidebar still shows By aircraft, with the same lines open. **By date** brings the calendar back.
-7. Accept a new registration in Read aircraft (or add an `Aircraft|Registration|…` keyword to a photo).
+8. Accept a new registration in Read aircraft (or add an `Aircraft|Registration|…` keyword to a photo).
    - **Expected:** within a few seconds it is in the tree under its airline and type, with its count.
-8. With the keyboard: Tab into the tree, use ↓ ↑ to move, → to open a line, ← to close or go up, Enter to show.
+9. With the keyboard: Tab into the tree, use ↓ ↑ to move, → to open a line, ← to close or go up, Enter to show.
    - **Expected:** works as in the date tree.
 
 ---

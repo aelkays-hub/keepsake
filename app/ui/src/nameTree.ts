@@ -1,6 +1,6 @@
 // The sidebar's trees by name (ADR-053). Pure functions (unit-tested).
 //
-// - By aircraft: airline › type › registration, the aircraft report's
+// - By aircraft: airline › type › registration › year › month, the aircraft report's
 //   drill-down (`aircraft_report`'s `byAirline`, lines from `drillRows`):
 //   each line opens exactly its photos, as in the report: the keywords of
 //   the steps named down to it in `tags`, the kinds unnamed in
@@ -13,6 +13,8 @@
 // Both: names A to Z (any case), the unnamed last.
 
 import type { AircraftReportGroup } from "./bindings/AircraftReportGroup";
+import type { Bucket } from "./bindings/Bucket";
+import type { CalendarLevelDto } from "./bindings/CalendarLevelDto";
 import type { NameTreeNode } from "./bindings/NameTreeNode";
 import type { Query } from "./api";
 import { calRange } from "./ai";
@@ -31,7 +33,8 @@ export interface NameNode {
   /** Its place: the names above it and its own (each kind its own form). */
   key: string;
   label: string;
-  /** 0 to 2: an airline, a type, a registration; a person, a year, a month. */
+  /** By aircraft 0 to 4: an airline, a type, a registration, a year, a
+   * month; by face 0 to 2: a person, a year, a month. */
   depth: number;
   count: number;
   /** `undefined`: a leaf. */
@@ -40,6 +43,8 @@ export interface NameNode {
   title: string;
   /** What finds exactly its photos. */
   query: Partial<Query>;
+  /** Its children are not loaded yet: what to load. */
+  load?: DateLoad;
 }
 
 /** A to Z ignoring case; `null` (the unnamed) last. */
@@ -55,21 +60,94 @@ export function sortGroups(groups: AircraftReportGroup[]): AircraftReportGroup[]
     .map((g) => ({ ...g, children: sortGroups(g.children) }));
 }
 
+/** What a node's children are loaded from: the calendar's years or the
+ * months of one year, for the node's own search. */
+export interface DateLoad {
+  /** Where its children are kept: the node's key. */
+  key: string;
+  query: Partial<Query>;
+  level: CalendarLevelDto;
+}
+
+/** A level loaded for a node: the calendar's buckets (`2019`, `2019-06`,
+ * `undated`) with their counts. */
+export type DateLevels = ReadonlyMap<string, Bucket[]>;
+
 /** By aircraft: the visible lines, airlines, under each open one its
- * types, under each open type its registrations. */
+ * types, under each open type its registrations, under each open
+ * registration its years (loaded, `dates`), under each open year its
+ * months. A registration line or a year whose level is not loaded yet
+ * says so in `load`. */
 export function aircraftTreeNodes(
   groups: AircraftReportGroup[],
   open: ReadonlySet<string>,
+  dates: DateLevels = new Map(),
 ): NameNode[] {
-  return drillRows(sortGroups(groups), open, "").map((r) => ({
-    key: r.key,
-    label: r.label,
-    depth: r.depth,
-    count: r.photos,
-    expanded: r.depth < 2 && r.children > 0 ? r.open : undefined,
-    title: r.title,
-    query: r.without.length > 0 ? { tags: r.tags, withoutTags: r.without } : { tags: r.tags },
-  }));
+  const out: NameNode[] = [];
+  for (const r of drillRows(sortGroups(groups), open, "")) {
+    const query: Partial<Query> =
+      r.without.length > 0 ? { tags: r.tags, withoutTags: r.without } : { tags: r.tags };
+    const isReg = r.depth === 2;
+    const regOpen = isReg && open.has(r.key);
+    out.push({
+      key: r.key,
+      label: r.label,
+      depth: r.depth,
+      count: r.photos,
+      expanded: isReg ? regOpen : r.children > 0 ? r.open : undefined,
+      title: r.title,
+      query,
+      load:
+        regOpen && !dates.has(r.key) ? { key: r.key, query, level: { level: "years" } } : undefined,
+    });
+    if (!regOpen) continue;
+    for (const y of dates.get(r.key) ?? []) {
+      const undated = y.key === "undated";
+      const year = undated ? null : Number(y.key);
+      const yearKey = `${r.key}${y.key}${SEP}`;
+      const yearLabel = year === null ? "No date" : String(year);
+      const yearOpen = !undated && open.has(yearKey);
+      const yearQuery = withDates(query, year);
+      out.push({
+        key: yearKey,
+        label: yearLabel,
+        depth: 3,
+        count: y.count,
+        expanded: undated ? undefined : yearOpen,
+        title: `${r.title} › ${yearLabel}`,
+        query: yearQuery,
+        load:
+          yearOpen && year !== null && !dates.has(yearKey)
+            ? { key: yearKey, query, level: { level: "months", year } }
+            : undefined,
+      });
+      if (!yearOpen || year === null) continue;
+      for (const m of dates.get(yearKey) ?? []) {
+        const month = Number(m.key.split("-")[1]);
+        const monthLabel = fmt.monthName(month);
+        out.push({
+          key: `${yearKey}${month}`,
+          label: monthLabel,
+          depth: 4,
+          count: m.count,
+          title: `${r.title} › ${yearLabel} › ${monthLabel}`,
+          query: withDates(query, year, month),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** `q` for a year (or a month of it); `year` null: the photos with no date. */
+function withDates(
+  q: Partial<Query>,
+  year: number | null,
+  month: number | null = null,
+): Partial<Query> {
+  if (year === null) return { ...q, undated: true };
+  const r = calRange(year, month, null);
+  return r ? { ...q, from: r.from, to: r.to } : q;
 }
 
 const SEP = "\u001f";
@@ -89,10 +167,7 @@ export function faceDateQuery(
   year: number | null,
   month: number | null = null,
 ): Partial<Query> {
-  const base = faceQuery(name);
-  if (year === null) return { ...base, undated: true };
-  const r = calRange(year, month, null);
-  return r ? { ...base, from: r.from, to: r.to } : base;
+  return withDates(faceQuery(name), year, month);
 }
 
 /** By face: the visible nodes, the people A to Z (then the unnamed), under

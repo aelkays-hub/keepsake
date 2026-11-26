@@ -81,6 +81,13 @@
 
 
 
+## The aircraft tree: years and months under each registration (ADR-053) (2026-11-26)
+
+- **Asked:** "now add year and month under registration".
+- **Built:** a registration line (No registration named too) opens to its years, oldest first, **No date** last, and a year to its months, each with its count; clicking one opens exactly those photos (`KLM › Boeing 747 › PH-BFA › 2019 › June`). They load when opened, from the calendar's counts for the line's own search (`calendar`), again when the library changes; open lines are remembered. UI only (`nameTree.ts`, `useNameTree.ts`).
+- **Tests, run here (Windows):** Vitest `nameTree.test.ts` (8, 1 new); mocked Playwright `aircraft-tree.spec.ts` (4, 1 new: a registration's years add up to its photos, a year and a month open exactly their counts) with `face-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (31 in all); tsc, ESLint, Prettier.
+- **Not run:** in the installed app; CI; macOS.
+
 ## Searching by keyword: a line naming none no longer takes a minute (2026-11-26)
 
 - **Asked:** "there seems to be issues in performance"; Porter › No type named › No registration named showed no pictures though there are 67.
