@@ -41,4 +41,8 @@ tags?: Array<string>,
  * Has none of these tags, nor one below it (a report line that
  * names no airline: `Aircraft|Airline`).
  */
-withoutTags?: Array<string>, };
+withoutTags?: Array<string>, 
+/**
+ * Only photos with a face that has no name (the face tree).
+ */
+unnamedFaces?: boolean, };

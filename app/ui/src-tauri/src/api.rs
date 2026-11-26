@@ -81,6 +81,10 @@ dto! {
         #[serde(default)]
         #[ts(optional)]
         pub without_tags: Option<Vec<String>>,
+        /// Only photos with a face that has no name (the face tree).
+        #[serde(default)]
+        #[ts(optional)]
+        pub unnamed_faces: Option<bool>,
     }
 
     /// On-device AI at a glance (Settings, Duplicates).
@@ -1301,6 +1305,34 @@ dto! {
         pub years: Vec<AircraftReportYear>,
         /// Airline › type › registration, most photos first, unnamed last.
         pub by_airline: Vec<AircraftReportGroup>,
+    }
+
+    /// A month of a sidebar tree's year.
+    pub struct NameTreeMonth {
+        /// 1–12.
+        pub month: u32,
+        #[ts(type = "number")]
+        pub photos: u64,
+    }
+
+    /// A year of a sidebar tree's name.
+    pub struct NameTreeYear {
+        /// Null: the photos with no date.
+        pub year: Option<i32>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// Oldest first.
+        pub months: Vec<NameTreeMonth>,
+    }
+
+    /// A person of the sidebar's tree by face › year › month (ADR-053).
+    pub struct NameTreeNode {
+        /// Null: the photos with a face that has no name.
+        pub name: Option<String>,
+        #[ts(type = "number")]
+        pub photos: u64,
+        /// Oldest first, undated last.
+        pub years: Vec<NameTreeYear>,
     }
 
     /// `maint://progress`: a backup, verify or folder scan is running.

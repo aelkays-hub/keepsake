@@ -775,3 +775,258 @@ fn the_aircraft_csv_has_the_totals_and_every_table() {
     assert!(lines.contains(&"Airline,KLM,4,2,,Boeing 747; Boeing 777-300ER,2018-12-31,2019-03-01,"));
     assert!(lines.contains(&"Registration,PH-BFA,3,0,KLM,Boeing 747,2018-12-31,2019-01-06,"));
 }
+
+// ---- The sidebar's tree by aircraft (ADR-053) ----
+
+use keepsake_core::catalog::{AircraftGroup, NameTreeNode};
+
+/// The fleet, and an undated photo naming KLM and two registrations, and
+/// one with only a built year (an aircraft keyword, but no name of any
+/// kind).
+fn fleet_and_more() -> Catalog {
+    let (mut cat, _) = fleet();
+    let e = asset(MediaKind::Photo, None, None, None);
+    let f = asset(MediaKind::Photo, Some("2020-07-04"), None, None);
+    add(&mut cat, &e, &[]);
+    add(&mut cat, &f, &[]);
+    tag(
+        &mut cat,
+        &e,
+        TagSource::User,
+        &[
+            "Aircraft|Airline|KLM",
+            "Aircraft|Registration|PH-BFA",
+            "Aircraft|Registration|PH-BVA",
+        ],
+    );
+    tag(&mut cat, &f, TagSource::User, &["Aircraft|Built|2014"]);
+    cat
+}
+
+/// `(name, photos, [(year, photos, [(month, photos)])])`.
+type Shape = Vec<(
+    Option<String>,
+    u64,
+    Vec<(Option<i32>, u64, Vec<(u32, u64)>)>,
+)>;
+
+fn shape(t: &[NameTreeNode]) -> Shape {
+    t.iter()
+        .map(|n| {
+            (
+                n.name.clone(),
+                n.photos,
+                n.years
+                    .iter()
+                    .map(|y| {
+                        (
+                            y.year,
+                            y.photos,
+                            y.months.iter().map(|m| (m.month, m.photos)).collect(),
+                        )
+                    })
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// Every drill-down line, at every step and named or not, as the sidebar's
+/// tree By aircraft opens it (`nameTree.ts`, from `drillRows`): the
+/// keywords of the steps named down to it, and none of the kinds unnamed
+/// (`Aircraft` alone when nothing is named).
+fn assert_drill_opens(cat: &Catalog, groups: &[AircraftGroup], path: &[Option<&str>]) {
+    const KINDS: [&str; 3] = ["Airline", "Type", "Registration"];
+    for g in groups {
+        let mut p = path.to_vec();
+        p.push(g.name.as_deref());
+        let mut tags: Vec<String> = p
+            .iter()
+            .zip(KINDS)
+            .filter_map(|(n, k)| n.map(|n| format!("Aircraft|{k}|{n}")))
+            .collect();
+        if tags.is_empty() {
+            tags.push("Aircraft".into());
+        }
+        let without_tags = p
+            .iter()
+            .zip(KINDS)
+            .filter(|(n, _)| n.is_none())
+            .map(|(_, k)| format!("Aircraft|{k}"))
+            .collect();
+        let q = SearchQuery {
+            tags,
+            without_tags,
+            ..Default::default()
+        };
+        assert_eq!(found(cat, &q), g.photos, "{p:?}");
+        assert_drill_opens(cat, &g.children, &p);
+    }
+}
+
+#[test]
+fn every_line_of_the_aircraft_tree_opens_exactly_its_photos() {
+    let cat = fleet_and_more();
+    let r = aircraft(&cat);
+    // An unnamed step is among them: KLM's photo naming no type.
+    let klm = &r.by_airline[0];
+    assert!(klm.children.iter().any(|t| t.name.is_none()));
+    assert_drill_opens(&cat, &r.by_airline, &[]);
+}
+
+/// Each node, year and month of `n` finds exactly its photos with `base`
+/// (its name's search) and its dates, as the sidebar asks for them.
+fn assert_opens(cat: &Catalog, n: &NameTreeNode, base: &SearchQuery) {
+    assert_eq!(found(cat, base), n.photos, "{:?}", n.name);
+    for y in &n.years {
+        let Some(year) = y.year else {
+            let q = SearchQuery {
+                undated: true,
+                ..base.clone()
+            };
+            assert_eq!(found(cat, &q), y.photos, "{:?} undated", n.name);
+            continue;
+        };
+        let q = SearchQuery {
+            from: Some(format!("{year}-01-01")),
+            to: Some(format!("{year}-12-31")),
+            ..base.clone()
+        };
+        assert_eq!(found(cat, &q), y.photos, "{:?} {year}", n.name);
+        for m in &y.months {
+            let g = format!("{year}-{:02}", m.month);
+            let d = date_query(Some(&g));
+            let q = SearchQuery {
+                from: d.from,
+                to: d.to,
+                ..base.clone()
+            };
+            assert_eq!(found(cat, &q), m.photos, "{:?} {g}", n.name);
+        }
+    }
+}
+
+// ---- The sidebar's tree by face (ADR-053) ----
+
+use keepsake_core::ai::faces::EMBEDDING_LEN;
+use keepsake_core::catalog::{FaceState, NewFace};
+
+fn face_at(x: f32) -> NewFace {
+    NewFace {
+        x,
+        y: 0.1,
+        w: 0.2,
+        h: 0.3,
+        landmarks: [[x + 0.1, 0.2]; 5],
+        score: 0.9,
+        embedding: vec![1; EMBEDDING_LEN],
+        emb_scale: 0.01,
+    }
+}
+
+/// `n` faces found in `a`'s picture, with no person; their ids.
+fn faces(cat: &mut Catalog, a: &Asset, n: usize) -> Vec<i64> {
+    let found: Vec<NewFace> = (0..n).map(|i| face_at(0.05 + 0.3 * i as f32)).collect();
+    cat.write(|tx| {
+        tx.faces().save_scan(a.id, "test", 1024, 768, &found, 1)?;
+        Ok::<_, keepsake_core::catalog::CatalogError>(
+            tx.faces().for_asset(a.id)?.iter().map(|f| f.id).collect(),
+        )
+    })
+    .unwrap()
+}
+
+/// Sara and Tom named (their `People|` keywords, as a confirmed face
+/// writes them), faces with no name, only suggested, or "not a face", and
+/// the AI's bare `People` label.
+fn family() -> Catalog {
+    let mut cat = setup(&[]);
+    let day = |d: &str| asset(MediaKind::Photo, Some(d), None, None);
+    let both = day("2019-01-05"); // Sara, and a face with no name
+    let pair = day("2019-03-02"); // Sara and Tom
+    let undated = asset(MediaKind::Photo, None, None, None); // Tom
+    let stranger = day("2021-06-01"); // a face with no name
+    let maybe = day("2021-06-10"); // a face only suggested for Tom
+    let not_face = day("2022-02-02"); // "not a face"
+    let crowd = day("2023-05-05"); // the AI's People label
+    for a in [&both, &pair, &undated, &stranger, &maybe, &not_face, &crowd] {
+        add(&mut cat, a, &[]);
+    }
+    tag(&mut cat, &both, TagSource::User, &["People|Sara"]);
+    tag(
+        &mut cat,
+        &pair,
+        TagSource::User,
+        &["People|Sara", "People|Tom"],
+    );
+    tag(&mut cat, &undated, TagSource::User, &["People|Tom"]);
+    tag(&mut cat, &crowd, TagSource::Ai, &["People"]);
+    let sara = cat.write(|tx| tx.faces().add_person("Sara", 1)).unwrap();
+    let tom = cat.write(|tx| tx.faces().add_person("Tom", 1)).unwrap();
+    let f = faces(&mut cat, &both, 2);
+    cat.write(|tx| {
+        tx.faces()
+            .set_person(f[0], Some((sara, FaceState::Confirmed)))
+    })
+    .unwrap();
+    faces(&mut cat, &stranger, 1);
+    let f = faces(&mut cat, &maybe, 1);
+    cat.write(|tx| {
+        tx.faces()
+            .set_person(f[0], Some((tom, FaceState::Suggested)))
+    })
+    .unwrap();
+    let f = faces(&mut cat, &not_face, 1);
+    cat.write(|tx| tx.faces().hide(f[0])).unwrap();
+    cat
+}
+
+fn face_tree(cat: &Catalog) -> Vec<NameTreeNode> {
+    cat.read(|tx| tx.faces().tree()).unwrap()
+}
+
+#[test]
+fn the_face_tree_goes_by_person_then_year_then_month_with_the_unnamed_last() {
+    let cat = family();
+    let some = |s: &str| Some(s.to_owned());
+    assert_eq!(
+        shape(&face_tree(&cat)),
+        [
+            (some("Sara"), 2, vec![(Some(2019), 2, vec![(1, 1), (3, 1)])]),
+            (
+                some("Tom"),
+                2,
+                vec![(Some(2019), 1, vec![(3, 1)]), (None, 1, vec![])]
+            ),
+            // A photo with a named face and one with no name is in both;
+            // a face only suggested has no name yet; "not a face" is none.
+            (
+                None,
+                3,
+                vec![(Some(2019), 1, vec![(1, 1)]), (Some(2021), 2, vec![(6, 2)]),]
+            ),
+        ]
+    );
+    assert!(face_tree(&setup(&[])).is_empty());
+}
+
+#[test]
+fn every_face_tree_node_opens_exactly_its_photos() {
+    let cat = family();
+    let t = face_tree(&cat);
+    assert_eq!(t.len(), 3);
+    for n in &t {
+        // As the sidebar asks for them (`nameTree.ts`).
+        let base = match &n.name {
+            Some(name) => SearchQuery {
+                tags: vec![format!("People|{name}")],
+                ..Default::default()
+            },
+            None => SearchQuery {
+                unnamed_faces: true,
+                ..Default::default()
+            },
+        };
+        assert_opens(&cat, n, &base);
+    }
+}

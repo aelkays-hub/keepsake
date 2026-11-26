@@ -57,6 +57,8 @@ function Heading() {
       ) : (
         "Calendar"
       );
+  } else if (s.section.kind === "report" && s.section.fromTree) {
+    title = s.section.title;
   } else if (s.section.kind === "report") {
     title = (
       <>

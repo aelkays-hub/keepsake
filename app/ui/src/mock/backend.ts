@@ -10,6 +10,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 
 import type { AiAdviceDto } from "../bindings/AiAdviceDto";
 import type { Bucket } from "../bindings/Bucket";
+import type { NameTreeNode } from "../bindings/NameTreeNode";
 import type { RouteSuggestionDto } from "../bindings/RouteSuggestionDto";
 import type { CalendarLevelDto } from "../bindings/CalendarLevelDto";
 import type { CardItem } from "../bindings/CardItem";
@@ -117,6 +118,10 @@ export interface MockState {
   label: Map<number, string | null>;
   comment: Map<number, string | null>;
   keywords: Map<number, string[]>;
+  /** Photos with a face that has no name (the face tree; ADR-053). */
+  unnamedFaces: Set<number>;
+  /** The aircraft report has no aircraft keyword (the tree's empty hint). */
+  noAircraft: boolean;
   presets: Preset[];
   imported: Set<string>;
   /** Seconds added to capture times by time shifts. */
@@ -342,6 +347,57 @@ const day = (t: number | null) => (t === null ? null : new Date(t).toISOString()
 const READ_MS = 1000;
 
 /** Report → Aircraft: a small fixed fleet. */
+/** The sidebar's face tree (`faces_tree`): the `People|<name>` keywords,
+ * then the photos with an unnamed face. */
+function mockFaceTree(
+  items: { day: string | null; kw: string[]; unnamed: boolean }[],
+): NameTreeNode[] {
+  const names = new Map<string | null, (string | null)[]>();
+  for (const it of items) {
+    const own = [
+      ...new Set(it.kw.filter((t) => t.startsWith("People|")).map((t) => t.split("|")[1])),
+    ];
+    for (const n of [...own, ...(it.unnamed ? [null] : [])])
+      names.set(n, [...(names.get(n) ?? []), it.day]);
+  }
+  return mockTreeOf(names);
+}
+
+/** Each name's photos' days, as tree nodes (the UI sorts them). */
+function mockTreeOf(names: Map<string | null, (string | null)[]>): NameTreeNode[] {
+  const nodes: NameTreeNode[] = [...names.entries()].map(([name, days]) => {
+    const years = new Map<number | null, Map<number, number>>();
+    const per = new Map<number | null, number>();
+    for (const d of days) {
+      const y = d ? Number(d.slice(0, 4)) : null;
+      per.set(y, (per.get(y) ?? 0) + 1);
+      const ms = years.get(y) ?? new Map<number, number>();
+      if (d) ms.set(Number(d.slice(5, 7)), (ms.get(Number(d.slice(5, 7))) ?? 0) + 1);
+      years.set(y, ms);
+    }
+    return {
+      name,
+      photos: days.length,
+      years: [...years.entries()]
+        .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a - b))
+        .map(([year, ms]) => ({
+          year,
+          photos: per.get(year) ?? 0,
+          months: [...ms.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([month, photos]) => ({ month, photos })),
+        })),
+    };
+  });
+  return nodes.sort((a, b) =>
+    a.name === null
+      ? 1
+      : b.name === null
+        ? -1
+        : b.photos - a.photos || a.name.localeCompare(b.name),
+  );
+}
+
 function mockAircraftReport(): AircraftReport {
   const row = (
     kind: string,
@@ -587,6 +643,8 @@ export function installMock(): void {
     label: new Map(),
     comment: new Map(),
     keywords: new Map(),
+    unnamedFaces: new Set(),
+    noAircraft: false,
     presets: [
       {
         name: "Two drives",
@@ -780,6 +838,7 @@ export function installMock(): void {
       if (!tagsOf(it.i).some((t) => t === want || t.startsWith(`${want}|`))) return false;
     for (const not of q.withoutTags ?? [])
       if (tagsOf(it.i).some((t) => t === not || t.startsWith(`${not}|`))) return false;
+    if (q.unnamedFaces && !st.unnamedFaces.has(it.i)) return false;
     if (q.label && label(it)?.toLowerCase() !== q.label.toLowerCase()) return false;
     if (q.event && it.event !== q.event) return false;
     if (q.volume && (q.volume === "vOff") === it.online) return false;
@@ -1332,7 +1391,17 @@ export function installMock(): void {
           return "C:\\Users\\me\\Documents\\fins.csv";
         }
         case "aircraft_report":
-          return mockAircraftReport();
+          return st.noAircraft ? { ...mockAircraftReport(), byAirline: [] } : mockAircraftReport();
+        case "faces_tree": {
+          const ids = new Set([...st.keywords.keys(), ...st.unnamedFaces]);
+          return mockFaceTree(
+            [...ids].map((i) => ({
+              day: day(all[i]?.t ?? null),
+              kw: st.keywords.get(i) ?? [],
+              unnamed: st.unnamedFaces.has(i),
+            })),
+          );
+        }
         case "flight_report":
           return {
             withoutRoute: 12,

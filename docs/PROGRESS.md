@@ -81,6 +81,42 @@
 
 
 
+## The aircraft tree: years and months under each registration (ADR-053) (2026-11-26)
+
+- **Asked:** "now add year and month under registration".
+- **Built:** a registration line (No registration named too) opens to its years, newest first (as asked: "sort the years newest first", the face tree's too), **No date** last, and a year to its months, each with its count; clicking one opens exactly those photos (`KLM › Boeing 747 › PH-BFA › 2019 › June`). They load when opened, from the calendar's counts for the line's own search (`calendar`), again when the library changes; open lines are remembered. UI only (`nameTree.ts`, `useNameTree.ts`).
+- **Tests, run here (Windows):** Vitest `nameTree.test.ts` (8, 1 new); mocked Playwright `aircraft-tree.spec.ts` (4, 1 new: a registration's years add up to its photos, a year and a month open exactly their counts) with `face-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (31 in all); tsc, ESLint, Prettier.
+- **Not run:** in the installed app; CI; macOS.
+
+## Searching by keyword: a line naming none no longer takes a minute (2026-11-26)
+
+- **Asked:** "there seems to be issues in performance"; Porter › No type named › No registration named showed no pictures though there are 67.
+- **Found:** the app's log had `slow view_open` up to 156 s. A search with a "has none of these keywords" part (`withoutTags`, the tree's and the report's unnamed lines) checked every item of the library against the whole keyword tree again: 59 s for that Porter line on a copy of the 129,263-item catalog, with the app's own SQLite. The grid stayed empty while it ran.
+- **Changed:** `tags` and `withoutTags` are `a.id IN (…)` / `a.id NOT IN (…)`, so each keyword's items are found once. On the same copy: 59 s → 0.11 s (67 photos), and 0.09 s → 0.01 s for a plain keyword.
+- **Tests, run here (Windows):** `catalog_tests`, `report_tests` (the searches with and without keywords find the same items as before); clippy, fmt.
+- **Not run:** in the installed app; CI; macOS.
+
+## The sidebar tree by aircraft: airline › type › registration, A to Z (ADR-053) (2026-11-25)
+
+- **Asked:** "I wanted the tree to show me by airline, type, registration … it can be later" (the years and months), and "what about sorting them alphabetically".
+- **Changed:** By aircraft is now one tree, **airline › type › registration**, the aircraft report's drill-down, with **No … named** lines for the photos naming none at a step; the Airline / Type / Registration row and the three name › year › month trees are gone (core `aircraft_tree.rs`, Tauri `aircraft_tree`, `AircraftKindDto` removed). Every step is **A to Z** (any case), the unnamed last; the people of By face too. Each line opens exactly its photos with the report's search (`tags`, `withoutTags`).
+- **Tests, run here (Windows):** `report_tests` (all 18; new: every drill-down line at every step finds exactly its count with the tree's search); Vitest `nameTree.test.ts` (7), `treeMemory`, `uiModel`, `aircraftReport` (18 in all); mocked Playwright `aircraft-tree.spec.ts` (rewritten, 3), `face-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (30 in all); tsc, ESLint, Prettier, cargo fmt, clippy `-D warnings`.
+- **Not run:** in the installed app; CI; macOS.
+
+## The sidebar tree by face (ADR-053) (2026-11-25)
+
+- **Asked:** "another tree, by face/year/month this should include untagged faces also".
+- **Built:** a fourth button, **By face** (the four buttons now two by two so each label fits). Person › year › month from the `People|<name>` keywords of confirmed faces; **Unnamed faces** last: the photos with a face that has no name (found, or only suggested; "not a face" left out). One node for all unnamed faces: they are not grouped by likeness anywhere yet (that is the People screen, ADR-040 step 6). Each node opens exactly its photos: `tags` `People|<name>`, or the new search filter `unnamedFaces` (core `SearchQuery::unnamed_faces`). Core `Faces::tree()` in `face_tree.rs`; the shared node building moved to `name_tree.rs` (`NameTreeNode`, also used by the aircraft trees). Tauri `faces_tree`. UI `aircraftTree.ts` renamed `nameTree.ts` with the kind `face`.
+- **Tests, run here (Windows):** `report_tests` (all 19, 2 new: the face tree's shape; every face node finds exactly its count); Vitest `nameTree.test.ts` (6, 1 new), `treeMemory`, `uiModel`; mocked Playwright `face-tree.spec.ts` (3 new), `aircraft-tree`, `folder-tree`, `tree-place`, `a11y`, `report` (30 in all); looked at in the mocked app; tsc, ESLint, Prettier (3 e2e files this branch does not touch were already unformatted), cargo fmt, clippy `-D warnings` (keepsake-core, keepsake-app).
+- **Not run:** in the installed app with real faces; CI; macOS.
+
+## The sidebar tree by aircraft (ADR-053) (2026-11-25)
+
+- **Asked:** the aircraft report's Airline › Type › Registration grouping in the sidebar's tree, by year and month.
+- **Built:** a third button, **By aircraft**, beside By date and By folder, with **Airline / Type / Registration** under it (remembered, with each kind's open nodes and scroll place). The tree is name › year › month with photo counts; **No airline named** (type, registration) last for the photos with other aircraft keywords; **No date** last among a name's years. Each node opens exactly its photos as a report section (`tags`, `withoutTags`, `from`/`to`, `undated`); the counts are of the whole library, since a report section clears the filters. Core `AircraftReportRepo::tree` (one scan of the aircraft keywords), thin Tauri command `aircraft_tree`, pure UI tree code (`aircraftTree.ts`, `useNameTree.ts`) written so a tree by face can reuse it.
+- **Tests, run here (Windows):** `report_tests` (all 17, 2 new: the three trees' shape; every node of every kind finds exactly its count); Vitest `aircraftTree.test.ts` (5 new), `treeMemory`, `uiModel`; mocked Playwright `aircraft-tree.spec.ts` (3 new), `folder-tree`, `tree-place`, `a11y`, `report`; tsc, ESLint, Prettier, cargo fmt, clippy `-D warnings` (keepsake-core, keepsake-app). The headings of nodes opened from the tree have no Report › link (`fromTree`).
+- **Not run:** in the installed app; CI; macOS.
+
 ## Version 0.11.5 (2026-11-25)
 
 - Version 0.11.5 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: a Canadian registration read with the flag painted after it (Porter, PR #71), and the aircraft report's lines with no airline open their photos (PR #70). No catalog change.

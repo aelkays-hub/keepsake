@@ -1585,6 +1585,32 @@ pre.licence-text {
   font-size: 12px;
   padding: 2px 6px;
 }
+/* The four views (date, folder, aircraft, face): two by two, so each label
+   stays on one line in the sidebar's width. */
+.sidebar .tree-mode.four {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.sidebar .tree-mode.four button {
+  white-space: nowrap;
+  justify-content: center;
+}
+.sidebar .tree-mode.four button:nth-child(1) {
+  border-radius: 6px 0 0 0;
+}
+.sidebar .tree-mode.four button:nth-child(2) {
+  border-radius: 0 6px 0 0;
+}
+.sidebar .tree-mode.four button:nth-child(3) {
+  border-radius: 0 0 0 6px;
+}
+.sidebar .tree-mode.four button:nth-child(4) {
+  border-radius: 0 0 6px 0;
+}
+.sidebar .tree-empty {
+  margin: 4px 12px 8px;
+  font-size: 12px;
+}
 
 /* ── All metadata (inspector) ─────────────────────────────────────── */
 .all-meta-tools {

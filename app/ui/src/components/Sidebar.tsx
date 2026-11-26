@@ -1,5 +1,6 @@
-// Sidebar: Library (with a tree: the calendar's years, months and days, or
-// the folders on disk), Events, Volumes, Tools, Imports. Arrow keys move
+// Sidebar: Library (with a tree: the calendar's years, months and days, the
+// folders on disk, the aircraft keywords' airlines › types ›
+// registrations, or the people by year and month), Events, Volumes, Tools, Imports. Arrow keys move
 // between entries (a single tab stop), Enter or click opens one; Right and
 // Left open and close a tree node, or go to its first child or its parent.
 // A folder of the folder tree has a menu (right-click, the Menu key or
@@ -16,18 +17,25 @@ import { FolderMenu } from "./FolderMenu";
 import type { Screen } from "../uiModel";
 import { useCalendarTree, type CalNode } from "../useCalendarTree";
 import { useFolderTree, type FolderTreeNode } from "../useFolderTree";
+import { useNameTree } from "../useNameTree";
+import { isNameTree, sameQuery, type NameNode, type NameTreeKind } from "../nameTree";
 import { keepScroll, scrollOf } from "../treeMemory";
 
 /** How the Library tree is shown. */
-export type TreeMode = "date" | "folder";
+export type TreeMode = "date" | "folder" | NameTreeKind;
 const MODE_KEY = "keepsake.sidebarTree";
 
-function rememberedMode(): TreeMode {
+function remembered(key: string): string | null {
   try {
-    return localStorage.getItem(MODE_KEY) === "folder" ? "folder" : "date";
+    return localStorage.getItem(key);
   } catch {
-    return "date";
+    return null;
   }
+}
+
+function rememberedMode(): TreeMode {
+  const m = remembered(MODE_KEY) ?? "";
+  return m === "folder" || isNameTree(m) ? m : "date";
 }
 
 /** How long a remembered scroll position waits for the tree's levels to
@@ -54,9 +62,11 @@ interface Entry {
   cal?: CalNode;
   /** A folder tree node. */
   fold?: FolderTreeNode;
+  /** A node of a tree by name (aircraft or face). */
+  name?: NameNode;
 }
 
-const nodeOf = (e: Entry | undefined): TreeNode | undefined => e?.cal ?? e?.fold;
+const nodeOf = (e: Entry | undefined): TreeNode | undefined => e?.cal ?? e?.fold ?? e?.name;
 
 function same(a: Section, b: Section): boolean {
   if (a.kind === "folder" || b.kind === "folder")
@@ -100,13 +110,22 @@ export function Sidebar() {
     [refreshes, s.revision],
     mode === "folder",
   );
+  const nameKind = isNameTree(mode) ? mode : null;
+  const names = useNameTree(nameKind, [refreshes, s.revision]);
   // The calendar tree follows the calendar view down to where it is.
   const { reveal } = cal;
   useEffect(() => {
     if (s.section.kind === "calendar") reveal(s.cal.year, s.cal.month);
   }, [reveal, s.section.kind, s.cal.year, s.cal.month]);
-  const treeEntries: Entry[] =
-    mode === "date"
+  const treeEntries: Entry[] = nameKind
+    ? names.nodes.map((n) => ({
+        key: `n${n.key}`,
+        label: n.label,
+        count: n.count,
+        section: { kind: "report", title: n.title, query: n.query, fromTree: true } as Section,
+        name: n,
+      }))
+    : mode === "date"
       ? cal.nodes.map((c) => ({
           key: `c${c.key}`,
           label: c.label,
@@ -205,9 +224,14 @@ export function Sidebar() {
   const isActive = (e: Entry) =>
     e.cal
       ? calActive(e.cal)
-      : e.screen
-        ? s.screen === e.screen
-        : s.screen === "library" && same(e.section, s.section);
+      : e.name
+        ? s.screen === "library" &&
+          s.section.kind === "report" &&
+          s.section.title === e.name.title &&
+          sameQuery(s.section.query, e.name.query)
+        : e.screen
+          ? s.screen === e.screen
+          : s.screen === "library" && same(e.section, s.section);
   const active = Math.max(0, flat.findIndex(isActive));
   const [focus, setFocus] = useState(active);
   const nav = useRef<HTMLElement>(null);
@@ -240,12 +264,19 @@ export function Sidebar() {
   const setExpanded = (e: Entry, on: boolean) => {
     if (e.cal) cal.setExpanded(e.cal.key, on);
     else if (e.fold) folders.setExpanded(e.fold.key, on);
+    else if (e.name) names.setExpanded(e.name.key, on);
   };
   const openEntry = (e: Entry) => {
     const c = e.cal;
     if (e.fold) {
       dispatch({ t: "section", section: e.section });
       if (e.fold.expanded === false) folders.setExpanded(e.fold.key, true);
+      return;
+    }
+    if (e.name) {
+      // Exactly its photos, as a report line opens them.
+      dispatch({ t: "open", section: e.section });
+      if (e.name.expanded === false) names.setExpanded(e.name.key, true);
       return;
     }
     if (!c) {
@@ -318,7 +349,7 @@ export function Sidebar() {
             <h3>{g.title}</h3>
             {g.switcher && (
               <div
-                className="segmented tree-mode"
+                className="segmented tree-mode four"
                 role="group"
                 aria-label="Show the library"
                 data-testid="tree-mode"
@@ -327,11 +358,20 @@ export function Sidebar() {
                   [
                     ["date", "By date"],
                     ["folder", "By folder"],
+                    ["aircraft", "By aircraft"],
+                    ["face", "By face"],
                   ] as const
                 ).map(([m, label]) => (
                   <button
                     key={m}
                     aria-pressed={mode === m}
+                    title={
+                      m === "aircraft"
+                        ? "By airline, then type, then registration, from the aircraft keywords"
+                        : m === "face"
+                          ? "By the people named in the photos, then by year and month; the photos with a face that has no name last"
+                          : undefined
+                    }
                     onClick={() => setMode(m)}
                     onKeyDown={(ev) => ev.stopPropagation()}
                   >
@@ -339,6 +379,18 @@ export function Sidebar() {
                   </button>
                 ))}
               </div>
+            )}
+            {g.switcher && mode === "aircraft" && names.loaded && names.nodes.length === 0 && (
+              <p className="muted tree-empty" data-testid="tree-aircraft-empty">
+                No photo has an aircraft keyword yet. Read aircraft (right-click a date or a folder)
+                or add keywords such as Aircraft|Airline|KLM.
+              </p>
+            )}
+            {g.switcher && mode === "face" && names.loaded && names.nodes.length === 0 && (
+              <p className="muted tree-empty" data-testid="tree-face-empty">
+                No face is found or named yet. Turn on Recognise faces (Settings → On-device AI),
+                then right-click a photo and choose Name and find.
+              </p>
             )}
             <ul>
               {g.entries.map((e) => {
@@ -351,6 +403,7 @@ export function Sidebar() {
                       data-entry={i}
                       data-cal={e.cal?.key}
                       data-folder={e.fold?.path ?? undefined}
+                      data-name={e.name?.key}
                       tabIndex={i === focus ? 0 : -1}
                       aria-current={isActive(e) ? "page" : undefined}
                       aria-expanded={c?.expanded}

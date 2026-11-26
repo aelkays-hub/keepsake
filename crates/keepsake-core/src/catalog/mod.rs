@@ -39,6 +39,7 @@ pub use repo::{
 };
 pub use repo::{FlickrQueued, FlickrRepo, FlickrUpload};
 pub use repo::{FlightReport, FlightReportRepo, FlightRow};
+pub use repo::{NameTreeMonth, NameTreeNode, NameTreeYear};
 pub use snapshot::{AssetSnapshot, CatalogSnapshot, FtsRow};
 
 /// Marker: read-only transaction.
