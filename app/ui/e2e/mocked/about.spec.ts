@@ -18,6 +18,8 @@ async function openAbout(page: Page) {
 test("About shows the version, the credits and the licences", async ({ page }) => {
   await openAbout(page);
   await expect(page.getByTestId("about-version")).toContainText(/Keepsake \d+\.\d+\.\d+-mock\./);
+  await expect(page.getByTestId("about-copyright")).toContainText("Copyright © 2026 Ahmad Elkays");
+  await expect(page.getByTestId("about-copyright")).toContainText("FSL-1.1-ALv2");
   const credits = page.getByTestId("about-credits");
   await expect(credits).toContainText("not endorsed or certified by SmugMug");
   await expect(credits).toContainText("Open Government Licence – Canada");

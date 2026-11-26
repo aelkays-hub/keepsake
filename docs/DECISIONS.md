@@ -1977,3 +1977,46 @@ Nothing GPL. The third-party notices are regenerated (366 crates).
 
 **Tests.** Integration (`report_tests`): every drill-down line, at every step, named or not, finds exactly its count with the search the tree opens; the face tree's shape (two people A to Z, an undated photo, a photo with a named and an unnamed face, a suggested face counted as unnamed, "not a face" and the AI's `People` left out) and every face node finds exactly its count. Vitest (`nameTree.test.ts`): A to Z at every step with the unnamed last, the visible lines as they open (a registration's years and a year's months, and what each asks to load), each line's search (named, unnamed, a leap February, undated). Mocked Playwright (`aircraft-tree.spec.ts`, `face-tree.spec.ts`): the airlines, types and registrations A to Z and the searches they open; a registration's years and a year's months opening exactly their counts; By face's people, No date, Unnamed faces and a year and month; open lines remembered after a reload; each empty tree's hint.
 
+
+## ADR-054 — Copyright and licensing: source visible under FSL, paid signed builds
+
+**Status**: Accepted (2026-11-26, product owner: "let us start thinking of a copyright model and licensing model", then chose "Paid, source visible", with the copyright owned by "Me personally"). The end-user licence is a draft until a lawyer has read it.
+
+**Context.** The repository has been public on GitHub with no licence (`license = "UNLICENSED"`, authors "Keepsake Contributors"). With no licence, the law reserves every right: readers could see the code but had no right to use it, and nobody was told so. The owner wants to sell Keepsake while the source stays visible.
+
+**Copyright.**
+- Owned by **Ahmad Elkays** personally: `Copyright 2026 Ahmad Elkays` in `LICENSE.md`, the workspace `authors`, the installers (`bundle.copyright`, `bundle.publisher`) and the About screen. It can be assigned to a company later.
+- **Much of the code was written with an AI assistant, directed by the owner.** Copyright protects human authorship; the owner's are the requirements, the specs and ADRs, the design choices, and the selection and arrangement of the code. `docs/PROGRESS.md` and these ADRs record that direction, prompt by prompt, and are kept. Because the code's own copyright may be thin, the licence's terms, the product name and selling the signed builds carry more of the protection.
+- **Outside contributions** are not merged until a contributor licence agreement is adopted (`CONTRIBUTING.md`), so the owner can always license and sell the whole.
+
+**Licence: source visible.** The source is under the **Functional Source License 1.1, Apache 2.0 future licence (FSL-1.1-ALv2)**, Sentry's template filled in, unchanged (`LICENSE.md`; SPDX `FSL-1.1-ALv2` in `Cargo.toml` and both `package.json`):
+- Anyone may read, use, change and share it for any purpose **except a Competing Use**: offering it, or something substantially like it, to others in a commercial product or service.
+- Each version also becomes **Apache-2.0 two years after it is released**.
+- Versions published before this ADR had no licence; this one applies from the commit that adds it.
+
+**Selling.** What is sold is the **signed, ready-to-run builds and their updates** (and later the macOS build), under an end-user licence (`docs/EULA.md`, draft). Anyone may still build the source for their own use under the FSL; that is accepted, as most buyers pay for the convenience.
+
+Other options weighed: closed source and paid (would mean making the repository private; nothing gained over FSL now that the code has been public); a permissive open-source licence (lets anyone sell Keepsake).
+
+**Third-party parts.** Unchanged, and compatible with selling:
+- FFmpeg and LibRaw (LGPL) stay separate programs beside Keepsake (ADR-005), replaceable, with their licences in `THIRD-PARTY-NOTICES.txt` (ADR-047).
+- The AI models are MIT or Apache-2.0 (ADR-035, ADR-040, ADR-041).
+- No GPL code is linked (CLAUDE.md).
+
+**Online data services: check before selling.** Their terms, not the code's licences, are the main limit on a paid version. Read on 2026-11-26:
+
+| Service | Commercial use | Before selling |
+|---|---|---|
+| OpenSky Network (Add route, build years) | Its API documentation says the API is for "research and non-commercial purposes"; for commercial use, contact OpenSky. The formal terms page could not be read (HTTP 403). | Ask OpenSky for permission, or leave Add route's OpenSky source out of the paid build. |
+| Flickr (Upload to Flickr) | An app whose users pay is "a commercial application" and needs a commercial API key, which may carry fees. The attribution line is required (already on About). | Apply for a commercial key, or have each user enter their own key. |
+| Flightradar24 | The user's own API key, under the user's own Flightradar24 plan. The page could not be read. | Check that a user's own key may be used from a paid app. |
+| adsbdb | The page could not be read. | Ask the maintainer. |
+| Transport Canada register | Open Government Licence – Canada allows commercial use with the attribution line (on About). The licence gives no right to personal information. | Check that no owner's name or address is kept. |
+| FAA register, OurAirports | Public domain. | None. |
+
+**Still to do.**
+- A trademark search for "Keepsake" as software.
+- Sony and PlayMemories are named only to describe what Keepsake replaces, never as branding.
+- A lawyer's reading of `docs/EULA.md`, then shown by the installer (`bundle.windows.nsis` licence page) and accepted on first run.
+
+**Dependencies.** None.

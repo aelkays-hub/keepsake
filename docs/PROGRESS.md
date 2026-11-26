@@ -81,6 +81,13 @@
 
 
 
+## Copyright and licensing (ADR-054) (2026-11-26)
+
+- **Asked:** a copyright and licensing model; chose "Paid, source visible", copyright owned personally.
+- **Added:** `LICENSE.md`, Sentry's FSL-1.1-ALv2 template unchanged, with "Copyright 2026 Ahmad Elkays". The licence and author are set in `Cargo.toml` and both `package.json`, the installers carry the copyright and publisher (`tauri.conf.json`), and About shows the copyright and licence. `CONTRIBUTING.md` says no outside code is merged until a CLA is adopted. `docs/EULA.md` is a draft end-user licence for the paid builds, not in force until a lawyer reads it. ADR-054 lists the online services whose terms must be checked before selling (OpenSky, Flickr, Flightradar24, adsbdb, the Canadian register).
+- **Tests, run here (Windows):** mocked Playwright `about.spec.ts` (the copyright line); cargo metadata; Prettier.
+- **Not done:** trademark search; lawyer review; asking OpenSky, Flickr and adsbdb; the installer's licence page.
+
 ## Version 0.11.7 (2026-11-26)
 
 - Version 0.11.7 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: the Help screen and the version in Settings (PR #76), and the system requirements in SPEC (PR #75). No catalog change.

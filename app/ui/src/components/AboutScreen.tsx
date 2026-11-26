@@ -35,6 +35,11 @@ export function AboutScreen() {
         Keepsake {version}. Imports camera cards safely and keeps your photos and videos in a
         calendar-first library, on your own computer.
       </p>
+      <p className="muted" data-testid="about-copyright">
+        Copyright © 2026 Ahmad Elkays. The source code is available under the Functional Source
+        License 1.1 (FSL-1.1-ALv2); each version also becomes Apache 2.0 two years after its
+        release.
+      </p>
 
       <div className="card" data-testid="about-credits">
         <h2>Data and services</h2>
