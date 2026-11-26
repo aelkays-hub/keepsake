@@ -1,5 +1,50 @@
 # Keepsake — Feature Specification
 
+## System requirements
+
+### Supported systems (fixed)
+
+| | Windows | macOS |
+|---|---|---|
+| Operating system | Windows 11 | macOS 14 Sonoma or later |
+| Processor | x64, or ARM64 (e.g. Snapdragon) | Apple Silicon (M1 or later); Intel Macs are not supported |
+| Web view | WebView2 (part of Windows 11) | WKWebView (part of macOS) |
+| AI on the GPU (optional) | DirectML: any DirectX 12 GPU; otherwise the CPU | Core ML |
+| Installer | x64 and ARM64 (`setup.exe` and MSI) | Not yet: needs an LGPL FFmpeg build for Apple Silicon (ADR-005) |
+
+- On Windows ARM64, RAW decoding runs the x64 LibRaw under emulation (LibRaw publishes no ARM64 binary), so RAW previews are slower there.
+- Without a supported GPU, AI tagging runs on the CPU (about 120 ms per photo on a Ryzen 7 7735HS, against 80 ms on its integrated GPU) and video encoding falls back to software.
+
+### Hardware (estimated, not yet measured)
+
+These figures are estimates from how the app works; they have not been tested on low-end hardware. Measure them on a modest machine before quoting them as minimums.
+
+| | Minimum | Recommended |
+|---|---|---|
+| Processor | 4 cores | 8 cores (Ryzen 7 7735HS class, or Apple M1 and later) |
+| Memory | 8 GB | 16 GB, especially with AI tagging or the 4-clip player |
+| Graphics | Integrated | Any DirectX 12 GPU, or Apple Silicon, for faster AI tagging and hardware video encoding |
+| Disk for the app | About 1.2 GB, AI models included (measured) | |
+| Disk for the library folder | The catalog (about 5 MB per 1,000 items, measured) and thumbnails; video without a camera proxy adds about 1–3 GB of proxies per hour of 4K | On an SSD |
+| Display | 1280 × 800 | 1920 × 1080 or larger |
+
+- Originals can stay on a slow drive or a NAS: only the library folder (catalog and thumbnails) benefits from an SSD.
+
+### Measured (2026-11-26, Windows)
+
+Keepsake 0.11.5 installed, running for 4 hours with background work on (thumbnails and AI), on the product owner's laptop: Ryzen 7 7735HS (8 cores, 16 threads), 27 GB of memory, integrated Radeon graphics, NVMe SSD, 3840 × 2160 screen. Library: 129,263 items (129,717 files).
+
+| | Measured |
+|---|---|
+| Memory, Keepsake itself | 390–590 MB |
+| Memory, with the web view and helpers (ExifTool) | 1.5–2.5 GB |
+| Processor while busy in the background | about 1.5 cores of 16 (thumbnails and AI) |
+| Install folder | 1.15 GB, of which the AI models are 526 MB and FFmpeg about 515 MB |
+| Catalog | 618 MB (`catalog.db`), plus a backup of the catalog of about the same size before each upgrade |
+
+- So 8 GB of memory leaves room for Windows and the app; 16 GB is comfortable with AI on.
+- Not measured yet: a modest machine (4 cores, 8 GB), and macOS.
+
 ## MVP
 
 The MVP ships a working camera-card ingest and a browsable, searchable library. No video editing, no cloud, no AI.
