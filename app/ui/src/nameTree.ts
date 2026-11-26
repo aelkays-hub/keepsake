@@ -75,8 +75,8 @@ export type DateLevels = ReadonlyMap<string, Bucket[]>;
 
 /** By aircraft: the visible lines, airlines, under each open one its
  * types, under each open type its registrations, under each open
- * registration its years (loaded, `dates`), under each open year its
- * months. A registration line or a year whose level is not loaded yet
+ * registration its years (loaded, `dates`), newest first, under each open
+ * year its months. A registration line or a year whose level is not loaded yet
  * says so in `load`. */
 export function aircraftTreeNodes(
   groups: AircraftReportGroup[],
@@ -101,7 +101,9 @@ export function aircraftTreeNodes(
         regOpen && !dates.has(r.key) ? { key: r.key, query, level: { level: "years" } } : undefined,
     });
     if (!regOpen) continue;
-    for (const y of dates.get(r.key) ?? []) {
+    for (const y of newestFirst(dates.get(r.key) ?? [], (b) =>
+      b.key === "undated" ? null : Number(b.key),
+    )) {
       const undated = y.key === "undated";
       const year = undated ? null : Number(y.key);
       const yearKey = `${r.key}${y.key}${SEP}`;
@@ -137,6 +139,15 @@ export function aircraftTreeNodes(
     }
   }
   return out;
+}
+
+/** Years newest first; the photos with no date (`null`) last. */
+function newestFirst<T>(years: readonly T[], year: (y: T) => number | null): T[] {
+  return [...years].sort((a, b) => {
+    const x = year(a);
+    const y = year(b);
+    return x === null ? (y === null ? 0 : 1) : y === null ? -1 : y - x;
+  });
 }
 
 /** `q` for a year (or a month of it); `year` null: the photos with no date. */
@@ -188,7 +199,7 @@ export function faceTreeNodes(tree: NameTreeNode[], open: ReadonlySet<string>): 
       query: faceQuery(n.name),
     });
     if (!isOpen) continue;
-    for (const y of n.years) {
+    for (const y of newestFirst(n.years, (y) => y.year)) {
       const yearKey = `${nameKey}${SEP}${y.year ?? "undated"}`;
       const yearLabel = y.year === null ? "No date" : String(y.year);
       const yearOpen = open.has(yearKey);

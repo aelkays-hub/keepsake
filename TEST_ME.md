@@ -27,7 +27,7 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/face-tree.spec.
 2. Click **By face**.
    - **Expected:** the people you named, **A to Z**, each with a photo count; **Unnamed faces** last.
 3. Click a person.
-   - **Expected:** the library shows that person's photos; the heading is their name; the count under the grid equals the number beside the name. The node opens to its years, oldest first (**No date** last, if some of their photos have no date).
+   - **Expected:** the library shows that person's photos; the heading is their name; the count under the grid equals the number beside the name. The node opens to its years, newest first (**No date** last, if some of their photos have no date).
 4. Click a year, then open it and click a month.
    - **Expected:** heading `Sara › 2019`, then `Sara › 2019 › June`; each time the item count equals the node's number.
 5. Click **Unnamed faces**.
@@ -60,7 +60,7 @@ cd app/ui; pnpm exec playwright test --project=mocked e2e/mocked/aircraft-tree.s
    - **Expected:** the library shows its photos; the heading reads "KLM" and the item count is the number beside KLM. The line opens to its **types**, A to Z, with **No type named** last.
 4. Click a type, then one of its **registrations**.
    - **Expected:** the heading reads "KLM › Boeing 747", then "KLM › Boeing 747 › PH-BFA"; each time the item count equals the line's number.
-5. The registration opens to its **years**, oldest first, **No date** last if some photos have no date. Click a year, then open it and click a **month**.
+5. The registration opens to its **years**, newest first, **No date** last if some photos have no date. Click a year, then open it and click a **month**.
    - **Expected:** the years' numbers add up to the registration's; the heading reads "KLM › Boeing 747 › PH-BFA › 2019", then "… › 2019 › June"; each time the item count equals the line's number.
 6. Click a **No type named** (or No registration named) line.
    - **Expected:** the photos of the lines above it that name no type (no registration).

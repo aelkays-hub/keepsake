@@ -33,6 +33,7 @@ const people: NameTreeNode[] = [
     photos: 2,
     years: [
       { year: 2019, photos: 1, months: [{ month: 1, photos: 1 }] },
+      { year: 2022, photos: 1, months: [{ month: 5, photos: 1 }] },
       { year: null, photos: 1, months: [] },
     ],
   },
@@ -110,14 +111,15 @@ describe("trees by name", () => {
     const i = n.findIndex((x) => x.label === "PH-BFA");
     expect(n[i].load).toBeUndefined();
     expect(n.slice(i + 1, i + 6).map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
+      // Newest first, No date last.
+      ["2024", 3, 1, false],
       ["2019", 3, 6, true],
       ["January", 4, 2, undefined],
       ["June", 4, 4, undefined],
-      ["2024", 3, 1, false],
       ["No date", 3, 1, undefined],
     ]);
-    expect(n[i + 3].title).toBe("KLM › Boeing 747 › PH-BFA › 2019 › June");
-    expect(n[i + 3].query).toEqual({
+    expect(n[i + 4].title).toBe("KLM › Boeing 747 › PH-BFA › 2019 › June");
+    expect(n[i + 4].query).toEqual({
       tags: ["Aircraft|Airline|KLM", "Aircraft|Type|Boeing 747", "Aircraft|Registration|PH-BFA"],
       from: "2019-06-01",
       to: "2019-06-30",
@@ -130,18 +132,19 @@ describe("trees by name", () => {
     expect(y?.load?.level).toEqual({ level: "months", year: 2024 });
   });
 
-  it("by face: people A to Z, the unnamed faces last, then years and months", () => {
+  it("by face: people A to Z, the unnamed faces last, then years (newest first) and months", () => {
     const n = faceTreeNodes(people, new Set(["Sara", "Sara\u001f2019"]));
     expect(n.map((x) => [x.label, x.depth, x.count, x.expanded])).toEqual([
       ["Sara", 0, 2, true],
+      ["2022", 1, 1, false],
       ["2019", 1, 1, true],
       ["January", 2, 1, undefined],
       ["No date", 1, 1, undefined],
       ["tom", 0, 9, false],
       ["Unnamed faces", 0, 4, false],
     ]);
-    expect(n[2].title).toBe("Sara › 2019 › January");
-    expect(n[2].query).toEqual({ tags: ["People|Sara"], from: "2019-01-01", to: "2019-01-31" });
+    expect(n[3].title).toBe("Sara › 2019 › January");
+    expect(n[3].query).toEqual({ tags: ["People|Sara"], from: "2019-01-01", to: "2019-01-31" });
   });
 
   it("by face: each node's search", () => {
