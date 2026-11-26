@@ -81,6 +81,10 @@
 
 
 
+## Version 0.11.6 (2026-11-26)
+
+- Version 0.11.6 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: the sidebar trees By aircraft and By face (ADR-053, PR #73), and faster keyword searches. No catalog change.
+
 ## The aircraft tree: years and months under each registration (ADR-053) (2026-11-26)
 
 - **Asked:** "now add year and month under registration".
