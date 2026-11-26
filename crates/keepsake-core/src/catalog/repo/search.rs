@@ -187,8 +187,10 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         .map(|t| t.trim())
         .filter(|t| !t.is_empty());
     for t in tags {
+        // `a.id IN (…)`, not a correlated EXISTS: the tag's items are
+        // found once, not looked for again on every item (ADR-053).
         f.wh.push(format!(
-            "EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
+            "a.id IN (SELECT tx.asset_id FROM asset_tags tx WHERE tx.tag_id IN (
                {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
             super::tags::PATHS_CTE
         ));
@@ -201,8 +203,10 @@ pub(crate) fn filter_sql(q: &SearchQuery) -> Result<FilterSql, CatalogError> {
         .map(|t| t.trim())
         .filter(|t| !t.is_empty())
     {
+        // As above: a NOT EXISTS here built the tag list again for every
+        // item, a minute for one report line in a 129,000-item library.
         f.wh.push(format!(
-            "NOT EXISTS (SELECT 1 FROM asset_tags tx WHERE tx.asset_id = a.id AND tx.tag_id IN (
+            "a.id NOT IN (SELECT tx.asset_id FROM asset_tags tx WHERE tx.tag_id IN (
                {} SELECT id FROM tag_paths WHERE path = ? OR path LIKE ? || '|%'))",
             super::tags::PATHS_CTE
         ));

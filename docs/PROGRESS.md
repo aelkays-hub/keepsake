@@ -81,6 +81,14 @@
 
 
 
+## Searching by keyword: a line naming none no longer takes a minute (2026-11-26)
+
+- **Asked:** "there seems to be issues in performance"; Porter › No type named › No registration named showed no pictures though there are 67.
+- **Found:** the app's log had `slow view_open` up to 156 s. A search with a "has none of these keywords" part (`withoutTags`, the tree's and the report's unnamed lines) checked every item of the library against the whole keyword tree again: 59 s for that Porter line on a copy of the 129,263-item catalog, with the app's own SQLite. The grid stayed empty while it ran.
+- **Changed:** `tags` and `withoutTags` are `a.id IN (…)` / `a.id NOT IN (…)`, so each keyword's items are found once. On the same copy: 59 s → 0.11 s (67 photos), and 0.09 s → 0.01 s for a plain keyword.
+- **Tests, run here (Windows):** `catalog_tests`, `report_tests` (the searches with and without keywords find the same items as before); clippy, fmt.
+- **Not run:** in the installed app; CI; macOS.
+
 ## The sidebar tree by aircraft: airline › type › registration, A to Z (ADR-053) (2026-11-25)
 
 - **Asked:** "I wanted the tree to show me by airline, type, registration … it can be later" (the years and months), and "what about sorting them alphabetically".
