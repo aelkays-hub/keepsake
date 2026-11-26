@@ -88,6 +88,12 @@
 - **Tests, run here (Windows):** Vitest `help.test.ts` (3 new); mocked Playwright `help.spec.ts` (3 new: Help after Settings; Find, steps, shortcuts and copying the report; the version in Settings), `about`, `a11y`, `diagnostics`; looked at in the mocked app; tsc, ESLint, Prettier.
 - **Not run:** in the installed app; macOS.
 
+## System requirements in SPEC (2026-11-26)
+
+- **Asked:** the minimum hardware for Windows and macOS, in SPEC.md, then a test on this machine.
+- **Added:** SPEC → System requirements: the supported systems (from ADR-001 and the setup), the hardware (estimated), and what was measured on the product owner's laptop with the installed 0.11.5 and a 129,263-item library: 390–590 MB for Keepsake, 1.5–2.5 GB with the web view and helpers, 1.15 GB installed, a 618 MB catalog.
+- **Not measured:** a modest machine (4 cores, 8 GB); macOS (no installer yet).
+
 ## Version 0.11.6 (2026-11-26)
 
 - Version 0.11.6 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: the sidebar trees By aircraft and By face (ADR-053, PR #73), and faster keyword searches. No catalog change.
