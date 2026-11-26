@@ -1,3 +1,22 @@
+# Keepsake 0.11.6
+
+Version 0.11.6 adds two new sidebar trees, By aircraft and By face, and makes keyword searches much faster. It has everything in 0.11.5. No catalog change: 0.11.5 and 0.11.6 open the same library.
+
+## New in 0.11.6
+
+**Sidebar: By aircraft** (the sidebar's tree buttons)
+- Airline › Type › Registration › Year › Month, with photo counts. Click any line to open exactly its photos.
+- Names are A to Z. **No airline named**, **No type named** and **No registration named** come last.
+- Years are newest first, and **No date** comes last.
+
+**Sidebar: By face**
+- Person › Year › Month, A to Z, with **Unnamed faces** last for photos that have a face with no name.
+
+## Faster in 0.11.6
+
+**Keyword searches**
+- Opening a line that names no type or registration (for example Porter › No type named › No registration named) took up to a minute or two. It now opens in a fraction of a second, and so does any search by several keywords.
+
 # Keepsake 0.11.5
 
 Version 0.11.5 reads Porter's registrations, and lets the aircraft report open the photos that name no airline. It has everything in 0.11.4. No catalog change: 0.11.4 and 0.11.5 open the same library.
