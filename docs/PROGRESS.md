@@ -81,6 +81,10 @@
 
 
 
+## Version 0.12.0 (2026-11-26)
+
+- Version 0.12.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC's example) and its release notes: the first release under a licence, FSL-1.1-ALv2, copyright Ahmad Elkays (ADR-054, PR #78). The owner first asked for 1.0.0, then 0.5.0; 0.12.0 was chosen because 0.5.0 sorts below 0.11.7 and would not install over it. No catalog change.
+
 ## Copyright and licensing (ADR-054) (2026-11-26)
 
 - **Asked:** a copyright and licensing model; chose "Paid, source visible", copyright owned personally.

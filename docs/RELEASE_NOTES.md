@@ -1,3 +1,21 @@
+# Keepsake 0.12.0
+
+Version 0.12.0 is Keepsake's first release under a licence. It has everything in 0.11.7. No catalog change: 0.11.7 and 0.12.0 open the same library.
+
+## Copyright and licence
+
+- Keepsake is **Copyright © 2026 Ahmad Elkays**. Tools → About and the installer now show it.
+- The source code is available under the **Functional Source License 1.1 (FSL-1.1-ALv2)**. You may use, change and share it for anything except offering it, or something like it, as a commercial product. Each version also becomes Apache 2.0 two years after its release. See `LICENSE.md`.
+- Earlier versions were published without a licence.
+- The third-party software inside Keepsake keeps its own licences, listed on the About screen.
+- Contributions: bug reports are welcome as GitHub issues. Code contributions are not accepted for now (`CONTRIBUTING.md`).
+
+## Also in this release
+
+Everything from 0.11.6 and 0.11.7:
+- **Help** (Tools → Help): how-to topics with Find, the keyboard shortcuts, and Copy diagnostic report. Settings shows the version.
+- **Sidebar trees By aircraft and By face**, and faster keyword searches.
+
 # Keepsake 0.11.7
 
 Version 0.11.7 adds a Help screen and shows the version in Settings. It has everything in 0.11.6. No catalog change: 0.11.6 and 0.11.7 open the same library.
