@@ -81,6 +81,13 @@
 
 
 
+## Help screen and the version in Settings (2026-11-26)
+
+- **Asked:** a How to and Help section after Settings, and the version number in Settings.
+- **Built:** Tools → **Help**, right after Settings in the sidebar: How to topics (15, each a few numbered steps, with Find), the keyboard shortcuts, and Get help (the version and Copy diagnostic report). The topics are data in `help.ts` (pure, `findTopics`). Settings shows `Keepsake <version>` under its heading. UI only; no core or Tauri change.
+- **Tests, run here (Windows):** Vitest `help.test.ts` (3 new); mocked Playwright `help.spec.ts` (3 new: Help after Settings; Find, steps, shortcuts and copying the report; the version in Settings), `about`, `a11y`, `diagnostics`; looked at in the mocked app; tsc, ESLint, Prettier.
+- **Not run:** in the installed app; macOS.
+
 ## Version 0.11.6 (2026-11-26)
 
 - Version 0.11.6 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock) and its release notes: the sidebar trees By aircraft and By face (ADR-053, PR #73), and faster keyword searches. No catalog change.

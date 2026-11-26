@@ -355,6 +355,13 @@ export function SettingsScreen() {
       .then(take)
       .catch((e) => setProblem(String(e)));
   }, []);
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    api
+      .appInfo()
+      .then((a) => setVersion(a.version))
+      .catch(() => undefined);
+  }, []);
   if (!info)
     return <section className="screen">{problem && <p className="error">{problem}</p>}</section>;
   const withNew =
@@ -384,6 +391,9 @@ export function SettingsScreen() {
   return (
     <section className="screen" aria-label="Settings" data-testid="settings-screen">
       <h1 className="heading">Settings</h1>
+      <p className="muted" data-testid="settings-version">
+        Keepsake {version}
+      </p>
       <Library info={info} />
       <AiSettings />
       <FacesSettings />
