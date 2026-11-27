@@ -81,6 +81,10 @@
 
 
 
+## Version 0.12.1 (2026-11-27)
+
+- Version 0.12.1 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC's example) and its release notes: Windows upgrades install over the old version (ADR-055, PR #81). No catalog change.
+
 ## Installer upgrades from an older publisher (ADR-055) (2026-11-27)
 
 - **Asked:** fix the installer so upgrades don't fail. Upgrading 0.11.7 to 0.12.0 with "Uninstall before installing" stopped with "Error launching installer".
