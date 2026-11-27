@@ -2069,3 +2069,34 @@ Other options weighed:
 
 **Dependencies.** None new: FFmpeg is already approved (ADR-005). The build uses only Apple's own tools on the runner.
 
+## ADR-057 — The macOS app bundles its helpers; macOS CI tests with them
+
+**Status**: Accepted (2026-11-27, product owner: "Start step 2", building Keepsake for the Mac, unsigned for now).
+
+**Context.** The Mac build had no helpers inside the app, and macOS CI skipped every test that needs ExifTool, ffprobe or ffmpeg (`KEEPSAKE_SKIP_MEDIA_TOOLS`), because there was no LGPL FFmpeg for the Mac (now ADR-056).
+
+**Decision.**
+- **`tauri.macos.conf.json`** puts the helpers in `Keepsake.app/Contents/Resources`, laid out like `vendor/`, where the app already looks (`resource_dir`, `probe::tools::set_bundled`), the same as the Windows installer (ADR-024):
+  - `ffmpeg` and `ffprobe` (ADR-056);
+  - ExifTool's script and its `lib/` (it runs on the Perl that ships with macOS 14 and later);
+  - LibRaw's `dcraw_emu`;
+  - ONNX Runtime's `libonnxruntime.dylib`;
+  - their licences under `licenses/` and `libraw/`.
+  
+  It also sets the minimum macOS to 14.0.
+- **`scripts/setup.sh --vendor-only`** fills `vendor/` without installing Rust, Node or pnpm, for CI. `setup.sh` is now executable in git.
+- **ONNX Runtime for the Mac comes from the mirror.** Microsoft's GitHub release that `setup.sh` used returns 404, so `onnxruntime-1.31.1-osx-arm64.zip` was built from Microsoft's NuGet package `Microsoft.ML.OnnxRuntime` 1.31.1 (SHA-256 `6871ccbc…c679a`), with the library, licence and notices unchanged. It is on `vendor-binaries-v1` (SHA-256 `6346855d…cc46`).
+- **macOS CI (`macos-15 (Rust)`)** now runs `setup.sh --vendor-only`, then:
+  1. clippy and tests for the whole workspace, including the app, with the real tools; `KEEPSAKE_SKIP_MEDIA_TOOLS` is no longer set;
+  2. the UI tests;
+  3. `pnpm tauri build --bundles app`;
+  4. a check that every helper and licence is inside `Keepsake.app` and runs from there;
+  5. the probe and render tests again with `KEEPSAKE_VENDOR` pointing at the app's `Contents/Resources`.
+  
+  The built `Keepsake.app` is kept as a workflow artifact for 7 days.
+- **Test media on the Mac** is made with `h264_videotoolbox` and `hevc_videotoolbox`; Windows keeps `libopenh264` and `libkvazaar`, which Keepsake's Mac FFmpeg does not have. The app itself already tries VideoToolbox first on the Mac. OpenH264 is not added to the Mac build, so no new dependency is needed.
+
+**Not yet.** A DMG in the releases (step 3), signing and notarization (deferred by the product owner), and real-app UI tests on the Mac (WKWebView cannot be driven by Playwright).
+
+**Dependencies.** None new.
+
