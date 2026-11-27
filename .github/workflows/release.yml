@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-    branches:
-      - feat/macos-dmg # TEMPORARY: trial run of the macOS job; remove before merging
   # A dry run: builds and smoke-tests every installer, makes no release.
   workflow_dispatch:
 

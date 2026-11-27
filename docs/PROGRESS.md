@@ -81,6 +81,17 @@
 
 
 
+## An unsigned macOS DMG in each release (ADR-058) (2026-11-27)
+
+- **Asked:** step 3 of building for the Mac: a DMG in each release (signing skipped for now).
+- **Built:**
+  - `release.yml` builds `Keepsake_X.Y.Z_aarch64.dmg` on `macos-15`, ad-hoc signed (`signingIdentity: "-"`).
+  - A macOS smoke test mounts the DMG, copies the app out, checks its signature, version, minimum macOS and helpers, and runs `keepsake-app --self-check`.
+  - `probe::tools` finds a Mac app's `Contents/Resources` beside `Contents/MacOS`, so the self-check works before Tauri starts.
+  - The GitHub Release job runs only for a version tag. `workflow_dispatch` is a dry run.
+- **Tests:** a trial run of the release workflow on this branch (run 46025794317, with no release made). The DMG built (47 MB). The smoke test found the app intact and ad-hoc signed, at version 0.12.1, and `--self-check` found and ran ExifTool 13.59, ffprobe and ffmpeg 9.0.2, and dcraw_emu, all inside `Contents/Resources`. Here (Windows): the new `probe::tools` unit test, clippy, fmt.
+- **Not done:** opening the DMG on a real Mac; Developer ID signing and notarization (deferred).
+
 ## The macOS app bundles its helpers (ADR-057) (2026-11-27)
 
 - **Asked:** step 2 of building for the Mac: put the helpers in the app, and test with them on macOS.

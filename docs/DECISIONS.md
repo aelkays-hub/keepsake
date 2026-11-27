@@ -2100,3 +2100,24 @@ Other options weighed:
 
 **Dependencies.** None new.
 
+## ADR-058 — An unsigned macOS DMG in each release
+
+**Status**: Accepted (2026-11-27, product owner: "Start step 3"; Developer ID signing was considered first, then "let us skip the signing for now").
+
+**Decision.**
+- **`release.yml` has a `build-macos-arm64` job** on `macos-15`. It runs `setup.sh --vendor-only` and then `pnpm tauri build --bundles dmg`, giving `Keepsake_X.Y.Z_aarch64.dmg` with the helpers inside (ADR-057).
+- **Ad-hoc signed, not Developer ID.** `tauri.macos.conf.json` sets `signingIdentity` to `"-"`, so the bundle's signature is intact and `codesign --verify --deep --strict` passes. It is not notarized, so a downloaded copy is quarantined:
+  - macOS asks before opening it. Use System Settings → Privacy & Security → **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Keepsake.app`.
+  - An unsigned bundle would instead be called "damaged".
+  - The release notes say so.
+- **A `smoke-test-macos` job**:
+  1. mounts the DMG, checks it holds `Keepsake.app`, and copies the app out;
+  2. checks its version, its minimum macOS (14), its signature and its helpers;
+  3. runs `keepsake-app --self-check`, which must find and run every tool inside `Contents/Resources`, the same check as on Windows.
+- **Tool discovery knows the Mac layout.** When the program is in a `Contents/MacOS` folder, `probe::tools` also looks in the sibling `Contents/Resources`. The GUI already registered that folder through Tauri; now `--self-check` and anything else that runs before Tauri starts finds it too.
+- **The GitHub Release job runs only for a version tag.** It now needs the macOS jobs too. A `workflow_dispatch` run is a dry run: it builds and smoke-tests every installer, and makes no release.
+
+**Later.** A Developer ID certificate and notarization: the six `APPLE_*` secrets, which Tauri reads at build time, then `xcrun stapler validate` in the smoke test. Also Intel Macs, which are not supported (ADR-001).
+
+**Dependencies.** None new.
+
