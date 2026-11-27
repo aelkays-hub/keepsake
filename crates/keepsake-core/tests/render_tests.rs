@@ -624,7 +624,14 @@ fn a_full_cache_makes_thumbnails_only_until_the_item_is_opened() {
     let Some(t) = tools() else { return };
     let mut w = World::new();
     still_file(&t, &w.media.join("p.jpg"), 1600, 1200, &[]);
-    clip(&t, &w.media.join("v.mp4"), 1280, 720, 2, "libopenh264");
+    clip(
+        &t,
+        &w.media.join("v.mp4"),
+        1280,
+        720,
+        2,
+        common::media::H264,
+    );
     w.index();
     // The cache is 85% full of renditions of media that is not connected
     // (never removed), so it stays full, with room for thumbnails.
@@ -760,7 +767,14 @@ fn raw_jpeg_pair_renders_from_the_jpeg_and_bad_raw_fails_for_good() {
 fn video_poster_is_the_frame_at_ten_percent_and_follows_rotation() {
     let Some(t) = tools() else { return };
     let mut w = World::new();
-    clip(&t, &w.media.join("clip.mp4"), 1920, 1080, 5, "libopenh264");
+    clip(
+        &t,
+        &w.media.join("clip.mp4"),
+        1920,
+        1080,
+        5,
+        common::media::H264,
+    );
     common::media::rotate_copy(
         &t.ffmpeg,
         &w.media.join("clip.mp4"),
@@ -799,13 +813,34 @@ fn check_proxy(t: &RenderTools, p: &Path, src_secs: f64) {
 fn proxies_are_720p_h264_with_one_second_gops() {
     let Some(t) = tools() else { return };
     let mut w = World::new();
-    clip(&t, &w.media.join("hd.mp4"), 1920, 1080, 4, "libopenh264");
-    clip(&t, &w.media.join("hevc.mp4"), 1280, 720, 3, "libkvazaar");
-    clip(&t, &w.media.join("small.mp4"), 640, 360, 2, "libopenh264");
+    clip(
+        &t,
+        &w.media.join("hd.mp4"),
+        1920,
+        1080,
+        4,
+        common::media::H264,
+    );
+    clip(
+        &t,
+        &w.media.join("hevc.mp4"),
+        1280,
+        720,
+        3,
+        common::media::HEVC,
+    );
+    clip(
+        &t,
+        &w.media.join("small.mp4"),
+        640,
+        360,
+        2,
+        common::media::H264,
+    );
     w.index();
     let before = tree(&w.media);
     // The detected encoder (hardware here, maybe) and the software fallback.
-    for forced in [None, Some("libopenh264")] {
+    for forced in [None, Some(common::media::H264)] {
         for (file, secs, h) in [
             ("hd.mp4", 4.0, 720),
             ("hevc.mp4", 3.0, 720),
@@ -831,10 +866,38 @@ fn camera_sub_proxy_is_copied_when_h264_and_replaced_when_hevc() {
     let Some(t) = tools() else { return };
     let mut w = World::new();
     let m4 = w.media.join("PRIVATE/M4ROOT");
-    clip(&t, &m4.join("CLIP/C0001.MP4"), 1280, 720, 2, "libkvazaar");
-    clip(&t, &m4.join("SUB/C0001S01.MP4"), 640, 360, 2, "libopenh264");
-    clip(&t, &m4.join("CLIP/C0002.MP4"), 1280, 720, 3, "libkvazaar");
-    clip(&t, &m4.join("SUB/C0002S01.MP4"), 640, 360, 3, "libkvazaar"); // an HEVC proxy
+    clip(
+        &t,
+        &m4.join("CLIP/C0001.MP4"),
+        1280,
+        720,
+        2,
+        common::media::HEVC,
+    );
+    clip(
+        &t,
+        &m4.join("SUB/C0001S01.MP4"),
+        640,
+        360,
+        2,
+        common::media::H264,
+    );
+    clip(
+        &t,
+        &m4.join("CLIP/C0002.MP4"),
+        1280,
+        720,
+        3,
+        common::media::HEVC,
+    );
+    clip(
+        &t,
+        &m4.join("SUB/C0002S01.MP4"),
+        640,
+        360,
+        3,
+        common::media::HEVC,
+    ); // an HEVC proxy
     w.index();
     let one = w.source("PRIVATE/M4ROOT/CLIP/C0001.MP4");
     assert!(one.camera_proxy.is_some(), "SUB proxy found");
@@ -886,7 +949,7 @@ fn avchd_segments_are_joined_before_encoding() {
                 "-t",
                 secs,
                 "-c:v",
-                "libopenh264",
+                common::media::H264,
                 "-c:a",
                 "ac3",
                 "-f",
@@ -899,7 +962,7 @@ fn avchd_segments_are_joined_before_encoding() {
     let mut src = w.source("STREAM/00000.MTS");
     src.segments = vec![std::fs::canonicalize(dir.join("00001.MTS")).unwrap()];
     src.duration_ms = Some(3000);
-    let e = video::detect(&t.ffmpeg, Some("libopenh264")).unwrap();
+    let e = video::detect(&t.ffmpeg, Some(common::media::H264)).unwrap();
     let p = video::make_proxy(&mut w.cat, &w.cache, &src, &t, &e).unwrap();
     check_proxy(&t, &p, 3.0);
     let poster = still::picture(&src, &t, None, &w.cache.temp_path("x").unwrap()).unwrap();
@@ -922,7 +985,14 @@ fn the_service_renders_everything_once_and_reports_progress() {
             &[],
         );
     }
-    clip(&t, &w.media.join("v.mp4"), 1280, 720, 2, "libopenh264");
+    clip(
+        &t,
+        &w.media.join("v.mp4"),
+        1280,
+        720,
+        2,
+        common::media::H264,
+    );
     w.index();
     assert_eq!(
         render::enqueue_backlog(&mut w.cat).unwrap(),
@@ -1148,11 +1218,39 @@ fn card_items_get_thumbnails_without_touching_the_card() {
     let w = World::new();
     let card = w.root.join("card");
     let m4 = card.join("PRIVATE/M4ROOT");
-    clip(&t, &m4.join("CLIP/C0001.MP4"), 1280, 720, 2, "libopenh264");
+    clip(
+        &t,
+        &m4.join("CLIP/C0001.MP4"),
+        1280,
+        720,
+        2,
+        common::media::H264,
+    );
     still_file(&t, &m4.join("THMBNL/C0001T01.JPG"), 160, 90, &[]);
-    clip(&t, &m4.join("CLIP/C0002.MP4"), 1280, 720, 3, "libkvazaar");
-    clip(&t, &m4.join("SUB/C0002S01.MP4"), 640, 360, 3, "libopenh264");
-    clip(&t, &m4.join("CLIP/C0003.MP4"), 1280, 720, 2, "libopenh264");
+    clip(
+        &t,
+        &m4.join("CLIP/C0002.MP4"),
+        1280,
+        720,
+        3,
+        common::media::HEVC,
+    );
+    clip(
+        &t,
+        &m4.join("SUB/C0002S01.MP4"),
+        640,
+        360,
+        3,
+        common::media::H264,
+    );
+    clip(
+        &t,
+        &m4.join("CLIP/C0003.MP4"),
+        1280,
+        720,
+        2,
+        common::media::H264,
+    );
     still_file(
         &t,
         &card.join("DCIM/100MSDCF/DSC00001.JPG"),
@@ -1276,7 +1374,7 @@ fn video_info_reads_rate_and_start_timecode() {
             "-t",
             "2",
             "-c:v",
-            "libopenh264",
+            common::media::H264,
             "-pix_fmt",
             "yuv420p",
             "-timecode",

@@ -6,6 +6,20 @@ use std::process::Command;
 
 use keepsake_core::probe::{ExifTool, ToolPaths};
 
+/// The H.264 and HEVC encoders the test media is made with. The Windows LGPL
+/// build has OpenH264 and Kvazaar; Keepsake's macOS build has Apple's
+/// VideoToolbox instead (ADR-056).
+pub const H264: &str = if cfg!(target_os = "macos") {
+    "h264_videotoolbox"
+} else {
+    "libopenh264"
+};
+pub const HEVC: &str = if cfg!(target_os = "macos") {
+    "hevc_videotoolbox"
+} else {
+    "libkvazaar"
+};
+
 /// The folder the media tests take their tools from: `KEEPSAKE_VENDOR` (such
 /// as the built app's resources, laid out like `vendor/`), else `vendor/`.
 pub fn vendor_dir() -> PathBuf {
@@ -75,7 +89,7 @@ pub fn h264_mp4(ffmpeg: &Path, out: &Path, creation_utc: &str, timecode: Option<
         "-t",
         "1",
         "-c:v",
-        "libopenh264",
+        H264,
         "-metadata",
         &creation,
     ];
