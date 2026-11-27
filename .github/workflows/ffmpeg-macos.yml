@@ -53,6 +53,7 @@ jobs:
             --arch=arm64 --cc=clang \
             --extra-cflags="-mmacosx-version-min=${MACOS_MIN}" \
             --extra-ldflags="-mmacosx-version-min=${MACOS_MIN}" \
+            --extra-libs="-liconv" \
             --enable-static --disable-shared \
             --disable-autodetect \
             --enable-videotoolbox --enable-audiotoolbox \
