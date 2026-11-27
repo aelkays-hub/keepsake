@@ -124,7 +124,7 @@ The MVP ships a working camera-card ingest and a browsable, searchable library. 
 ### Help and diagnostics
 - Logs and crash reports are kept in a local folder only; there is no telemetry. After a crash the app says so once, at the next start.
 - Tools → **Help** (right after Settings in the sidebar): **How to** topics for the common tasks (importing a card, adding a folder, browsing, searching, rating, the viewer, fixing the time, Open in, backup, duplicates, on-device AI, Read aircraft, Flickr, the report), each a few numbered steps, with Find (every word typed, in the title or the steps); the **keyboard shortcuts** (Ctrl, or ⌘ on a Mac); and **Get help**: the version and Copy diagnostic report. The topics are in `app/ui/src/help.ts`.
-- Settings shows the version (`Keepsake 0.12.1`) under its heading.
+- Settings shows the version (`Keepsake 0.13.0`) under its heading.
 - About shows the copyright (Ahmad Elkays) and the source licence, FSL-1.1-ALv2 (ADR-054). The installers carry the same copyright.
 - "Copy diagnostic report" (Settings, Help, the crash notice and the error screen) copies versions, tools, library counts, settings, the last crash and recent log lines, with the home folder shown as `~`.
 

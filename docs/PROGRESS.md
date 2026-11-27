@@ -81,6 +81,10 @@
 
 
 
+## Version 0.13.0 (2026-11-27)
+
+- Version 0.13.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC’s example) and its release notes: the first release with the unsigned macOS DMG (ADR-056 to ADR-058, PRs #83 to #85). No catalog change.
+
 ## An unsigned macOS DMG in each release (ADR-058) (2026-11-27)
 
 - **Asked:** step 3 of building for the Mac: a DMG in each release (signing skipped for now).
