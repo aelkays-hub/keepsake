@@ -229,29 +229,31 @@ download_pinned() {
 
 # ── 7. ONNX Runtime (on-device AI, ADR-035) ──────────────────────────────────
 # Microsoft's official 1.31.1 build for Apple Silicon (MIT, includes CoreML),
-# pinned by SHA-256. Loaded by Keepsake at run time, never linked.
+# taken unchanged from the NuGet package Microsoft.ML.OnnxRuntime 1.31.1 and
+# mirrored (the GitHub release it used to come from is gone). Loaded by
+# Keepsake at run time, never linked.
 # Install layout: vendor/onnxruntime/libonnxruntime.dylib (+ licences)
 ORT_DIR="$VENDOR/onnxruntime"
+ORT_ZIP_NAME="onnxruntime-1.31.1-osx-arm64.zip"
+ORT_ZIP_SHA="6346855d5ec6ae7d4a02774d11076d730bb77f46c8a70325c08e9a878609cc46"
 if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     if [[ ! -f "$ORT_DIR/libonnxruntime.dylib" ]]; then
-        ORT_TGZ="$VENDOR/onnxruntime-osx-arm64-1.31.1.tgz"
-        download_pinned \
-            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-osx-arm64-1.31.1.tgz" \
-            "$ORT_TGZ" "2e1344a1926ee50eb25b38153cb6992c3567515aef0e677a1a520a1798896d6f"
+        ORT_ZIP="$VENDOR/$ORT_ZIP_NAME"
+        download_mirrored "$ORT_ZIP_NAME" "$ORT_ZIP" "$ORT_ZIP_SHA"
         TMPX="$VENDOR/ort-extract"
         rm -rf "$TMPX" && mkdir -p "$TMPX" "$ORT_DIR"
-        tar -xzf "$ORT_TGZ" -C "$TMPX" --strip-components=1
-        cp -L "$TMPX/lib/libonnxruntime.dylib" "$ORT_DIR/libonnxruntime.dylib"
-        cp "$TMPX/LICENSE" "$ORT_DIR/LICENSE-onnxruntime.txt"
-        cp "$TMPX/ThirdPartyNotices.txt" "$ORT_DIR/ThirdPartyNotices.txt"
+        unzip -q "$ORT_ZIP" -d "$TMPX"
+        SRC_DIR="$TMPX/${ORT_ZIP_NAME%.zip}"
+        cp "$SRC_DIR/libonnxruntime.dylib" "$SRC_DIR/LICENSE-onnxruntime.txt" \
+           "$SRC_DIR/ThirdPartyNotices.txt" "$ORT_DIR/"
         xattr -d com.apple.quarantine "$ORT_DIR/libonnxruntime.dylib" 2>/dev/null || true
-        rm -rf "$TMPX" "$ORT_TGZ"
-        info "  Installed $ORT_DIR/libonnxruntime.dylib"
+        rm -rf "$TMPX" "$ORT_ZIP"
+        info "  Installed $ORT_DIR/libonnxruntime.dylib (ONNX Runtime 1.31.1)"
     else
-        info "  ONNX Runtime already present, skipping download."
+        info "ONNX Runtime already present, skipping download."
     fi
 else
-    warn "ONNX Runtime is set up for Apple Silicon only; AI features are off here."
+    warn "ONNX Runtime is set up for Apple Silicon Macs only; on-device AI is off here."
 fi
 
 # ── 8. AI model (optional, --with-ai) ────────────────────────────────────────
