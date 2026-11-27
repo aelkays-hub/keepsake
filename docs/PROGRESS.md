@@ -81,6 +81,13 @@
 
 
 
+## macOS setup: ONNX Runtime from NuGet (2026-11-27)
+
+- **Problem:** on a new Apple Silicon Mac, `scripts/setup.sh` stopped at step 7 with a 404: the `microsoft/onnxruntime` GitHub repository and its releases no longer resolve, so `onnxruntime-osx-arm64-1.31.1.tgz` could not be downloaded and the AI features stayed off.
+- **Fixed:** `setup.sh` now takes the same ONNX Runtime **1.31.1** from the official `Microsoft.ML.OnnxRuntime` NuGet package (as `setup.ps1` already does on Windows), pinned by SHA-256, and copies `runtimes/osx-arm64/native/libonnxruntime.dylib`, `LICENSE` and `ThirdPartyNotices.txt` into `vendor/onnxruntime/` as before. Same version, same licence (MIT), same install layout: no new dependency, ADR-035 unchanged. The package is 160 MB (the old archive was smaller); it is deleted after extraction.
+- **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. The model tests were not run (`--with-ai` models not downloaded).
+- **Not done:** macOS FFmpeg is still deferred, so video features remain off on macOS.
+
 ## Version 0.12.0 (2026-11-26)
 
 - Version 0.12.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC's example) and its release notes: the first release under a licence, FSL-1.1-ALv2, copyright Ahmad Elkays (ADR-054, PR #78). The owner first asked for 1.0.0, then 0.5.0; 0.12.0 was chosen because 0.5.0 sorts below 0.11.7 and would not install over it. No catalog change.

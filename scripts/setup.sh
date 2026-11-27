@@ -205,22 +205,26 @@ download_pinned() {
 # ── 7. ONNX Runtime (on-device AI, ADR-035) ──────────────────────────────────
 # Microsoft's official 1.31.1 build for Apple Silicon (MIT, includes CoreML),
 # pinned by SHA-256. Loaded by Keepsake at run time, never linked.
+# Fetched from the Microsoft.ML.OnnxRuntime NuGet package (as setup.ps1
+# does for Windows): the microsoft/onnxruntime GitHub releases now 404.
 # Install layout: vendor/onnxruntime/libonnxruntime.dylib (+ licences)
 ORT_DIR="$VENDOR/onnxruntime"
 if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     if [[ ! -f "$ORT_DIR/libonnxruntime.dylib" ]]; then
-        ORT_TGZ="$VENDOR/onnxruntime-osx-arm64-1.31.1.tgz"
+        ORT_PKG="$VENDOR/microsoft.ml.onnxruntime.1.31.1.nupkg"
         download_pinned \
-            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.1/onnxruntime-osx-arm64-1.31.1.tgz" \
-            "$ORT_TGZ" "2e1344a1926ee50eb25b38153cb6992c3567515aef0e677a1a520a1798896d6f"
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.31.1/microsoft.ml.onnxruntime.1.31.1.nupkg" \
+            "$ORT_PKG" "6871ccbc97f3d5bdb4095a1dcec33aa78d56f6ed8de5980ef5fa1d9f2e7c679a"
         TMPX="$VENDOR/ort-extract"
         rm -rf "$TMPX" && mkdir -p "$TMPX" "$ORT_DIR"
-        tar -xzf "$ORT_TGZ" -C "$TMPX" --strip-components=1
-        cp -L "$TMPX/lib/libonnxruntime.dylib" "$ORT_DIR/libonnxruntime.dylib"
+        unzip -q "$ORT_PKG" \
+            "runtimes/osx-arm64/native/libonnxruntime.dylib" LICENSE ThirdPartyNotices.txt \
+            -d "$TMPX"
+        cp "$TMPX/runtimes/osx-arm64/native/libonnxruntime.dylib" "$ORT_DIR/libonnxruntime.dylib"
         cp "$TMPX/LICENSE" "$ORT_DIR/LICENSE-onnxruntime.txt"
         cp "$TMPX/ThirdPartyNotices.txt" "$ORT_DIR/ThirdPartyNotices.txt"
         xattr -d com.apple.quarantine "$ORT_DIR/libonnxruntime.dylib" 2>/dev/null || true
-        rm -rf "$TMPX" "$ORT_TGZ"
+        rm -rf "$TMPX" "$ORT_PKG"
         info "  Installed $ORT_DIR/libonnxruntime.dylib"
     else
         info "  ONNX Runtime already present, skipping download."
