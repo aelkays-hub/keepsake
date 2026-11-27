@@ -247,7 +247,7 @@ jobs:
           workspaces: ". -> target"
 
       - name: Download the helpers (vendor/)
-        run: scripts/setup.sh --vendor-only
+        run: bash scripts/setup.sh --vendor-only
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
