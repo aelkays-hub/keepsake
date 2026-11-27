@@ -2,10 +2,6 @@
 # Keepsake dev-environment setup — macOS / Linux
 # Re-running is safe; every step is idempotent.
 #
-# NOTE: macOS FFmpeg support is currently deferred (Windows-first development).
-# A future prompt will add a CI workflow that compiles an LGPL FFmpeg/ffprobe
-# for Apple Silicon (VideoToolbox enabled, no GPL components).
-#
 # --with-ai: also download the AI models (372 MB, 39 MB for faces and 96 MB for reading aircraft) into vendor/models (ADR-035, ADR-040, ADR-041).
 set -euo pipefail
 
@@ -111,16 +107,38 @@ verify_ffmpeg_licence() {
     info "  ✓ Licence verified: $label (no --enable-gpl, no --enable-nonfree)"
 }
 
-# ── 4. FFmpeg / ffprobe (macOS — DEFERRED) ───────────────────────────────────
-# macOS FFmpeg support is deferred.  No maintained LGPL prebuilt exists for
-# Apple Silicon, so a custom compile is required (VideoToolbox, no GPL).
-# A CI workflow and setup steps will be added in a future prompt when macOS
-# development resumes.  When FFmpeg is added, call verify_ffmpeg_licence after
-# installation.
+# ── 4. FFmpeg / ffprobe (macOS, Apple Silicon) ──────────────────────────────
+# No maintained LGPL build exists for Apple Silicon, so Keepsake builds its own
+# from FFmpeg's release source in CI (.github/workflows/ffmpeg-macos.yml,
+# ADR-056): LGPL only, VideoToolbox, no outside libraries. The source is on the
+# mirror too.
+FFMPEG_MAC_ZIP_NAME="ffmpeg-9.0.2-macos-arm64-lgpl.zip"
+FFMPEG_MAC_ZIP_SHA="bb6c90a4aea5dd3f578d877c97d2edd788d40140a6add3bd8d4bdbe359b75f1f"
+
 if [[ "$(uname)" == "Darwin" ]]; then
-    warn "FFmpeg/ffprobe for macOS is not yet configured."
-    warn "  Development is currently Windows-first.  macOS support is planned."
-    warn "  Until then, video features that require FFmpeg will not be available on macOS."
+    if [[ "$(uname -m)" != "arm64" ]]; then
+        warn "FFmpeg for macOS is built for Apple Silicon only; skipped on $(uname -m)."
+    elif [[ ! -x "$VENDOR/ffmpeg" || ! -x "$VENDOR/ffprobe" ]]; then
+        FFMPEG_ZIP="$VENDOR/$FFMPEG_MAC_ZIP_NAME"
+        download_mirrored "$FFMPEG_MAC_ZIP_NAME" "$FFMPEG_ZIP" "$FFMPEG_MAC_ZIP_SHA"
+        TMPX="$VENDOR/ffmpeg-extract"
+        rm -rf "$TMPX" && mkdir -p "$TMPX"
+        unzip -q "$FFMPEG_ZIP" -d "$TMPX"
+        SRC_DIR="$TMPX/${FFMPEG_MAC_ZIP_NAME%.zip}"
+        install -m 755 "$SRC_DIR/ffmpeg" "$SRC_DIR/ffprobe" "$VENDOR/"
+        cp "$SRC_DIR/LICENSE-ffmpeg.txt" "$VENDOR/LICENSE-ffmpeg.txt"
+        cp "$SRC_DIR/BUILD-INFO.txt" "$VENDOR/FFMPEG-BUILD-INFO.txt"
+        rm -rf "$TMPX" "$FFMPEG_ZIP"
+        # Downloaded files carry the quarantine flag; the helpers must run.
+        xattr -d com.apple.quarantine "$VENDOR/ffmpeg" "$VENDOR/ffprobe" 2>/dev/null || true
+        info "  Installed $VENDOR/ffmpeg and $VENDOR/ffprobe"
+    else
+        info "FFmpeg/ffprobe already present."
+    fi
+    if [[ -x "$VENDOR/ffmpeg" ]]; then
+        verify_ffmpeg_licence "$VENDOR/ffmpeg"
+        "$VENDOR/ffprobe" -hide_banner -version | head -1
+    fi
 fi
 
 # ── 5. ExifTool (Unix tarball, SourceForge mirror) ───────────────────────────

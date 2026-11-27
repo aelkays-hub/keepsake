@@ -1,0 +1,139 @@
+# Builds the LGPL FFmpeg and FFprobe that Keepsake ships on macOS (ADR-005, ADR-056).
+#
+# No maintained LGPL build exists for Apple Silicon, so we compile FFmpeg's own
+# release source here: no GPL or nonfree parts, no outside libraries, Apple's
+# VideoToolbox and AudioToolbox for hardware encoding. The result is a zip with
+# both programs, the licence and how they were built. It is checked, kept as a
+# workflow artifact, and copied by hand to the vendor-binaries-v1 mirror
+# (with the source, which the LGPL asks us to offer), where scripts/setup.sh
+# downloads it.
+#
+# Runs when this file changes, or by hand (Actions → FFmpeg for macOS).
+name: FFmpeg for macOS
+
+on:
+  push:
+    paths:
+      - .github/workflows/ffmpeg-macos.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FFMPEG_VERSION: "9.0.2"
+  # Checked against FFmpeg's release signing key
+  # (FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8) on 2026-11-27.
+  FFMPEG_SHA256: "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+  MACOS_MIN: "14.0"
+
+jobs:
+  build:
+    name: Build (macOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Download and verify the source
+        run: |
+          set -euo pipefail
+          SRC="ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          curl -fL --retry 3 -o "$SRC" "https://ffmpeg.org/releases/$SRC" \
+            || curl -fL --retry 3 -o "$SRC" "https://github.com/aelkays-hub/keepsake/releases/download/vendor-binaries-v1/$SRC"
+          echo "${FFMPEG_SHA256}  $SRC" | shasum -a 256 -c -
+          tar -xf "$SRC"
+
+      - name: Configure
+        working-directory: ffmpeg-${{ env.FFMPEG_VERSION }}
+        run: |
+          set -euo pipefail
+          # --disable-autodetect: nothing from Homebrew or elsewhere on the runner
+          # gets in; only what is listed. zlib (PNG), bzlib and iconv come with macOS.
+          ./configure \
+            --prefix="$PWD/out" \
+            --arch=arm64 --cc=clang \
+            --extra-cflags="-mmacosx-version-min=${MACOS_MIN}" \
+            --extra-ldflags="-mmacosx-version-min=${MACOS_MIN}" \
+            --extra-libs="-liconv" \
+            --enable-static --disable-shared \
+            --disable-autodetect \
+            --enable-videotoolbox --enable-audiotoolbox \
+            --enable-zlib --enable-bzlib --enable-iconv \
+            --disable-ffplay --disable-doc --disable-debug \
+            --disable-network \
+            | tee ../configure.log
+          if grep -Eq -- '--enable-(gpl|nonfree)' ../configure.log; then
+            echo "::error::GPL or nonfree enabled"; exit 1
+          fi
+
+      - name: Build
+        working-directory: ffmpeg-${{ env.FFMPEG_VERSION }}
+        run: |
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          strip out/bin/ffmpeg out/bin/ffprobe
+
+      - name: Check the programs
+        working-directory: ffmpeg-${{ env.FFMPEG_VERSION }}/out/bin
+        run: |
+          set -euo pipefail
+          for b in ffmpeg ffprobe; do
+            file "$b" | grep -q 'arm64' || { echo "::error::$b is not arm64"; exit 1; }
+            # Only Apple's own libraries and frameworks.
+            if otool -L "$b" | tail -n +2 | grep -Ev '^\s*(/usr/lib/|/System/Library/)'; then
+              echo "::error::$b links a library that macOS does not have"; exit 1
+            fi
+            otool -l "$b" | grep -A3 LC_BUILD_VERSION | grep -q "minos ${MACOS_MIN}" \
+              || { echo "::error::$b does not target macOS ${MACOS_MIN}"; exit 1; }
+          done
+          CONF="$(./ffmpeg -hide_banner -version)"
+          echo "$CONF"
+          if echo "$CONF" | grep -Eq -- '--enable-(gpl|nonfree)'; then
+            echo "::error::not an LGPL build"; exit 1
+          fi
+          ENC="$(./ffmpeg -hide_banner -encoders)"
+          for e in h264_videotoolbox hevc_videotoolbox aac png ppm mjpeg; do
+            echo "$ENC" | grep -qw "$e" || { echo "::error::encoder $e missing"; exit 1; }
+          done
+          # What Keepsake runs: a software-encoded clip read back, and the
+          # PNG frame grab. VideoToolbox needs the GPU, which a runner may not
+          # have, so its encode is tried but not required here.
+          ./ffmpeg -hide_banner -v error -f lavfi -i testsrc2=size=320x240:rate=25 -t 1 -c:v mpeg4 -y t.mp4
+          ./ffprobe -v error -show_entries stream=codec_name,width,height -of csv=p=0 t.mp4 | grep -q 'mpeg4,320,240'
+          ./ffmpeg -hide_banner -v error -i t.mp4 -frames:v 1 -y t.png && test -s t.png
+          if ./ffmpeg -hide_banner -v error -f lavfi -i testsrc2=size=320x240:rate=25 -t 1 -c:v h264_videotoolbox -b:v 4M -y vt.mp4; then
+            echo "VideoToolbox H.264 encode: works on this runner"
+          else
+            echo "::warning::VideoToolbox H.264 encode failed on this runner (no GPU?); test it on a Mac"
+          fi
+          rm -f t.mp4 t.png vt.mp4
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          D="ffmpeg-${FFMPEG_VERSION}-macos-arm64-lgpl"
+          S="ffmpeg-${FFMPEG_VERSION}"
+          mkdir -p "$D"
+          cp "$S/out/bin/ffmpeg" "$S/out/bin/ffprobe" "$D/"
+          cp "$S/COPYING.LGPLv2.1" "$D/LICENSE-ffmpeg.txt"
+          {
+            echo "FFmpeg ${FFMPEG_VERSION} for macOS (Apple Silicon), built for Keepsake."
+            echo "Licence: LGPL-2.1-or-later (no --enable-gpl, no --enable-nonfree)."
+            echo "Source: https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+            echo "  also at https://github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1"
+            echo "  SHA-256 ${FFMPEG_SHA256}"
+            echo "Built by .github/workflows/ffmpeg-macos.yml, commit ${GITHUB_SHA}, run ${GITHUB_RUN_ID}."
+            echo
+            "$D/ffmpeg" -hide_banner -version
+          } > "$D/BUILD-INFO.txt"
+          ditto -c -k --keepParent "$D" "$D.zip"
+          shasum -a 256 "$D.zip" | tee "$D.zip.sha256"
+          echo "### $D.zip" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: \`$(cut -d' ' -f1 "$D.zip.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-arm64
+          path: |
+            ffmpeg-*-macos-arm64-lgpl.zip
+            ffmpeg-*-macos-arm64-lgpl.zip.sha256
+          if-no-files-found: error

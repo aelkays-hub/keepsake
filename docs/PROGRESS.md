@@ -86,7 +86,13 @@
 - **Problem:** on a new Apple Silicon Mac, `scripts/setup.sh` stopped at step 7 with a 404: the `microsoft/onnxruntime` GitHub repository and its releases no longer resolve, so `onnxruntime-osx-arm64-1.31.1.tgz` could not be downloaded and the AI features stayed off.
 - **Fixed:** `setup.sh` now takes the same ONNX Runtime **1.31.1** from the official `Microsoft.ML.OnnxRuntime` NuGet package (as `setup.ps1` already does on Windows), pinned by SHA-256, and copies `runtimes/osx-arm64/native/libonnxruntime.dylib`, `LICENSE` and `ThirdPartyNotices.txt` into `vendor/onnxruntime/` as before. Same version, same licence (MIT), same install layout: no new dependency, ADR-035 unchanged. The package is 160 MB (the old archive was smaller); it is deleted after extraction.
 - **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. Then `setup.sh --with-ai` (all five models, SHA-256 OK) and `cargo test -p keepsake-core --test ai_tests --test face_tests --test aircraft_tests` with the real models (74 passed; skipped only the FFmpeg-dependent checks and the two corpus/sample tests); the app loads the SigLIP model through CoreML at start.
-- **Not done:** macOS FFmpeg is still deferred, so video features remain off on macOS.
+
+## FFmpeg for macOS (ADR-056) (2026-11-27)
+
+- **Asked:** start building Keepsake for the Mac, step 1 (signing later): an LGPL FFmpeg for Apple Silicon.
+- **Built:** `.github/workflows/ffmpeg-macos.yml` compiles FFmpeg 9.0.2 from its signed release source on `macos-15`: LGPL only, VideoToolbox, nothing from outside macOS, arm64, macOS 14+. It checks the result and keeps it as an artifact. The zip (SHA-256 `bb6c90a4…5f1f`), the source and its signature are on the `vendor-binaries-v1` mirror. `scripts/setup.sh` now downloads it on an Apple Silicon Mac, checks it, and puts `ffmpeg` and `ffprobe` in `vendor/`.
+- **Tests:** the workflow's checks passed on GitHub (run 45991709188), including an H.264 VideoToolbox encode. The mirror's files were downloaded again and match their SHA-256. `setup.sh`'s new step was run here with macOS faked (download, check, install, licence files); `bash -n`.
+- **Not done:** run on a real Mac (`scripts/setup.sh`); bundling into the app (step 2); the macOS CI job still skips media-tool tests (step 2).
 
 ## Version 0.12.1 (2026-11-27)
 
