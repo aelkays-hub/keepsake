@@ -2,12 +2,15 @@
 # Keepsake dev-environment setup — macOS / Linux
 # Re-running is safe; every step is idempotent.
 #
+# --vendor-only: skip Rust, Node and pnpm; only fill vendor/ (CI).
 # --with-ai: also download the AI models (372 MB, 39 MB for faces and 96 MB for reading aircraft) into vendor/models (ADR-035, ADR-040, ADR-041).
 set -euo pipefail
 
 WITH_AI=0
+VENDOR_ONLY=0
 for arg in "$@"; do
     [[ "$arg" == "--with-ai" ]] && WITH_AI=1
+    [[ "$arg" == "--vendor-only" ]] && VENDOR_ONLY=1
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,6 +56,8 @@ download_mirrored() {
     info "  ✓ SHA-256 OK"
 }
 
+if [[ "$VENDOR_ONLY" == 0 ]]; then
+
 # ── 1. Rust stable ───────────────────────────────────────────────────────────
 info "Checking Rust toolchain..."
 if ! command -v rustup &>/dev/null; then
@@ -88,6 +93,8 @@ if ! command -v pnpm &>/dev/null; then
 fi
 PNPM_VERSION=$(pnpm --version)
 info "  ✓ pnpm $PNPM_VERSION"
+
+fi # VENDOR_ONLY
 
 # verify_ffmpeg_licence <ffmpeg_binary>
 # Fails if the build is GPL or nonfree; prints whether it is LGPLv2.1 or LGPLv3.

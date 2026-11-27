@@ -6,10 +6,18 @@ use std::process::Command;
 
 use keepsake_core::probe::{ExifTool, ToolPaths};
 
+/// The folder the media tests take their tools from: `KEEPSAKE_VENDOR` (such
+/// as the built app's resources, laid out like `vendor/`), else `vendor/`.
+pub fn vendor_dir() -> PathBuf {
+    std::env::var_os("KEEPSAKE_VENDOR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| super::workspace_root().join("vendor"))
+}
+
 /// Tools plus ffmpeg, or `None` when they are not installed. On CI a missing
-/// tool is a failure, not a skip.
+/// tool is a failure, not a skip. They come from [`vendor_dir`].
 pub fn tools() -> Option<(ToolPaths, PathBuf)> {
-    let vendor = super::workspace_root().join("vendor");
+    let vendor = vendor_dir();
     let t = ToolPaths::in_vendor(&vendor);
     let ffmpeg = vendor.join(if cfg!(windows) {
         "ffmpeg.exe"
@@ -26,8 +34,7 @@ pub fn tools() -> Option<(ToolPaths, PathBuf)> {
     let ok =
         works(&t.exiftool, "-ver") && works(&t.ffprobe, "-version") && works(&ffmpeg, "-version");
     if !ok {
-        // macOS CI has no LGPL FFmpeg build yet (ADR-005) and sets
-        // KEEPSAKE_SKIP_MEDIA_TOOLS; everywhere else CI must have them.
+        // CI must have them (KEEPSAKE_SKIP_MEDIA_TOOLS opts a run out).
         if std::env::var_os("CI").is_some()
             && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
         {

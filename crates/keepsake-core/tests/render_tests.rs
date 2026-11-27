@@ -34,8 +34,7 @@ fn tools() -> Option<RenderTools> {
         exiftool: t.exiftool,
         ffprobe: t.ffprobe,
         ffmpeg,
-        dcraw: common::workspace_root()
-            .join("vendor")
+        dcraw: common::media::vendor_dir()
             .join("libraw")
             .join(if cfg!(windows) {
                 "dcraw_emu.exe"

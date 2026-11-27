@@ -46,7 +46,7 @@ fn tools() -> bool {
             .arg("-ver")
             .output()
             .is_ok_and(|o| o.status.success());
-    // macOS CI sets KEEPSAKE_SKIP_MEDIA_TOOLS (no vendored tools there yet).
+    // KEEPSAKE_SKIP_MEDIA_TOOLS opts a CI run out of the tool tests.
     if !ok
         && std::env::var_os("CI").is_some()
         && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
