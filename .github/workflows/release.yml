@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  # A dry run: builds and smoke-tests every installer, makes no release.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -212,46 +214,55 @@ jobs:
           if-no-files-found: error
 
   # ── macOS Apple Silicon DMG ───────────────────────────────────────────────────
-  # DEFERRED — pending LGPL macOS FFmpeg binary (see ADR-005).
-  # Uncomment this job once the macOS FFmpeg build is available at the mirror.
-  #
-  # build-macos-arm64:
-  #   name: macOS Apple Silicon
-  #   runs-on: macos-15
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - uses: Swatinem/rust-cache@v2
-  #       with:
-  #         workspaces: ". -> target"
-  #         key: release-macos-arm64
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version: "lts/*" }
-  #     - uses: pnpm/action-setup@v4
-  #       with: { version: latest, run_install: false }
-  #     - name: Install UI deps
-  #       working-directory: app/ui
-  #       run: pnpm install --frozen-lockfile
-  #     - name: Download vendor binaries (macOS)
-  #       run: |
-  #         # TODO: download macOS LGPL FFmpeg from mirror once available
-  #         # See ADR-005 for the deferred macOS build workflow
-  #         exit 1
-  #     - name: Build Tauri DMG
-  #       working-directory: app/ui
-  #       env:
-  #         APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-  #         APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-  #         APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-  #         APPLE_ID: ${{ secrets.APPLE_ID }}
-  #         APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-  #         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-  #       run: pnpm tauri build --bundles dmg
-  #     - uses: actions/upload-artifact@v4
-  #       with:
-  #         name: installer-macos-arm64-dmg
-  #         path: target/release/bundle/dmg/*.dmg
-  #         if-no-files-found: error
+  # Not signed with a Developer ID yet (signing is deferred, ADR-058): the app
+  # is ad-hoc signed (tauri.macos.conf.json), so macOS asks before opening it.
+  # Helpers from setup.sh --vendor-only: Keepsake's LGPL FFmpeg (ADR-056),
+  # ExifTool, LibRaw and ONNX Runtime, bundled into the app (ADR-057).
+  build-macos-arm64:
+    name: macOS Apple Silicon
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: release-macos-arm64
+
+      - name: Install Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install UI dependencies
+        working-directory: app/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Download vendor binaries — macOS
+        run: bash scripts/setup.sh --vendor-only
+
+      - name: Build Tauri DMG
+        working-directory: app/ui
+        run: pnpm tauri build --bundles dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos-arm64-dmg
+          path: target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
 
   # ── Smoke test: install x64 MSI headlessly, run CLI checks ───────────────────
   smoke-test-win:
@@ -357,10 +368,67 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "corpus scan exited $LASTEXITCODE" }
           Write-Host "OK: corpus scan completed successfully"
 
+  # ── Smoke test: open the DMG, copy the app out, run its self-check ─────────
+  smoke-test-macos:
+    name: Smoke test — macOS
+    needs: build-macos-arm64
+    runs-on: macos-15
+
+    steps:
+      - name: Download DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: installer-macos-arm64-dmg
+          path: artifacts/dmg
+
+      - name: Install from the DMG
+        run: |
+          set -euo pipefail
+          dmg="$(ls artifacts/dmg/*.dmg | head -1)"
+          echo "DMG: $dmg ($(du -h "$dmg" | cut -f1))"
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          test -d "$mnt/Keepsake.app" || { echo "::error::no Keepsake.app in the DMG"; exit 1; }
+          ls "$mnt" | grep -q Applications || echo "::warning::no Applications shortcut in the DMG"
+          mkdir -p "$RUNNER_TEMP/Applications"
+          ditto "$mnt/Keepsake.app" "$RUNNER_TEMP/Applications/Keepsake.app"
+          hdiutil detach "$mnt"
+          echo "APP=$RUNNER_TEMP/Applications/Keepsake.app" >> "$GITHUB_ENV"
+
+      - name: Check the app
+        run: |
+          set -euo pipefail
+          plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist"
+          plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist" | grep -q '^14'
+          # Ad-hoc signed and intact (not yet a Developer ID).
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Signature|Identifier|Format'
+          R="$APP/Contents/Resources"
+          for f in ffmpeg ffprobe exiftool/exiftool libraw/dcraw_emu; do
+            test -x "$R/$f" || { echo "::error::$f missing or not executable"; exit 1; }
+          done
+          test -s "$R/onnxruntime/libonnxruntime.dylib"
+          test -s "$R/licenses/THIRD-PARTY-NOTICES.txt"
+
+      # The installed app itself finds and runs every bundled tool, with no
+      # vendor/ folder or environment variables (as on a user's Mac).
+      - name: App smoke — keepsake-app --self-check
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/self-check.json"
+          code=0
+          "$APP/Contents/MacOS/keepsake-app" --self-check "$out" || code=$?
+          cat "$out"
+          test "$code" -eq 0 || { echo "::error::self-check failed (exit $code)"; exit 1; }
+          grep -q 'Contents/Resources' "$out" || { echo "::error::tools not found inside the app"; exit 1; }
+          echo "OK: the installed app finds and runs its tools"
+
   # ── Create GitHub Release ──────────────────────────────────────────────────────
   release:
     name: GitHub Release
-    needs: [build-win-x64, build-win-arm64, smoke-test-win]
+    needs: [build-win-x64, build-win-arm64, smoke-test-win, build-macos-arm64, smoke-test-macos]
+    # Only a version tag makes a (draft) release; other runs are dry runs.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
     steps:
