@@ -46,7 +46,7 @@ fn tools() -> bool {
             .arg("-ver")
             .output()
             .is_ok_and(|o| o.status.success());
-    // macOS CI sets KEEPSAKE_SKIP_MEDIA_TOOLS (no vendored tools there yet).
+    // KEEPSAKE_SKIP_MEDIA_TOOLS opts a CI run out of the tool tests.
     if !ok
         && std::env::var_os("CI").is_some()
         && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
@@ -1058,6 +1058,14 @@ fn media_tools() -> bool {
     ok
 }
 
+/// The H.264 encoder test media is made with: OpenH264 in the Windows LGPL
+/// build, Apple's VideoToolbox in Keepsake's macOS build (ADR-056).
+const H264: &str = if cfg!(target_os = "macos") {
+    "h264_videotoolbox"
+} else {
+    "libopenh264"
+};
+
 fn gen(args: &[&str]) {
     let out = Command::new(ffmpeg())
         .args(["-y", "-v", "error"])
@@ -1119,7 +1127,7 @@ impl Env {
             "-t",
             "2",
             "-c:v",
-            "libopenh264",
+            H264,
             "-c:a",
             "aac",
             "-shortest",

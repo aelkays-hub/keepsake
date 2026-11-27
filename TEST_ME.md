@@ -1,4 +1,4 @@
-# Manual Test Steps — macOS setup: ONNX Runtime, FFmpeg for macOS, Upgrading the Windows installer, Copyright and licence, Help and the version in Settings, The sidebar tree by face, The sidebar tree by aircraft, Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
+# Manual Test Steps — The Mac app with its helpers, FFmpeg for macOS, Upgrading the Windows installer, Copyright and licence, Help and the version in Settings, The sidebar tree by face, The sidebar tree by aircraft, Read aircraft: the flag after a Canadian registration, Aircraft report: lines with no airline open, Read aircraft again for a folder, Read aircraft: a registration from the fin, Read aircraft: the fin table, Read aircraft: fin numbers read, Read aircraft: a big aircraft in a large photo, Read aircraft: a burst is one shot and a registration one letter off, Read aircraft: registrations missing a letter, Add route chooses OpenSky or Flightradar24 by date, Add route: one OpenSky question per aircraft, routes typed by hand, HTTPS through an antivirus, About and licences, Third-party notices, Upload to Flickr, Fill in route keywords, the flight report, OpenSky's limit, Add route's flight in or out not seen, National aircraft registers, Flightradar24 for new registrations, Look up aircraft on Flightradar24, Add route from Flightradar24, a code typed and a photo's time zone, Eastern clock, Ask again, Transponder codes from OpenSky's database, A photo asked about is read next, Add route, The aircraft's age, Aircraft report drill-down, Read aircraft shows what a picked photo read and Read again, Thumbnails that cannot be made are not tried again, Read aircraft reads only the text on the aircraft, Read aircraft lists only what can be accepted, Sortable report columns, Read aircraft: neighbours accepted, the list order, A month with fewer than 31 days, Aircraft report, Read aircraft: misread registrations, the same-shot slider, Tag with AI to the same shot, Read aircraft: online lookup, the same plane, its burst, Read aircraft: the review window, Read aircraft reads more of what is painted, The sidebar tree keeps its place, Edit suggestions, Read aircraft for a folder or dates, Read aircraft, Face matching tuned, Faces step 5 (People in the Inspector, faces in the viewer), Faces step 4 (names in the sidecars), Faces step 3 (Name and find), Faces step 2 (searching photos for faces), Faces step 1 (the face models), Which AI tagged it, Tag with AI to All, Tags in the search bar, Tag with AI (Claude, ChatGPT or Gemini), Helpers end with the app, On-device AI (tags and same-day duplicates), Selecting many items to edit, Faster thumbnails on a network drive, Report rows open their photos, A full cache keeps the thumbnails, Scan again one folder (right-click), Previous and next in the viewer, No "database is locked" during a backlog, Older video types in added folders, Start-up while the library opens, Library report, Background fingerprints for added folders, Adding a large folder (saved as it goes), Viewer information panel, Calendar without empty days, Faster zoom, Thumbnail sizes and the zoom slider, Automatic card import, Folder tree, All metadata, Calendar tree, Open in menu, and Add a folder in place
 
 Test on **Windows 11** and **macOS 14+**. Paths below are Windows examples; on macOS use a folder such as `~/Pictures/2025`.
 
@@ -10,20 +10,21 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 
 
-## macOS setup: ONNX Runtime
+## The Mac app with its helpers
 
-**macOS** (Apple Silicon) only. **Windows:** nothing changed; `setup.ps1` is untouched.
+**macOS** (Apple Silicon), macOS 14 or later. **Windows:** nothing changes.
 
-1. Delete `vendor/onnxruntime/` if it exists, then run `bash scripts/setup.sh`.
-   - **Expected:** step 7 prints "Downloading https://api.nuget.org/…/microsoft.ml.onnxruntime.1.31.1.nupkg", then "✓ SHA-256 OK" and "Installed …/vendor/onnxruntime/libonnxruntime.dylib". The script ends with "Dev environment ready". No 404.
-2. List `vendor/onnxruntime/`.
-   - **Expected:** `libonnxruntime.dylib`, `LICENSE-onnxruntime.txt` and `ThirdPartyNotices.txt`. No `.nupkg` and no `ort-extract` folder are left in `vendor/`.
-3. Run `bash scripts/setup.sh` again.
-   - **Expected:** "ONNX Runtime already present, skipping download."
-4. Run `cargo test -p keepsake-core --test ai_tests`.
-   - **Expected:** all tests pass.
-5. Start the app (`cd app/ui && pnpm tauri dev`) and open **Settings** → **On-device AI**.
-   - **Expected:** no "ONNX Runtime is missing from this installation of Keepsake." message.
+1. On GitHub → Actions → CI, open the latest run on this branch, and download the **keepsake-macos-app** artifact. Unzip it.
+2. In Terminal, run `xattr -dr com.apple.quarantine ~/Downloads/Keepsake.app`, then open `Keepsake.app`. It is not signed yet.
+   - **Expected:** Keepsake opens; no "cannot be opened" dialog after clearing the quarantine flag.
+3. Add a folder with a few JPEGs, a RAW (ARW) and a Sony MP4.
+   - **Expected:** thumbnails for all three; the RAW opens full size in the viewer (dcraw_emu); the MP4 plays (proxy made by FFmpeg with VideoToolbox); the inspector shows metadata (ExifTool).
+4. Open Help → Get help → **Copy diagnostic report**, and paste it into a text editor.
+   - **Expected:** ffprobe, ffmpeg, ExifTool and dcraw emulator are found under `Keepsake.app/Contents/Resources`.
+5. Turn on on-device AI and tag a few photos.
+   - **Expected:** tags appear (ONNX Runtime loads from the app).
+6. Open Tools → About.
+   - **Expected:** the third-party notices list FFmpeg, LibRaw and ONNX Runtime.
 
 ---
 
@@ -31,7 +32,7 @@ Start the app from source (`cd app/ui; pnpm tauri dev`), or from `scripts\keepsa
 
 **macOS** (Apple Silicon) only. **Windows:** nothing changes; `scripts\setup.ps1` still installs BtbN's build.
 
-1. In Terminal, in the repository on this branch, run `scripts/setup.sh`.
+1. In Terminal, in the repository, run `scripts/setup.sh`.
    - **Expected:** "Downloading ffmpeg-9.0.2-macos-arm64-lgpl.zip", "✓ SHA-256 OK", "Installed …/vendor/ffmpeg and …/vendor/ffprobe", "✓ Licence verified: LGPLv2.1", and "ffprobe version 9.0.2". No warning that FFmpeg is not configured.
 2. Run `scripts/setup.sh` again.
    - **Expected:** "FFmpeg/ffprobe already present." and the same licence line; nothing is downloaded.

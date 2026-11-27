@@ -6,10 +6,32 @@ use std::process::Command;
 
 use keepsake_core::probe::{ExifTool, ToolPaths};
 
+/// The H.264 and HEVC encoders the test media is made with. The Windows LGPL
+/// build has OpenH264 and Kvazaar; Keepsake's macOS build has Apple's
+/// VideoToolbox instead (ADR-056).
+pub const H264: &str = if cfg!(target_os = "macos") {
+    "h264_videotoolbox"
+} else {
+    "libopenh264"
+};
+pub const HEVC: &str = if cfg!(target_os = "macos") {
+    "hevc_videotoolbox"
+} else {
+    "libkvazaar"
+};
+
+/// The folder the media tests take their tools from: `KEEPSAKE_VENDOR` (such
+/// as the built app's resources, laid out like `vendor/`), else `vendor/`.
+pub fn vendor_dir() -> PathBuf {
+    std::env::var_os("KEEPSAKE_VENDOR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| super::workspace_root().join("vendor"))
+}
+
 /// Tools plus ffmpeg, or `None` when they are not installed. On CI a missing
-/// tool is a failure, not a skip.
+/// tool is a failure, not a skip. They come from [`vendor_dir`].
 pub fn tools() -> Option<(ToolPaths, PathBuf)> {
-    let vendor = super::workspace_root().join("vendor");
+    let vendor = vendor_dir();
     let t = ToolPaths::in_vendor(&vendor);
     let ffmpeg = vendor.join(if cfg!(windows) {
         "ffmpeg.exe"
@@ -26,8 +48,7 @@ pub fn tools() -> Option<(ToolPaths, PathBuf)> {
     let ok =
         works(&t.exiftool, "-ver") && works(&t.ffprobe, "-version") && works(&ffmpeg, "-version");
     if !ok {
-        // macOS CI has no LGPL FFmpeg build yet (ADR-005) and sets
-        // KEEPSAKE_SKIP_MEDIA_TOOLS; everywhere else CI must have them.
+        // CI must have them (KEEPSAKE_SKIP_MEDIA_TOOLS opts a run out).
         if std::env::var_os("CI").is_some()
             && std::env::var_os("KEEPSAKE_SKIP_MEDIA_TOOLS").is_none()
         {
@@ -68,7 +89,7 @@ pub fn h264_mp4(ffmpeg: &Path, out: &Path, creation_utc: &str, timecode: Option<
         "-t",
         "1",
         "-c:v",
-        "libopenh264",
+        H264,
         "-metadata",
         &creation,
     ];

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    },
+    "resources": {
+      "../../../vendor/ffmpeg": "ffmpeg",
+      "../../../vendor/ffprobe": "ffprobe",
+      "../../../vendor/exiftool/exiftool": "exiftool/exiftool",
+      "../../../vendor/exiftool/lib/": "exiftool/lib/",
+      "../../../vendor/libraw/dcraw_emu": "libraw/dcraw_emu",
+      "../../../vendor/libraw/LICENSE.LGPL": "libraw/LICENSE.LGPL",
+      "../../../vendor/libraw/LICENSE.CDDL": "libraw/LICENSE.CDDL",
+      "../../../vendor/libraw/COPYRIGHT": "libraw/COPYRIGHT",
+      "../../../vendor/LICENSE-ffmpeg.txt": "licenses/FFmpeg-LICENSE.txt",
+      "../../../vendor/onnxruntime/libonnxruntime.dylib": "onnxruntime/libonnxruntime.dylib",
+      "../../../vendor/onnxruntime/LICENSE-onnxruntime.txt": "licenses/onnxruntime-LICENSE.txt",
+      "../../../vendor/onnxruntime/ThirdPartyNotices.txt": "licenses/onnxruntime-ThirdPartyNotices.txt"
+    }
+  }
+}

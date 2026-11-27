@@ -2,12 +2,15 @@
 # Keepsake dev-environment setup — macOS / Linux
 # Re-running is safe; every step is idempotent.
 #
+# --vendor-only: skip Rust, Node and pnpm; only fill vendor/ (CI).
 # --with-ai: also download the AI models (372 MB, 39 MB for faces and 96 MB for reading aircraft) into vendor/models (ADR-035, ADR-040, ADR-041).
 set -euo pipefail
 
 WITH_AI=0
+VENDOR_ONLY=0
 for arg in "$@"; do
     [[ "$arg" == "--with-ai" ]] && WITH_AI=1
+    [[ "$arg" == "--vendor-only" ]] && VENDOR_ONLY=1
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,6 +56,8 @@ download_mirrored() {
     info "  ✓ SHA-256 OK"
 }
 
+if [[ "$VENDOR_ONLY" == 0 ]]; then
+
 # ── 1. Rust stable ───────────────────────────────────────────────────────────
 info "Checking Rust toolchain..."
 if ! command -v rustup &>/dev/null; then
@@ -88,6 +93,8 @@ if ! command -v pnpm &>/dev/null; then
 fi
 PNPM_VERSION=$(pnpm --version)
 info "  ✓ pnpm $PNPM_VERSION"
+
+fi # VENDOR_ONLY
 
 # verify_ffmpeg_licence <ffmpeg_binary>
 # Fails if the build is GPL or nonfree; prints whether it is LGPLv2.1 or LGPLv3.
@@ -222,33 +229,31 @@ download_pinned() {
 
 # ── 7. ONNX Runtime (on-device AI, ADR-035) ──────────────────────────────────
 # Microsoft's official 1.31.1 build for Apple Silicon (MIT, includes CoreML),
-# pinned by SHA-256. Loaded by Keepsake at run time, never linked.
-# Fetched from the Microsoft.ML.OnnxRuntime NuGet package (as setup.ps1
-# does for Windows): the microsoft/onnxruntime GitHub releases now 404.
+# taken unchanged from the NuGet package Microsoft.ML.OnnxRuntime 1.31.1 and
+# mirrored (the GitHub release it used to come from is gone). Loaded by
+# Keepsake at run time, never linked.
 # Install layout: vendor/onnxruntime/libonnxruntime.dylib (+ licences)
 ORT_DIR="$VENDOR/onnxruntime"
+ORT_ZIP_NAME="onnxruntime-1.31.1-osx-arm64.zip"
+ORT_ZIP_SHA="6346855d5ec6ae7d4a02774d11076d730bb77f46c8a70325c08e9a878609cc46"
 if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     if [[ ! -f "$ORT_DIR/libonnxruntime.dylib" ]]; then
-        ORT_PKG="$VENDOR/microsoft.ml.onnxruntime.1.31.1.nupkg"
-        download_pinned \
-            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.31.1/microsoft.ml.onnxruntime.1.31.1.nupkg" \
-            "$ORT_PKG" "6871ccbc97f3d5bdb4095a1dcec33aa78d56f6ed8de5980ef5fa1d9f2e7c679a"
+        ORT_ZIP="$VENDOR/$ORT_ZIP_NAME"
+        download_mirrored "$ORT_ZIP_NAME" "$ORT_ZIP" "$ORT_ZIP_SHA"
         TMPX="$VENDOR/ort-extract"
         rm -rf "$TMPX" && mkdir -p "$TMPX" "$ORT_DIR"
-        unzip -q "$ORT_PKG" \
-            "runtimes/osx-arm64/native/libonnxruntime.dylib" LICENSE ThirdPartyNotices.txt \
-            -d "$TMPX"
-        cp "$TMPX/runtimes/osx-arm64/native/libonnxruntime.dylib" "$ORT_DIR/libonnxruntime.dylib"
-        cp "$TMPX/LICENSE" "$ORT_DIR/LICENSE-onnxruntime.txt"
-        cp "$TMPX/ThirdPartyNotices.txt" "$ORT_DIR/ThirdPartyNotices.txt"
+        unzip -q "$ORT_ZIP" -d "$TMPX"
+        SRC_DIR="$TMPX/${ORT_ZIP_NAME%.zip}"
+        cp "$SRC_DIR/libonnxruntime.dylib" "$SRC_DIR/LICENSE-onnxruntime.txt" \
+           "$SRC_DIR/ThirdPartyNotices.txt" "$ORT_DIR/"
         xattr -d com.apple.quarantine "$ORT_DIR/libonnxruntime.dylib" 2>/dev/null || true
-        rm -rf "$TMPX" "$ORT_PKG"
-        info "  Installed $ORT_DIR/libonnxruntime.dylib"
+        rm -rf "$TMPX" "$ORT_ZIP"
+        info "  Installed $ORT_DIR/libonnxruntime.dylib (ONNX Runtime 1.31.1)"
     else
-        info "  ONNX Runtime already present, skipping download."
+        info "ONNX Runtime already present, skipping download."
     fi
 else
-    warn "ONNX Runtime is set up for Apple Silicon only; AI features are off here."
+    warn "ONNX Runtime is set up for Apple Silicon Macs only; on-device AI is off here."
 fi
 
 # ── 8. AI model (optional, --with-ai) ────────────────────────────────────────

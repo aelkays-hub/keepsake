@@ -81,11 +81,19 @@
 
 
 
-## macOS setup: ONNX Runtime from NuGet (2026-11-27)
+## The macOS app bundles its helpers (ADR-057) (2026-11-27)
 
-- **Problem:** on a new Apple Silicon Mac, `scripts/setup.sh` stopped at step 7 with a 404: the `microsoft/onnxruntime` GitHub repository and its releases no longer resolve, so `onnxruntime-osx-arm64-1.31.1.tgz` could not be downloaded and the AI features stayed off.
-- **Fixed:** `setup.sh` now takes the same ONNX Runtime **1.31.1** from the official `Microsoft.ML.OnnxRuntime` NuGet package (as `setup.ps1` already does on Windows), pinned by SHA-256, and copies `runtimes/osx-arm64/native/libonnxruntime.dylib`, `LICENSE` and `ThirdPartyNotices.txt` into `vendor/onnxruntime/` as before. Same version, same licence (MIT), same install layout: no new dependency, ADR-035 unchanged. The package is 160 MB (the old archive was smaller); it is deleted after extraction.
-- **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. Then `setup.sh --with-ai` (all five models, SHA-256 OK) and `cargo test -p keepsake-core --test ai_tests --test face_tests --test aircraft_tests` with the real models (74 passed; skipped only the FFmpeg-dependent checks and the two corpus/sample tests); the app loads the SigLIP model through CoreML at start.
+- **Asked:** step 2 of building for the Mac: put the helpers in the app, and test with them on macOS.
+- **Built:** `tauri.macos.conf.json` puts FFmpeg, FFprobe, ExifTool, dcraw_emu, ONNX Runtime and their licences in `Keepsake.app/Contents/Resources`, laid out like `vendor/`. `setup.sh --vendor-only` fills `vendor/` for CI. macOS CI now:
+  - runs every test with the real tools (849 passed);
+  - builds `Keepsake.app` (131 MB);
+  - checks that its helpers run from inside it, and reruns the probe and render tests against the app's copies.
+- **Fixed on the way:**
+  - `setup.sh` was not executable in git.
+  - Microsoft's GitHub download for ONNX Runtime on macOS is gone (404). The same 1.31.1 build, from its NuGet package, is now on the mirror.
+  - Mac test media is made with VideoToolbox, because the Mac FFmpeg has no OpenH264 or Kvazaar.
+- **Tests:** macOS CI as above (run 46012023323). Here (Windows): `render_tests` (29), the CLI render tests (4), `probe_tests` (14), clippy, fmt.
+- **Not done:** running the app on a real Mac (its artifact can be downloaded from the run); the DMG release job (step 3).
 
 ## FFmpeg for macOS (ADR-056) (2026-11-27)
 
