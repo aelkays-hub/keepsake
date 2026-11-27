@@ -1,3 +1,16 @@
+# Keepsake 0.12.1
+
+Version 0.12.1 fixes upgrading Keepsake on Windows. It has everything in 0.12.0. No catalog change: 0.12.0 and 0.12.1 open the same library.
+
+## Fixed in 0.12.1
+
+**Upgrading on Windows**
+- Installing a newer Keepsake over an older one now installs straight over it. It no longer asks to uninstall the old version first. Keepsake is closed for you if it is open (the installer asks first).
+- This fixes "Error launching installer" when upgrading from 0.11.7 or earlier, and "Unable to uninstall" when Keepsake was open.
+- Your library, thumbnails, AI models and settings are kept, as before.
+- **Upgrading from 0.12.0:** the installer you run is 0.12.1's, so it uses the fixed behaviour.
+- Reinstalling the same version, or installing an older one, still shows the "Already Installed" choice.
+
 # Keepsake 0.12.0
 
 Version 0.12.0 is Keepsake's first release under a licence. It has everything in 0.11.7. No catalog change: 0.11.7 and 0.12.0 open the same library.

@@ -88,6 +88,10 @@
 - **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. Then `setup.sh --with-ai` (all five models, SHA-256 OK) and `cargo test -p keepsake-core --test ai_tests --test face_tests --test aircraft_tests` with the real models (74 passed; skipped only the FFmpeg-dependent checks and the two corpus/sample tests); the app loads the SigLIP model through CoreML at start.
 - **Not done:** macOS FFmpeg is still deferred, so video features remain off on macOS.
 
+## Version 0.12.1 (2026-11-27)
+
+- Version 0.12.1 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC's example) and its release notes: Windows upgrades install over the old version (ADR-055, PR #81). No catalog change.
+
 ## Installer upgrades from an older publisher (ADR-055) (2026-11-27)
 
 - **Asked:** fix the installer so upgrades don't fail. Upgrading 0.11.7 to 0.12.0 with "Uninstall before installing" stopped with "Error launching installer".
