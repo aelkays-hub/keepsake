@@ -1,3 +1,17 @@
+# Keepsake 0.13.0
+
+Version 0.13.0 is the first Keepsake release for the Mac. It has everything in 0.12.1. No catalog change: 0.12.1 and 0.13.0 open the same library.
+
+## New in 0.13.0
+
+**Keepsake for macOS (Apple Silicon)**
+- The release now has `Keepsake_0.13.0_aarch64.dmg` for Macs with Apple Silicon running macOS 14 or later. Intel Macs are not supported.
+- The app carries its own helpers: ExifTool, an LGPL FFmpeg built for the Mac (H.264 and HEVC with VideoToolbox), the LibRaw RAW decoder and ONNX Runtime for on-device AI. Nothing else needs installing.
+- **First open:** the Mac app is not notarized yet, so macOS says it cannot check Keepsake for malicious software. Drag Keepsake to Applications, open it once, then go to System Settings → Privacy & Security and click **Open Anyway**. After that it opens normally.
+
+**Windows**
+- Nothing changes. The same four Windows installers (x64 and ARM64, setup and MSI) are in the release, and upgrading installs straight over 0.12.x.
+
 # Keepsake 0.12.1
 
 Version 0.12.1 fixes upgrading Keepsake on Windows. It has everything in 0.12.0. No catalog change: 0.12.0 and 0.12.1 open the same library.
