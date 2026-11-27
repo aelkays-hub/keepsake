@@ -2020,3 +2020,29 @@ Other options weighed: closed source and paid (would mean making the repository 
 - A lawyer's reading of `docs/EULA.md`, then shown by the installer (`bundle.windows.nsis` licence page) and accepted on first run.
 
 **Dependencies.** None.
+
+## ADR-055 — The Windows installer finds the old install when the publisher changes
+
+**Status**: Accepted (2026-11-27, product owner: "fix the installer so upgrades don't fail").
+
+**Context.** Upgrading 0.11.7 to 0.12.0 with "Uninstall before installing" (the default choice) stopped with NSIS's "Error launching installer"; "Do not uninstall" worked. The cause is in Tauri's NSIS template (tauri-cli 2.12.2):
+- Before running the old uninstaller, it reads the old install folder from `HKCU\Software\<publisher>\<product>` and runs `uninstall.exe _?=<folder>`.
+- 0.12.0 changed the publisher from the default (`keepsake`, from the identifier) to `Ahmad Elkays` (ADR-054). The old install had written `Software\keepsake\Keepsake`, so the new installer read an empty folder, ran `uninstall.exe _?=`, and NSIS cannot start an uninstaller with an empty `_?=`.
+- It was not the antivirus and not the missing signature. Upgrades from 0.12.0 on find the key, as long as the publisher stays the same.
+
+**Then, with the folder found** (tested 2026-11-27 with a 0.12.1 build), the old uninstaller opened but the upgrade stopped with "Unable to uninstall": the uninstaller gives up when Keepsake is open, or the installer finds `keepsake-app.exe` still there afterwards. Running the old uninstaller is not needed for an upgrade; Tauri's own updater installs over the top (`/UPDATE`).
+
+**Decision.** Ship a copy of Tauri's template (`app/ui/src-tauri/nsis/installer.nsi`, set by `bundle.windows.nsis.template` in `tauri.windows.conf.json`) with two changes, marked `KEEPSAKE`:
+1. **An upgrade installs over the old version.** The "Already Installed" page is skipped when the installed version is older, so the old uninstaller is never run. The installer still closes a running Keepsake first (upstream's check in the install section). Reinstalling the same version and downgrading still show the page.
+2. **The old folder is found without the publisher key.** `ReadPreviousInstallDir` reads the publisher key as before and, if it is empty, `InstallLocation` from the Windows uninstall entry (`...\Uninstall\Keepsake`), which does not depend on the publisher. Both places that read the old folder (the install folder and the uninstall step) call it.
+
+Files that a newer version no longer ships stay in the install folder until Keepsake is uninstalled. The uninstaller removes only what it installed, so the library, models and thumbnails are never touched either way.
+
+**Keeping it current.** The copy names the CLI version it came from. A unit test (`installerTemplate.test.ts`) fails when the installed `@tauri-apps/cli` is a different version, or when the fix is lost; then copy the new upstream template and apply the change again. Hooks (`installerHooks`) could not do this: they run after the reinstall page.
+
+Other options weighed:
+- Changing the publisher back: it would break the upgrade from 0.12.0 the same way.
+- Telling users to pick "Do not uninstall": it works, but the default choice fails.
+- Waiting for Tauri: its newer template is restructured, and the fix is not known to be in it.
+
+**Dependencies.** None.
