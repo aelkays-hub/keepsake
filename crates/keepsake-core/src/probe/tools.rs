@@ -35,7 +35,10 @@ impl ToolPaths {
     ///    (its resource folder, laid out like `vendor/`);
     /// 3. a `vendor/` folder walking up from the current directory, then
     ///    from the running program (development builds);
-    /// 4. the running program's own folder, if the tools are there.
+    /// 4. a macOS app's `Contents/Resources`, beside the program's
+    ///    `Contents/MacOS` (before the app has registered it, as in
+    ///    `--self-check`), if the tools are there;
+    /// 5. the running program's own folder, if the tools are there.
     ///
     /// `KEEPSAKE_EXIFTOOL` / `KEEPSAKE_FFPROBE` override single tools.
     pub fn discover() -> Self {
@@ -44,6 +47,11 @@ impl ToolPaths {
             .or_else(|| BUNDLED.get().cloned())
             .or_else(|| std::env::current_dir().ok().and_then(|d| vendor_above(&d)))
             .or_else(|| exe_dir().and_then(|d| vendor_above(&d)))
+            .or_else(|| {
+                exe_dir()
+                    .and_then(|d| app_resources(&d))
+                    .filter(|d| Self::in_vendor(d).ffprobe.is_file())
+            })
             .or_else(|| exe_dir().filter(|d| Self::in_vendor(d).ffprobe.is_file()))
             .unwrap_or_else(|| PathBuf::from("vendor"));
         let mut t = Self::in_vendor(&vendor);
@@ -73,14 +81,19 @@ impl ToolPaths {
 
 /// The `vendor/` folder (or the installed app's resource folder, laid out
 /// like it), found as in [`ToolPaths::discover`]: `KEEPSAKE_VENDOR`, the
-/// registered folder, then a `vendor/` above the current directory or the
-/// running program.
+/// registered folder, a `vendor/` above the current directory or the
+/// running program, then a macOS app's `Contents/Resources`.
 pub fn vendor_root() -> Option<PathBuf> {
     std::env::var_os("KEEPSAKE_VENDOR")
         .map(PathBuf::from)
         .or_else(|| BUNDLED.get().cloned())
         .or_else(|| std::env::current_dir().ok().and_then(|d| vendor_above(&d)))
         .or_else(|| exe_dir().and_then(|d| vendor_above(&d)))
+        .or_else(|| {
+            exe_dir()
+                .and_then(|d| app_resources(&d))
+                .filter(|d| d.is_dir())
+        })
 }
 
 static BUNDLED: OnceLock<PathBuf> = OnceLock::new();
@@ -104,6 +117,16 @@ fn exe_dir() -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// A macOS app keeps its tools in `Contents/Resources`, beside the program's
+/// `Contents/MacOS` folder (tauri.macos.conf.json). `None` for any other
+/// folder.
+fn app_resources(exe_dir: &Path) -> Option<PathBuf> {
+    if exe_dir.file_name()? != "MacOS" {
+        return None;
+    }
+    Some(exe_dir.parent()?.join("Resources"))
+}
+
 fn vendor_above(start: &Path) -> Option<PathBuf> {
     let mut dir = start.to_path_buf();
     loop {
@@ -114,5 +137,23 @@ fn vendor_above(start: &Path) -> Option<PathBuf> {
         if !dir.pop() {
             return None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mac_apps_tools_are_beside_its_program() {
+        let exe = Path::new("/Applications/Keepsake.app/Contents/MacOS");
+        assert_eq!(
+            app_resources(exe),
+            Some(PathBuf::from(
+                "/Applications/Keepsake.app/Contents/Resources"
+            ))
+        );
+        assert_eq!(app_resources(Path::new("/usr/local/bin")), None);
+        assert_eq!(app_resources(Path::new(r"C:\Program Files\Keepsake")), None);
     }
 }
