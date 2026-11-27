@@ -81,6 +81,15 @@
 
 
 
+## Installer upgrades from an older publisher (ADR-055) (2026-11-27)
+
+- **Asked:** fix the installer so upgrades don't fail. Upgrading 0.11.7 to 0.12.0 with "Uninstall before installing" stopped with "Error launching installer".
+- **Cause:** Tauri's installer looks for the old install folder under a registry key named after the publisher. 0.12.0 changed the publisher, so it found nothing and started the old uninstaller with an empty folder.
+- **Then:** with the folder found, the old uninstaller opened but the upgrade stopped with "Unable to uninstall" (Keepsake was open).
+- **Fixed:** the Windows build uses a copy of Tauri's NSIS template (`app/ui/src-tauri/nsis/installer.nsi`). An upgrade now installs over the old version without running its uninstaller, as Tauri's updater does, and the old folder is found from the uninstall entry's `InstallLocation` when the publisher key is missing. A Vitest check (`installerTemplate.test.ts`) fails if `@tauri-apps/cli` changes version or the fix is lost.
+- **Tests, run here (Windows):** Vitest `installerTemplate.test.ts` (4 new), ESLint, Prettier. Built test installers here and ran them on the owner's laptop with the publisher key's folder cleared (the 0.11.7 state): the old uninstaller with an empty `_?=` gives "NSIS Error", with the found folder it opens normally; 0.12.1 (folder fix only) then stopped with "Unable to uninstall" while Keepsake was open; 0.12.2 (both fixes) installed over 0.12.1 with Keepsake open, into the old folder, with no error.
+- **Not run:** the ARM64 installer; macOS (not affected, it has no NSIS installer).
+
 ## Version 0.12.0 (2026-11-26)
 
 - Version 0.12.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC's example) and its release notes: the first release under a licence, FSL-1.1-ALv2, copyright Ahmad Elkays (ADR-054, PR #78). The owner first asked for 1.0.0, then 0.5.0; 0.12.0 was chosen because 0.5.0 sorts below 0.11.7 and would not install over it. No catalog change.
