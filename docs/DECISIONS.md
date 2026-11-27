@@ -100,7 +100,10 @@ Both LGPLv2.1 and LGPLv3 builds are acceptable. `--enable-version3` enables code
   Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1`  
   Licence: LGPL-2.1+
 
-- **macOS (Apple Silicon)**: Deferred. No maintained LGPL prebuilt exists for Apple Silicon. A future prompt will add a CI job that compiles FFmpeg from source (VideoToolbox enabled, no GPL components) and uploads the result to the vendor-binaries mirror.
+- **macOS (Apple Silicon)**: built by Keepsake from FFmpeg 9.0.2's release source (ADR-056) — `ffmpeg-9.0.2-macos-arm64-lgpl.zip`  
+  SHA-256: `bb6c90a4aea5dd3f578d877c97d2edd788d40140a6add3bd8d4bdbe359b75f1f`  
+  Mirror: `github.com/aelkays-hub/keepsake/releases/tag/vendor-binaries-v1` (with the source, `ffmpeg-9.0.2.tar.xz`, and its signature)  
+  Licence: LGPL-2.1-or-later
 
 **ExifTool source** (not FFmpeg, documented here for completeness):
 - **Windows 64-bit**: ExifTool 13.59 standalone — `exiftool-13.59_64.zip`  
@@ -2046,3 +2049,23 @@ Other options weighed:
 - Waiting for Tauri: its newer template is restructured, and the fix is not known to be in it.
 
 **Dependencies.** None.
+
+## ADR-056 — FFmpeg for macOS, built from source in CI
+
+**Status**: Accepted (2026-11-27, product owner: "start step 1 here", the first step of building Keepsake for the Mac, with signing left for later).
+
+**Context.** ADR-005 ships FFmpeg and FFprobe as LGPL helper programs. Windows uses BtbN's LGPL builds; for Apple Silicon there is no maintained LGPL build (the usual Mac downloads are GPL builds), so the Mac app had no FFmpeg.
+
+**Decision.** Build them ourselves from FFmpeg's release source, in GitHub Actions (`.github/workflows/ffmpeg-macos.yml`, on `macos-15`):
+- **Source:** `ffmpeg-9.0.2.tar.xz`, the same 9.0 series as the Windows builds. Its signature was checked against FFmpeg's release signing key (`FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8`), and the workflow pins its SHA-256.
+- **Options:** LGPL only (no `--enable-gpl`, no `--enable-nonfree`), static FFmpeg libraries, `--disable-autodetect` so nothing on the runner gets in, then only Apple's VideoToolbox and AudioToolbox, and zlib, bzip2 and iconv from macOS. No network code, no ffplay. Built for arm64, macOS 14 and later.
+- **Keepsake's needs, all covered:** `h264_videotoolbox` for proxies and MP4 (the first choice on macOS in `render/video.rs`), the built-in AAC encoder, the PNG, PPM and MJPEG encoders for frame grabs and thumbnails, the built-in decoders for Sony H.264, H.265, AVCHD and audio, and `lavfi` for the encoder probe.
+- **Not included:** `libopenh264`, the software fallback on Windows. VideoToolbox is on every Apple Silicon Mac; add OpenH264 (BSD) later if a Mac without it turns up.
+- **Checks in the workflow:** the programs are arm64, link only `/usr/lib` and `/System/Library`, target macOS 14, report no GPL or nonfree option, have every encoder above, and encode, read back and grab a PNG frame. The H.264 VideoToolbox encode worked on the runner.
+- **Mirror:** the zip (both programs, `LICENSE-ffmpeg.txt`, `BUILD-INFO.txt` with the configure line and the run), the source tarball and its signature are on `vendor-binaries-v1`, which the LGPL's offer of source needs. `scripts/setup.sh` downloads the zip on an Apple Silicon Mac, checks its SHA-256 and the licence, and puts `ffmpeg` and `ffprobe` in `vendor/`, where the app already looks (`probe/tools.rs`).
+- **Updating:** change `FFMPEG_VERSION` and `FFMPEG_SHA256` in the workflow, run it, upload its zip, and change the name and SHA-256 in `setup.sh` and here.
+
+**Licence.** LGPL-2.1-or-later, separate programs beside Keepsake, as on Windows. When they are bundled into the Mac app, their notice goes into `THIRD-PARTY-NOTICES.txt` like the Windows ones.
+
+**Dependencies.** None new: FFmpeg is already approved (ADR-005). The build uses only Apple's own tools on the runner.
+
