@@ -81,6 +81,20 @@
 
 
 
+## The macOS app bundles its helpers (ADR-057) (2026-11-27)
+
+- **Asked:** step 2 of building for the Mac: put the helpers in the app, and test with them on macOS.
+- **Built:** `tauri.macos.conf.json` puts FFmpeg, FFprobe, ExifTool, dcraw_emu, ONNX Runtime and their licences in `Keepsake.app/Contents/Resources`, laid out like `vendor/`. `setup.sh --vendor-only` fills `vendor/` for CI. macOS CI now:
+  - runs every test with the real tools (849 passed);
+  - builds `Keepsake.app` (131 MB);
+  - checks that its helpers run from inside it, and reruns the probe and render tests against the app's copies.
+- **Fixed on the way:**
+  - `setup.sh` was not executable in git.
+  - Microsoft's GitHub download for ONNX Runtime on macOS is gone (404). The same 1.31.1 build, from its NuGet package, is now on the mirror.
+  - Mac test media is made with VideoToolbox, because the Mac FFmpeg has no OpenH264 or Kvazaar.
+- **Tests:** macOS CI as above (run 46012023323). Here (Windows): `render_tests` (29), the CLI render tests (4), `probe_tests` (14), clippy, fmt.
+- **Not done:** running the app on a real Mac (its artifact can be downloaded from the run); the DMG release job (step 3).
+
 ## FFmpeg for macOS (ADR-056) (2026-11-27)
 
 - **Asked:** start building Keepsake for the Mac, step 1 (signing later): an LGPL FFmpeg for Apple Silicon.
