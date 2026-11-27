@@ -18,6 +18,11 @@
       "../../../vendor/onnxruntime/LICENSE-onnxruntime.txt": "licenses/onnxruntime-LICENSE.txt",
       "../../../vendor/onnxruntime/ThirdPartyNotices.txt": "licenses/onnxruntime-ThirdPartyNotices.txt",
       "../../../vendor/onnxruntime/LICENSE-DirectML.txt": "licenses/DirectML-LICENSE.txt"
+    },
+    "windows": {
+      "nsis": {
+        "template": "nsis/installer.nsi"
+      }
     }
   }
 }

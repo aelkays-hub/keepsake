@@ -85,8 +85,17 @@
 
 - **Problem:** on a new Apple Silicon Mac, `scripts/setup.sh` stopped at step 7 with a 404: the `microsoft/onnxruntime` GitHub repository and its releases no longer resolve, so `onnxruntime-osx-arm64-1.31.1.tgz` could not be downloaded and the AI features stayed off.
 - **Fixed:** `setup.sh` now takes the same ONNX Runtime **1.31.1** from the official `Microsoft.ML.OnnxRuntime` NuGet package (as `setup.ps1` already does on Windows), pinned by SHA-256, and copies `runtimes/osx-arm64/native/libonnxruntime.dylib`, `LICENSE` and `ThirdPartyNotices.txt` into `vendor/onnxruntime/` as before. Same version, same licence (MIT), same install layout: no new dependency, ADR-035 unchanged. The package is 160 MB (the old archive was smaller); it is deleted after extraction.
-- **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. The model tests were not run (`--with-ai` models not downloaded).
+- **Tests, run here (macOS 26, Apple Silicon):** fresh `setup.sh` run end to end; the dylib is arm64, signed by Microsoft (team UBF8T346G9), and reports version 1.31.1 when loaded; `cargo test -p keepsake-core --test ai_tests` (20 passed); `pnpm tauri dev` starts. Then `setup.sh --with-ai` (all five models, SHA-256 OK) and `cargo test -p keepsake-core --test ai_tests --test face_tests --test aircraft_tests` with the real models (74 passed; skipped only the FFmpeg-dependent checks and the two corpus/sample tests); the app loads the SigLIP model through CoreML at start.
 - **Not done:** macOS FFmpeg is still deferred, so video features remain off on macOS.
+
+## Installer upgrades from an older publisher (ADR-055) (2026-11-27)
+
+- **Asked:** fix the installer so upgrades don't fail. Upgrading 0.11.7 to 0.12.0 with "Uninstall before installing" stopped with "Error launching installer".
+- **Cause:** Tauri's installer looks for the old install folder under a registry key named after the publisher. 0.12.0 changed the publisher, so it found nothing and started the old uninstaller with an empty folder.
+- **Then:** with the folder found, the old uninstaller opened but the upgrade stopped with "Unable to uninstall" (Keepsake was open).
+- **Fixed:** the Windows build uses a copy of Tauri's NSIS template (`app/ui/src-tauri/nsis/installer.nsi`). An upgrade now installs over the old version without running its uninstaller, as Tauri's updater does, and the old folder is found from the uninstall entry's `InstallLocation` when the publisher key is missing. A Vitest check (`installerTemplate.test.ts`) fails if `@tauri-apps/cli` changes version or the fix is lost.
+- **Tests, run here (Windows):** Vitest `installerTemplate.test.ts` (4 new), ESLint, Prettier. Built test installers here and ran them on the owner's laptop with the publisher key's folder cleared (the 0.11.7 state): the old uninstaller with an empty `_?=` gives "NSIS Error", with the found folder it opens normally; 0.12.1 (folder fix only) then stopped with "Unable to uninstall" while Keepsake was open; 0.12.2 (both fixes) installed over 0.12.1 with Keepsake open, into the old folder, with no error.
+- **Not run:** the ARM64 installer; macOS (not affected, it has no NSIS installer).
 
 ## Version 0.12.0 (2026-11-26)
 
