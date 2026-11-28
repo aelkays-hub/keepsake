@@ -81,6 +81,15 @@
 
 
 
+## Read aircraft: Chinese registrations with a letter between digits (2026-11-28)
+
+- **Asked:** A7_09829.ARW (2020-11-27, China Southern's Boeing 787-9 B-20C6) shows the registration plainly under the wing and on the fuselage, yet no registration was read.
+- **Found:** the text was read well: `B-20C6` at 99 % and 100 % from the whole photo and again from the aircraft cut out. But `marks::registration` dropped it. China's marks were allowed only as `B-####`, `B-###@` and `B-##@@` (`#` digit, `@` letter), and `B-20C6` is digit, digit, letter, digit. The type, the airline and the fin were found as before.
+- **Built:** the three mainland shapes are now one, `B-##**`: two digits, then two letters or digits in any order. Taiwan's `B-#####` and Hong Kong's and Macau's `B-@@@` are unchanged. A letter in the first two places (`B-2C06`) is still not a mark.
+- **Checked on the photo (a throwaway probe on a copy in the scratchpad):** before, `registrations: []`; after, `B-20C6`, beside China Southern and Boeing 787-9.
+- **Tests, run here (Windows):** keepsake-core lib `ai::aircraft` (shape cases added to `registrations_are_recognised_by_their_shape`, among them other countries' mixed marks HZ-AK28, VN-A861, EW-457PA and 4K-AZ81; 1 new: `a_chinese_mark_with_a_letter_between_digits_is_read`, from the lines read from that photo, no media); `aircraft_tests`; fmt, clippy.
+- **Not run:** in the installed app; CI; macOS. Photos read before need Read aircraft again.
+
 ## Version 0.13.0 (2026-11-27)
 
 - Version 0.13.0 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC’s example) and its release notes: the first release with the unsigned macOS DMG (ADR-056 to ADR-058, PRs #83 to #85). No catalog change.
