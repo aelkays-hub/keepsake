@@ -1,3 +1,14 @@
+# Keepsake 0.13.1
+
+Version 0.13.1 fixes reading some Chinese registrations. It has everything in 0.13.0. No catalog change: 0.13.0 and 0.13.1 open the same library.
+
+## Fixed in 0.13.1
+
+**Read aircraft**
+- Chinese registrations with a letter between digits are now read, such as China Southern's Boeing 787-9 **B-20C6**. Before, they were read but then dropped, because only marks like B-1234, B-123A and B-12AB were accepted.
+- Other registrations read as before.
+- **Photos read before:** right-click their day or folder → **Read aircraft again** to get the registration.
+
 # Keepsake 0.13.0
 
 Version 0.13.0 is the first Keepsake release for the Mac. It has everything in 0.12.1. No catalog change: 0.12.1 and 0.13.0 open the same library.

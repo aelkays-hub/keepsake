@@ -81,6 +81,9 @@
 
 
 
+## Version 0.13.1 (2026-11-28)
+
+- Version 0.13.1 everywhere (Cargo.toml and Cargo.lock, both package.json files, tauri.conf.json, the mock, SPEC’s example) and its release notes: Chinese registrations with a letter between digits read (B-20C6, PR #87). No catalog change.
 ## Read aircraft: Chinese registrations with a letter between digits (2026-11-28)
 
 - **Asked:** A7_09829.ARW (2020-11-27, China Southern's Boeing 787-9 B-20C6) shows the registration plainly under the wing and on the fuselage, yet no registration was read.
