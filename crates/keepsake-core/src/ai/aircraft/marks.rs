@@ -180,9 +180,10 @@ const DASHED: &[&str] = &[
     "9XR-@@",
     // Asia and the Pacific
     "VT-@@@",
-    "B-####",
-    "B-###@",
-    "B-##@@",
+    // Mainland China: two digits, then two letters or digits in any mix
+    // (`B-1234`, `B-322F`, `B-32DN`, and `B-20C6`: A7_09829.ARW).
+    "B-##**",
+    // Taiwan (five digits); Hong Kong and Macau (three letters).
     "B-#####",
     "B-@@@",
     "9V-@@@",
@@ -957,6 +958,19 @@ mod tests {
             ("A6-EDA", Some("A6-EDA")),
             ("9V-SKA", Some("9V-SKA")),
             ("B-18901", Some("B-18901")),
+            // Mainland China's marks mix digits and letters after the
+            // first two digits (A7_09829.ARW: B-20C6).
+            ("B-2447", Some("B-2447")),
+            ("B-322F", Some("B-322F")),
+            ("B-32DN", Some("B-32DN")),
+            ("B-20C6", Some("B-20C6")),
+            ("b-20c6", Some("B-20C6")),
+            ("B-HNR", Some("B-HNR")),
+            // Other countries' mixed marks still read.
+            ("HZ-AK28", Some("HZ-AK28")),
+            ("VN-A861", Some("VN-A861")),
+            ("EW-457PA", Some("EW-457PA")),
+            ("4K-AZ81", Some("4K-AZ81")),
             ("VH–OQA", Some("VH-OQA")),
             ("N123AB", Some("N123AB")),
             ("N12345", Some("N12345")),
@@ -973,6 +987,10 @@ mod tests {
             ("JAO2N", None),
             ("JAPAN", None),
             ("JAOLWAYS", None),
+            // Not China's: a letter in the first two places, or too short.
+            ("B-2C06", None),
+            ("B-C206", None),
+            ("B-20C", None),
             ("C-ABCD", None),
             ("CFJZS", None),
             ("DELTA", None),
@@ -988,6 +1006,23 @@ mod tests {
         ] {
             assert_eq!(registration(word).as_deref(), want, "{word}");
         }
+    }
+
+    #[test]
+    fn a_chinese_mark_with_a_letter_between_digits_is_read() {
+        // The lines read from A7_09829.ARW (China Southern's 787-9 B-20C6):
+        // the mark under the wing and on the fuselage, beside the type.
+        let a = Airlines::builtin();
+        let lines = [
+            line("B-20C6", 0.992, 3900.0, 47.3),
+            line("B-20C6", 0.999, 4200.0, 37.0),
+            line("0C6", 0.807, 1200.0, 30.1),
+            line("BOEING 787-9", 0.98, 4400.0, 30.0),
+            line("Dreamliner", 0.95, 4200.0, 30.0),
+        ];
+        let m = interpret(&lines, &a);
+        assert_eq!(m.registrations, ["B-20C6"]);
+        assert_eq!(m.types, ["Boeing 787-9", "Boeing 787 Dreamliner"]);
     }
 
     #[test]
